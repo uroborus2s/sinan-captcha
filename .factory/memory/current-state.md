@@ -17,7 +17,7 @@
 
 ## 当前事实
 
-- 仓库当前只有一份种子文档 `graphical_captcha_training_guide.md`
+- 仓库已从种子文档阶段演进到实现骨架阶段，当前包含 Go 生成器骨架、Python `core/` 包、脚本入口和正式设计文档
 - 已完成历史项目纳管骨架补齐
 - 已完成需求阶段并通过需求一致性校验
 - 已新增一份可直接执行的“零基础落地实施方案”文档
@@ -31,6 +31,7 @@
 - 已完成 Python 核心包目录向 `core/` 的调整，并初始化了仓库骨架代码
 - 已新增 `pyproject.toml`、`uv.lock`、`.gitignore`、`.python-version` 和根级 `README.md`
 - 已新增 Go `generator/` 骨架、Python `core/` 核心包、`scripts/` 入口和最小测试
+- 已按“仓库产物 / 训练工作目录”分离模型重构训练实操手册，移除 `go-captcha-service` 默认前置并对齐当前脚本状态
 
 ## 最近条目
 

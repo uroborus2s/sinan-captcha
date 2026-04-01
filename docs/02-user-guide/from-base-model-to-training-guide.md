@@ -1,768 +1,587 @@
-# 从基础模型到样本生成的零基础实操手册
+# 从基础模型到训练的实操手册
 
 - 文档状态：草稿
-- 当前阶段：DESIGN
-- 目标读者：零基础训练操作者
+- 当前阶段：IMPLEMENTATION
+- 目标读者：零基础训练操作者、项目维护者
 - 负责人：Codex
-- 关联需求：`REQ-001`、`REQ-002`、`REQ-003`、`REQ-005`、`REQ-006`、`REQ-007`
+- 最近重构：2026-04-02
+- 关联需求：`REQ-001`、`REQ-002`、`REQ-003`、`REQ-005`、`REQ-006`、`REQ-007`、`REQ-008`
 
-## 0. 先把 4 个概念分清
+## 0. 先把 5 个概念分清
 
-这是整个项目最容易搞混的地方。先用一句话说清：
+这是当前项目最容易混淆的部分。现在统一按下面 5 层理解：
 
-- 基础模型：就是训练的起点权重，例如 `yolo26n.pt`
-- 验证码服务：就是“样本工厂”，负责生成图片
-- 代码：就是把“生成图片、导出标签、转换数据、训练模型、评估结果”自动化的工具
-- 训练方案：就是你执行这些动作的顺序、规则、验收标准
+- 基础模型：训练起点权重，例如 `yolo26n.pt`
+- 项目仓库：保存源码、脚本、配置、文档和构建产物定义的地方
+- 训练工作目录：训练机上的运行现场，保存数据、日志、权重和报告
+- 内部生成器：负责导出图片和真值标签的工具，不等于对外验证码服务
+- 训练链路：把 JSONL 主事实源转换、训练、评估和回灌的流程
 
 关系是这样的：
 
-1. 验证码服务负责“产出题目图片”
-2. 导出代码负责“把图片和真值标签一起保存下来”
-3. 数据转换代码负责“把标签变成 YOLO 训练格式”
-4. 训练代码负责“把基础模型微调成你的专项模型”
-5. 训练方案负责“规定上面 1-4 应该按什么顺序做、做到什么算通过”
+1. 内部生成器导出 `query/`、`scene/`、`labels.jsonl`、`manifest.json`
+2. 训练链路读取 JSONL 主事实源
+3. 转换脚本生成 YOLO 训练目录和 `dataset.yaml`
+4. YOLO 微调基础模型，产出专项模型
+5. 评估和失败样本回灌决定下一轮数据和模型版本
 
 结论：
 
-- 训练方案不是代码
-- 代码也不是训练方案
-- 训练方案是“施工图”
-- 代码是“施工工具”
-
-没有训练方案，代码容易写偏。  
-没有代码，训练方案只能靠手工做，无法规模化。
-
-## 1. 本手册选用的具体路线
-
-为了让新手能真正落地，这里固定一条最稳的路线：
-
-1. 基础模型统一用 Ultralytics YOLO 的预训练检测权重 `yolo26n.pt`
-2. 没有现成验证码服务时，先部署 `go-captcha-service`
-3. 但训练样本不能只靠服务的公开验证接口获取，必须加“内部导出模式”
-4. 第一专项训练多类别检测模型
-5. 第二专项训练单类别检测模型
-
-为什么不能只调用服务公开接口就开始训练：
-
-- 公开验证码接口的目标是“给前端展示题目并验证用户”
-- 训练需要的不只是图片，还需要真值标签
-- 第一专项尤其需要：
-  - 查询图
-  - 场景图
-  - 目标顺序
-  - 目标框
-  - 干扰项框
-- 所以训练必须有“导出代码”介入
-
-## 2. 你要走哪条路径
-
-先选路径，不要混着来。
-
-### 路径 A：你已经有自己的验证码生成逻辑
-
-走这条：
-
-1. 不用重新部署开源验证码服务
-2. 直接在你自己的生成逻辑上加“导出图片 + 导出标签”
-3. 跳到本手册第 7 节
-
-### 路径 B：你还没有自己的生成逻辑
-
-走这条：
-
-1. 先部署 `go-captcha-service`
-2. 用它做内部样本生成底座
-3. 再加内部导出代码
-4. 再开始批量生成样本
-
-下面默认你走路径 B。
-
-## 3. 第一步：准备 Windows 电脑
-
-你先不要碰模型和验证码服务，先把电脑准备好。
-
-### 3.1 确认硬件
-
-逐条确认：
-
-- [ ] Windows 10 或 Windows 11
-- [ ] 有管理员权限
-- [ ] 有 NVIDIA 显卡
-- [ ] 显存最好不少于 6GB
-- [ ] 非系统盘有至少 100GB 空间
-
-### 3.2 创建固定工作目录
-
-在 PowerShell 里执行：
-
-```powershell
-mkdir D:\sinan-captcha-work
-mkdir D:\sinan-captcha-work\tools
-mkdir D:\sinan-captcha-work\datasets
-mkdir D:\sinan-captcha-work\exports
-mkdir D:\sinan-captcha-work\runs
-mkdir D:\sinan-captcha-work\reports
-```
-
-检查：
-
-- [ ] `D:\sinan-captcha-work` 已存在
-- [ ] 各子目录已创建
-
-### 3.3 安装显卡驱动
-
-1. 打开 NVIDIA 官方驱动页面
-2. 下载适合你显卡的稳定版驱动
-3. 安装并重启
-4. 打开 PowerShell 执行：
-
-```powershell
-nvidia-smi
-```
-
-通过标准：
-
-- [ ] 能看到显卡名称
-- [ ] 能看到驱动版本
-- [ ] 能看到显存信息
-
-### 3.4 怎么确认 CUDA 版本
-
-先执行：
-
-```powershell
-nvidia-smi
-```
-
-你会看到类似：
-
-```text
-CUDA Version: 12.8
-```
-
-这里表示的是：
-
-- 当前显卡驱动支持的 CUDA 运行时版本
-
-如果你已经装过 CUDA Toolkit，再执行：
-
-```powershell
-nvcc --version
-```
-
-如果你想确认当前 Python 训练环境实际使用的是哪个 CUDA 版本，再执行：
-
-```powershell
-python -c "import torch; print(torch.version.cuda); print(torch.cuda.is_available())"
-```
-
-你只需要先记住：
-
-- `nvidia-smi` 看驱动支持版本
-- `torch.version.cuda` 看 PyTorch 使用版本
-- `torch.cuda.is_available()` 看当前环境能不能用 GPU
-
-更详细说明见：[如何确认 Windows 电脑上的 CUDA 版本](./how-to-check-cuda-version.md)
-
-## 4. 第二步：安装训练工具链
-
-### 4.1 安装 Git
-
-去 Git for Windows 官网安装，安装完成后执行：
-
-```powershell
-git --version
-```
-
-通过标准：
-
-- [ ] `git --version` 能输出版本号
-
-### 4.2 安装 Docker Desktop
-
-因为新手最容易部署 `go-captcha-service` 的方式就是 Docker。
-
-安装后执行：
-
-```powershell
-docker --version
-docker compose version
-```
-
-通过标准：
-
-- [ ] `docker --version` 正常
-- [ ] `docker compose version` 正常
-
-### 4.3 安装 `uv`
-
-推荐执行：
-
-```powershell
-winget install --id=astral-sh.uv -e
-```
-
-然后检查：
-
-```powershell
-uv --version
-```
-
-### 4.4 安装 Python 3.11
-
-执行：
-
-```powershell
-uv python install 3.11
-uv python list
-```
-
-通过标准：
-
-- [ ] `uv python list` 里能看到 `3.11`
-
-### 4.5 创建训练虚拟环境
-
-执行：
-
-```powershell
-cd /d D:\sinan-captcha-work
-uv venv --python 3.11
-.\.venv\Scripts\activate
-python -V
-```
-
-### 4.6 安装 PyTorch 和 YOLO
-
-先到 PyTorch 官方安装页按你的 CUDA 版本选择 Windows + Pip + Python 命令。  
-然后在虚拟环境里执行官方生成的命令。
-
-再安装 YOLO 相关依赖：
-
-```powershell
-uv pip install ultralytics opencv-python numpy pandas pillow pyyaml matplotlib scikit-image tqdm
-```
-
-检查：
-
-```powershell
-python -c "import torch; print(torch.__version__); print(torch.cuda.is_available()); print(torch.cuda.get_device_name(0) if torch.cuda.is_available() else 'no-gpu')"
-uv run yolo checks
-```
-
-通过标准：
-
-- [ ] `torch.cuda.is_available()` 是 `True`
-- [ ] `uv run yolo checks` 没有关键错误
-
-## 5. 第三步：先把基础模型准备好
-
-### 5.1 基础模型是什么
-
-这里的基础模型不是“验证码专用模型”，而是检测模型的预训练权重。
-
-本项目首版统一使用：
-
-- 第一专项：`yolo26n.pt`
-- 第二专项：`yolo26n.pt`
-
-这一步的意思不是你现在马上训练，而是：
-
-1. 你后面训练时，不是从空白开始
-2. 你是拿 `yolo26n.pt` 当起点，再喂你自己的验证码样本
-
-### 5.2 基础模型在训练里的位置
-
-训练时你做的是：
-
-```text
-基础模型权重 + 你自己的训练数据 = 你的专项模型
-```
-
-不是：
-
-```text
-验证码服务 = 基础模型
-```
-
-验证码服务和基础模型是两件完全不同的东西。
-
-## 6. 第四步：部署验证码服务
-
-### 6.1 为什么这里选 `go-captcha-service`
-
-因为它适合做“内部样本生成底座”，而不是只做线上验证服务。
-
-你需要它的能力包括：
-
-- 图形点选 Click CAPTCHA
-- 滑块 Slide CAPTCHA
-- 可自定义资源
-- 可本地部署
-
-### 6.2 克隆仓库
-
-执行：
-
-```powershell
-cd /d D:\sinan-captcha-work\tools
-git clone https://github.com/wenlng/go-captcha-service.git
-cd go-captcha-service
-```
-
-检查：
-
-- [ ] `D:\sinan-captcha-work\tools\go-captcha-service` 已存在
-
-### 6.3 用 Docker 启动服务
-
-在仓库根目录执行：
-
-```powershell
-docker compose up -d
-```
-
-说明：
-
-- `go-captcha-service` 仓库自带 `docker-compose.yml`
-- README 明确支持 Docker 和 Docker Compose 部署
-
-检查容器状态：
-
-```powershell
-docker ps
-```
-
-通过标准：
-
-- [ ] 能看到验证码服务容器
-- [ ] 如果 compose 同时拉起 Redis/Etcd，也视为正常
-
-### 6.4 验证服务能正常出题
-
-执行：
-
-```powershell
-curl.exe "http://127.0.0.1:8080/api/v1/public/get-data?id=click-default-ch"
-```
-
-如果返回 JSON，说明服务已经能正常生成验证码。
-
-这一步只证明“服务能出题”，还不等于“能用于训练”。
-
-## 7. 第五步：你必须补一个“内部导出模式”
-
-这是整个训练里最关键的一步。
-
-### 7.1 为什么公开接口不够
-
-公开接口主要用于：
-
-- 把验证码展示给前端
-- 接收用户点击或滑动结果
-- 校验用户是否答对
-
-但训练需要的是：
-
-- 图片
-- 真值标签
-- 批次信息
-- 任务类型
-
-如果你只有公开接口，没有导出逻辑，你拿不到完整训练标签。
-
-### 7.2 导出代码应该做什么
-
-这部分代码的职责非常明确：
-
-1. 调用生成器
-2. 保存主图
-3. 保存查询图或滑块图
-4. 保存真值标签
-5. 保存批次 ID
-6. 保存任务类型
-
-### 7.3 `go-captcha` 核心库能给你什么
-
-`go-captcha` 核心库公开了这类生成数据：
-
-- Click CAPTCHA 可获取：
-  - `GetData()`
-  - `GetMasterImage()`
-  - `GetThumbImage()`
-- Slide CAPTCHA 可获取：
-  - `GetData()`
-  - `GetMasterImage()`
-  - `GetTileImage()`
+- 训练工作目录不是仓库
+- 仓库也不是训练结果目录
+- 仓库负责“工具和契约”
+- 工作目录负责“数据和运行结果”
+
+## 1. 这份手册为什么要重构
+
+旧版本手册已经和当前设计、目录边界、以及仓库骨架有 4 个主要偏差：
+
+1. 旧版本默认先部署 `go-captcha-service`，但新设计已经改成“优先自有生成逻辑或内部离线生成器，不要求先起完整服务”。
+2. 旧版本把训练步骤和仓库结构混在一起，没有讲清“项目仓库”和“训练工作目录”的分工。
+3. 旧版本引用了尚未落地或已改名的脚本名称，例如 `build_group1_yolo.py`、`build_group2_yolo.py`。
+4. 旧版本默认读者可以直接使用完整自动标注、评估和后处理入口，但当前仓库里这些能力仍有一部分处于脚手架状态。
+
+因此，本手册现在的目标不是重复设计文档，而是：
+
+- 告诉你当前仓库已经能直接用哪些产出物
+- 告诉你哪些步骤仍需按 checklist 或外部工具补齐
+- 给出一条与现有仓库骨架一致的最小闭环路径
+
+## 2. 当前仓库已经落地到什么程度
+
+先不要假设仓库已经“一键全自动”。截至 2026-04-02，当前状态如下：
+
+| 能力 | 当前状态 | 你怎么用 |
+|---|---|---|
+| Go 第一专项生成器 CLI | 已有骨架，可编译、可导出批次 | 编译 `sinan-click-generator.exe`，导出 `query/`、`scene/`、`labels.jsonl` |
+| JSONL 读取与基础校验 | 已实现 | 用 `core.dataset.cli` 做快速读盘校验 |
+| JSONL 转 YOLO | 已实现 | 用 `scripts/convert/build_yolo_dataset.py` 生成 `yolo/` 和 `dataset.yaml` |
+| 第一专项训练命令组织 | 已实现 | 用 `core.train.group1.cli` 或 `scripts/train/train_group1.ps1` 生成标准训练命令 |
+| 第二专项训练命令组织 | 已实现 | 用 `core.train.group2.cli` 或 `scripts/train/train_group2.ps1` 生成标准训练命令 |
+| 环境自检脚本 | 已有最小版本 | 用 `scripts/ops/check-env.ps1` 做基础 GPU 可见性检查 |
+| 第二专项自动标注 | 仅脚手架 | 当前仍需按 checklist 和外部工具执行 |
+| 统一评估入口 | 仅脚手架 | 当前仍以 YOLO 原生结果和人工汇总为主 |
+| 推理后处理 | 仅接口骨架 | 第一专项顺序映射、第二专项中心点后处理尚未实装 |
 
 这意味着：
 
-- 你不能只停留在“把服务跑起来”
-- 你必须在服务端或生成脚本里，把这些数据保存成训练样本
+- 现在可以真实跑通的是：环境准备、第一专项样本导出、JSONL 校验、YOLO 转换、训练命令生成
+- 现在还不能假装已经完整跑通的是：自动标注、统一评估、推理后处理全自动化
 
-### 7.4 第一专项导出时必须保存什么
+## 3. 新设计下的主线结论
 
-第一专项需要保存：
+当前版本固定这 6 条规则：
 
-- 场景图 `scene_image`
-- 查询图 `query_image`
-- 目标顺序 `targets[].order`
-- 目标类别 `targets[].class`
-- 目标框 `targets[].bbox`
-- 目标中心点 `targets[].center`
-- 干扰项框 `distractors[]`
+1. 不默认先部署完整验证码服务。
+2. 先把“仓库”和“训练工作目录”分开。
+3. Go 生成器和 Python 训练链路通过文件契约对接。
+4. 标签主事实源始终是 JSONL，不是 YOLO 文本标签。
+5. 第一专项和第二专项分开建数据、分开训练、分开验收。
+6. 自动标注优先，但当前仓库尚未把自动标注完整做完，所以要明确哪些步骤还是人工或外部工具承担。
 
-重点：
+如果你只记一个结论，就记这个：
 
-- 如果你只能拿到目标点，拿不到干扰项框，那还不够
-- 这时必须在生成端源码层补记录逻辑
+`先准备训练机和工作目录，再把仓库产物部署进去，最后按 JSONL -> YOLO -> 训练 的顺序跑闭环。`
 
-### 7.5 第二专项导出时必须保存什么
+## 4. 先决定你走哪条生成路线
 
-第二专项需要保存：
+不要一上来就默认 `go-captcha-service`。
 
-- 场景图 `scene_image`
-- 查询图或滑块图 `query_image`
-- 目标框 `target.bbox`
-- 目标中心点 `target.center`
+### 路线 A：你已经有自有验证码生成逻辑
 
-## 8. 第六步：决定你的导出代码放在哪里
+这是第一优先级。
 
-你至少要有下面 4 类代码文件。它们不是训练方案本身，但它们是把训练方案落地的工具。
+做法：
 
-### 8.1 样本导出代码
+1. 在自有生成逻辑上补“导出图片 + 导出标签”能力
+2. 直接输出到训练工作目录
+3. 跳过完整验证码服务部署
 
-建议未来放在：
+适用条件：
+
+- 你能改生成代码
+- 你能直接拿到真值标签
+
+### 路线 B：你没有现成生成逻辑，但能接受内部离线生成器
+
+这是当前仓库最贴近的路线。
+
+做法：
+
+1. 编译 Go 生成器二进制
+2. 准备素材目录
+3. 导出批次到工作目录
+
+适用条件：
+
+- 你能准备背景图、图标图和类别表
+- 你接受先跑离线生成，不追求先上线业务服务
+
+### 路线 C：你只有公开验证码服务接口
+
+这不是推荐主线。
+
+原因：
+
+- 公开接口通常只能稳定拿到图片
+- 训练需要的是真值标签，不只是图片
+- 第一专项还需要目标顺序和干扰项框
+
+只有当你短期内完全拿不到生成端源码时，才把它当临时过渡方案；即便如此，也仍要尽快补“内部导出模式”。
+
+## 5. 先把目录边界搭好
+
+当前版本建议把仓库和工作目录拆成两个根目录：
 
 ```text
-scripts/export/
-  export_group1_samples.py
-  export_group2_samples.py
+D:\
+  sinan-captcha-repo\
+  sinan-captcha-work\
+```
+
+推荐分工如下：
+
+### 5.1 项目仓库
+
+```text
+D:\sinan-captcha-repo\
+  docs\
+  generator\
+  core\
+  scripts\
+  tests\
+  configs\
+  materials\
+  dist\
 ```
 
 职责：
 
-- 批量生成样本
-- 保存图片
-- 保存 JSONL 标签
+- 保存源码、脚本、设计文档和构建产物定义
+- 负责编译 Go 生成器
+- 负责运行 Python 训练链路脚本
 
-### 8.2 自动标注代码
-
-建议未来放在：
+### 5.2 训练工作目录
 
 ```text
-scripts/autolabel/
-  autolabel_group1.py
-  autolabel_group2.py
+D:\sinan-captcha-work\
+  datasets\
+    group1\
+      v1\
+        raw\
+        interim\
+        reviewed\
+        yolo\
+        reports\
+    group2\
+      v1\
+        raw\
+        interim\
+        reviewed\
+        yolo\
+        reports\
+  runs\
+  reports\
+  tools\
+    generator\
+  materials\
+  models\
 ```
 
 职责：
 
-- 第二组规则法预标注
-- 第一组暖启动模型预标注
+- 保存运行期样本、训练结果、报告和二进制
+- 不作为仓库事实源
+- 不要求提交到 Git
 
-### 8.3 数据转换代码
+### 5.3 关于 `configs/workspace.example.yaml`
 
-建议未来放在：
+仓库里有一份工作区示例配置：
+
+- `configs/workspace.example.yaml`
+
+它表达的是当前推荐边界：
+
+- `repo_root` 指向仓库
+- `work_root` 指向训练工作目录
+
+注意：
+
+- 这份配置当前还是“约定示例”
+- 现有脚本还没有统一自动读取它
+- 现阶段请继续在命令里显式传绝对路径
+
+## 6. 第一步：先把训练机环境搭起来
+
+环境细节不要在这份总手册里重复抄写。当前正式操作入口是：
+
+1. [Windows 训练环境 Checklist](../04-project-development/05-development-process/windows-environment-checklist.md)
+2. [如何确认 Windows 电脑上的 CUDA 版本](./how-to-check-cuda-version.md)
+
+你至少要达到下面状态，才进入后续步骤：
+
+- `nvidia-smi` 正常
+- `python -c "import torch; print(torch.cuda.is_available())"` 输出 `True`
+- `uv` 和 Python 3.11 已装好
+- 已准备独立工作目录
+
+仓库里还提供了一个最小环境检查脚本：
+
+```powershell
+Set-Location D:\sinan-captcha-repo
+.\scripts\ops\check-env.ps1
+```
+
+这一步只检查：
+
+- 驱动是否可见
+- Python 是否能看到 CUDA
+
+它不替代完整环境 checklist。
+
+## 7. 第二步：把仓库产物部署到训练机
+
+### 7.1 准备仓库
+
+建议把仓库放到单独目录，例如：
+
+```powershell
+Set-Location D:\
+git clone <你的仓库地址> sinan-captcha-repo
+Set-Location D:\sinan-captcha-repo
+```
+
+### 7.2 编译 Go 生成器
+
+当前仓库第一专项生成器需要你手工编译：
+
+```powershell
+Set-Location D:\sinan-captcha-repo\generator
+go build -o ..\dist\generator\windows-amd64\sinan-click-generator.exe .\cmd\sinan-click-generator
+```
+
+编译成功后，复制到工作目录：
+
+```powershell
+New-Item -ItemType Directory -Force D:\sinan-captcha-work\tools\generator | Out-Null
+Copy-Item D:\sinan-captcha-repo\dist\generator\windows-amd64\sinan-click-generator.exe D:\sinan-captcha-work\tools\generator\
+```
+
+### 7.3 准备素材
+
+当前生成器运行时依赖素材目录。你需要准备：
+
+- 背景图
+- 图标图
+- 类别表
+
+推荐把运行时素材放在工作目录：
 
 ```text
-scripts/convert/
-  build_group1_yolo.py
-  build_group2_yolo.py
+D:\sinan-captcha-work\materials\
 ```
 
-职责：
+原因：
 
-- 把 JSONL 转成 YOLO 训练目录
-- 生成 `dataset.yaml`
+- 它们属于训练运行资产
+- 不应和仓库源码强耦合
 
-### 8.4 训练入口代码
+如果你只是本地开发，也可以暂时从仓库里的 `materials/` 占位目录起步，但正式训练时应使用独立素材包。
 
-建议未来放在：
+### 7.4 Python 侧当前怎么运行
+
+当前仓库还没有把训练依赖完整写进 `pyproject.toml`。
+
+所以现阶段要分两层理解：
+
+- 仓库代码通过 `uv run python ...` 调用
+- PyTorch、Ultralytics、OpenCV 等训练依赖仍按环境 checklist 手工安装
+
+不要误以为只做 `uv sync` 就已经具备完整训练依赖。
+
+## 8. 第三步：导出第一批样本
+
+### 8.1 第一专项当前可直接用仓库骨架导出
+
+先准备：
+
+- 生成器二进制
+- 生成器配置文件
+- 素材目录
+
+然后从仓库根目录执行：
+
+```powershell
+Set-Location D:\sinan-captcha-repo
+uv run python .\scripts\export\export_group1_batch.py `
+  --binary D:\sinan-captcha-work\tools\generator\sinan-click-generator.exe `
+  --config D:\sinan-captcha-repo\generator\configs\default.yaml `
+  --materials-root D:\sinan-captcha-work\materials `
+  --output-root D:\sinan-captcha-work\datasets\group1\v1\raw
+```
+
+当前第一专项生成器会在 `output-root` 下再创建一个批次目录，例如：
 
 ```text
-scripts/train/
-  train_group1.ps1
-  train_group2.ps1
+D:\sinan-captcha-work\datasets\group1\v1\raw\batch_0001\
+  query\
+  scene\
+  labels.jsonl
+  manifest.json
 ```
 
-职责：
+### 8.2 第二专项当前不应假装已经有同等仓内导出脚本
 
-- 固定训练命令
-- 固定超参数
-- 固定输出目录
+截至当前版本：
 
-## 9. 第七步：先小批量生成一批样本
+- 仓库里还没有第二专项对等的生成器导出入口
+- 第二专项样本导出仍应来自你的自有生成逻辑、内部离线脚本或外部受控工具
 
-不要一上来就生成 5 万张。
+但无论你用哪种方式，最终都要满足统一目录和字段要求。具体字段见：
 
-第一轮只做：
+- [样本导出与自动标注 Checklist](../04-project-development/05-development-process/data-export-auto-labeling-checklist.md)
 
-- 第一专项：100 张
-- 第二专项：100 张
+另外要特别注意当前仓库实现约束：
 
-你的目标不是“大量数据”，而是先检查：
+- 转换器现在要求每个目标对象都带 `class_id`
+- 第一专项的 `targets[]`、`distractors[]` 都要带 `class_id`
+- 第二专项的 `target` 也要带 `class_id`
 
-1. 图生成对不对
-2. 标签导出对不对
-3. 查询图和场景图能否一一对应
-4. 真值字段有没有缺
+如果你的外部导出当前只有 `class` 没有 `class_id`，请先补齐类别映射，再进入转换步骤。
 
-### 9.1 第一专项检查项
+### 8.3 `go-captcha-service` 现在是什么角色
 
-逐条检查：
+现在只把它当可选底座，不再当默认前置。
 
-- [ ] 每条样本有查询图
-- [ ] 每条样本有场景图
-- [ ] 有目标顺序
-- [ ] 有目标类别
-- [ ] 有目标框
-- [ ] 有目标中心点
-- [ ] 有干扰项框
+适合用它的场景：
 
-### 9.2 第二专项检查项
+- 你没有自有生成逻辑
+- 你需要一个可快速起步的内部底座
+- 你愿意继续在源码层补导出逻辑
 
-逐条检查：
+不适合把它当成什么：
 
-- [ ] 每条样本有查询图或滑块图
-- [ ] 每条样本有场景图
-- [ ] 有目标框
-- [ ] 有目标中心点
+- 不适合当“训练只要调公开接口就行”的捷径
+- 不适合替代内部生成器或导出模式本身
 
-## 10. 第八步：把样本固化成 JSONL
+## 9. 第四步：先确认 JSONL 主事实源是对的
 
-你先不要碰 YOLO 格式，先把主事实源定死成 JSONL。
+正式进入训练前，先确认样本批次至少能被仓库正确读取。
 
-### 10.1 第一专项 JSONL 结构
+从仓库根目录执行：
 
-```json
-{
-  "sample_id": "g1_000001",
-  "captcha_type": "group1_multi_icon_match",
-  "query_image": "query/g1_000001.png",
-  "scene_image": "scene/g1_000001.png",
-  "targets": [
-    {"order": 1, "class": "icon_house", "bbox": [20, 8, 42, 24], "center": [31, 16]}
-  ],
-  "distractors": [
-    {"class": "icon_leaf", "bbox": [55, 10, 75, 26]}
-  ],
-  "label_source": "gold",
-  "source_batch": "batch_0001"
-}
+```powershell
+Set-Location D:\sinan-captcha-repo
+uv run python -m core.dataset.cli --path D:\sinan-captcha-work\datasets\group1\v1\raw\batch_0001\labels.jsonl
 ```
 
-### 10.2 第二专项 JSONL 结构
+这个 CLI 当前做的是“快速读盘和行数确认”。
 
-```json
-{
-  "sample_id": "g2_000001",
-  "captcha_type": "group2_single_shape_locate",
-  "query_image": "query/g2_000001.png",
-  "scene_image": "scene/g2_000001.png",
-  "target": {
-    "class": "target_shape",
-    "bbox": [120, 44, 156, 88],
-    "center": [138, 66]
-  },
-  "label_source": "gold",
-  "source_batch": "batch_0001"
-}
+更严格的 schema 校验会在转换阶段触发。所以这一步的意义是：
+
+- 先确认文件存在
+- 先确认 JSONL 至少能被正常读入
+
+正式训练前你仍然要经过：
+
+- 字段抽检
+- 批次 QA
+- `gold` / `auto` / `reviewed` 状态确认
+
+如果你是从仓外工具导样本到当前仓库链路，还要额外确认：
+
+- 对象里已经包含 `class_id`
+- `bbox` 是 `[x1, y1, x2, y2]`
+- `center` 是 `[cx, cy]`
+
+## 10. 第五步：把通过检查的批次转成 YOLO 训练集
+
+正式训练不要直接拿 `raw` 批次开跑。推荐顺序是：
+
+1. 样本先进入 `raw`
+2. 抽检或修正后进入 `reviewed`
+3. 再从 `reviewed` 转换成 `yolo`
+
+第一专项示例：
+
+```powershell
+Set-Location D:\sinan-captcha-repo
+uv run python .\scripts\convert\build_yolo_dataset.py `
+  --task group1 `
+  --version v1 `
+  --source-dir D:\sinan-captcha-work\datasets\group1\v1\reviewed\batch_0001 `
+  --output-dir D:\sinan-captcha-work\datasets\group1\v1\yolo
 ```
 
-## 11. 第九步：第二专项先做规则法预标注
+第二专项示例：
 
-为什么先做第二专项：
+```powershell
+Set-Location D:\sinan-captcha-repo
+uv run python .\scripts\convert\build_yolo_dataset.py `
+  --task group2 `
+  --version v1 `
+  --source-dir D:\sinan-captcha-work\datasets\group2\v1\reviewed\batch_0001 `
+  --output-dir D:\sinan-captcha-work\datasets\group2\v1\yolo
+```
 
-- 它更简单
-- 更容易验证整条链路
-- 更容易让新手快速看到结果
-
-规则法步骤：
-
-1. 灰度化场景图
-2. 提取高亮区域
-3. 连通域或轮廓提取
-4. 计算候选框
-5. 输出 `bbox` 和 `center`
-6. 保存为 `auto` 标签
-
-这一步的目的：
-
-- 先形成第二专项初始数据
-- 先验证规则法能否稳定命中
-
-## 12. 第十步：第一专项先做种子集
-
-第一专项不要直接全自动。
-
-先做：
-
-- 300-500 张种子集
-
-具体动作：
-
-1. 先生成一批第一专项样本
-2. 在 X-AnyLabeling 里复核这些样本
-3. 修正错框、漏框、错类、错顺序
-4. 把修正后的数据标成 `reviewed`
-
-为什么必须做：
-
-- 第一专项比第二专项复杂
-- 它需要一个暖启动小模型，后面才能大批量自动标注
-
-## 13. 第十一步：把 JSONL 转成 YOLO 训练集
-
-### 13.1 第一专项目录
+转换成功后，你应得到：
 
 ```text
-datasets/group1/v1/yolo/
-  images/
-    train/
-    val/
-    test/
-  labels/
-    train/
-    val/
-    test/
+D:\sinan-captcha-work\datasets\group1\v1\yolo\
+  images\
+    train\
+    val\
+    test\
+  labels\
+    train\
+    val\
+    test\
   dataset.yaml
 ```
 
-### 13.2 第二专项目录
+注意：
 
-```text
-datasets/group2/v1/yolo/
-  images/
-    train/
-    val/
-    test/
-  labels/
-    train/
-    val/
-    test/
-  dataset.yaml
-```
+- `dataset.yaml` 的 `path` 会被写成绝对路径
+- 训练命令实际消费的是这个 `dataset.yaml`
 
-### 13.3 第一专项 `dataset.yaml`
+## 11. 第六步：开始训练
 
-示例：
+### 11.1 当前最稳的方式是直接跑 YOLO 命令
 
-```yaml
-path: D:/sinan-captcha-work/datasets/group1/v1/yolo
-train: images/train
-val: images/val
-test: images/test
-names:
-  0: icon_house
-  1: icon_leaf
-  2: icon_boat
-```
-
-### 13.4 第二专项 `dataset.yaml`
-
-示例：
-
-```yaml
-path: D:/sinan-captcha-work/datasets/group2/v1/yolo
-train: images/train
-val: images/val
-test: images/test
-names:
-  0: target_shape
-```
-
-## 14. 第十二步：开始基于基础模型训练
-
-### 14.1 第二专项先训练
-
-先执行第二专项训练：
+第二专项示例：
 
 ```powershell
 uv run yolo detect train data=D:\sinan-captcha-work\datasets\group2\v1\yolo\dataset.yaml model=yolo26n.pt imgsz=640 epochs=100 batch=16 device=0 project=D:\sinan-captcha-work\runs\group2 name=v1
 ```
 
-看什么：
-
-- [ ] 训练能启动
-- [ ] GPU 在工作
-- [ ] 结果目录生成
-- [ ] 有 `best.pt`
-
-### 14.2 第一专项再训练
-
-然后执行第一专项训练：
+第一专项示例：
 
 ```powershell
 uv run yolo detect train data=D:\sinan-captcha-work\datasets\group1\v1\yolo\dataset.yaml model=yolo26n.pt imgsz=640 epochs=120 batch=16 device=0 project=D:\sinan-captcha-work\runs\group1 name=v1
 ```
 
-训练结束后，第一专项还要做一步后处理：
+### 11.2 仓库里的训练脚本当前是什么角色
 
-1. 读取查询顺序
-2. 把顺序映射到检测结果
-3. 输出点击点坐标列表
+仓库已经有：
 
-## 15. 第十三步：验收
+- `scripts/train/train_group1.ps1`
+- `scripts/train/train_group2.ps1`
+- `core.train.group1.cli`
+- `core.train.group2.cli`
 
-### 15.1 第二专项验收
+但当前行为要特别注意：
 
-看：
+- 它们现在负责“生成标准训练命令”
+- 不是直接替你执行整场训练
 
-- 点命中率
-- 平均点误差
-- IoU
-- 推理时间
+也就是说，现阶段它们更像“命令模板固定器”，不是“一键训练器”。
 
-### 15.2 第一专项验收
+如果你想看标准命令，可以这样调用：
 
-看：
+```powershell
+Set-Location D:\sinan-captcha-repo
+.\scripts\train\train_group2.ps1 `
+  -DatasetYaml D:\sinan-captcha-work\datasets\group2\v1\yolo\dataset.yaml `
+  -ProjectDir D:\sinan-captcha-work\runs\group2 `
+  -Name v1 `
+  -Model yolo26n.pt
+```
 
-- 单目标点命中率
-- 整组顺序全部命中率
-- 平均点误差
-- 错序率
+输出结果会是标准的 `uv run yolo detect train ...` 命令字符串。
 
-## 16. 第十四步：失败样本回灌
+## 12. 第七步：自动标注、评估、后处理当前怎么处理
 
-每次训练后必须做：
+### 12.1 自动标注
 
-1. 找出失败样本
-2. 看失败原因是标签、类别、背景还是模型容量问题
-3. 把这些失败样本回灌到下一轮候选数据池
+设计上已经明确：
 
-如果不做这一步，你的模型只会反复撞同样的问题。
+- 第二专项先走规则法预标注
+- 第一专项优先 `gold`，退路是“种子集 + 暖启动模型”
 
-## 17. 新手最容易踩的 8 个坑
+但当前仓库状态是：
 
-1. 把基础模型和验证码服务当成一回事。
-2. 只把验证码服务跑起来，却没有做导出代码。
-3. 只拿公开验证码接口数据，不保存真值标签。
-4. 第一专项没保存顺序字段。
-5. 第一专项没保存干扰项框。
-6. 第二专项没保存中心点。
-7. 还没把小批量 100 张跑通，就开始追求大数据量。
-8. 还没把第二专项训通，就急着上第一专项复杂自动标注。
+- `scripts/autolabel/run_autolabel.py` 仍是脚手架
+- `core.autolabel` 仍是占位接口
 
-## 18. 到这一步你应该得到什么
+所以现在的实际做法是：
 
-当你按本手册做完，你应该手里有：
+1. 按 [样本导出与自动标注 Checklist](../04-project-development/05-development-process/data-export-auto-labeling-checklist.md) 执行
+2. 使用外部标注工具和临时规则脚本
+3. 等仓库内自动标注模块落地后，再切回统一入口
 
-- 一套能运行的验证码生成服务
-- 一套内部导出代码设计
-- 一批带真值标签的 JSONL 样本
-- 两套 YOLO 训练数据目录
-- 一个第二专项基线模型
-- 一个第一专项基线模型
+### 12.2 评估
 
-如果这 6 样东西没有齐，就说明你还没真的跑通闭环。
+设计上要求统一评估和失败样本回灌，但当前仓库状态是：
 
-## 19. 参考来源
+- `scripts/evaluate/evaluate_model.py` 仍是脚手架
+- `core.evaluate` 仍未实装
+
+所以当前先这样做：
+
+1. 读取 YOLO 自带训练输出
+2. 收集 `best.pt`、指标曲线和日志
+3. 手工整理失败样本清单到工作目录 `reports/`
+
+### 12.3 后处理
+
+设计上还需要：
+
+- 第一专项顺序映射成点击点
+- 第二专项把目标框换算成中心点
+
+当前仓库状态是：
+
+- `core.inference` 仅保留接口骨架
+
+所以训练成功不等于完整业务输出已经自动化完成。现阶段请把它理解为：
+
+- 模型训练链路优先落地
+- 推理后处理仍在后续实现范围内
+
+## 13. 一轮最小闭环完成后，你应该拿到什么
+
+如果你按当前版本跑完一轮最小闭环，至少应拿到这些东西：
+
+1. 一套已通过环境检查的 Windows + NVIDIA 训练机
+2. 一个独立的训练工作目录
+3. 一批可追溯的 JSONL 样本批次
+4. 一套 `yolo/` 训练目录和 `dataset.yaml`
+5. 一次可启动、可落盘、可得到 `best.pt` 的训练结果
+6. 一份失败样本和问题分类记录
+
+如果你拿不到第 3 到第 6 项，不要急着调 epoch 或换模型，先回头查：
+
+- 样本导出是不是缺字段
+- `reviewed` 数据是不是没有真的形成
+- `dataset.yaml` 指向是不是错了
+- 训练目录是不是还混在仓库目录里
+
+## 14. 当前最容易踩的 8 个坑
+
+1. 还按旧手册默认先起 `go-captcha-service`，结果把注意力放错到服务部署而不是标签导出。
+2. 把项目仓库当成训练工作目录用，导致 `datasets/`、`runs/`、`reports/` 混进 Git 工作区。
+3. 误以为 `uv sync` 已经装好了完整训练依赖。
+4. 误以为 `scripts/train/*.ps1` 会直接执行训练，实际上它们当前主要负责打印标准命令。
+5. 第一专项直接拿 `raw` 样本训练，没有先经过 `reviewed`。
+6. 继续引用旧脚本名 `build_group1_yolo.py`、`build_group2_yolo.py`，而不是当前的 `build_yolo_dataset.py`。
+7. 以为自动标注、评估、后处理已经在仓库里完整实现。
+8. 第二专项还没稳定，第一专项数据还没固化，就急着追求统一接口或更复杂模型。
+
+## 15. 你下一步该读什么
+
+这份手册负责总流程，不负责把所有细节重复写三遍。执行时按这个阅读顺序最稳：
+
+1. 本手册
+2. [Windows 训练环境 Checklist](../04-project-development/05-development-process/windows-environment-checklist.md)
+3. [样本导出与自动标注 Checklist](../04-project-development/05-development-process/data-export-auto-labeling-checklist.md)
+4. [零基础落地实施方案](../04-project-development/05-development-process/implementation-plan.md)
+5. [模块结构与构建交付设计](../04-project-development/04-design/module-structure-and-delivery.md)
+
+## 16. 参考来源
 
 - PyTorch Get Started: <https://pytorch.org/get-started/locally/>
 - Ultralytics Docs: <https://docs.ultralytics.com/>
-- Ultralytics 自定义训练示例：<https://docs.ultralytics.com/datasets/detect/>
+- Ultralytics Detect Datasets: <https://docs.ultralytics.com/datasets/detect/>
 - `go-captcha`: <https://github.com/wenlng/go-captcha>
 - `go-captcha-service`: <https://github.com/wenlng/go-captcha-service>
 - `tianai-captcha`: <https://github.com/dromara/tianai-captcha>
