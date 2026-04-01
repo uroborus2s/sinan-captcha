@@ -1,0 +1,50 @@
+{
+  "generated_at": "2026-04-01 16:51:13",
+  "owner": "Codex",
+  "project_name": "sinan-captcha",
+  "stage": "MAINTENANCE",
+  "active_mode": "cli_direct",
+  "focus": "完成历史项目纳管后的首轮维护入口确认",
+  "reads": [
+    ".factory/project.json",
+    ".factory/memory/current-state.md",
+    ".factory/memory/motivation-state.md",
+    ".factory/memory/autonomy-rules.md",
+    ".factory/memory/evolution-baseline.md",
+    ".factory/memory/tech-stack.summary.md",
+    ".factory/memory/design-assets.summary.md",
+    ".factory/memory/tasks.summary.md",
+    "docs/04-project-development/08-operations-maintenance/operations-runbook.md",
+    "docs/02-user-guide/user-guide.md",
+    "docs/04-project-development/09-evolution/retrospective.md",
+    "docs/04-project-development/10-traceability/requirements-matrix.md"
+  ],
+  "recommended_commands": [
+    "python3 ../shanforge/scripts/factory-dispatch board --project \".\" --owner \"Codex\" --focus \"完成历史项目纳管后的首轮维护入口确认\"",
+    "python3 ../shanforge/scripts/factory-dispatch release --project \".\" --owner \"Codex\"",
+    "python3 ../shanforge/scripts/factory-dispatch handover --project \".\" --owner \"Codex\"",
+    "python3 ../shanforge/scripts/factory-dispatch motivation --project \".\" --owner \"Codex\" --focus \"完成历史项目纳管后的首轮维护入口确认\"",
+    "python3 ../shanforge/scripts/factory-dispatch evolution --project \".\" --owner \"Codex\" --note \"完成历史项目纳管后的首轮维护入口确认\"",
+    "python3 ../shanforge/scripts/factory-dispatch memory --project \".\"",
+    "python3 ../shanforge/scripts/factory-dispatch chat --project \".\" --tool generic --role coordinator --owner \"Codex\" --focus \"完成历史项目纳管后的首轮维护入口确认\"",
+    "python3 ../shanforge/scripts/factory-dispatch daily --project \".\" --owner \"Codex\" --focus \"完成历史项目纳管后的首轮维护入口确认\""
+  ],
+  "active_items": [],
+  "blocked_items": [],
+  "open_risks": [
+    "- 当前无开放风险。"
+  ],
+  "recent_logs": [
+    "- 2026-04-01: 完成历史项目纳管基线初始化，负责人：Codex，目标：将现有验证码训练方案纳入软件工厂并进入需求阶段，产出面向零基础用户的落地训练方案。"
+  ],
+  "lock": {
+    "path": "/Users/uroborus/AiProject/sinan-captcha/.factory/project.lock",
+    "locked": true,
+    "by_current_process": true,
+    "payload": {
+      "pid": 89490,
+      "reason": "历史项目纳管初始化",
+      "locked_at": "2026-04-01 16:51:13"
+    }
+  }
+}

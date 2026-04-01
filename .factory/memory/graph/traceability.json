@@ -1,0 +1,123 @@
+{
+  "updated_at": "2026-04-01 16:51:13",
+  "nodes": [
+    {
+      "id": "REQ-001",
+      "type": "REQ"
+    },
+    {
+      "id": "REQ-002",
+      "type": "REQ"
+    },
+    {
+      "id": "REQ-003",
+      "type": "REQ"
+    },
+    {
+      "id": "docs/04-project-development/02-discovery/current-state-analysis.md",
+      "type": "ARTIFACT"
+    },
+    {
+      "id": "docs/04-project-development/03-requirements/prd.md",
+      "type": "ARTIFACT"
+    },
+    {
+      "id": "docs/04-project-development/04-design/system-architecture.md",
+      "type": "ARTIFACT"
+    },
+    {
+      "id": "docs/04-project-development/04-design/module-boundaries.md",
+      "type": "ARTIFACT"
+    },
+    {
+      "id": "docs/04-project-development/04-design/technical-selection.md",
+      "type": "ARTIFACT"
+    },
+    {
+      "id": "docs/04-project-development/04-design/api-design.md",
+      "type": "ARTIFACT"
+    },
+    {
+      "id": "docs/04-project-development/08-operations-maintenance/operations-runbook.md",
+      "type": "ARTIFACT"
+    },
+    {
+      "id": "docs/02-user-guide/user-guide.md",
+      "type": "ARTIFACT"
+    }
+  ],
+  "edges": [
+    {
+      "source": "REQ-001",
+      "relation": "落点",
+      "target": "docs/04-project-development/02-discovery/current-state-analysis.md",
+      "status": "有效",
+      "owner": "Codex",
+      "note": "历史项目纳管基线",
+      "updated_at": "2026-04-01 16:51:13"
+    },
+    {
+      "source": "REQ-001",
+      "relation": "落点",
+      "target": "docs/04-project-development/03-requirements/prd.md",
+      "status": "有效",
+      "owner": "Codex",
+      "note": "历史项目纳管基线",
+      "updated_at": "2026-04-01 16:51:13"
+    },
+    {
+      "source": "REQ-001",
+      "relation": "落点",
+      "target": "docs/04-project-development/04-design/system-architecture.md",
+      "status": "有效",
+      "owner": "Codex",
+      "note": "历史项目纳管基线",
+      "updated_at": "2026-04-01 16:51:13"
+    },
+    {
+      "source": "REQ-001",
+      "relation": "落点",
+      "target": "docs/04-project-development/04-design/module-boundaries.md",
+      "status": "有效",
+      "owner": "Codex",
+      "note": "历史项目纳管基线",
+      "updated_at": "2026-04-01 16:51:13"
+    },
+    {
+      "source": "REQ-001",
+      "relation": "落点",
+      "target": "docs/04-project-development/04-design/technical-selection.md",
+      "status": "有效",
+      "owner": "Codex",
+      "note": "历史项目纳管基线",
+      "updated_at": "2026-04-01 16:51:13"
+    },
+    {
+      "source": "REQ-001",
+      "relation": "落点",
+      "target": "docs/04-project-development/04-design/api-design.md",
+      "status": "有效",
+      "owner": "Codex",
+      "note": "历史项目纳管基线",
+      "updated_at": "2026-04-01 16:51:13"
+    },
+    {
+      "source": "REQ-002",
+      "relation": "落点",
+      "target": "docs/04-project-development/08-operations-maintenance/operations-runbook.md",
+      "status": "有效",
+      "owner": "Codex",
+      "note": "缺陷维护说明",
+      "updated_at": "2026-04-01 16:51:13"
+    },
+    {
+      "source": "REQ-003",
+      "relation": "落点",
+      "target": "docs/02-user-guide/user-guide.md",
+      "status": "有效",
+      "owner": "Codex",
+      "note": "新增需求协作说明",
+      "updated_at": "2026-04-01 16:51:13"
+    }
+  ]
+}

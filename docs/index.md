@@ -1,0 +1,153 @@
+---
+title: sinan-captcha
+mkdocs:
+  home_access: public
+  nav:
+    - title: 入门说明
+      children:
+        - title: 概览
+          path: 01-getting-started/index.md
+          access: public
+    - title: 用户指南
+      children:
+        - title: 概览
+          path: 02-user-guide/index.md
+          access: public
+        - title: 维护者快速使用说明
+          path: 02-user-guide/user-guide.md
+          access: public
+        - title: 从基础模型到训练的实操手册
+          path: 02-user-guide/from-base-model-to-training-guide.md
+          access: private
+        - title: 零基础落地实施方案
+          path: 04-project-development/05-development-process/implementation-plan.md
+          access: private
+    - title: 开发者指南
+      children:
+        - title: 概览
+          path: 03-developer-guide/index.md
+          access: public
+    - title: 项目开发文档（内）
+      children:
+        - title: 概览
+          path: 04-project-development/index.md
+          access: private
+        - title: 项目治理
+          children:
+            - title: 概览
+              path: 04-project-development/01-governance/index.md
+              access: private
+            - title: 项目章程
+              path: 04-project-development/01-governance/project-charter.md
+              access: private
+        - title: 调研与决策
+          children:
+            - title: 概览
+              path: 04-project-development/02-discovery/index.md
+              access: private
+            - title: 项目输入
+              path: 04-project-development/02-discovery/input.md
+              access: private
+            - title: 当前状态分析
+              path: 04-project-development/02-discovery/current-state-analysis.md
+              access: private
+            - title: 头脑风暴记录
+              path: 04-project-development/02-discovery/brainstorm-record.md
+              access: private
+        - title: 需求
+          children:
+            - title: 概览
+              path: 04-project-development/03-requirements/index.md
+              access: private
+            - title: 产品需求文档
+              path: 04-project-development/03-requirements/prd.md
+              access: private
+            - title: 需求分析文档
+              path: 04-project-development/03-requirements/requirements-analysis.md
+              access: private
+            - title: 需求一致性校验
+              path: 04-project-development/03-requirements/requirements-verification.md
+              access: private
+        - title: 设计文档
+          children:
+            - title: 概览
+              path: 04-project-development/04-design/index.md
+              access: private
+            - title: 技术选型与工程规则
+              path: 04-project-development/04-design/technical-selection.md
+              access: private
+            - title: 系统架构基线
+              path: 04-project-development/04-design/system-architecture.md
+              access: private
+            - title: 模块边界基线
+              path: 04-project-development/04-design/module-boundaries.md
+              access: private
+            - title: 接口与入口基线
+              path: 04-project-development/04-design/api-design.md
+              access: private
+        - title: 开发过程文档
+          children:
+            - title: 概览
+              path: 04-project-development/05-development-process/index.md
+              access: private
+            - title: 零基础落地实施方案
+              path: 04-project-development/05-development-process/implementation-plan.md
+              access: private
+            - title: Windows 训练环境 Checklist
+              path: 04-project-development/05-development-process/windows-environment-checklist.md
+              access: private
+            - title: 样本导出与自动标注 Checklist
+              path: 04-project-development/05-development-process/data-export-auto-labeling-checklist.md
+              access: private
+        - title: 测试与验证
+          children:
+            - title: 概览
+              path: 04-project-development/06-testing-verification/index.md
+              access: private
+        - title: 发布与交付
+          children:
+            - title: 概览
+              path: 04-project-development/07-release-delivery/index.md
+              access: private
+        - title: 运维与维护
+          children:
+            - title: 概览
+              path: 04-project-development/08-operations-maintenance/index.md
+              access: private
+            - title: 维护运行手册
+              path: 04-project-development/08-operations-maintenance/operations-runbook.md
+              access: private
+        - title: 演进复盘
+          children:
+            - title: 概览
+              path: 04-project-development/09-evolution/index.md
+              access: private
+            - title: 纳管复盘与后续演进
+              path: 04-project-development/09-evolution/retrospective.md
+              access: private
+        - title: 追踪矩阵
+          children:
+            - title: 概览
+              path: 04-project-development/10-traceability/index.md
+              access: private
+            - title: 需求追踪矩阵
+              path: 04-project-development/10-traceability/requirements-matrix.md
+              access: private
+---
+# sinan-captcha
+
+这是 `sinan-captcha` 的正式项目文档源。AI 软件工厂在项目仓库内直接维护这些文档，`docs-stratego` 通过 Git 子模块或等价的仓级挂载方式聚合展示，但不反向改写源文档。
+
+## 适用范围
+
+- 根 `docs/index.md` 的 front matter 是目录树、页面路径和访问级别的唯一事实源。
+- Markdown 页面、OpenAPI 契约和 MCP tools 快照统一作为正式页面资产维护。
+- 契约文件必须放在真实文档目录下，并与所在目录的 `index.md` 配套。
+
+## 维护规则
+
+- 只有根 `docs/index.md` 声明全站 `mkdocs.nav`、页面路径和页面权限。
+- 子目录 `index.md` 只作为正文首页和资源权限锚点，不再承担导航声明职责。
+- 页面、图片和附件跟随所属目录维护；资源文件放在当前目录或当前目录的 `assets/` 下，`assets/` 不承载 Markdown 页面或契约文件。
+- 仓内链接统一使用相对路径，不写机器绝对路径。
+- 新增、删除或移动 Markdown 页面或契约文件后，同步刷新根 `docs/index.md` 的目录树；子目录 `index.md` 只保留正文概览。

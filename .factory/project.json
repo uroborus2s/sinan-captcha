@@ -1,0 +1,749 @@
+{
+  "version": 1,
+  "project_name": "sinan-captcha",
+  "project_root": ".",
+  "owner": "Codex",
+  "idea": "司南：面向图形验证码训练两个专项模型。第一专项为多类别检测模型，用于多图标顺序点击验证码；第二专项为单类别目标检测模型，用于单目标定位验证码。当前设计结论：基于预训练 YOLO 检测权重微调，优先从自有生成端或内部生成器直接导出标签，不要求先上线完整验证码平台。",
+  "stack": "Python, Ultralytics YOLO, Windows, CUDA, X-AnyLabeling/CVAT",
+  "created_at": "2026-04-01T08:51:13.932354+00:00",
+  "active_mode": "cli_direct",
+  "supported_modes": [
+    "cli_direct",
+    "api_platform"
+  ],
+  "v1_scope_note": "当前版本只落地 Codex 或 Gemini CLI 直接使用方式，API Agent 平台作为后续演进目标保留。",
+  "stage": "DESIGN",
+  "ai_runtime_docs": [
+    "../shanforge/skills/software-factory-cli/references/ai-runtime-protocol.md",
+    "../shanforge/skills/software-factory-cli/references/ai-role-charter.md"
+  ],
+  "human_workflow_docs": [
+    "../shanforge/docs/index.md",
+    "../shanforge/docs/01-getting-started/project-overview.md",
+    "../shanforge/docs/02-user-guide/user-guide.md",
+    "../shanforge/docs/03-developer-guide/application-development.md",
+    "../shanforge/docs/04-project-development/03-requirements/prd.md",
+    "../shanforge/docs/04-project-development/04-design/solution-overview.md",
+    "../shanforge/docs/04-project-development/09-evolution/agent-motivation-autonomy-integration.md"
+  ],
+  "workflow_docs": [
+    "../shanforge/docs/index.md",
+    "../shanforge/docs/01-getting-started/project-overview.md",
+    "../shanforge/docs/02-user-guide/user-guide.md",
+    "../shanforge/docs/03-developer-guide/application-development.md",
+    "../shanforge/docs/04-project-development/03-requirements/prd.md",
+    "../shanforge/docs/04-project-development/04-design/solution-overview.md",
+    "../shanforge/docs/04-project-development/09-evolution/agent-motivation-autonomy-integration.md"
+  ],
+  "stage_order": [
+    "BRAINSTORM",
+    "REQUIREMENTS",
+    "ANALYSIS",
+    "DESIGN",
+    "PLAN",
+    "IMPLEMENTATION",
+    "TESTING",
+    "ACCEPTANCE",
+    "RELEASE",
+    "MAINTENANCE"
+  ],
+  "docs_profile": {
+    "project_kind": "application",
+    "audiences": [
+      "maintainer",
+      "user"
+    ],
+    "surfaces": {
+      "end_user_usage": true,
+      "public_api": false,
+      "sdk": false,
+      "plugin_extensibility": false,
+      "secondary_development": false,
+      "self_hosted": false
+    },
+    "modules": {
+      "01-getting-started": "required",
+      "02-user-guide": "required",
+      "03-developer-guide": "required",
+      "04-project-development": "required"
+    },
+    "reasons": {
+      "01-getting-started": "任何项目都需要根入口、阅读路径和文档地图。",
+      "02-user-guide": "检测到最终用户、CLI 使用路径或文档站点阅读场景，需要保留用户指南。",
+      "03-developer-guide": "检测到公共 API、SDK、插件扩展点或稳定二次开发面，需要保留开发者指南。",
+      "04-project-development": "软件项目的需求、设计、测试、发布和追踪过程文档统一落在内部模块中。"
+    },
+    "detected_at": "2026-04-01T08:51:13.930130Z",
+    "source": "auto-detect"
+  },
+  "shared_skills": [
+    {
+      "name": "brainstorming",
+      "path": "../shanforge/skills/brainstorming/SKILL.md",
+      "purpose": "在实施前探索产品意图、约束条件、备选方案，并完成设计确认。"
+    },
+    {
+      "name": "document-templates",
+      "path": "../shanforge/skills/document-templates/SKILL.md",
+      "purpose": "初始化并维护标准的 docs/ 和 .factory/ 文档结构。"
+    },
+    {
+      "name": "requirements-engineering",
+      "path": "../shanforge/skills/requirements-engineering/SKILL.md",
+      "purpose": "用稳定 ID 编写 REQ、NFR、验收标准和需求分析文档。"
+    },
+    {
+      "name": "doc-coauthoring",
+      "path": "../shanforge/skills/doc-coauthoring/SKILL.md",
+      "purpose": "通过迭代方式共同创作设计文档、提案和决策文档。"
+    },
+    {
+      "name": "api-design",
+      "path": "../shanforge/skills/api-design/SKILL.md",
+      "purpose": "设计资源导向的 API，包括状态码、校验、分页和错误契约。"
+    },
+    {
+      "name": "backend-patterns",
+      "path": "../shanforge/skills/backend-patterns/SKILL.md",
+      "purpose": "设计服务层、仓储层、中间件、校验和数据访问模式。"
+    },
+    {
+      "name": "python-uv-project",
+      "path": "../shanforge/skills/python-uv-project/SKILL.md",
+      "purpose": "在 Python 项目中统一使用 uv 管理 Python 版本、虚拟环境、依赖、锁文件与开发工具，并约束 pyproject、pytest、ruff、mypy 工作流。"
+    },
+    {
+      "name": "crawler4j-model-project",
+      "path": "../shanforge/skills/crawler4j-model-project/SKILL.md",
+      "purpose": "开发 crawler4j 标准 model/模块项目时，优先使用 crawler4j SDK CLI、module.yaml 契约和 Core 调试链路。"
+    },
+    {
+      "name": "frontend-patterns",
+      "path": "../shanforge/skills/frontend-patterns/SKILL.md",
+      "purpose": "实现 React 组件、状态管理、数据流和可访问的响应式界面模式。"
+    },
+    {
+      "name": "ui-ux-pro-max",
+      "path": "../shanforge/skills/ui-ux-pro-max/SKILL.md",
+      "purpose": "生成 UI 体系、配色、字体和页面结构建议。"
+    },
+    {
+      "name": "tdd-workflow",
+      "path": "../shanforge/skills/tdd-workflow/SKILL.md",
+      "purpose": "通过测试、覆盖率和回归验证驱动实施过程。"
+    },
+    {
+      "name": "webapp-testing",
+      "path": "../shanforge/skills/webapp-testing/SKILL.md",
+      "purpose": "在需要界面验证时，用 Playwright 驱动本地 Web 应用测试。"
+    }
+  ],
+  "roles": [
+    {
+      "id": "coordinator",
+      "title": "项目协调者",
+      "aliases": [
+        "项目经理",
+        "会话协调者",
+        "pm",
+        "coordinator"
+      ],
+      "description": "负责阶段推进、跨角色协作、审批门禁和交接节奏控制。",
+      "stages": [
+        "BRAINSTORM",
+        "REQUIREMENTS",
+        "ANALYSIS",
+        "DESIGN",
+        "PLAN",
+        "IMPLEMENTATION",
+        "TESTING",
+        "ACCEPTANCE",
+        "RELEASE",
+        "MAINTENANCE"
+      ],
+      "preferred_tools": [
+        "codex",
+        "gemini"
+      ],
+      "docs": [
+        "docs/04-project-development/04-design/technical-selection.md",
+        ".factory/process/multi-agent-board.md",
+        ".factory/process/role-handoffs.md",
+        ".factory/process/execution-log.md",
+        ".factory/process/chat-bootstrap.md"
+      ],
+      "skill_names": [
+        "brainstorming",
+        "document-templates",
+        "doc-coauthoring"
+      ],
+      "skills": [
+        {
+          "name": "brainstorming",
+          "path": "../shanforge/skills/brainstorming/SKILL.md",
+          "purpose": "在实施前探索产品意图、约束条件、备选方案，并完成设计确认。"
+        },
+        {
+          "name": "document-templates",
+          "path": "../shanforge/skills/document-templates/SKILL.md",
+          "purpose": "初始化并维护标准的 docs/ 和 .factory/ 文档结构。"
+        },
+        {
+          "name": "doc-coauthoring",
+          "path": "../shanforge/skills/doc-coauthoring/SKILL.md",
+          "purpose": "通过迭代方式共同创作设计文档、提案和决策文档。"
+        }
+      ]
+    },
+    {
+      "id": "requirements-analyst",
+      "title": "需求分析师",
+      "aliases": [
+        "需求负责人",
+        "ba",
+        "analyst",
+        "requirements"
+      ],
+      "description": "负责澄清目标、拆解需求、补齐 REQ/NFR、维护需求一致性。",
+      "stages": [
+        "BRAINSTORM",
+        "REQUIREMENTS",
+        "ANALYSIS"
+      ],
+      "preferred_tools": [
+        "gemini",
+        "codex"
+      ],
+      "docs": [
+        "docs/04-project-development/01-governance/project-charter.md",
+        "docs/04-project-development/02-discovery/input.md",
+        "docs/04-project-development/02-discovery/brainstorm-record.md",
+        "docs/04-project-development/03-requirements/prd.md",
+        "docs/04-project-development/03-requirements/requirements-analysis.md",
+        "docs/04-project-development/03-requirements/requirements-verification.md",
+        "docs/04-project-development/10-traceability/requirements-matrix.md"
+      ],
+      "skill_names": [
+        "brainstorming",
+        "requirements-engineering",
+        "document-templates",
+        "doc-coauthoring"
+      ],
+      "skills": [
+        {
+          "name": "brainstorming",
+          "path": "../shanforge/skills/brainstorming/SKILL.md",
+          "purpose": "在实施前探索产品意图、约束条件、备选方案，并完成设计确认。"
+        },
+        {
+          "name": "requirements-engineering",
+          "path": "../shanforge/skills/requirements-engineering/SKILL.md",
+          "purpose": "用稳定 ID 编写 REQ、NFR、验收标准和需求分析文档。"
+        },
+        {
+          "name": "document-templates",
+          "path": "../shanforge/skills/document-templates/SKILL.md",
+          "purpose": "初始化并维护标准的 docs/ 和 .factory/ 文档结构。"
+        },
+        {
+          "name": "doc-coauthoring",
+          "path": "../shanforge/skills/doc-coauthoring/SKILL.md",
+          "purpose": "通过迭代方式共同创作设计文档、提案和决策文档。"
+        }
+      ]
+    },
+    {
+      "id": "solution-architect",
+      "title": "解决方案架构师",
+      "aliases": [
+        "架构负责人",
+        "architect",
+        "solution"
+      ],
+      "description": "负责系统拆分、接口契约、后端边界和技术风险控制。",
+      "stages": [
+        "ANALYSIS",
+        "DESIGN",
+        "PLAN"
+      ],
+      "preferred_tools": [
+        "gemini",
+        "codex"
+      ],
+      "docs": [
+        "docs/04-project-development/04-design/technical-selection.md",
+        "docs/04-project-development/04-design/system-architecture.md",
+        "docs/04-project-development/04-design/module-boundaries.md",
+        "docs/04-project-development/04-design/api-design.md",
+        "docs/04-project-development/04-design/backend-design.md",
+        "docs/04-project-development/04-design/database-design.md",
+        "docs/04-project-development/10-traceability/requirements-matrix.md"
+      ],
+      "skill_names": [
+        "api-design",
+        "backend-patterns",
+        "frontend-patterns",
+        "doc-coauthoring"
+      ],
+      "skills": [
+        {
+          "name": "api-design",
+          "path": "../shanforge/skills/api-design/SKILL.md",
+          "purpose": "设计资源导向的 API，包括状态码、校验、分页和错误契约。"
+        },
+        {
+          "name": "backend-patterns",
+          "path": "../shanforge/skills/backend-patterns/SKILL.md",
+          "purpose": "设计服务层、仓储层、中间件、校验和数据访问模式。"
+        },
+        {
+          "name": "frontend-patterns",
+          "path": "../shanforge/skills/frontend-patterns/SKILL.md",
+          "purpose": "实现 React 组件、状态管理、数据流和可访问的响应式界面模式。"
+        },
+        {
+          "name": "doc-coauthoring",
+          "path": "../shanforge/skills/doc-coauthoring/SKILL.md",
+          "purpose": "通过迭代方式共同创作设计文档、提案和决策文档。"
+        }
+      ]
+    },
+    {
+      "id": "ux-designer",
+      "title": "UX/UI 设计师",
+      "aliases": [
+        "设计负责人",
+        "designer",
+        "ux",
+        "ui"
+      ],
+      "description": "负责用户流程、界面结构、交互状态与体验一致性。",
+      "stages": [
+        "DESIGN",
+        "PLAN"
+      ],
+      "preferred_tools": [
+        "gemini",
+        "codex"
+      ],
+      "docs": [
+        "docs/04-project-development/04-design/technical-selection.md",
+        "docs/04-project-development/04-design/ux-ui-design.md",
+        "docs/04-project-development/04-design/system-architecture.md",
+        "docs/04-project-development/04-design/module-boundaries.md",
+        "docs/04-project-development/05-development-process/wbs.md"
+      ],
+      "skill_names": [
+        "ui-ux-pro-max",
+        "frontend-patterns",
+        "doc-coauthoring"
+      ],
+      "skills": [
+        {
+          "name": "ui-ux-pro-max",
+          "path": "../shanforge/skills/ui-ux-pro-max/SKILL.md",
+          "purpose": "生成 UI 体系、配色、字体和页面结构建议。"
+        },
+        {
+          "name": "frontend-patterns",
+          "path": "../shanforge/skills/frontend-patterns/SKILL.md",
+          "purpose": "实现 React 组件、状态管理、数据流和可访问的响应式界面模式。"
+        },
+        {
+          "name": "doc-coauthoring",
+          "path": "../shanforge/skills/doc-coauthoring/SKILL.md",
+          "purpose": "通过迭代方式共同创作设计文档、提案和决策文档。"
+        }
+      ]
+    },
+    {
+      "id": "backend-engineer",
+      "title": "后端工程师",
+      "aliases": [
+        "后端负责人",
+        "backend",
+        "server",
+        "codex-backend"
+      ],
+      "description": "负责服务实现、接口落地、数据一致性和工程化执行。",
+      "stages": [
+        "PLAN",
+        "IMPLEMENTATION",
+        "TESTING"
+      ],
+      "preferred_tools": [
+        "codex",
+        "gemini"
+      ],
+      "docs": [
+        "docs/04-project-development/04-design/technical-selection.md",
+        "docs/04-project-development/04-design/module-boundaries.md",
+        "docs/04-project-development/04-design/backend-design.md",
+        "docs/04-project-development/04-design/api-design.md",
+        "docs/04-project-development/05-development-process/implementation-plan.md",
+        ".factory/process/execution-log.md",
+        "docs/04-project-development/06-testing-verification/test-plan.md"
+      ],
+      "skill_names": [
+        "backend-patterns",
+        "api-design",
+        "tdd-workflow"
+      ],
+      "skills": [
+        {
+          "name": "backend-patterns",
+          "path": "../shanforge/skills/backend-patterns/SKILL.md",
+          "purpose": "设计服务层、仓储层、中间件、校验和数据访问模式。"
+        },
+        {
+          "name": "api-design",
+          "path": "../shanforge/skills/api-design/SKILL.md",
+          "purpose": "设计资源导向的 API，包括状态码、校验、分页和错误契约。"
+        },
+        {
+          "name": "tdd-workflow",
+          "path": "../shanforge/skills/tdd-workflow/SKILL.md",
+          "purpose": "通过测试、覆盖率和回归验证驱动实施过程。"
+        }
+      ]
+    },
+    {
+      "id": "frontend-engineer",
+      "title": "前端工程师",
+      "aliases": [
+        "前端负责人",
+        "frontend",
+        "web",
+        "codex-frontend"
+      ],
+      "description": "负责界面实现、交互联调、前端状态管理和可访问性。",
+      "stages": [
+        "PLAN",
+        "IMPLEMENTATION",
+        "TESTING"
+      ],
+      "preferred_tools": [
+        "codex",
+        "gemini"
+      ],
+      "docs": [
+        "docs/04-project-development/04-design/technical-selection.md",
+        "docs/04-project-development/04-design/ux-ui-design.md",
+        "docs/04-project-development/04-design/system-architecture.md",
+        "docs/04-project-development/05-development-process/implementation-plan.md",
+        ".factory/process/execution-log.md",
+        "docs/04-project-development/06-testing-verification/test-plan.md"
+      ],
+      "skill_names": [
+        "frontend-patterns",
+        "ui-ux-pro-max",
+        "tdd-workflow"
+      ],
+      "skills": [
+        {
+          "name": "frontend-patterns",
+          "path": "../shanforge/skills/frontend-patterns/SKILL.md",
+          "purpose": "实现 React 组件、状态管理、数据流和可访问的响应式界面模式。"
+        },
+        {
+          "name": "ui-ux-pro-max",
+          "path": "../shanforge/skills/ui-ux-pro-max/SKILL.md",
+          "purpose": "生成 UI 体系、配色、字体和页面结构建议。"
+        },
+        {
+          "name": "tdd-workflow",
+          "path": "../shanforge/skills/tdd-workflow/SKILL.md",
+          "purpose": "通过测试、覆盖率和回归验证驱动实施过程。"
+        }
+      ]
+    },
+    {
+      "id": "qa-engineer",
+      "title": "测试工程师",
+      "aliases": [
+        "质量负责人",
+        "qa",
+        "tester",
+        "quality"
+      ],
+      "description": "负责测试计划、回归验证、Gate 前检查和质量风险暴露。",
+      "stages": [
+        "IMPLEMENTATION",
+        "TESTING",
+        "ACCEPTANCE"
+      ],
+      "preferred_tools": [
+        "codex",
+        "gemini"
+      ],
+      "docs": [
+        "docs/04-project-development/06-testing-verification/test-plan.md",
+        "docs/04-project-development/06-testing-verification/test-cases.md",
+        "docs/04-project-development/06-testing-verification/test-report.md",
+        ".factory/process/stage-check-report.md",
+        ".factory/process/quality-check-report.md",
+        "docs/04-project-development/10-traceability/requirements-matrix.md"
+      ],
+      "skill_names": [
+        "tdd-workflow",
+        "webapp-testing",
+        "document-templates"
+      ],
+      "skills": [
+        {
+          "name": "tdd-workflow",
+          "path": "../shanforge/skills/tdd-workflow/SKILL.md",
+          "purpose": "通过测试、覆盖率和回归验证驱动实施过程。"
+        },
+        {
+          "name": "webapp-testing",
+          "path": "../shanforge/skills/webapp-testing/SKILL.md",
+          "purpose": "在需要界面验证时，用 Playwright 驱动本地 Web 应用测试。"
+        },
+        {
+          "name": "document-templates",
+          "path": "../shanforge/skills/document-templates/SKILL.md",
+          "purpose": "初始化并维护标准的 docs/ 和 .factory/ 文档结构。"
+        }
+      ]
+    },
+    {
+      "id": "release-manager",
+      "title": "发布经理",
+      "aliases": [
+        "发布负责人",
+        "release",
+        "ops",
+        "handover"
+      ],
+      "description": "负责交付说明、部署运行、发布准备和交接闭环。",
+      "stages": [
+        "ACCEPTANCE",
+        "RELEASE",
+        "MAINTENANCE"
+      ],
+      "preferred_tools": [
+        "gemini",
+        "codex"
+      ],
+      "docs": [
+        "docs/04-project-development/07-release-delivery/delivery-package.md",
+        "docs/04-project-development/07-release-delivery/release-notes.md",
+        "docs/04-project-development/08-operations-maintenance/deployment-guide.md",
+        "docs/02-user-guide/user-guide.md"
+      ],
+      "skill_names": [
+        "document-templates",
+        "doc-coauthoring"
+      ],
+      "skills": [
+        {
+          "name": "document-templates",
+          "path": "../shanforge/skills/document-templates/SKILL.md",
+          "purpose": "初始化并维护标准的 docs/ 和 .factory/ 文档结构。"
+        },
+        {
+          "name": "doc-coauthoring",
+          "path": "../shanforge/skills/doc-coauthoring/SKILL.md",
+          "purpose": "通过迭代方式共同创作设计文档、提案和决策文档。"
+        }
+      ]
+    },
+    {
+      "id": "memory-manager",
+      "title": "文档与记忆管理员",
+      "aliases": [
+        "memory",
+        "ai-memory",
+        "文档管理员",
+        "记忆管理员"
+      ],
+      "description": "负责人类文档与 AI 记忆同步、摘要收敛和项目上下文恢复。",
+      "stages": [
+        "BRAINSTORM",
+        "REQUIREMENTS",
+        "ANALYSIS",
+        "DESIGN",
+        "PLAN",
+        "IMPLEMENTATION",
+        "TESTING",
+        "ACCEPTANCE",
+        "RELEASE",
+        "MAINTENANCE"
+      ],
+      "preferred_tools": [
+        "gemini",
+        "codex"
+      ],
+      "docs": [
+        ".factory/memory/project-index.md",
+        ".factory/memory/current-state.md",
+        ".factory/memory/tasks.summary.md",
+        ".factory/memory/change-summary.md",
+        ".factory/memory/agent-session.md",
+        ".factory/process/daily-status.md",
+        ".factory/process/role-handoffs.md",
+        "docs/04-project-development/10-traceability/requirements-matrix.md"
+      ],
+      "skill_names": [
+        "document-templates",
+        "doc-coauthoring"
+      ],
+      "skills": [
+        {
+          "name": "document-templates",
+          "path": "../shanforge/skills/document-templates/SKILL.md",
+          "purpose": "初始化并维护标准的 docs/ 和 .factory/ 文档结构。"
+        },
+        {
+          "name": "doc-coauthoring",
+          "path": "../shanforge/skills/doc-coauthoring/SKILL.md",
+          "purpose": "通过迭代方式共同创作设计文档、提案和决策文档。"
+        }
+      ]
+    }
+  ],
+  "technical_profile": {
+    "preset": "custom",
+    "title": "历史项目纳管基线画像",
+    "stack": "Python, YOLO/目标检测, Windows, CUDA",
+    "summary": "基于仓库现状自动识别的维护画像，后续应结合真实运行方式继续细化。",
+    "projects": [
+      "历史项目维护",
+      "缺陷修复",
+      "需求变更纳管"
+    ],
+    "modules": [],
+    "rules": [
+      "以当前真实实现状态、现有配置和最近可验证的运行结果为基线。",
+      "后续缺陷统一走 BUG-*，新增需求统一走 CR-*，工程治理补齐走 TASK-*。",
+      "代码、正式文档、测试与 `.factory/memory/` 必须同步更新。"
+    ],
+    "commands": [],
+    "guides": [],
+    "owner": "Codex",
+    "note": "自动纳管生成，建议在第一次需求或缺陷处理前人工复核。",
+    "applied_at": "2026-04-01 16:51:13"
+  },
+  "technical_profile_history": [],
+  "design_assets": [],
+  "pr_workflow": {
+    "enabled": true,
+    "required_for_prefixes": [
+      "TASK-",
+      "CR-",
+      "BUG-"
+    ],
+    "gate_required_for": [
+      "implementation",
+      "testing",
+      "acceptance",
+      "release"
+    ],
+    "remote_tools": [
+      "gh",
+      "glab",
+      "record-only"
+    ]
+  },
+  "motivation_runs": [],
+  "recovery_cases": [],
+  "pattern_fix_reports": [],
+  "evolution_baselines": [],
+  "historical_onboarding": {
+    "enabled": true,
+    "goal": "将现有验证码训练方案纳入软件工厂并进入需求阶段，产出面向零基础用户的落地训练方案",
+    "fact_sources": [
+      "graphical_captcha_training_guide.md"
+    ],
+    "unknowns": [
+      "未自动识别出明确启动命令，需要人工确认本地运行方式。",
+      "未自动识别出明确构建命令，需要人工确认构建入口。",
+      "未自动识别出明确测试命令，需要人工确认测试与回归方式。",
+      "未自动识别出明确部署线索，需要人工补充部署与上线方式。"
+    ],
+    "onboarded_at": "2026-04-01T08:51:13.929088+00:00",
+    "onboarded_by": "Codex",
+    "tool": "factory-historical-project-onboarding",
+    "created_files": [
+      "AGENTS.md",
+      "GEMINI.md",
+      ".factory/project.json",
+      "docs/04-project-development/01-governance/project-charter.md",
+      "docs/04-project-development/02-discovery/input.md",
+      "docs/04-project-development/02-discovery/current-state-analysis.md",
+      "docs/04-project-development/03-requirements/prd.md",
+      "docs/04-project-development/04-design/system-architecture.md",
+      "docs/04-project-development/04-design/module-boundaries.md",
+      "docs/04-project-development/04-design/technical-selection.md",
+      "docs/04-project-development/04-design/api-design.md",
+      "docs/04-project-development/08-operations-maintenance/operations-runbook.md",
+      "docs/02-user-guide/user-guide.md",
+      "docs/04-project-development/09-evolution/retrospective.md",
+      ".factory/process/execution-log.md",
+      ".factory/process/daily-status.md",
+      ".factory/process/risk-register.md",
+      ".factory/memory/motivation-state.md",
+      ".factory/memory/autonomy-rules.md",
+      ".factory/memory/evolution-baseline.md",
+      ".factory/workitems/implementation/README.md",
+      ".factory/workitems/changes/README.md",
+      ".factory/workitems/bugs/README.md",
+      ".factory/design-assets.json",
+      "docs/01-getting-started/index.md",
+      "docs/02-user-guide/index.md",
+      "docs/03-developer-guide/index.md",
+      "docs/04-project-development/01-governance/index.md",
+      "docs/04-project-development/02-discovery/index.md",
+      "docs/04-project-development/03-requirements/index.md",
+      "docs/04-project-development/04-design/index.md",
+      "docs/04-project-development/05-development-process/index.md",
+      "docs/04-project-development/06-testing-verification/index.md",
+      "docs/04-project-development/07-release-delivery/index.md",
+      "docs/04-project-development/08-operations-maintenance/index.md",
+      "docs/04-project-development/09-evolution/index.md",
+      "docs/04-project-development/10-traceability/index.md",
+      "docs/04-project-development/index.md",
+      "docs/index.md",
+      ".factory/memory/graph/traceability.json",
+      ".factory/memory/traceability.summary.md",
+      "docs/04-project-development/10-traceability/requirements-matrix.md"
+    ],
+    "preserved_files": [],
+    "updated_files": [],
+    "report": ".factory/process/historical-project-onboarding-report.md",
+    "session": ".factory/memory/agent-session.md",
+    "doctor_report": ".factory/process/state-doctor-report.md"
+  },
+  "last_agent_session_at": "2026-04-01 16:51:13",
+  "last_agent_session_owner": "Codex",
+  "last_agent_session_focus": "完成历史项目纳管后的首轮维护入口确认",
+  "last_state_doctor_at": "2026-04-01 16:51:14",
+  "last_state_doctor_result": "未通过",
+  "state_doctor_runs": [
+    {
+      "scope": "full",
+      "result": "未通过",
+      "owner": "Codex",
+      "note": "历史项目纳管首轮诊断",
+      "checked_at": "2026-04-01 16:51:14"
+    }
+  ],
+  "last_prd_bootstrap_at": "2026-04-01 16:52:55",
+  "last_prd_bootstrap_owner": "Codex",
+  "last_prd_bootstrap_req_count": 8,
+  "last_requirements_verification_at": "2026-04-01 17:14:52",
+  "last_requirements_verification_result": "通过",
+  "requirements_verifications": [
+    {
+      "result": "通过",
+      "owner": "Codex",
+      "note": "需求阶段首稿校验：两专项模型、零基础训练方案、自动标注优先",
+      "verified_at": "2026-04-01 17:14:52",
+      "prd_req_count": 8,
+      "analysis_req_count": 8,
+      "nfr_count": 4,
+      "issue_count": 0
+    }
+  ]
+}
