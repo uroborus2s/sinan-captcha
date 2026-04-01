@@ -1,0 +1,55 @@
+# Python environments and caches
+.venv/
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.coverage
+coverage.xml
+htmlcov/
+
+# Build artifacts
+/dist/*
+!/dist/.gitkeep
+/build/
+*.egg-info/
+
+# Go build artifacts
+/generator/build/*
+!/generator/build/.gitkeep
+*.test
+*.out
+*.exe
+
+# Runtime data and reports
+/datasets/*
+!/datasets/.gitkeep
+/reports/*
+!/reports/.gitkeep
+/generator/output/*
+!/generator/output/.gitkeep
+
+# Local materials that should not be pushed
+/materials/backgrounds/*
+!/materials/backgrounds/.gitkeep
+/materials/icons/*
+!/materials/icons/.gitkeep
+
+# Model and export artifacts
+*.pt
+*.onnx
+*.engine
+*.ckpt
+*.bin
+*.log
+runs/
+models/
+exports/
+tmp/
+
+# IDE and OS files
+.DS_Store
+.idea/
+.vscode/
+

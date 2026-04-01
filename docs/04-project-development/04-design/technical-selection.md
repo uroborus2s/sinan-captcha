@@ -130,8 +130,7 @@
 sinan-captcha/
   pyproject.toml
   uv.lock
-  src/
-    sinan_captcha/
+  core/
   tests/
   scripts/
   datasets/
@@ -140,7 +139,7 @@ sinan-captcha/
 
 说明：
 
-- `src/` 放业务代码
+- `core/` 放 Python 训练与数据工程核心包
 - `tests/` 放测试
 - `scripts/` 放数据导出、数据转换、预标注、训练辅助脚本
 - `datasets/` 是数据资产目录，不混入核心 Python 包

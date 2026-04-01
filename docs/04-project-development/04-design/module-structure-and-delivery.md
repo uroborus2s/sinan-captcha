@@ -46,8 +46,7 @@ sinan-captcha/
   .gitignore
   docs/
   generator/
-  src/
-    sinan_captcha/
+  core/
   scripts/
   tests/
   configs/
@@ -60,7 +59,7 @@ sinan-captcha/
 说明：
 
 - `generator/`：Go 生成器工程
-- `src/sinan_captcha/`：Python 核心包
+- `core/`：Python 训练与数据工程核心包
 - `scripts/`：命令入口和 PowerShell 辅助脚本
 - `tests/`：Go 和 Python 的测试
 - `configs/`：Python 侧配置
@@ -221,7 +220,7 @@ generator/
 ## 5. Python 主线目录
 
 ```text
-src/sinan_captcha/
+core/
   __init__.py
   common/
   dataset/
@@ -234,7 +233,7 @@ src/sinan_captcha/
   evaluate/
 ```
 
-## 5.1 `src/sinan_captcha/common`
+## 5.1 `core/common`
 
 - 语言：Python
 - 模块职责：
@@ -249,7 +248,7 @@ src/sinan_captcha/
 - 部署方式：
   - 跟随 Python 项目整体通过 `uv sync` 或 `uv pip install dist/*.whl` 部署
 
-## 5.2 `src/sinan_captcha/dataset`
+## 5.2 `core/dataset`
 
 - 语言：Python
 - 模块职责：
@@ -263,7 +262,7 @@ src/sinan_captcha/
 - 部署方式：
   - 随 Python 包部署
 
-## 5.3 `src/sinan_captcha/autolabel`
+## 5.3 `core/autolabel`
 
 - 语言：Python
 - 模块职责：
@@ -277,7 +276,7 @@ src/sinan_captcha/
   - 随 Python 包部署
   - 运行时依赖 `datasets/`、模型权重和 OpenCV
 
-## 5.4 `src/sinan_captcha/convert`
+## 5.4 `core/convert`
 
 - 语言：Python
 - 模块职责：
@@ -290,7 +289,7 @@ src/sinan_captcha/
 - 部署方式：
   - 随 Python 包部署
 
-## 5.5 `src/sinan_captcha/train/group1`
+## 5.5 `core/train/group1`
 
 - 语言：Python
 - 模块职责：
@@ -305,7 +304,7 @@ src/sinan_captcha/
   - 随 Python 包部署
   - 运行时调用 `uv run yolo`
 
-## 5.6 `src/sinan_captcha/train/group2`
+## 5.6 `core/train/group2`
 
 - 语言：Python
 - 模块职责：
@@ -319,7 +318,7 @@ src/sinan_captcha/
 - 部署方式：
   - 随 Python 包部署
 
-## 5.7 `src/sinan_captcha/inference`
+## 5.7 `core/inference`
 
 - 语言：Python
 - 模块职责：
@@ -332,7 +331,7 @@ src/sinan_captcha/
 - 部署方式：
   - 随 Python 包部署
 
-## 5.8 `src/sinan_captcha/evaluate`
+## 5.8 `core/evaluate`
 
 - 语言：Python
 - 模块职责：
@@ -614,14 +613,14 @@ tests/
 |---|---|---|---|---|
 | `generator/cmd/sinan-click-generator` | Go | 是 | `.exe` / Linux binary | 训练机本地 |
 | `generator/internal/*` | Go | 跟随主程序 | 无独立产物 | 随生成器部署 |
-| `src/sinan_captcha/common` | Python | 否 | wheel 内部模块 | Python 环境 |
-| `src/sinan_captcha/dataset` | Python | 否 | wheel 内部模块 | Python 环境 |
-| `src/sinan_captcha/autolabel` | Python | 否 | wheel 内部模块 | Python 环境 |
-| `src/sinan_captcha/convert` | Python | 否 | wheel 内部模块 | Python 环境 |
-| `src/sinan_captcha/train/group1` | Python | 否 | wheel 内部模块 | Python 环境 |
-| `src/sinan_captcha/train/group2` | Python | 否 | wheel 内部模块 | Python 环境 |
-| `src/sinan_captcha/inference` | Python | 否 | wheel 内部模块 | Python 环境 |
-| `src/sinan_captcha/evaluate` | Python | 否 | wheel 内部模块 | Python 环境 |
+| `core/common` | Python | 否 | wheel 内部模块 | Python 环境 |
+| `core/dataset` | Python | 否 | wheel 内部模块 | Python 环境 |
+| `core/autolabel` | Python | 否 | wheel 内部模块 | Python 环境 |
+| `core/convert` | Python | 否 | wheel 内部模块 | Python 环境 |
+| `core/train/group1` | Python | 否 | wheel 内部模块 | Python 环境 |
+| `core/train/group2` | Python | 否 | wheel 内部模块 | Python 环境 |
+| `core/inference` | Python | 否 | wheel 内部模块 | Python 环境 |
+| `core/evaluate` | Python | 否 | wheel 内部模块 | Python 环境 |
 | `scripts/*` | Python / PowerShell | 否 | 仓内脚本 | 跟仓库部署 |
 | `materials/*` | 图片 / YAML | 否 | 素材包 | 训练机本地 |
 | `datasets/*` | 图片 / JSONL / YAML | 否 | 数据目录 | 训练机本地 |
@@ -633,15 +632,15 @@ tests/
 
 1. `generator/`
 2. `materials/`
-3. `src/sinan_captcha/dataset`
-4. `src/sinan_captcha/convert`
+3. `core/dataset`
+4. `core/convert`
 5. `scripts/export`
 6. `scripts/convert`
-7. `src/sinan_captcha/autolabel`
-8. `src/sinan_captcha/train/group2`
-9. `src/sinan_captcha/train/group1`
-10. `src/sinan_captcha/inference`
-11. `src/sinan_captcha/evaluate`
+7. `core/autolabel`
+8. `core/train/group2`
+9. `core/train/group1`
+10. `core/inference`
+11. `core/evaluate`
 
 不要先做：
 

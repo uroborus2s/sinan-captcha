@@ -1,0 +1,10 @@
+classes:
+  - id: 0
+    name: icon_house
+    zh_name: 房子
+  - id: 1
+    name: icon_leaf
+    zh_name: 叶子
+  - id: 2
+    name: icon_ship
+    zh_name: 船

@@ -165,7 +165,7 @@
 ## 推荐实现目录
 
 ```text
-src/sinan_captcha/
+core/
   generator/
   dataset/
   autolabel/
