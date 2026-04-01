@@ -1,7 +1,7 @@
 # Windows 训练环境 Checklist
 
 - 文档状态：草稿
-- 当前阶段：REQUIREMENTS
+- 当前阶段：DESIGN
 - 目标读者：零基础训练操作者
 - 负责人：Codex
 - 关联需求：`REQ-001`、`REQ-007`
@@ -55,6 +55,50 @@ nvidia-smi
 - [ ] 能看到显卡名称
 - [ ] 能看到驱动版本
 - [ ] 能看到显存信息
+
+## 3.1 确认 CUDA 版本怎么读
+
+先执行：
+
+```powershell
+nvidia-smi
+```
+
+你会在输出里看到一行类似：
+
+```text
+CUDA Version: 12.8
+```
+
+这表示：
+
+- 当前显卡驱动支持的 CUDA 运行时版本
+- 这是你判断 PyTorch GPU 安装是否具备基础条件的第一步
+
+如果你还想确认本机是否单独安装过 CUDA Toolkit，再执行：
+
+```powershell
+nvcc --version
+```
+
+说明：
+
+- `nvidia-smi` 看的是驱动支持版本
+- `nvcc --version` 看的是本机 Toolkit 版本
+- 两者不一样是正常情况
+
+推荐再执行：
+
+```powershell
+python -c "import torch; print(torch.version.cuda); print(torch.cuda.is_available())"
+```
+
+通过标准：
+
+- [ ] `nvidia-smi` 正常
+- [ ] `torch.cuda.is_available()` 是 `True`
+
+详细说明见：[如何确认 Windows 电脑上的 CUDA 版本](../../02-user-guide/how-to-check-cuda-version.md)
 
 如果失败：
 
@@ -211,7 +255,7 @@ uv run yolo checks
 3. 运行一次最小训练：
 
 ```powershell
-uv run yolo detect train data=D:\sinan-captcha-work\datasets\smoke\dataset.yaml model=yolo11n.pt imgsz=640 epochs=1 batch=4 device=0 project=D:\sinan-captcha-work\runs\smoke name=env-check
+uv run yolo detect train data=D:\sinan-captcha-work\datasets\smoke\dataset.yaml model=yolo26n.pt imgsz=640 epochs=1 batch=4 device=0 project=D:\sinan-captcha-work\runs\smoke name=env-check
 ```
 
 通过标准：
@@ -240,7 +284,7 @@ uv run yolo detect train data=D:\sinan-captcha-work\datasets\smoke\dataset.yaml 
 结论：
 
 - 先把 `batch` 降低
-- 先用 `yolo11n.pt`
+- 先用 `yolo26n.pt`
 - 必要时把 `imgsz` 调小
 
 ### 现象：`uv run yolo checks` 报依赖错误
@@ -258,6 +302,7 @@ uv run yolo detect train data=D:\sinan-captcha-work\datasets\smoke\dataset.yaml 
 - [ ] Python 3.11 正常
 - [ ] 虚拟环境正常
 - [ ] PyTorch GPU 版正常
+- [ ] 已确认 `nvidia-smi` 和 `torch.version.cuda` 的含义
 - [ ] `ultralytics` 正常
 - [ ] 标注工具已就位
 - [ ] 冒烟训练成功

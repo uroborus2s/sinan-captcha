@@ -19,6 +19,9 @@ mkdocs:
         - title: 从基础模型到训练的实操手册
           path: 02-user-guide/from-base-model-to-training-guide.md
           access: private
+        - title: 如何确认 Windows 电脑上的 CUDA 版本
+          path: 02-user-guide/how-to-check-cuda-version.md
+          access: private
         - title: 零基础落地实施方案
           path: 04-project-development/05-development-process/implementation-plan.md
           access: private
@@ -85,6 +88,12 @@ mkdocs:
             - title: 接口与入口基线
               path: 04-project-development/04-design/api-design.md
               access: private
+            - title: 图形点选样本生成器完整方案
+              path: 04-project-development/04-design/graphic-click-generator-design.md
+              access: private
+            - title: 模块结构与构建交付设计
+              path: 04-project-development/04-design/module-structure-and-delivery.md
+              access: private
         - title: 开发过程文档
           children:
             - title: 概览
@@ -98,6 +107,9 @@ mkdocs:
               access: private
             - title: 样本导出与自动标注 Checklist
               path: 04-project-development/05-development-process/data-export-auto-labeling-checklist.md
+              access: private
+            - title: 图形点选生成器任务拆解
+              path: 04-project-development/05-development-process/generator-task-breakdown.md
               access: private
         - title: 测试与验证
           children:

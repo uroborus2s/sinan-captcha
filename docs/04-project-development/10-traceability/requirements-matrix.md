@@ -12,6 +12,8 @@
 | REQ-001 | 落点 | docs/04-project-development/05-development-process/windows-environment-checklist.md | 有效 | 2026-04-01 | Codex | 给出逐项可勾选环境清单 |
 | REQ-001 | 落点 | docs/04-project-development/04-design/technical-selection.md | 有效 | 2026-04-01 | Codex | 已定义预训练权重、Python/uv 与环境规则 |
 | REQ-001 | 落点 | docs/04-project-development/04-design/system-architecture.md | 有效 | 2026-04-01 | Codex | 已定义离线训练系统架构 |
+| REQ-001 | 落点 | docs/02-user-guide/how-to-check-cuda-version.md | 有效 | 2026-04-01 | Codex | 已补充 Windows 上 CUDA 版本的识别方法 |
+| REQ-001 | 落点 | docs/04-project-development/04-design/module-structure-and-delivery.md | 有效 | 2026-04-02 | Codex | 已明确本地训练机上的模块语言、构建和部署形态 |
 | REQ-002 | 来源 | docs/04-project-development/02-discovery/input.md | 有效 | 2026-04-01 | Codex | 样本获取与合规导出 |
 | REQ-002 | 来源 | graphical_captcha_training_guide.md | 有效 | 2026-04-01 | Codex | 明确从生成端导出坐标 |
 | REQ-002 | 落点 | docs/04-project-development/03-requirements/prd.md | 有效 | 2026-04-01 | Codex | 样本导出契约 |
@@ -19,6 +21,7 @@
 | REQ-002 | 落点 | docs/04-project-development/05-development-process/data-export-auto-labeling-checklist.md | 有效 | 2026-04-01 | Codex | 给出样本导出和切分清单 |
 | REQ-002 | 落点 | docs/04-project-development/04-design/technical-selection.md | 有效 | 2026-04-01 | Codex | 已定义内部生成器优先和开源底座选择 |
 | REQ-002 | 落点 | docs/04-project-development/04-design/api-design.md | 有效 | 2026-04-01 | Codex | 已定义数据导出入口合同 |
+| REQ-002 | 落点 | docs/04-project-development/04-design/graphic-click-generator-design.md | 有效 | 2026-04-01 | Codex | 已定义图形点选样本生成器的素材、导出和标签方案 |
 | REQ-003 | 来源 | docs/04-project-development/02-discovery/brainstorm-record.md | 有效 | 2026-04-01 | Codex | 自动标注优先是核心决策 |
 | REQ-003 | 落点 | docs/04-project-development/03-requirements/prd.md | 有效 | 2026-04-01 | Codex | 预标注 + 抽检流程 |
 | REQ-003 | 落点 | docs/04-project-development/05-development-process/implementation-plan.md | 有效 | 2026-04-01 | Codex | 给出自动标注优先级与具体执行法 |
@@ -30,12 +33,15 @@
 | REQ-004 | 落点 | docs/04-project-development/05-development-process/implementation-plan.md | 有效 | 2026-04-01 | Codex | 给出数据集目录和版本规则 |
 | REQ-004 | 落点 | docs/04-project-development/05-development-process/data-export-auto-labeling-checklist.md | 有效 | 2026-04-01 | Codex | 给出目录、切分和转换检查项 |
 | REQ-004 | 落点 | docs/04-project-development/04-design/module-boundaries.md | 有效 | 2026-04-01 | Codex | 已定义数据契约与版本管理模块 |
+| REQ-004 | 落点 | docs/04-project-development/04-design/graphic-click-generator-design.md | 有效 | 2026-04-01 | Codex | 已定义生成器目录、配置和 JSONL 主事实源 |
+| REQ-004 | 落点 | docs/04-project-development/04-design/module-structure-and-delivery.md | 有效 | 2026-04-02 | Codex | 已明确仓库目录、代码模块和运行资产目录划分 |
 | REQ-005 | 来源 | graphical_captcha_training_guide.md | 有效 | 2026-04-01 | Codex | 第一专项为多类别检测 |
 | REQ-005 | 落点 | docs/04-project-development/03-requirements/prd.md | 有效 | 2026-04-01 | Codex | 第一专项模型要求 |
 | REQ-005 | 落点 | docs/04-project-development/05-development-process/implementation-plan.md | 有效 | 2026-04-01 | Codex | 给出第一专项训练顺序和命令模板 |
 | REQ-005 | 落点 | docs/04-project-development/04-design/technical-selection.md | 有效 | 2026-04-01 | Codex | 已定义预训练微调和首版权重选择 |
 | REQ-005 | 落点 | docs/04-project-development/04-design/module-boundaries.md | 有效 | 2026-04-01 | Codex | 已定义第一专项训练模块 |
 | REQ-005 | 落点 | docs/04-project-development/04-design/api-design.md | 有效 | 2026-04-01 | Codex | 已定义第一专项训练入口 |
+| REQ-005 | 落点 | docs/04-project-development/04-design/graphic-click-generator-design.md | 有效 | 2026-04-01 | Codex | 已固定第一专项图形点选样本的生成规则和标签契约 |
 | REQ-006 | 来源 | graphical_captcha_training_guide.md | 有效 | 2026-04-01 | Codex | 第二专项为单类别定位 |
 | REQ-006 | 落点 | docs/04-project-development/03-requirements/prd.md | 有效 | 2026-04-01 | Codex | 第二专项模型要求 |
 | REQ-006 | 落点 | docs/04-project-development/05-development-process/implementation-plan.md | 有效 | 2026-04-01 | Codex | 给出第二专项预标注和训练顺序 |
@@ -48,14 +54,21 @@
 | REQ-007 | 落点 | docs/04-project-development/05-development-process/implementation-plan.md | 有效 | 2026-04-01 | Codex | 已形成单独的小白执行文档 |
 | REQ-007 | 落点 | docs/04-project-development/05-development-process/windows-environment-checklist.md | 有效 | 2026-04-01 | Codex | 小白环境搭建清单 |
 | REQ-007 | 落点 | docs/04-project-development/05-development-process/data-export-auto-labeling-checklist.md | 有效 | 2026-04-01 | Codex | 小白样本与标注执行清单 |
+| REQ-007 | 落点 | docs/04-project-development/04-design/graphic-click-generator-design.md | 有效 | 2026-04-01 | Codex | 已形成生成器的完整设计方案，便于后续按步骤实现 |
+| REQ-007 | 落点 | docs/04-project-development/05-development-process/generator-task-breakdown.md | 有效 | 2026-04-01 | Codex | 已完成图形点选生成器的编号任务拆解 |
+| REQ-007 | 落点 | docs/04-project-development/04-design/module-structure-and-delivery.md | 有效 | 2026-04-02 | Codex | 已形成模块、目录、语言和交付形态的一体化说明 |
 | REQ-008 | 来源 | docs/04-project-development/03-requirements/requirements-analysis.md | 有效 | 2026-04-01 | Codex | 训练工程化与回灌 |
 | REQ-008 | 落点 | docs/04-project-development/03-requirements/prd.md | 有效 | 2026-04-01 | Codex | 验收与版本化要求 |
 | REQ-008 | 落点 | docs/04-project-development/05-development-process/implementation-plan.md | 有效 | 2026-04-01 | Codex | 给出验收、归档和回灌动作 |
 | REQ-008 | 落点 | docs/04-project-development/04-design/module-boundaries.md | 有效 | 2026-04-01 | Codex | 已定义评估与报告模块 |
 | REQ-008 | 落点 | docs/04-project-development/04-design/system-architecture.md | 有效 | 2026-04-01 | Codex | 已定义失败样本回灌链路 |
+| REQ-008 | 落点 | docs/04-project-development/04-design/module-structure-and-delivery.md | 有效 | 2026-04-02 | Codex | 已明确模块交付物与部署边界，便于后续维护和归档 |
 
 ## 更新记录
 
 - 2026-04-01：重建需求阶段追踪矩阵，维护人：Codex。
 - 2026-04-01：补充“零基础落地实施方案”作为 REQ-001 至 REQ-008 的执行落点，维护人：Codex。
 - 2026-04-01：补充两个配套 checklist，维护人：Codex。
+- 2026-04-01：补充第一专项图形点选样本生成器完整方案，维护人：Codex。
+- 2026-04-01：补充 CUDA 版本识别说明和图形点选生成器任务拆解，维护人：Codex。
+- 2026-04-02：补充模块结构与构建交付设计，维护人：Codex。

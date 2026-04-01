@@ -9,3 +9,4 @@
 - 配套执行清单：
 - [Windows 训练环境 Checklist](./windows-environment-checklist.md)
 - [样本导出与自动标注 Checklist](./data-export-auto-labeling-checklist.md)
+- [图形点选生成器任务拆解](./generator-task-breakdown.md)

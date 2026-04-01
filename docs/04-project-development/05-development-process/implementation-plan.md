@@ -1,7 +1,7 @@
 # 零基础落地实施方案
 
 - 文档状态：草稿
-- 当前阶段：REQUIREMENTS
+- 当前阶段：DESIGN
 - 目标读者：零基础训练操作者、项目维护者
 - 负责人：Codex
 - 上游输入：`graphical_captcha_training_guide.md`、`prd.md`、`requirements-analysis.md`
@@ -91,6 +91,20 @@ nvidia-smi
 看到显卡型号、驱动版本、显存信息，说明显卡驱动正常。
 
 如果这里就失败，先不要继续装任何 Python 包。
+
+如果你想确认“CUDA 版本”具体怎么判断，按下面顺序看：
+
+1. `nvidia-smi`
+2. `python -c "import torch; print(torch.version.cuda); print(torch.cuda.is_available())"`
+3. 只有当你明确装过 CUDA Toolkit 时，再看 `nvcc --version`
+
+这里要分清：
+
+- `nvidia-smi` 里的 `CUDA Version` 是驱动支持版本
+- `torch.version.cuda` 是当前 PyTorch 使用的 CUDA 构建版本
+- `nvcc --version` 是本机 Toolkit 版本
+
+零基础操作者优先看前两项，不要先被 `nvcc` 卡住。
 
 ### 5.2 安装 `uv` 和 Python
 
@@ -345,7 +359,7 @@ datasets/
 示例命令：
 
 ```powershell
-uv run yolo detect train data=D:\sinan-captcha-work\datasets\group2\v1\yolo\dataset.yaml model=yolo11n.pt imgsz=640 epochs=100 batch=16 device=0 project=D:\sinan-captcha-work\runs\group2 name=v1
+uv run yolo detect train data=D:\sinan-captcha-work\datasets\group2\v1\yolo\dataset.yaml model=yolo26n.pt imgsz=640 epochs=100 batch=16 device=0 project=D:\sinan-captcha-work\runs\group2 name=v1
 ```
 
 建议：
@@ -361,7 +375,7 @@ uv run yolo detect train data=D:\sinan-captcha-work\datasets\group2\v1\yolo\data
 示例命令：
 
 ```powershell
-uv run yolo detect train data=D:\sinan-captcha-work\datasets\group1\v1\yolo\dataset.yaml model=yolo11n.pt imgsz=640 epochs=120 batch=16 device=0 project=D:\sinan-captcha-work\runs\group1 name=v1
+uv run yolo detect train data=D:\sinan-captcha-work\datasets\group1\v1\yolo\dataset.yaml model=yolo26n.pt imgsz=640 epochs=120 batch=16 device=0 project=D:\sinan-captcha-work\runs\group1 name=v1
 ```
 
 训练后还需要做一步顺序映射：

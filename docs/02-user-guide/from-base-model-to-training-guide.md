@@ -127,6 +127,44 @@ nvidia-smi
 - [ ] 能看到驱动版本
 - [ ] 能看到显存信息
 
+### 3.4 怎么确认 CUDA 版本
+
+先执行：
+
+```powershell
+nvidia-smi
+```
+
+你会看到类似：
+
+```text
+CUDA Version: 12.8
+```
+
+这里表示的是：
+
+- 当前显卡驱动支持的 CUDA 运行时版本
+
+如果你已经装过 CUDA Toolkit，再执行：
+
+```powershell
+nvcc --version
+```
+
+如果你想确认当前 Python 训练环境实际使用的是哪个 CUDA 版本，再执行：
+
+```powershell
+python -c "import torch; print(torch.version.cuda); print(torch.cuda.is_available())"
+```
+
+你只需要先记住：
+
+- `nvidia-smi` 看驱动支持版本
+- `torch.version.cuda` 看 PyTorch 使用版本
+- `torch.cuda.is_available()` 看当前环境能不能用 GPU
+
+更详细说明见：[如何确认 Windows 电脑上的 CUDA 版本](./how-to-check-cuda-version.md)
+
 ## 4. 第二步：安装训练工具链
 
 ### 4.1 安装 Git

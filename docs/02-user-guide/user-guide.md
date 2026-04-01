@@ -13,8 +13,10 @@
 5. [从基础模型到训练的实操手册](./from-base-model-to-training-guide.md)
 6. [零基础落地实施方案](../04-project-development/05-development-process/implementation-plan.md)
 7. [Windows 训练环境 Checklist](../04-project-development/05-development-process/windows-environment-checklist.md)
-8. [样本导出与自动标注 Checklist](../04-project-development/05-development-process/data-export-auto-labeling-checklist.md)
-9. 本目录下的运维手册和追踪矩阵
+8. [如何确认 Windows 电脑上的 CUDA 版本](./how-to-check-cuda-version.md)
+9. [样本导出与自动标注 Checklist](../04-project-development/05-development-process/data-export-auto-labeling-checklist.md)
+10. [图形点选生成器任务拆解](../04-project-development/05-development-process/generator-task-breakdown.md)
+11. 本目录下的运维手册和追踪矩阵
 
 ## 后续怎么和 AI 协作
 
