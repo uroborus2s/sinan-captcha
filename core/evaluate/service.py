@@ -9,7 +9,7 @@ from pathlib import Path
 from typing import Any
 
 from core.common.jsonl import read_jsonl, write_jsonl
-from core.dataset.validation import validate_group1_row, validate_group2_row
+from core.dataset.validation import get_group2_target, validate_group1_row, validate_group2_row
 
 
 @dataclass(frozen=True)
@@ -152,8 +152,8 @@ def _evaluate_group2(
             failures.append({"sample_id": sample_id, "reason": "missing_prediction"})
             continue
 
-        gold_target = gold["target"]
-        predicted_target = prediction["target"]
+        gold_target = get_group2_target(gold)
+        predicted_target = get_group2_target(prediction)
         center_error = _distance(gold_target["center"], predicted_target["center"])
         iou = _iou(gold_target["bbox"], predicted_target["bbox"])
         center_errors.append(center_error)

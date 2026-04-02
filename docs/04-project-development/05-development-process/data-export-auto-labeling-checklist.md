@@ -8,10 +8,11 @@
 
 ## 1. 总原则
 
-这一阶段最重要的规则只有两条：
+这一阶段最重要的规则只有三条：
 
 1. 优先从生成端直接导出标签。
-2. 自动标注优先，人工只做种子集、抽检和纠错。
+2. 生成器直出 `gold` 必须 100% 来源于内部真值并通过校验。
+3. 自动标注优先，人工只做种子集、抽检和纠错。
 
 如果一开始就走“人工逐张标框”，基本会把项目拖死。
 
@@ -83,23 +84,24 @@ D:\sinan-captcha-work\datasets\
 
 ## 5. 第二组导出 Checklist
 
-第二组目标是“单目标定位”。
+第二组目标是“滑块缺口定位”。
 
 每条样本至少导出：
 
 - [ ] `sample_id`
 - [ ] `captcha_type`
-- [ ] `query_image`
-- [ ] `scene_image`
-- [ ] `target.class`
-- [ ] `target.bbox`
-- [ ] `target.center`
+- [ ] `master_image`
+- [ ] `tile_image`
+- [ ] `target_gap.bbox`
+- [ ] `target_gap.center`
+- [ ] `offset_x`
+- [ ] `offset_y`
 - [ ] `label_source`
 - [ ] `source_batch`
 
 通过标准：
 
-- [ ] 一条样本里能明确唯一目标的位置
+- [ ] 一条样本里能明确缺口位置和滑块偏移量
 
 ## 6. 样本来源合规 Checklist
 
@@ -134,7 +136,7 @@ D:\sinan-captcha-work\datasets\
 
 ## 8. 第二组自动标注 Checklist
 
-第二组先用规则法预标注。
+第二组先用规则法做滑块候选位置预标注。
 
 执行步骤：
 
@@ -186,13 +188,14 @@ D:\sinan-captcha-work\datasets\
 
 流转规则：
 
-- [ ] 生成端直出标签可直接为 `gold`
+- [ ] 生成端直出标签只有在真值一致性校验和重放校验通过后才可标记为 `gold`
 - [ ] 规则法或暖启动模型产生的标签先标 `auto`
 - [ ] 抽检/修正通过后改成 `reviewed`
 
 禁止：
 
 - [ ] 未抽检的 `auto` 直接进入测试集
+- [ ] 真值校验失败的样本继续保留为 `gold`
 
 ## 11. 抽检 Checklist
 
@@ -205,7 +208,7 @@ D:\sinan-captcha-work\datasets\
 - [ ] 检查错框
 - [ ] 检查错类
 - [ ] 检查第一组顺序字段
-- [ ] 检查第二组中心点
+- [ ] 检查第二组中心点和偏移量
 
 通过标准：
 
@@ -241,6 +244,7 @@ D:\sinan-captcha-work\datasets\
 
 - [ ] `bbox` 存在
 - [ ] `center` 存在
+- [ ] `offset_x` 存在
 - [ ] 复杂背景样本也被覆盖
 - [ ] 不同亮度条件下都有样本
 
@@ -254,5 +258,6 @@ D:\sinan-captcha-work\datasets\
 - [ ] 切分完成
 - [ ] 第二组预标注可用
 - [ ] 第一组有 `gold` 标签或有暖启动预标注能力
+- [ ] 第二组 `gold` 样本已通过真值校验
 - [ ] `reviewed` 数据集已形成
 - [ ] `yolo` 训练目录已生成

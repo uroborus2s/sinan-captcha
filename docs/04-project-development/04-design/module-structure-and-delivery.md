@@ -24,7 +24,7 @@
 
 拆分原因：
 
-- 图形点选样本生成器最适合直接基于 `go-captcha` 思路和 Go 生态实现
+- 多模式验证码样本生成器最适合采用 Go 控制层 + 可插拔 backend 的方式实现
 - 数据转换、自动标注、训练、评估最适合保持在 Python 工程里
 - 两条主线通过“文件契约”对接，而不是互相嵌套调用
 
@@ -96,6 +96,7 @@ generator/
     sinan-click-generator/
       main.go
   internal/
+    backend/
     config/
     material/
     sampler/
@@ -117,6 +118,7 @@ generator/
 - 模块职责：
   - 提供生成器总 CLI
   - 暴露 `validate-materials`、`generate`、`qa`
+  - 接收 `--mode` 与 `--backend` 选择
 - 编译方式：
   - `go build -o ../../dist/generator/windows-amd64/sinan-click-generator.exe ./cmd/sinan-click-generator`
 - 打包产物：
@@ -131,7 +133,7 @@ generator/
 - 语言：Go
 - 模块职责：
   - 读取 YAML 配置
-  - 校验样本数、画布尺寸、风格参数
+  - 校验样本数、画布尺寸、风格参数、backend 参数和真值门禁参数
 - 编译方式：
   - 跟随生成器主程序一起编译
 - 打包产物：
@@ -153,7 +155,21 @@ generator/
   - 随主程序部署
   - 运行时依赖 `materials/`
 
-### 4.4 `generator/internal/sampler`
+### 4.4 `generator/internal/backend`
+
+- 语言：Go
+- 模块职责：
+  - 定义 backend 接口
+  - 封装 native backend 与 `go-captcha` adapter backend
+  - 统一返回候选样本与内部真值对象
+- 编译方式：
+  - 随主程序编译
+- 打包产物：
+  - 无独立产物
+- 部署方式：
+  - 随主程序部署
+
+### 4.5 `generator/internal/sampler`
 
 - 语言：Go
 - 模块职责：
@@ -166,7 +182,7 @@ generator/
 - 部署方式：
   - 随主程序部署
 
-### 4.5 `generator/internal/layout`
+### 4.6 `generator/internal/layout`
 
 - 语言：Go
 - 模块职责：
@@ -179,12 +195,12 @@ generator/
 - 部署方式：
   - 随主程序部署
 
-### 4.6 `generator/internal/render`
+### 4.7 `generator/internal/render`
 
 - 语言：Go
 - 模块职责：
-  - 渲染查询图
-  - 渲染场景图
+  - 渲染图形点选查询图与场景图
+  - 渲染滑块主图与滑块图
 - 编译方式：
   - 随主程序编译
 - 打包产物：
@@ -192,11 +208,12 @@ generator/
 - 部署方式：
   - 随主程序部署
 
-### 4.7 `generator/internal/export`
+### 4.8 `generator/internal/export`
 
 - 语言：Go
 - 模块职责：
-  - 导出 `query/`、`scene/`、`labels.jsonl`、`manifest.json`
+  - 导出多模式图片、`labels.jsonl`、`manifest.json`
+  - 记录 `mode`、`backend`、`seed`、素材版本和真值校验结果
 - 编译方式：
   - 随主程序编译
 - 打包产物：
@@ -204,12 +221,13 @@ generator/
 - 部署方式：
   - 随主程序部署
 
-### 4.8 `generator/internal/qa`
+### 4.9 `generator/internal/qa`
 
 - 语言：Go
 - 模块职责：
   - 生成 contact sheet
   - 批次级质量检查
+  - 执行真值一致性校验、重放校验和负样本校验
 - 编译方式：
   - 随主程序编译
 - 打包产物：
@@ -323,8 +341,8 @@ core/
 - 语言：Python
 - 模块职责：
   - 第一专项顺序映射
-  - 第二专项中心点换算
-- 构建方式：
+  - 第二专项中心点和偏移量换算
+  - 构建方式：
   - 打包进 Python wheel
 - 打包产物：
   - wheel 内部模块
@@ -495,6 +513,7 @@ tests/
 - 内容：
   - 背景图
   - 图标图
+  - 滑块图块/遮罩资源
   - `classes.yaml`
 - 语言：
   - 图片 + YAML
@@ -653,6 +672,7 @@ tests/
 从开发视角看，这个项目最合理的仓库结构是：
 
 - 一套 Go 生成器工程
+- 一个拥有可插拔 backend 的生成器控制层
 - 一套 Python 训练工程
 - 一套脚本入口层
 - 三类非代码资产目录：素材、数据、报告

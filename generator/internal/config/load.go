@@ -12,6 +12,7 @@ type Config struct {
 	Project  ProjectConfig  `yaml:"project"`
 	Canvas   CanvasConfig   `yaml:"canvas"`
 	Sampling SamplingConfig `yaml:"sampling"`
+	Slide    SlideConfig    `yaml:"slide"`
 }
 
 type ProjectConfig struct {
@@ -34,6 +35,12 @@ type SamplingConfig struct {
 	TargetCountMax     int `yaml:"target_count_max"`
 	DistractorCountMin int `yaml:"distractor_count_min"`
 	DistractorCountMax int `yaml:"distractor_count_max"`
+}
+
+type SlideConfig struct {
+	GapWidth          int `yaml:"gap_width"`
+	GapHeight         int `yaml:"gap_height"`
+	MaxVerticalJitter int `yaml:"max_vertical_jitter"`
 }
 
 func Load(path string) (Config, error) {
@@ -65,6 +72,8 @@ func (c Config) Validate() error {
 		return errors.New("sampling target count range is invalid")
 	case c.Sampling.DistractorCountMin < 0 || c.Sampling.DistractorCountMax < c.Sampling.DistractorCountMin:
 		return errors.New("sampling distractor count range is invalid")
+	case c.Slide.GapWidth < 0 || c.Slide.GapHeight < 0 || c.Slide.MaxVerticalJitter < 0:
+		return errors.New("slide config values cannot be negative")
 	default:
 		return nil
 	}
@@ -99,6 +108,10 @@ func parseConfig(content []byte, cfg *Config) error {
 		case "sampling":
 			if err := assignSamplingField(&cfg.Sampling, key, value); err != nil {
 				return fmt.Errorf("invalid sampling field on line %d: %w", lineNumber+1, err)
+			}
+		case "slide":
+			if err := assignSlideField(&cfg.Slide, key, value); err != nil {
+				return fmt.Errorf("invalid slide field on line %d: %w", lineNumber+1, err)
 			}
 		default:
 			return fmt.Errorf("unknown config section %q on line %d", section, lineNumber+1)
@@ -167,6 +180,24 @@ func assignSamplingField(sampling *SamplingConfig, key string, value string) err
 		sampling.DistractorCountMin = parsed
 	case "distractor_count_max":
 		sampling.DistractorCountMax = parsed
+	default:
+		return fmt.Errorf("unsupported key: %s", key)
+	}
+	return nil
+}
+
+func assignSlideField(slide *SlideConfig, key string, value string) error {
+	parsed, err := strconv.Atoi(value)
+	if err != nil {
+		return err
+	}
+	switch key {
+	case "gap_width":
+		slide.GapWidth = parsed
+	case "gap_height":
+		slide.GapHeight = parsed
+	case "max_vertical_jitter":
+		slide.MaxVerticalJitter = parsed
 	default:
 		return fmt.Errorf("unsupported key: %s", key)
 	}

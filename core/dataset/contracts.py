@@ -50,16 +50,20 @@ class Group1Sample:
 @dataclass(frozen=True)
 class Group2Sample:
     sample_id: str
-    query_image: str
-    scene_image: str
-    target: SceneObject
+    master_image: str
+    tile_image: str
+    target_gap: SceneObject
+    tile_bbox: BoundingBox
+    offset_x: int
+    offset_y: int
     label_source: str
     source_batch: str
     seed: int
 
     def to_dict(self) -> dict[str, object]:
         payload = asdict(self)
-        payload["target"] = _scene_object_to_dict(self.target)
+        payload["target_gap"] = _scene_object_to_dict(self.target_gap)
+        payload["tile_bbox"] = self.tile_bbox.as_list()
         return payload
 
 

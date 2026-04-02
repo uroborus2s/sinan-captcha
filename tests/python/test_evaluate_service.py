@@ -79,14 +79,17 @@ class EvaluateServiceTests(unittest.TestCase):
                 [
                     {
                         "sample_id": "g2_000001",
-                        "query_image": "query/g2_000001.png",
-                        "scene_image": "scene/g2_000001.png",
-                        "target": {
-                            "class": "target_shape",
+                        "master_image": "master/g2_000001.png",
+                        "tile_image": "tile/g2_000001.png",
+                        "target_gap": {
+                            "class": "slider_gap",
                             "class_id": 0,
                             "bbox": [20, 20, 60, 50],
                             "center": [40, 35],
                         },
+                        "tile_bbox": [0, 20, 40, 50],
+                        "offset_x": 20,
+                        "offset_y": 0,
                         "label_source": "gold",
                         "source_batch": "batch_0001",
                         "seed": 1,
@@ -98,14 +101,17 @@ class EvaluateServiceTests(unittest.TestCase):
                 [
                     {
                         "sample_id": "g2_000001",
-                        "query_image": "query/g2_000001.png",
-                        "scene_image": "scene/g2_000001.png",
-                        "target": {
-                            "class": "target_shape",
+                        "master_image": "master/g2_000001.png",
+                        "tile_image": "tile/g2_000001.png",
+                        "target_gap": {
+                            "class": "slider_gap",
                             "class_id": 0,
                             "bbox": [100, 90, 130, 118],
                             "center": [115, 104],
                         },
+                        "tile_bbox": [0, 20, 40, 50],
+                        "offset_x": 100,
+                        "offset_y": 70,
                         "label_source": "auto",
                         "source_batch": "batch_0001",
                         "seed": 1,

@@ -12,6 +12,7 @@ dependencies = []
 
 [project.scripts]
 sinan-dataset-validate = "core.dataset.cli:main"
+sinan-materials-build = "core.materials.cli:main"
 sinan-train-group1 = "core.train.group1.cli:main"
 sinan-train-group2 = "core.train.group2.cli:main"
 

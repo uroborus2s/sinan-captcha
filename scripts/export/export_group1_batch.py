@@ -27,6 +27,8 @@ def main() -> int:
             command="generate",
             config=args.config,
             materials_root=args.materials_root,
+            mode="click",
+            backend="native",
             output_root=args.output_root,
         )
     )

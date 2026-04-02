@@ -6,12 +6,12 @@ import (
 	"fmt"
 	"os"
 
+	"sinan-captcha/generator/internal/backend"
 	"sinan-captcha/generator/internal/config"
 	"sinan-captcha/generator/internal/export"
 	"sinan-captcha/generator/internal/material"
 	"sinan-captcha/generator/internal/qa"
-	"sinan-captcha/generator/internal/render"
-	"sinan-captcha/generator/internal/sampler"
+	"sinan-captcha/generator/internal/truth"
 )
 
 func main() {
@@ -62,6 +62,8 @@ func runValidateMaterials(args []string) error {
 
 func runGenerate(args []string) error {
 	fs := flag.NewFlagSet("generate", flag.ContinueOnError)
+	modeRaw := fs.String("mode", "click", "generation mode: click or slide")
+	backendRaw := fs.String("backend", "native", "backend kind: native or gocaptcha")
 	configPath := fs.String("config", "generator/configs/default.yaml", "path to generator config")
 	materialsRoot := fs.String("materials-root", "materials", "path to materials root")
 	outputRoot := fs.String("output-root", "generator/output/group1", "path to batch output root")
@@ -73,6 +75,14 @@ func runGenerate(args []string) error {
 	if err != nil {
 		return err
 	}
+	spec, generator, err := backend.Resolve(*modeRaw, *backendRaw)
+	if err != nil {
+		return err
+	}
+	outputRootValue := *outputRoot
+	if *outputRoot == "generator/output/group1" && spec.Mode == backend.ModeSlide {
+		outputRootValue = "generator/output/group2"
+	}
 	summary, err := material.Validate(*materialsRoot)
 	if err != nil {
 		return err
@@ -81,20 +91,34 @@ func runGenerate(args []string) error {
 	if err != nil {
 		return err
 	}
-	writer, err := export.NewBatchWriter(*outputRoot, *configPath, cfg, summary)
+	writer, err := export.NewBatchWriter(
+		outputRootValue,
+		*configPath,
+		cfg,
+		summary,
+		export.BatchLayout{
+			Mode:      string(spec.Mode),
+			Backend:   string(spec.Backend),
+			AssetDirs: spec.AssetDirs(),
+		},
+	)
 	if err != nil {
 		return err
 	}
 	for index := 0; index < cfg.Project.SampleCount; index++ {
-		plan, err := sampler.BuildPlan(index, cfg, catalog)
+		record, assets, err := generator.Generate(index, cfg, catalog)
 		if err != nil {
 			return err
 		}
-		queryImage, sceneImage, err := render.Build(plan, cfg.Canvas)
+		checks, err := truth.Validate(record, spec, cfg.Canvas, func() (export.SampleRecord, error) {
+			replayed, _, replayErr := generator.Generate(index, cfg, catalog)
+			return replayed, replayErr
+		})
 		if err != nil {
 			return err
 		}
-		if err := writer.WriteSample(plan.Record, queryImage, sceneImage); err != nil {
+		record.TruthChecks = checks
+		if err := writer.WriteSample(record, assets); err != nil {
 			return err
 		}
 	}

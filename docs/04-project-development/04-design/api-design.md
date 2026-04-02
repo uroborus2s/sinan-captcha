@@ -13,6 +13,8 @@
 - 训练入口
 - 评估入口
 
+其中数据导出入口必须由生成器控制层统一接管，确保 `mode`、`backend`、`seed` 和真值校验结果一起进入批次记录。
+
 如果未来需要把内部生成器升级成服务，再把这些入口映射成正式 HTTP 或 RPC API。
 
 ## API-001 数据导出合同
@@ -21,6 +23,8 @@
 - 调用方：生成器适配层、数据工程脚本
 - 输入：
   - 验证码类型
+  - 生成模式：`click` / `slide`
+  - backend：`native` / `gocaptcha`
   - 生成数量
   - 输出目录
   - 资源配置
@@ -28,11 +32,12 @@
   - 图片文件
   - JSONL 标签
   - 批次元数据
+  - 真值校验结果
 
 ### 推荐命令形态
 
 ```bash
-uv run python scripts/export/export_samples.py --task group1 --count 1000 --out datasets/group1/v1/raw
+uv run python scripts/export/export_samples.py --task group1 --mode click --backend native --count 1000 --out datasets/group1/v1/raw
 ```
 
 ## API-002 自动标注合同
@@ -136,3 +141,4 @@ uv run python scripts/evaluate/evaluate_model.py --task group1 --weights runs/gr
 - 图片和标签写盘后才视为成功
 - 标签主事实源始终是 JSONL
 - 任何入口的输出都要带批次标识
+- `gold` 只有在真值一致性校验通过后才允许写盘

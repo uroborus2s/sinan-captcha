@@ -13,6 +13,8 @@ class GeneratorCommand:
     command: str
     config: Path
     materials_root: Path
+    mode: str = "click"
+    backend: str = "native"
     output_root: Path | None = None
     batch_dir: Path | None = None
 
@@ -25,6 +27,8 @@ class GeneratorCommand:
             "--materials-root",
             str(self.materials_root),
         ]
+        if self.command == "generate":
+            args.extend(["--mode", self.mode, "--backend", self.backend])
         if self.output_root is not None:
             args.extend(["--output-root", str(self.output_root)])
         if self.batch_dir is not None:

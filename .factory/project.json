@@ -3,8 +3,8 @@
   "project_name": "sinan-captcha",
   "project_root": ".",
   "owner": "Codex",
-  "idea": "司南：面向图形验证码训练两个专项模型。第一专项为多类别检测模型，用于多图标顺序点击验证码；第二专项为单类别目标检测模型，用于单目标定位验证码。当前设计结论：基于预训练 YOLO 检测权重微调，优先从自有生成端或内部生成器直接导出标签，不要求先上线完整验证码平台。",
-  "stack": "Go, Python, Ultralytics YOLO, Windows, CUDA, X-AnyLabeling/CVAT",
+  "idea": "司南：面向行为验证码训练两个专项模型。第一专项为多类别检测模型，用于图形点选验证码；第二专项为滑块缺口定位模型，用于滑块验证码。当前设计结论：生成器采用受控集成 + 可插拔 backend，优先从自有生成端或内部生成器直接导出并校验 gold 标签，不要求先上线完整验证码平台。",
+  "stack": "Go, Python, Ultralytics YOLO, Windows, CUDA, X-AnyLabeling/CVAT, optional go-captcha backend adapter",
   "created_at": "2026-04-01T08:51:13.932354+00:00",
   "active_mode": "cli_direct",
   "supported_modes": [

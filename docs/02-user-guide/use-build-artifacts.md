@@ -69,6 +69,18 @@
 
 它们属于运行资产，不应和训练结果混在一起，也不应默认混进仓库源码管理。
 
+当前仓库还新增了一条“批量构建本地离线素材包”的脚本入口：
+
+- `scripts/materials/build_offline_pack.py`
+- `configs/materials-pack.example.toml`
+
+它的作用是：
+
+- 用 Pexels API 批量下载背景图
+- 从 Google 官方图标仓库批量提取图标 PNG
+- 自动生成 `manifests/classes.yaml`
+- 直接落盘成生成器可消费的 `materials/` 目录
+
 ## 2. 产物应该放在哪里
 
 推荐固定成下面两层：
@@ -168,6 +180,29 @@ D:\sinan-captcha-work\materials\
 
 ### 4.1 使用生成器导出第一专项样本
 
+如果你手头还没有背景图、图标图和类别表，可以先构建一套本地离线素材包：
+
+```powershell
+Set-Location D:\sinan-captcha-repo
+$env:PEXELS_API_KEY = "<你的 Pexels API Key>"
+uv run python .\scripts\materials\build_offline_pack.py `
+  --spec .\configs\materials-pack.example.toml `
+  --output-root D:\sinan-captcha-work\materials `
+  --cache-dir D:\sinan-captcha-work\tools\material-cache
+```
+
+生成完成后，`D:\sinan-captcha-work\materials\` 下会直接出现：
+
+```text
+materials\
+  backgrounds\
+  icons\
+  manifests\
+    classes.yaml
+    backgrounds.csv
+    icons.csv
+```
+
 ```powershell
 Set-Location D:\sinan-captcha-repo
 uv run python .\scripts\export\export_group1_batch.py `
@@ -204,9 +239,9 @@ Set-Location D:\sinan-captcha-repo
 为了避免误解，这里明确列出当前限制：
 
 1. 第二专项还没有同等仓内导出入口。
-2. 自动标注仍不是完整可用状态。
-3. 统一评估入口仍是脚手架。
-4. 推理后处理还没有落成。
+2. 自动标注和 JSONL 对比评估已经有离线入口，但还不是“训练完成后自动回灌业务”的完整闭环。
+3. 推理后处理还没有落成，尤其第一专项的顺序整理仍需你自己的推理脚本配合。
+4. 训练脚本当前主要负责生成标准命令，不是一键训练器。
 5. `pyproject.toml` 还没有把完整训练依赖写满，所以不要把“仓库能运行”误认为“训练环境已经完备”。
 
 ## 6. 什么时候算你已经会“使用项目编译结果”
@@ -217,6 +252,10 @@ Set-Location D:\sinan-captcha-repo
 2. 你能把生成器二进制和素材放到正确位置。
 3. 你能从仓库根目录调用脚本并指向工作目录。
 4. 你能用这些产物完成一次“导出样本 -> 转换数据 -> 生成训练命令”的链路。
+
+如果你已经继续跑完训练，下一步读：
+
+- [训练完成后的模型使用与测试](./use-and-test-trained-models.md)
 
 ## 7. 下一步去哪里
 

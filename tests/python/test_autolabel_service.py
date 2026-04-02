@@ -81,16 +81,16 @@ class AutolabelServiceTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmpdir:
             root = Path(tmpdir)
             input_dir = root / "raw"
-            (input_dir / "query").mkdir(parents=True)
-            (input_dir / "scene").mkdir(parents=True)
-            _write_png(input_dir / "query" / "g2_000001.png", 60, 60, (20, 20, 20))
-            _write_png(input_dir / "scene" / "g2_000001.png", 200, 120, (240, 240, 240))
+            (input_dir / "tile").mkdir(parents=True)
+            (input_dir / "master").mkdir(parents=True)
+            _write_png(input_dir / "tile" / "g2_000001.png", 60, 60, (20, 20, 20))
+            _write_png(input_dir / "master" / "g2_000001.png", 200, 120, (240, 240, 240))
             (input_dir / "labels.jsonl").write_text(
                 (
-                    '{"sample_id":"g2_000001","query_image":"query/g2_000001.png",'
-                    '"scene_image":"scene/g2_000001.png","target":{"class":"target_shape","class_id":0,'
-                    '"bbox":[4,5,36,40],"center":[20,22]},"label_source":"gold",'
-                    '"source_batch":"batch_0002","seed":101}\n'
+                    '{"sample_id":"g2_000001","master_image":"master/g2_000001.png",'
+                    '"tile_image":"tile/g2_000001.png","target_gap":{"class":"slider_gap","class_id":0,'
+                    '"bbox":[4,5,36,40],"center":[20,22]},"tile_bbox":[0,5,32,40],"offset_x":4,'
+                    '"offset_y":0,"label_source":"gold","source_batch":"batch_0002","seed":101}\n'
                 ),
                 encoding="utf-8",
             )
@@ -110,7 +110,7 @@ class AutolabelServiceTests(unittest.TestCase):
             rows = read_jsonl(output_dir / "labels.jsonl")
             row = rows[0]
             self.assertEqual(row["label_source"], "auto")
-            bbox = row["target"]["bbox"]
+            bbox = row["target_gap"]["bbox"]
             self.assertGreaterEqual(bbox[0], 0)
             self.assertGreaterEqual(bbox[1], 0)
             self.assertLessEqual(bbox[2], 200)

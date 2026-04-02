@@ -85,21 +85,21 @@ class ConvertServiceTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmpdir:
             root = Path(tmpdir)
             source_dir = root / "source"
-            scene_dir = source_dir / "scene"
-            query_dir = source_dir / "query"
-            scene_dir.mkdir(parents=True)
-            query_dir.mkdir(parents=True)
+            master_dir = source_dir / "master"
+            tile_dir = source_dir / "tile"
+            master_dir.mkdir(parents=True)
+            tile_dir.mkdir(parents=True)
 
-            _write_png(scene_dir / "g2_000001.png", 120, 80, (220, 220, 255))
-            _write_png(query_dir / "g2_000001.png", 30, 30, (10, 10, 10))
+            _write_png(master_dir / "g2_000001.png", 120, 80, (220, 220, 255))
+            _write_png(tile_dir / "g2_000001.png", 30, 30, (10, 10, 10))
 
             labels_path = source_dir / "labels.jsonl"
             labels_path.write_text(
                 (
-                    '{"sample_id":"g2_000001","query_image":"query/g2_000001.png",'
-                    '"scene_image":"scene/g2_000001.png","target":{"class":"target_shape",'
-                    '"class_id":0,"bbox":[20,20,60,50],"center":[40,35]},"label_source":"gold",'
-                    '"source_batch":"batch_0001","seed":1}\n'
+                    '{"sample_id":"g2_000001","master_image":"master/g2_000001.png",'
+                    '"tile_image":"tile/g2_000001.png","target_gap":{"class":"slider_gap",'
+                    '"class_id":0,"bbox":[20,20,60,50],"center":[40,35]},"tile_bbox":[0,20,40,50],'
+                    '"offset_x":20,"offset_y":0,"label_source":"gold","source_batch":"batch_0001","seed":1}\n'
                 ),
                 encoding="utf-8",
             )
@@ -115,7 +115,7 @@ class ConvertServiceTests(unittest.TestCase):
             )
 
             dataset_yaml = (output_dir / "dataset.yaml").read_text(encoding="utf-8")
-            self.assertIn("target_shape", dataset_yaml)
+            self.assertIn("slider_gap", dataset_yaml)
             train_labels = list((output_dir / "labels" / "train").glob("*.txt"))
             self.assertEqual(len(train_labels), 1)
             self.assertEqual(len(train_labels[0].read_text(encoding="utf-8").strip().splitlines()), 1)

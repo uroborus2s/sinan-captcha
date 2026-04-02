@@ -42,13 +42,15 @@
 从这里开始：
 
 - [搭建训练环境并完成模型训练](./from-base-model-to-training-guide.md)
+- [训练完成后的模型使用与测试](./use-and-test-trained-models.md)
 - [如何确认 Windows 电脑上的 CUDA 版本](./how-to-check-cuda-version.md)
 
 完成后你应能做到：
 
 - 准备训练机和工作目录
 - 跑通 JSONL -> YOLO -> 训练 的主链路
-- 拿到首轮训练结果并理解下一步该补哪里
+- 拿到首轮训练结果
+- 知道训练后的模型怎么使用和怎么测试
 
 ## 当前推荐阅读顺序
 

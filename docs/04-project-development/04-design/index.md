@@ -10,5 +10,5 @@
 - [模块边界基线](./module-boundaries.md)
 - [系统架构基线](./system-architecture.md)
 - [接口与入口基线](./api-design.md)
-- [图形点选样本生成器完整方案](./graphic-click-generator-design.md)
+- [多模式验证码样本生成器设计](./graphic-click-generator-design.md)
 - [模块结构与构建交付设计](./module-structure-and-delivery.md)

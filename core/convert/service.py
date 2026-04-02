@@ -12,6 +12,8 @@ from core.dataset.validation import (
     DatasetValidationError,
     collect_group1_classes,
     collect_group2_classes,
+    get_group2_scene_image,
+    get_group2_target,
     validate_group1_row,
     validate_group2_row,
 )
@@ -94,7 +96,8 @@ def _split_rows(rows: list[dict[str, object]], request: ConversionRequest) -> li
 
 
 def _write_row(request: ConversionRequest, row: dict[str, object], split_name: str) -> None:
-    scene_path = request.source_dir / str(row["scene_image"])
+    scene_key = str(row["scene_image"]) if request.task == "group1" else get_group2_scene_image(row)
+    scene_path = request.source_dir / scene_key
     if not scene_path.exists():
         raise DatasetValidationError(f"scene image not found: {scene_path}")
 
@@ -106,7 +109,7 @@ def _write_row(request: ConversionRequest, row: dict[str, object], split_name: s
     if request.task == "group1":
         objects = list(row["targets"]) + list(row["distractors"])  # type: ignore[arg-type]
     else:
-        objects = [row["target"]]  # type: ignore[list-item]
+        objects = [get_group2_target(row)]
 
     lines = [_to_yolo_line(obj, width, height) for obj in objects]  # type: ignore[arg-type]
     destination_label.write_text("\n".join(lines) + ("\n" if lines else ""), encoding="utf-8")

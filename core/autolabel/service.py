@@ -9,7 +9,14 @@ import shutil
 
 from core.common.images import get_image_size
 from core.common.jsonl import read_jsonl, write_jsonl
-from core.dataset.validation import validate_group1_row, validate_group2_row
+from core.dataset.validation import (
+    get_group2_query_image,
+    get_group2_scene_image,
+    get_group2_target,
+    set_group2_target,
+    validate_group1_row,
+    validate_group2_row,
+)
 
 
 @dataclass(frozen=True)
@@ -53,8 +60,12 @@ def run_autolabel(request: AutolabelRequest) -> AutolabelResult:
         else:
             raise ValueError(f"unsupported autolabel task: {request.task}")
 
-        _copy_asset(request.input_dir, request.output_dir, Path(str(transformed["query_image"])))
-        _copy_asset(request.input_dir, request.output_dir, Path(str(transformed["scene_image"])))
+        if request.task == "group1":
+            _copy_asset(request.input_dir, request.output_dir, Path(str(transformed["query_image"])))
+            _copy_asset(request.input_dir, request.output_dir, Path(str(transformed["scene_image"])))
+        else:
+            _copy_asset(request.input_dir, request.output_dir, Path(get_group2_query_image(transformed)))
+            _copy_asset(request.input_dir, request.output_dir, Path(get_group2_scene_image(transformed)))
         output_rows.append(transformed)
 
     labels_path = request.output_dir / "labels.jsonl"
@@ -116,16 +127,18 @@ def _transform_group2_row(row: dict[str, object], request: AutolabelRequest) -> 
     if request.mode != "rule-auto":
         raise ValueError(f"unsupported group2 autolabel mode: {request.mode}")
 
-    scene_path = request.input_dir / str(row["scene_image"])
+    scene_path = request.input_dir / get_group2_scene_image(row)
     image_width, image_height = get_image_size(scene_path)
-    result = dict(row)
-    result["target"] = _perturb_object(
-        row["target"],
-        sample_id=str(row["sample_id"]),
-        image_width=image_width,
-        image_height=image_height,
-        jitter_pixels=request.jitter_pixels,
-        salt="group2-target",
+    result = set_group2_target(
+        row,
+        _perturb_object(
+            get_group2_target(row),
+            sample_id=str(row["sample_id"]),
+            image_width=image_width,
+            image_height=image_height,
+            jitter_pixels=request.jitter_pixels,
+            salt="group2-target",
+        ),
     )
     result["label_source"] = "auto"
     return result

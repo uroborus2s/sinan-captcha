@@ -22,6 +22,9 @@ mkdocs:
         - title: 搭建训练环境并完成模型训练
           path: 02-user-guide/from-base-model-to-training-guide.md
           access: public
+        - title: 训练完成后的模型使用与测试
+          path: 02-user-guide/use-and-test-trained-models.md
+          access: public
         - title: 如何确认 Windows 电脑上的 CUDA 版本
           path: 02-user-guide/how-to-check-cuda-version.md
           access: public
@@ -91,7 +94,7 @@ mkdocs:
             - title: 接口与入口基线
               path: 04-project-development/04-design/api-design.md
               access: private
-            - title: 图形点选样本生成器完整方案
+            - title: 多模式验证码样本生成器设计
               path: 04-project-development/04-design/graphic-click-generator-design.md
               access: private
             - title: 模块结构与构建交付设计
@@ -111,7 +114,7 @@ mkdocs:
             - title: 样本导出与自动标注 Checklist
               path: 04-project-development/05-development-process/data-export-auto-labeling-checklist.md
               access: private
-            - title: 图形点选生成器任务拆解
+            - title: 多模式验证码生成器任务拆解
               path: 04-project-development/05-development-process/generator-task-breakdown.md
               access: private
         - title: 测试与验证
