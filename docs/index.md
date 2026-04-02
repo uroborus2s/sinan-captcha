@@ -13,23 +13,26 @@ mkdocs:
         - title: 概览
           path: 02-user-guide/index.md
           access: public
-        - title: 维护者快速使用说明
+        - title: 使用指南总览
           path: 02-user-guide/user-guide.md
           access: public
-        - title: 从基础模型到训练的实操手册
+        - title: 使用项目编译结果
+          path: 02-user-guide/use-build-artifacts.md
+          access: public
+        - title: 搭建训练环境并完成模型训练
           path: 02-user-guide/from-base-model-to-training-guide.md
-          access: private
+          access: public
         - title: 如何确认 Windows 电脑上的 CUDA 版本
           path: 02-user-guide/how-to-check-cuda-version.md
-          access: private
-        - title: 零基础落地实施方案
-          path: 04-project-development/05-development-process/implementation-plan.md
-          access: private
+          access: public
     - title: 开发者指南
       children:
         - title: 概览
           path: 03-developer-guide/index.md
           access: public
+        - title: 维护者快速使用说明
+          path: 03-developer-guide/maintainer-quickstart.md
+          access: private
     - title: 项目开发文档（内）
       children:
         - title: 概览

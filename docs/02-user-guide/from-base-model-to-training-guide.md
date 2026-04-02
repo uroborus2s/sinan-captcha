@@ -1,4 +1,4 @@
-# 从基础模型到训练的实操手册
+# 搭建训练环境并完成模型训练
 
 - 文档状态：草稿
 - 当前阶段：IMPLEMENTATION
@@ -213,17 +213,26 @@ D:\sinan-captcha-work\
 
 ## 6. 第一步：先把训练机环境搭起来
 
-环境细节不要在这份总手册里重复抄写。当前正式操作入口是：
-
-1. [Windows 训练环境 Checklist](../04-project-development/05-development-process/windows-environment-checklist.md)
-2. [如何确认 Windows 电脑上的 CUDA 版本](./how-to-check-cuda-version.md)
-
-你至少要达到下面状态，才进入后续步骤：
+环境搭建先按下面顺序完成。你至少要达到这些状态，才进入后续步骤：
 
 - `nvidia-smi` 正常
 - `python -c "import torch; print(torch.cuda.is_available())"` 输出 `True`
 - `uv` 和 Python 3.11 已装好
 - 已准备独立工作目录
+
+推荐顺序：
+
+1. 安装并确认 NVIDIA 驱动
+2. 安装 `uv`
+3. 安装 Python 3.11
+4. 创建虚拟环境
+5. 安装 PyTorch GPU 版
+6. 安装 `ultralytics`、`opencv-python` 等训练依赖
+7. 运行环境检查脚本
+
+如果你只是不确定 CUDA 版本怎么看，再补读：
+
+- [如何确认 Windows 电脑上的 CUDA 版本](./how-to-check-cuda-version.md)
 
 仓库里还提供了一个最小环境检查脚本：
 
@@ -337,9 +346,11 @@ D:\sinan-captcha-work\datasets\group1\v1\raw\batch_0001\
 - 仓库里还没有第二专项对等的生成器导出入口
 - 第二专项样本导出仍应来自你的自有生成逻辑、内部离线脚本或外部受控工具
 
-但无论你用哪种方式，最终都要满足统一目录和字段要求。具体字段见：
+但无论你用哪种方式，最终都要满足统一目录和字段要求。最少要保证：
 
-- [样本导出与自动标注 Checklist](../04-project-development/05-development-process/data-export-auto-labeling-checklist.md)
+- 顶层字段有 `sample_id`、`query_image`、`scene_image`、`label_source`、`source_batch`
+- 第一专项有 `targets[]` 和 `distractors[]`
+- 第二专项有 `target`
 
 另外要特别注意当前仓库实现约束：
 
@@ -505,9 +516,10 @@ Set-Location D:\sinan-captcha-repo
 
 所以现在的实际做法是：
 
-1. 按 [样本导出与自动标注 Checklist](../04-project-development/05-development-process/data-export-auto-labeling-checklist.md) 执行
-2. 使用外部标注工具和临时规则脚本
-3. 等仓库内自动标注模块落地后，再切回统一入口
+1. 第二专项先用规则法做预标注，至少能产出 `bbox` 和 `center`
+2. 第一专项优先使用 `gold` 标签；如果拿不到，就先做 300-500 张种子集
+3. 用外部标注工具复核和修正
+4. 等仓库内自动标注模块落地后，再切回统一入口
 
 ### 12.2 评估
 
@@ -569,13 +581,15 @@ Set-Location D:\sinan-captcha-repo
 
 ## 15. 你下一步该读什么
 
-这份手册负责总流程，不负责把所有细节重复写三遍。执行时按这个阅读顺序最稳：
+如果你还没理解交付物怎么用，先回去读：
 
-1. 本手册
-2. [Windows 训练环境 Checklist](../04-project-development/05-development-process/windows-environment-checklist.md)
-3. [样本导出与自动标注 Checklist](../04-project-development/05-development-process/data-export-auto-labeling-checklist.md)
-4. [零基础落地实施方案](../04-project-development/05-development-process/implementation-plan.md)
-5. [模块结构与构建交付设计](../04-project-development/04-design/module-structure-and-delivery.md)
+1. [使用项目编译结果](./use-build-artifacts.md)
+
+如果你只是卡在 CUDA 版本判断，补读：
+
+2. [如何确认 Windows 电脑上的 CUDA 版本](./how-to-check-cuda-version.md)
+
+如果你是仓库维护者，而不是训练执行者，请改读开发者指南下的“维护者快速使用说明”。
 
 ## 16. 参考来源
 

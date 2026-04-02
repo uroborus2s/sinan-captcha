@@ -32,6 +32,7 @@
 - 已新增 `pyproject.toml`、`uv.lock`、`.gitignore`、`.python-version` 和根级 `README.md`
 - 已新增 Go `generator/` 骨架、Python `core/` 核心包、`scripts/` 入口和最小测试
 - 已按“仓库产物 / 训练工作目录”分离模型重构训练实操手册，移除 `go-captcha-service` 默认前置并对齐当前脚本状态
+- 已按读者目标重构用户指南，形成两条公开路径：“使用项目编译结果”和“搭建训练环境并完成模型训练”，并将维护者入口迁移到开发者指南
 
 ## 最近条目
 

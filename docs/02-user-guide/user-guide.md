@@ -1,33 +1,76 @@
-# 维护者快速使用说明
+# 使用指南总览
 
 - 项目名称：sinan-captcha
 - 当前阶段：IMPLEMENTATION
-- 当前目标：初始化 Go 生成器与 Python `core/` 核心包骨架，并保持文档、代码和忽略规则一致
+- 面向读者：项目使用者、训练执行者
 
-## 新协作者先读什么
+## 这份总览只回答两个问题
 
-1. `AGENTS.md` / `GEMINI.md`
-2. `.factory/project.json`
-3. `.factory/memory/agent-session.md`
-4. `.factory/memory/current-state.md`
-5. [从基础模型到训练的实操手册](./from-base-model-to-training-guide.md)
-6. [零基础落地实施方案](../04-project-development/05-development-process/implementation-plan.md)
-7. [Windows 训练环境 Checklist](../04-project-development/05-development-process/windows-environment-checklist.md)
-8. [如何确认 Windows 电脑上的 CUDA 版本](./how-to-check-cuda-version.md)
-9. [样本导出与自动标注 Checklist](../04-project-development/05-development-process/data-export-auto-labeling-checklist.md)
-10. [图形点选生成器任务拆解](../04-project-development/05-development-process/generator-task-breakdown.md)
-11. 本目录下的运维手册和追踪矩阵
+1. 我如何使用项目已经编译出来的产物？
+2. 我如何搭建训练环境并最终完成模型训练？
 
-## 后续怎么和 AI 协作
+如果你的目标不是上面这两个，而是维护仓库、推进阶段或和 AI 协作，请不要从本页开始。维护者入口已经迁到开发者指南。
 
-- 修缺陷时说：`新增一个 BUG，先分析影响，再同步代码、测试、文档和 AI 记忆。`
-- 加需求时说：`新增一个 CR，先补需求和设计，再进入实现。`
-- 不确定下一步时说：`先生成 agent session 和 state doctor，再告诉我最合适的下一步。`
+## 先判断你是哪一类读者
 
-## 维护边界
+### 角色 A：交付使用者
 
-- 以当前真实实现状态为准，不把项目当成新项目重做。
-- 缺陷走 `BUG-*`，需求走 `CR-*`，治理补齐走 `TASK-*`。
-- 当前最重要的正式执行文档是“从基础模型到训练的实操手册”，不要只从 PRD 的需求条目里拼接执行步骤。
-- 这份手册已经按“仓库产物 + 训练工作目录 + 当前实现状态”重写，环境和样本细节再分别看 checklist。
-- 如果你是第一次真开工，先读“从基础模型到训练的实操手册”，再读 checklist。
+你更关心的是：
+
+- 已经有什么构建产物
+- 这些产物怎么放到训练机上
+- 用它们能做哪些事
+
+从这里开始：
+
+- [使用项目编译结果](./use-build-artifacts.md)
+
+完成后你应能做到：
+
+- 看懂 `generator`、Python 脚本和工作目录的关系
+- 在训练机上使用已交付的二进制和脚本
+- 导出样本、转换数据并启动训练
+
+### 角色 B：训练执行者
+
+你更关心的是：
+
+- Windows + NVIDIA 训练环境怎么搭
+- 数据目录怎么组织
+- 如何从样本走到训练结果
+
+从这里开始：
+
+- [搭建训练环境并完成模型训练](./from-base-model-to-training-guide.md)
+- [如何确认 Windows 电脑上的 CUDA 版本](./how-to-check-cuda-version.md)
+
+完成后你应能做到：
+
+- 准备训练机和工作目录
+- 跑通 JSONL -> YOLO -> 训练 的主链路
+- 拿到首轮训练结果并理解下一步该补哪里
+
+## 当前推荐阅读顺序
+
+如果你只想尽快落地，不要漫无目的地翻目录，按下面顺序读：
+
+1. 先判断自己是“交付使用者”还是“训练执行者”
+2. 读对应那一条主路径的页面
+3. 只在遇到具体问题时，再补读 CUDA 说明或更细的专题页
+
+## 这份总览刻意不再做的事情
+
+- 不再把维护者入口塞进用户指南
+- 不再把阶段文档、实施计划和私有材料混进主阅读路径
+- 不再让读者在一页里同时面对“用项目”“维护项目”“推进项目”三件事
+
+## 维护者去哪里
+
+如果你需要的是：
+
+- 仓库协作规则
+- AI 协作入口
+- 当前阶段事实
+- 内部维护阅读顺序
+
+请改读开发者指南下的“维护者快速使用说明”。
