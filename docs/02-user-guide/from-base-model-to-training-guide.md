@@ -1,278 +1,391 @@
-# 搭建训练环境并完成模型训练
+# Windows 训练机安装与模型训练完整指南
 
-- 文档状态：草稿
+- 文档状态：生效
 - 当前阶段：IMPLEMENTATION
-- 目标读者：零基础训练执行者
+- 目标读者：Windows 训练执行者
 - 负责人：Codex
-- 最近重构：2026-04-02
-- 关联需求：`REQ-001`、`REQ-002`、`REQ-003`、`REQ-005`、`REQ-006`、`REQ-007`、`REQ-008`
+- 最近更新：2026-04-03
 
-## 0. 读完后你应能做到
+## 0. 这份文档解决什么问题
 
-- 在 Windows + NVIDIA 电脑上把训练环境搭起来
-- 分清项目仓库和训练工作目录
-- 按 `raw -> reviewed -> yolo -> train` 跑通主链路
-- 知道训练结果在哪里
-- 知道训练完成后下一步该怎么使用和测试模型
+这是一份面向 Windows 训练机的完整操作文档。
 
-## 1. 先固定目录边界
+它覆盖两类起点：
 
-推荐固定成两个根目录：
+1. 你已经拿到了现成的 YOLO 数据集，准备直接训练
+2. 你有独立生成器目录和素材，准备从样本生成开始
+
+读完后你应能做到：
+
+1. 在 Windows 上装好训练环境
+2. 一条命令创建独立训练目录并自动安装运行环境
+3. 区分生成器安装目录、生成器工作区和训练目录
+4. 启动 `group1` 与 `group2` 的训练
+
+## 1. 先准备这些文件
+
+### 1.1 如果你准备直接从 PyPI 初始化训练目录
+
+你只需要：
+
+- `uv`
+- `sinan-captcha` 已发布到 PyPI
+
+### 1.2 如果你要直接训练
+
+还需要：
+
+- `group1` 的 YOLO 数据集目录
+- `group2` 的 YOLO 数据集目录
+
+### 1.3 如果你要自己生成样本
+
+还需要独立生成器目录里的这些文件：
+
+- `sinan-generator.exe`
+- `generator/configs/*.yaml`
+- `materials-pack.toml`
+- 现成 `materials-pack/` 或 `materials/`
+  或
+- `Pexels API Key`
+  和
+- `uv run sinan materials build` 所需的素材规格文件
+
+## 2. 固定训练机目录
+
+建议固定为：
 
 ```text
 D:\
-  sinan-captcha-repo\
+  sinan-captcha-generator\
   sinan-captcha-work\
 ```
 
-职责只分两类：
-
-- `sinan-captcha-repo`：保存源码、脚本、文档和构建产物定义
-- `sinan-captcha-work`：保存样本、模型、报告、运行素材和生成器二进制
-
-推荐工作目录结构：
+推荐结构：
 
 ```text
+D:\sinan-captcha-generator\
+  sinan-generator.exe
+  configs\
+  workspace\
+    workspace.json
+    presets\
+    materials\
+    cache\
+    jobs\
+    logs\
+
 D:\sinan-captcha-work\
+  pyproject.toml
+  .python-version
   datasets\
-    group1\
-      v1\
-        raw\
-        interim\
-        reviewed\
-        yolo\
-    group2\
-      v1\
-        raw\
-        interim\
-        reviewed\
-        yolo\
   runs\
   reports\
-  tools\
-    generator\
-  materials\
-  models\
 ```
 
-## 2. 先把训练机环境搭好
+说明：
 
-进入数据和训练前，至少先确认下面 4 条：
+- `sinan-captcha-generator` 是生成器安装目录
+- `sinan-captcha-generator\workspace` 是建议显式指定的生成器工作区
+- 如果你不传 `--workspace`，Windows 默认工作区会落到 `%LOCALAPPDATA%\SinanGenerator`
 
-1. `nvidia-smi` 正常
-2. `python -c "import torch; print(torch.cuda.is_available())"` 输出 `True`
-3. `uv` 和 Python 3.11 已可用
-4. 已手工安装 PyTorch GPU 版、`ultralytics`、`opencv-python` 等训练依赖
+## 3. 安装驱动并确认显卡可用
 
-从仓库根目录可以先跑最小自检：
+先完成：
+
+1. 安装 NVIDIA 稳定驱动
+2. 重启电脑
+3. 打开 PowerShell 执行：
 
 ```powershell
-Set-Location D:\sinan-captcha-repo
-.\scripts\ops\check-env.ps1
+nvidia-smi
 ```
 
-如果你只是不确定 CUDA 版本怎么看，补读：
+通过标准：
+
+- 能看到显卡型号
+- 能看到驱动版本
+- 能看到显存
+- 能看到 `CUDA Version`
+
+如果你不确定 CUDA 版本怎么确认，补读：
 
 - [如何确认 Windows 电脑上的 CUDA 版本](./how-to-check-cuda-version.md)
 
-当前要特别注意：
-
-- `uv sync` 还不能替代完整训练环境安装
-- 训练依赖仍按环境 checklist 手工安装更稳
-
-## 3. 准备样本
-
-当前主线只记这一条：
-
-`raw -> reviewed -> yolo -> train`
-
-如果你还没有一套本地素材包，可以先用仓库脚本批量构建一份离线 `materials/`：
+## 4. 安装 uv
 
 ```powershell
-Set-Location D:\sinan-captcha-repo
-$env:PEXELS_API_KEY = "<你的 Pexels API Key>"
-uv run python .\scripts\materials\build_offline_pack.py `
-  --spec .\configs\materials-pack.example.toml `
-  --output-root D:\sinan-captcha-work\materials `
-  --cache-dir D:\sinan-captcha-work\tools\material-cache
+winget install --id=astral-sh.uv -e
+uv --version
 ```
 
-这一步会：
-
-- 批量下载背景图
-- 批量提取图标 PNG
-- 自动生成 `classes.yaml`
-
-### 3.1 第一专项：用仓库产物导出样本
-
-先把生成器二进制放到：
-
-```text
-D:\sinan-captcha-work\tools\generator\
-```
-
-再执行导出：
+## 5. 一条命令创建训练目录
 
 ```powershell
-Set-Location D:\sinan-captcha-repo
-uv run python .\scripts\export\export_group1_batch.py `
-  --binary D:\sinan-captcha-work\tools\generator\sinan-click-generator.exe `
-  --config D:\sinan-captcha-repo\generator\configs\default.yaml `
-  --materials-root D:\sinan-captcha-work\materials `
-  --output-root D:\sinan-captcha-work\datasets\group1\v1\raw
+Set-Location D:\
+uvx --from sinan-captcha sinan env setup-train `
+  --train-root D:\sinan-captcha-work `
+  --generator-root D:\sinan-captcha-generator
 ```
 
-导出后会得到一个批次目录，例如：
+这个命令会：
 
-```text
-D:\sinan-captcha-work\datasets\group1\v1\raw\batch_0001\
-  query\
-  scene\
-  labels.jsonl
-  manifest.json
-```
+- 检测 `nvidia-smi`
+- 读取 CUDA 版本
+- 输出中文摘要
+- 让你确认是否继续
+- 自动创建：
+  - `D:\sinan-captcha-work\pyproject.toml`
+  - `D:\sinan-captcha-work\.python-version`
+  - `D:\sinan-captcha-work\.venv`
+  - `D:\sinan-captcha-work\datasets\`
+  - `D:\sinan-captcha-work\runs\`
+  - `D:\sinan-captcha-work\reports\`
+- 自动执行 `uv sync`
+- 不会替你创建生成器工作区；生成器工作区由 `sinan-generator workspace init` 管理
 
-### 3.2 第二专项：当前没有对等仓内导出器
+通过标准：
 
-第二专项样本目前仍来自你的自有生成逻辑、内部离线脚本或受控外部工具。
+- `D:\sinan-captcha-work` 已生成
+- 训练目录里有 `pyproject.toml`、`.python-version` 和 `.venv`
+- 命令结束后终端会打印“数据怎么放、后续怎么训练”的中文提示
 
-无论你从哪里导出，进入本仓库训练链路前都要满足这几条：
-
-- 批次目录里有 `labels.jsonl`
-- 目标对象包含 `class_id`
-- `bbox` 使用 `[x1, y1, x2, y2]`
-- `center` 使用 `[cx, cy]`
-
-### 3.3 需要离线预处理时怎么做
-
-当前仓库已经有离线自动标注/标签整理入口，但它不是“训练后自动回标”的完整闭环。
-
-常见入口如下：
+## 6. 进入训练目录并自检
 
 ```powershell
-Set-Location D:\sinan-captcha-repo
-uv run python .\scripts\autolabel\run_autolabel.py `
+Set-Location D:\sinan-captcha-work
+uv run sinan --help
+uv run sinan env check
+uv run yolo checks
+```
+
+通过标准：
+
+- `uv run sinan --help` 能显示子命令
+- `uv run sinan env check` 能输出 JSON
+- `uv run yolo checks` 没有关键错误
+
+## 7. 选择你的起点
+
+### 7.1 起点 A：你已经有 YOLO 数据集
+
+把数据直接放到训练目录下，例如：
+
+- `D:\sinan-captcha-work\datasets\group1\firstpass\yolo`
+- `D:\sinan-captcha-work\datasets\group2\firstpass\yolo`
+
+当前新版 `dataset.yaml` 使用相对路径，拷过去即可用；如果你手上的旧数据集仍然是绝对路径，建议重新执行一次 `uv run sinan dataset build-yolo`。
+
+下面训练命令里如果出现 `firstpass` 或 `v1`，都表示“你的实际数据版本名”。直接替换成你手里的版本目录即可。
+
+### 7.2 起点 B：你要从样本生成开始
+
+继续执行第 8 节。
+
+## 8. 从独立生成器开始
+
+### 8.1 准备素材
+
+先初始化生成器工作区：
+
+```powershell
+sinan-generator.exe workspace init --workspace D:\sinan-captcha-generator\workspace
+```
+
+如果你已经拿到现成素材包，直接导入：
+
+```powershell
+sinan-generator.exe materials import --workspace D:\sinan-captcha-generator\workspace --from D:\materials-pack
+```
+
+如果你拿到的是压缩包或远程地址，也可以直接同步：
+
+```powershell
+sinan-generator.exe materials fetch --workspace D:\sinan-captcha-generator\workspace --source D:\materials-pack.zip
+```
+
+如果你手里没有现成素材包，只有 `materials-pack.toml` 和 `Pexels API Key`，先在训练目录里构建离线素材包：
+
+```powershell
+Set-Location D:\sinan-captcha-work
+uv run sinan materials build `
+  --spec D:\sinan-captcha-generator\materials-pack.toml `
+  --output-root D:\sinan-captcha-generator\materials-pack `
+  --cache-dir D:\sinan-captcha-generator\workspace\cache\materials
+```
+
+构建完成后，再导入：
+
+```powershell
+sinan-generator.exe materials import --workspace D:\sinan-captcha-generator\workspace --from D:\sinan-captcha-generator\materials-pack
+```
+
+### 8.2 直接生成 group1 数据集目录
+
+```powershell
+sinan-generator.exe make-dataset `
+  --workspace D:\sinan-captcha-generator\workspace `
   --task group1 `
-  --mode seed-review `
-  --input-dir D:\sinan-captcha-work\datasets\group1\v1\raw\batch_0001 `
-  --output-dir D:\sinan-captcha-work\datasets\group1\v1\reviewed\batch_0001
+  --dataset-dir D:\sinan-captcha-work\datasets\group1\firstpass\yolo
 ```
 
+### 8.3 直接生成 group2 数据集目录
+
 ```powershell
-Set-Location D:\sinan-captcha-repo
-uv run python .\scripts\autolabel\run_autolabel.py `
+sinan-generator.exe make-dataset `
+  --workspace D:\sinan-captcha-generator\workspace `
   --task group2 `
-  --mode rule-auto `
-  --input-dir D:\sinan-captcha-work\datasets\group2\v1\raw\batch_0001 `
-  --output-dir D:\sinan-captcha-work\datasets\group2\v1\interim\batch_0001
+  --dataset-dir D:\sinan-captcha-work\datasets\group2\firstpass\yolo
 ```
 
-当前建议理解成：
+### 8.4 生成器和训练 CLI 的交接面
 
-- 第一专项的 `seed-review` 更接近“把已确认样本整理进 reviewed”，不是模型推理回标
-- 第二专项的 `rule-auto` 更接近“规则法预标注”，不是完整自动验收
-- `reviewed` 是进入训练前的最终样本源
-- `interim` 适合放规则法或伪自动结果
-- 正式训练前仍要抽检关键字段和失败样本
+- 生成器输出：`dataset.yaml`、`images/`、`labels/` 和 `.sinan/`
+- 训练 CLI 输入：`--dataset-yaml <dataset-dir>\dataset.yaml`
+- 训练 CLI 不读取生成器工作区，只读取数据集目录
+- 训练 CLI 的环境和 `runs/` 目录仍由 `sinan env setup-train` 管理
+- 生成器工作区建议固定成一个显式目录，而不是靠默认 `%LOCALAPPDATA%` 去猜
 
-## 4. 校验并转换成 YOLO 训练集
+## 9. 先做冒烟训练
 
-先确认 JSONL 至少能被仓库读到：
+如果你走的是“自己生成再训练”路线，通常这里的 `dataset.yaml` 会落在：
+
+- `D:\sinan-captcha-work\datasets\group1\v1\yolo\dataset.yaml`
+- `D:\sinan-captcha-work\datasets\group2\v1\yolo\dataset.yaml`
+
+如果你走的是“直接拿现成数据集训练”路线，则可能是：
+
+- `D:\sinan-captcha-work\datasets\group1\firstpass\yolo\dataset.yaml`
+- `D:\sinan-captcha-work\datasets\group2\firstpass\yolo\dataset.yaml`
+
+### 9.1 `group1`
 
 ```powershell
-Set-Location D:\sinan-captcha-repo
-uv run python -m core.dataset.cli --path D:\sinan-captcha-work\datasets\group1\v1\raw\batch_0001\labels.jsonl
+uv run sinan train group1 `
+  --dataset-yaml D:\sinan-captcha-work\datasets\group1\firstpass\yolo\dataset.yaml `
+  --project D:\sinan-captcha-work\runs\group1 `
+  --name smoke `
+  --epochs 1 `
+  --batch 8
 ```
 
-然后把 `reviewed` 批次转换成 YOLO 目录。
-
-第一专项：
+### 9.2 `group2`
 
 ```powershell
-Set-Location D:\sinan-captcha-repo
-uv run python .\scripts\convert\build_yolo_dataset.py `
-  --task group1 `
-  --version v1 `
-  --source-dir D:\sinan-captcha-work\datasets\group1\v1\reviewed\batch_0001 `
-  --output-dir D:\sinan-captcha-work\datasets\group1\v1\yolo
+uv run sinan train group2 `
+  --dataset-yaml D:\sinan-captcha-work\datasets\group2\firstpass\yolo\dataset.yaml `
+  --project D:\sinan-captcha-work\runs\group2 `
+  --name smoke `
+  --epochs 1 `
+  --batch 8
 ```
 
-第二专项：
+冒烟目标不是训好模型，而是确认：
+
+- 环境能跑
+- 数据路径对
+- `uv run yolo` 能正常启动
+
+## 10. 启动正式训练
+
+### 10.1 `group1`
 
 ```powershell
-Set-Location D:\sinan-captcha-repo
-uv run python .\scripts\convert\build_yolo_dataset.py `
-  --task group2 `
-  --version v1 `
-  --source-dir D:\sinan-captcha-work\datasets\group2\v1\reviewed\batch_0001 `
-  --output-dir D:\sinan-captcha-work\datasets\group2\v1\yolo
+uv run sinan train group1 `
+  --dataset-yaml D:\sinan-captcha-work\datasets\group1\firstpass\yolo\dataset.yaml `
+  --project D:\sinan-captcha-work\runs\group1 `
+  --name firstpass `
+  --model yolo26n.pt `
+  --epochs 120 `
+  --batch 16 `
+  --imgsz 640 `
+  --device 0
 ```
 
-转换完成后，你至少应看到：
+### 10.2 `group2`
+
+```powershell
+uv run sinan train group2 `
+  --dataset-yaml D:\sinan-captcha-work\datasets\group2\firstpass\yolo\dataset.yaml `
+  --project D:\sinan-captcha-work\runs\group2 `
+  --name firstpass `
+  --model yolo26n.pt `
+  --epochs 100 `
+  --batch 16 `
+  --imgsz 640 `
+  --device 0
+```
+
+如果只想打印标准训练命令：
+
+```powershell
+uv run sinan train group1 --dataset-yaml D:\sinan-captcha-work\datasets\group1\firstpass\yolo\dataset.yaml --project D:\sinan-captcha-work\runs\group1 --dry-run
+```
+
+## 11. 训练完成后你会得到什么
+
+主要输出在：
 
 ```text
-D:\sinan-captcha-work\datasets\group1\v1\yolo\
-  images\
-  labels\
-  dataset.yaml
+D:\sinan-captcha-work\runs\group1\firstpass\
+D:\sinan-captcha-work\runs\group2\firstpass\
 ```
 
-## 5. 开始训练
+重点关注：
 
-当前最稳的方式仍然是直接执行 YOLO 原生命令。
+- `weights\best.pt`
+- `weights\last.pt`
+- `results.csv`
+- `args.yaml`
 
-第一专项示例：
+## 12. 常见问题
 
-```powershell
-uv run yolo detect train data=D:\sinan-captcha-work\datasets\group1\v1\yolo\dataset.yaml model=yolo26n.pt imgsz=640 epochs=120 batch=16 device=0 project=D:\sinan-captcha-work\runs\group1 name=v1
-```
+### 12.1 `uv run sinan env check` 显示 `torch_cuda_available=false`
 
-第二专项示例：
+结论：
 
-```powershell
-uv run yolo detect train data=D:\sinan-captcha-work\datasets\group2\v1\yolo\dataset.yaml model=yolo26n.pt imgsz=640 epochs=100 batch=16 device=0 project=D:\sinan-captcha-work\runs\group2 name=v1
-```
+- 你装成了 CPU 版 PyTorch
+  或
+- PyTorch CUDA 版本和驱动不匹配
 
-如果你只想先生成标准命令，再手工执行，也可以用仓库脚本：
+### 12.2 `dataset.yaml` 找不到图片
 
-```powershell
-Set-Location D:\sinan-captcha-repo
-.\scripts\train\train_group1.ps1 `
-  -DatasetYaml D:\sinan-captcha-work\datasets\group1\v1\yolo\dataset.yaml `
-  -ProjectDir D:\sinan-captcha-work\runs\group1 `
-  -Name v1 `
-  -Model yolo26n.pt
-```
+结论：
 
-当前训练脚本的定位是：
+- 你拿到的是旧版绝对路径数据集
+- 重新执行一次 `sinan-generator make-dataset`
 
-- 帮你固定标准参数
-- 输出标准训练命令
-- 不负责代替你执行整场训练
+### 12.3 训练一启动就显存爆掉
 
-## 6. 训练完成后你应该拿到什么
+结论：
 
-训练完成后，最重要的产物是权重文件：
+- 先降 `batch`
+- 再降 `imgsz`
+- 先用 `yolo26n.pt`
 
-```text
-D:\sinan-captcha-work\runs\group1\v1\weights\best.pt
-D:\sinan-captcha-work\runs\group2\v1\weights\best.pt
-```
+### 12.4 `sinan-generator materials import|fetch|make-dataset` 失败
 
-到这里，这一页的目标就完成了：
+结论：
 
-- 训练环境已经搭好
-- 数据已经能转成 YOLO
-- 训练命令已经能执行
-- 模型权重已经产出
+- 素材目录不完整
+  或
+- 图片损坏
+  或
+- `classes.yaml` 与图标目录不一致
+  或
+- 你把生成器安装目录和生成器工作区混成了一个概念，命令没有带上正确的 `--workspace`
 
-## 7. 下一步读哪一页
+## 13. 这份文档完成标志
 
-训练结束后，不要继续回头翻设计文档，直接读：
+满足下面 6 条，就说明 Windows 训练机链路已经跑通：
+
+1. `nvidia-smi` 正常
+2. `torch.cuda.is_available()` 为 `True`
+3. `uv run sinan env check` 正常
+4. 至少一个专项的冒烟训练成功
+5. 正式训练产出 `best.pt`
+6. 你知道下一步该去看模型验证文档
+
+下一步继续读：
 
 - [训练完成后的模型使用与测试](./use-and-test-trained-models.md)
-
-那一页只回答两件事：
-
-1. 训练好的模型怎么用
-2. 训练好的模型怎么测

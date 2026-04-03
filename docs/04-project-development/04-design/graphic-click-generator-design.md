@@ -331,16 +331,15 @@ generator/output/
 
 ## 9. CLI 设计
 
-首版生成器需要 3 个命令，但 `generate` 必须支持模式和 backend 选择：
+首版产品化生成器以 `sinan-generator` 作为正式入口，普通用户只接触工作区、素材同步和一步生成数据集：
 
 ```bash
-sinan-click-generator validate-materials --config configs/default.yaml
-sinan-click-generator generate --mode click --backend native --config configs/default.yaml
-sinan-click-generator generate --mode slide --backend gocaptcha --config configs/default.yaml
-sinan-click-generator qa --batch-dir generator/output/group1/batch_0001
+sinan-generator workspace init --workspace D:\sinan-captcha-generator\workspace
+sinan-generator materials import --workspace D:\sinan-captcha-generator\workspace --from D:\materials-pack
+sinan-generator materials fetch --workspace D:\sinan-captcha-generator\workspace --source https://example.com/materials-pack.zip
+sinan-generator make-dataset --workspace D:\sinan-captcha-generator\workspace --task group1 --dataset-dir D:\sinan-captcha-work\datasets\group1\firstpass\yolo
+sinan-generator make-dataset --workspace D:\sinan-captcha-generator\workspace --task group2 --dataset-dir D:\sinan-captcha-work\datasets\group2\firstpass\yolo
 ```
-
-这里的命令名暂时保留 `sinan-click-generator`，只是为了兼容当前仓内工程名。后续若需要，可统一升级为更中性的生成器名称。
 
 ## 10. 风险与应对
 

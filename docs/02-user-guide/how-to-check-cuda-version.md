@@ -1,10 +1,11 @@
 # 如何确认 Windows 电脑上的 CUDA 版本
 
-- 文档状态：草稿
-- 当前阶段：DESIGN
+- 文档状态：生效
+- 当前阶段：IMPLEMENTATION
 - 目标读者：零基础训练操作者
 - 负责人：Codex
 - 关联需求：`REQ-001`、`REQ-007`
+- 最近更新：2026-04-03
 
 ## 1. 先记住一句话
 
@@ -64,7 +65,7 @@ nvcc --version
 在你的训练虚拟环境里执行：
 
 ```powershell
-python -c "import torch; print(torch.__version__); print(torch.version.cuda); print(torch.cuda.is_available())"
+uv run python -c "import torch; print(torch.__version__); print(torch.version.cuda); print(torch.cuda.is_available())"
 ```
 
 你会看到类似：
@@ -128,6 +129,20 @@ True
 
 `nvcc --version` 只在你明确装过 CUDA Toolkit 时再看。
 
+## 6.1 和 `sinan env setup-train` 的关系
+
+如果你使用：
+
+```powershell
+uvx --from sinan-captcha sinan env setup-train
+```
+
+这个命令本身就会先读取 `nvidia-smi` 输出，然后再决定训练目录里要绑定哪个 PyTorch 源。
+
+你仍然建议自己先看一遍 `nvidia-smi`，原因很简单：
+
+- 这样更容易在命令真正安装依赖前，先确认显卡驱动和 CUDA 版本是不是你预期的状态
+
 ## 7. 推荐检查顺序
 
 按这个顺序做最稳：
@@ -138,7 +153,7 @@ True
 4. 在虚拟环境里执行：
 
 ```powershell
-python -c "import torch; print(torch.__version__); print(torch.version.cuda); print(torch.cuda.is_available()); print(torch.cuda.get_device_name(0) if torch.cuda.is_available() else 'no-gpu')"
+uv run python -c "import torch; print(torch.__version__); print(torch.version.cuda); print(torch.cuda.is_available()); print(torch.cuda.get_device_name(0) if torch.cuda.is_available() else 'no-gpu')"
 ```
 
 5. 如果 `torch.cuda.is_available()` 是 `True`，就说明训练环境基本可用

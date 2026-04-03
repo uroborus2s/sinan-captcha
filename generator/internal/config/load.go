@@ -217,3 +217,33 @@ func splitYAMLField(line string) (string, string, error) {
 	}
 	return key, value, nil
 }
+
+func Format(cfg Config) string {
+	lines := []string{
+		"project:",
+		fmt.Sprintf("  dataset_name: %s", cfg.Project.DatasetName),
+		fmt.Sprintf("  split: %s", cfg.Project.Split),
+		fmt.Sprintf("  sample_count: %d", cfg.Project.SampleCount),
+		fmt.Sprintf("  batch_id: %s", cfg.Project.BatchID),
+		fmt.Sprintf("  seed: %d", cfg.Project.Seed),
+		"",
+		"canvas:",
+		fmt.Sprintf("  scene_width: %d", cfg.Canvas.SceneWidth),
+		fmt.Sprintf("  scene_height: %d", cfg.Canvas.SceneHeight),
+		fmt.Sprintf("  query_width: %d", cfg.Canvas.QueryWidth),
+		fmt.Sprintf("  query_height: %d", cfg.Canvas.QueryHeight),
+		"",
+		"sampling:",
+		fmt.Sprintf("  target_count_min: %d", cfg.Sampling.TargetCountMin),
+		fmt.Sprintf("  target_count_max: %d", cfg.Sampling.TargetCountMax),
+		fmt.Sprintf("  distractor_count_min: %d", cfg.Sampling.DistractorCountMin),
+		fmt.Sprintf("  distractor_count_max: %d", cfg.Sampling.DistractorCountMax),
+		"",
+		"slide:",
+		fmt.Sprintf("  gap_width: %d", cfg.Slide.GapWidth),
+		fmt.Sprintf("  gap_height: %d", cfg.Slide.GapHeight),
+		fmt.Sprintf("  max_vertical_jitter: %d", cfg.Slide.MaxVerticalJitter),
+		"",
+	}
+	return strings.Join(lines, "\n")
+}

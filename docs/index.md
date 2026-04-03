@@ -16,10 +16,10 @@ mkdocs:
         - title: 使用指南总览
           path: 02-user-guide/user-guide.md
           access: public
-        - title: 使用项目编译结果
+        - title: 使用交付物与正式 CLI
           path: 02-user-guide/use-build-artifacts.md
           access: public
-        - title: 搭建训练环境并完成模型训练
+        - title: Windows 训练机安装与模型训练
           path: 02-user-guide/from-base-model-to-training-guide.md
           access: public
         - title: 训练完成后的模型使用与测试

@@ -16,3 +16,8 @@ sampling:
   target_count_max: 2
   distractor_count_min: 2
   distractor_count_max: 3
+
+slide:
+  gap_width: 52
+  gap_height: 52
+  max_vertical_jitter: 4

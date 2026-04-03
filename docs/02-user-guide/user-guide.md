@@ -1,78 +1,89 @@
-# 使用指南总览
+# 用户指南总览
 
-- 项目名称：sinan-captcha
-- 当前阶段：IMPLEMENTATION
-- 面向读者：项目使用者、训练执行者
+这份总览只做一件事：帮你快速理解这个项目现在该怎么用。
 
-## 这份总览只回答两个问题
+## 1. 先理解项目是什么
 
-1. 我如何使用项目已经编译出来的产物？
-2. 我如何搭建训练环境并最终完成模型训练？
+`sinan-captcha` 不是网站服务，也不是单个安装包。它是一个本地训练工程，由两个 CLI 组成：
 
-如果你的目标不是上面这两个，而是维护仓库、推进阶段或和 AI 协作，请不要从本页开始。维护者入口已经迁到开发者指南。
+- `sinan-generator`
+  - Go 生成器
+  - 负责固定工作区、素材导入/同步、原始样本生成、批次 QA、YOLO 数据集导出
+- `sinan`
+  - Python CLI
+  - 负责训练目录初始化、自动标注、评估、训练、发布交付
 
-## 先判断你是哪一类读者
+项目当前覆盖两个专项：
 
-### 角色 A：交付使用者
+- `group1`：图形点选
+- `group2`：滑块缺口定位
 
-你更关心的是：
+## 2. 什么时候该用哪个 CLI
 
-- 已经有什么构建产物
-- 这些产物怎么放到训练机上
-- 用它们能做哪些事
+下面这个判断最重要：
+
+- 你在处理素材、生成样本、做批次 QA，用 `sinan-generator`
+- 你在处理训练目录、数据集、训练、评估和发布，用 `sinan`
+
+最常见的工作流是：
+
+1. `uvx --from sinan-captcha sinan env setup-train`
+2. `sinan-generator workspace init --workspace <generator-workspace>`
+3. `sinan-generator materials import|fetch --workspace <generator-workspace>`
+4. `sinan-generator make-dataset --workspace <generator-workspace>`
+5. `uv run sinan train group1` 或 `uv run sinan train group2`
+6. `uv run sinan evaluate`
+
+## 3. 你属于哪类读者
+
+### 3.1 交付使用者
+
+你更关心：
+
+- 交付物有哪些
+- 生成器目录和训练目录怎么分开
+- 生成器和 Python CLI 各自负责什么
 
 从这里开始：
 
-- [使用项目编译结果](./use-build-artifacts.md)
+- [使用交付物与正式 CLI](./use-build-artifacts.md)
 
-完成后你应能做到：
+### 3.2 训练执行者
 
-- 看懂 `generator`、Python 脚本和工作目录的关系
-- 在训练机上使用已交付的二进制和脚本
-- 导出样本、转换数据并启动训练
-
-### 角色 B：训练执行者
-
-你更关心的是：
+你更关心：
 
 - Windows + NVIDIA 训练环境怎么搭
-- 数据目录怎么组织
-- 如何从样本走到训练结果
+- 如何一条命令创建训练目录并自动装环境
+- 怎么从数据走到训练结果
 
 从这里开始：
 
-- [搭建训练环境并完成模型训练](./from-base-model-to-training-guide.md)
+- [Windows 训练机安装与模型训练完整指南](./from-base-model-to-training-guide.md)
+
+### 3.3 模型验证者
+
+你更关心：
+
+- `best.pt` 在哪里
+- 怎么做 `predict`、`val` 和 JSONL 对比评估
+- 当前项目已经提供了哪些验收入口
+
+从这里开始：
+
 - [训练完成后的模型使用与测试](./use-and-test-trained-models.md)
-- [如何确认 Windows 电脑上的 CUDA 版本](./how-to-check-cuda-version.md)
 
-完成后你应能做到：
+## 4. 推荐阅读顺序
 
-- 准备训练机和工作目录
-- 跑通 JSONL -> YOLO -> 训练 的主链路
-- 拿到首轮训练结果
-- 知道训练后的模型怎么使用和怎么测试
+如果你只想尽快用起来，按这个顺序读：
 
-## 当前推荐阅读顺序
+1. 先看本页，理解双 CLI 边界
+2. 再看 [使用交付物与正式 CLI](./use-build-artifacts.md)
+3. 如果要在 Windows 上训练，继续看 [Windows 训练机安装与模型训练完整指南](./from-base-model-to-training-guide.md)
+4. 训练完成后再看 [训练完成后的模型使用与测试](./use-and-test-trained-models.md)
 
-如果你只想尽快落地，不要漫无目的地翻目录，按下面顺序读：
+## 5. 这份总览刻意不做什么
 
-1. 先判断自己是“交付使用者”还是“训练执行者”
-2. 读对应那一条主路径的页面
-3. 只在遇到具体问题时，再补读 CUDA 说明或更细的专题页
-
-## 这份总览刻意不再做的事情
-
-- 不再把维护者入口塞进用户指南
-- 不再把阶段文档、实施计划和私有材料混进主阅读路径
-- 不再让读者在一页里同时面对“用项目”“维护项目”“推进项目”三件事
-
-## 维护者去哪里
-
-如果你需要的是：
-
-- 仓库协作规则
-- AI 协作入口
-- 当前阶段事实
-- 内部维护阅读顺序
-
-请改读开发者指南下的“维护者快速使用说明”。
+- 不解释内部设计过程
+- 不讲项目阶段推进
+- 不混入维护者入口
+- 不承载内部演进记录

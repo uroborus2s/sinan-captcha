@@ -1,264 +1,284 @@
-# 使用项目编译结果
+# 使用交付物与正式 CLI
 
-- 项目名称：sinan-captcha
+- 文档状态：生效
 - 当前阶段：IMPLEMENTATION
 - 目标读者：交付使用者、训练执行者
-- 目标：在不理解全部仓库实现细节的前提下，正确使用项目的构建产物
+- 负责人：Codex
 
 ## 0. 这页解决什么问题
 
-如果你已经拿到了项目的构建结果，或者准备把仓库里的可执行产物部署到训练机，这页就是你的起点。
+这页说明当前项目有哪些正式交付物，以及它们应该如何被使用。
 
-读完后你应能清楚理解：
+读完后你应能明确：
 
-1. 当前项目会产出哪些可使用的东西
-2. 这些产物应该放到哪里
-3. 这些产物分别能做什么，不能做什么
+1. 现在项目实际交付什么
+2. `sinan-generator` 和 `sinan` 的职责边界
+3. 为什么生成器安装目录、生成器工作区和训练目录要分开
+4. 生成器最终应该把什么交给训练 CLI
 
-## 1. 先认清“编译结果”有哪些
+## 1. 当前正式交付物
 
-当前项目不是单一程序包，而是多交付物结构。
+### 1.1 Go 生成器
 
-你会接触到的主要产物有：
+典型交付物：
 
-### 1.1 Go 生成器二进制
-
-典型形态：
-
-- `sinan-click-generator.exe`
+- `sinan-generator.exe`
 
 它负责：
 
-- 校验素材
-- 生成第一专项样本批次
-- 输出 `query/`、`scene/`、`labels.jsonl`、`manifest.json`
+- 初始化固定工作区
+- 导入或同步素材包
+- 生成 `group1/group2` 原始批次
+- 对生成批次做 QA
+- 直接导出 YOLO 数据集目录
 
 它不负责：
 
-- 第二专项完整导出
 - 自动标注
 - 模型训练
-- 评估报告
+- 模型评估
+- 训练环境初始化
 
-### 1.2 Python 训练链路脚本
+### 1.2 Python CLI
 
-典型入口：
+当前 Python 侧正式入口是 `sinan`。
 
-- `scripts/convert/build_yolo_dataset.py`
-- `scripts/train/train_group1.ps1`
-- `scripts/train/train_group2.ps1`
-- `scripts/ops/check-env.ps1`
+对训练机使用者来说，优先路径是：
 
-它们负责：
+- 直接从 PyPI 使用 `uvx --from sinan-captcha sinan ...`
+- 或安装现成 wheel 后再用 `uv run sinan ...`
 
-- 数据转换
-- 训练命令组织
-- 最小环境检查
+常用命令包括：
 
-当前要特别注意：
+- `uv run sinan env check`
+- `uvx --from sinan-captcha sinan env setup-train`
+- `uv run sinan materials build`
+- `uv run sinan dataset validate`
+- `uv run sinan dataset build-yolo`
+- `uv run sinan autolabel`
+- `uv run sinan evaluate`
+- `uv run sinan train group1`
+- `uv run sinan train group2`
 
-- 训练脚本现在主要负责生成标准命令
-- 它们不是完整的一键训练器
+发布命令也已经收口到 `sinan release ...`，但那是维护者入口，不是训练执行者的主路径。
 
-### 1.3 配置和素材
+### 1.3 运行资产
 
-你还需要：
+除了二进制和 Python 包，还会涉及这些运行资产：
 
-- 生成器配置
-- 背景图、图标图、类别表
+- `generator/configs/*.yaml`
+- `materials/`
+- `datasets/`
+- `reports/`
 
-它们属于运行资产，不应和训练结果混在一起，也不应默认混进仓库源码管理。
+但要注意：
 
-当前仓库还新增了一条“批量构建本地离线素材包”的脚本入口：
+- 生成器工作区只属于 `sinan-generator`
+- 训练 CLI 最小只需要训练环境和 `dataset.yaml`
+- 如果训练机只负责训练，不在本地生成样本，就不需要生成器工作区
 
-- `scripts/materials/build_offline_pack.py`
-- `configs/materials-pack.example.toml`
+## 2. 为什么要分成两个目录
 
-它的作用是：
-
-- 用 Pexels API 批量下载背景图
-- 从 Google 官方图标仓库批量提取图标 PNG
-- 自动生成 `manifests/classes.yaml`
-- 直接落盘成生成器可消费的 `materials/` 目录
-
-## 2. 产物应该放在哪里
-
-推荐固定成下面两层：
+当前推荐固定成两个目录：
 
 ```text
 D:\
-  sinan-captcha-repo\
+  sinan-captcha-generator\
   sinan-captcha-work\
 ```
 
-分工如下：
+职责如下：
 
-### 2.1 仓库目录
+- `sinan-captcha-generator`
+  - 保存 `sinan-generator.exe`
+  - 保存生成器配置
+  - 可选保存一个显式工作区目录，例如 `workspace\`
+- `sinan-captcha-work`
+  - 保存训练目录自己的 `pyproject.toml`
+  - 保存训练目录自己的 `.venv`
+  - 保存 `datasets/`、`runs/`、`reports/`
+  - 负责训练、评估和训练输出
 
-用于保存：
+还要再区分一个概念：
 
-- 源码
-- 文档
-- 脚本
-- 构建产物定义
+- 生成器工作区
+  - 真正保存 `workspace.json`、`presets/`、`materials/`、`cache/`、`jobs/`、`logs/`
+  - 如果你不传 `--workspace`，Windows 默认会落到 `%LOCALAPPDATA%\SinanGenerator`
+  - 如果你希望目录更可控，建议显式固定成 `D:\sinan-captcha-generator\workspace`
 
-### 2.2 工作目录
+这样分开的原因很直接：
 
-用于保存：
+- 训练目录不必背生成器素材
+- 生成器目录不必背训练环境
+- 训练机既可以“只训练”，也可以“本地生成再训练”
+- 出问题时更容易判断是生成端还是训练端
 
-- 生成器二进制
-- 运行素材
-- 样本数据
-- 训练输出
-- 报告
+## 3. 推荐目录结构
 
-推荐结构：
+### 3.1 生成器安装目录与工作区
+
+```text
+D:\sinan-captcha-generator\
+  sinan-generator.exe
+  configs\
+  workspace\
+    workspace.json
+    presets\
+    materials\
+    cache\
+    jobs\
+    logs\
+```
+
+如果你不想显式指定 `--workspace`，默认工作区会落在：
+
+```text
+%LOCALAPPDATA%\SinanGenerator\
+```
+
+### 3.2 训练目录
 
 ```text
 D:\sinan-captcha-work\
+  pyproject.toml
+  .python-version
+  .venv\
   datasets\
+    group1\
+    group2\
   runs\
+    group1\
+    group2\
   reports\
-  tools\
-    generator\
-  materials\
+    group1\
+    group2\
+  README-训练机使用说明.txt
 ```
 
-## 3. 最小部署步骤
+## 4. 正式 CLI 边界
 
-### 3.1 准备训练机环境
+### 4.1 `sinan-generator`
 
-先完成：
-
-- Windows + NVIDIA 驱动可用
-- Python 3.11 可用
-- `uv` 可用
-- PyTorch / Ultralytics / OpenCV 已装好
-
-如果你还没完成这一层，不要急着看后面的产物使用。直接转到：
-
-- [搭建训练环境并完成模型训练](./from-base-model-to-training-guide.md)
-
-### 3.2 放置 Go 生成器
-
-把生成器二进制放到：
-
-```text
-D:\sinan-captcha-work\tools\generator\
-```
-
-例如：
+你应该用它做这些事：
 
 ```powershell
-New-Item -ItemType Directory -Force D:\sinan-captcha-work\tools\generator | Out-Null
-Copy-Item D:\sinan-captcha-repo\dist\generator\windows-amd64\sinan-click-generator.exe D:\sinan-captcha-work\tools\generator\
+sinan-generator.exe workspace init --workspace D:\sinan-captcha-generator\workspace
+sinan-generator.exe materials import --workspace D:\sinan-captcha-generator\workspace --from D:\materials-pack
+sinan-generator.exe make-dataset --workspace D:\sinan-captcha-generator\workspace --task group1 --dataset-dir D:\sinan-captcha-work\datasets\group1\firstpass\yolo
 ```
 
-### 3.3 放置素材
+### 4.2 `sinan`
 
-把背景图、图标图、类别表放到：
-
-```text
-D:\sinan-captcha-work\materials\
-```
-
-### 3.4 保持仓库脚本可调用
-
-当前版本最稳的方式仍然是：
-
-1. 仓库保留在 `D:\sinan-captcha-repo`
-2. 从仓库根目录执行 Python 脚本
-3. 用绝对路径指向 `D:\sinan-captcha-work`
-
-这样做的好处是：
-
-- 不会把工作目录误当成仓库
-- 不依赖脚本自动推断路径
-- 出错时更容易定位到底是“仓库脚本问题”还是“工作目录数据问题”
-
-## 4. 你可以用这些产物完成什么
-
-### 4.1 使用生成器导出第一专项样本
-
-如果你手头还没有背景图、图标图和类别表，可以先构建一套本地离线素材包：
+你应该用它做这些事：
 
 ```powershell
-Set-Location D:\sinan-captcha-repo
-$env:PEXELS_API_KEY = "<你的 Pexels API Key>"
-uv run python .\scripts\materials\build_offline_pack.py `
-  --spec .\configs\materials-pack.example.toml `
-  --output-root D:\sinan-captcha-work\materials `
-  --cache-dir D:\sinan-captcha-work\tools\material-cache
+uvx --from sinan-captcha sinan env setup-train --train-root D:\sinan-captcha-work --generator-root D:\sinan-captcha-generator
+uv run sinan train group1 --dataset-yaml D:\sinan-captcha-work\datasets\group1\firstpass\yolo\dataset.yaml --project D:\sinan-captcha-work\runs\group1
+uv run sinan evaluate --task group1 --gold-dir D:\sinan-captcha-work\datasets\group1\reviewed\batch_0001 --prediction-dir D:\sinan-captcha-work\reports\group1\pred_jsonl_v1 --report-dir D:\sinan-captcha-work\reports\group1\eval_jsonl_v1
+uv run sinan release build --project-dir <源码仓库目录>
 ```
 
-生成完成后，`D:\sinan-captcha-work\materials\` 下会直接出现：
+其中最后这条 `release build` 是发布者/维护者命令，不是训练执行者的必经步骤。
 
-```text
-materials\
-  backgrounds\
-  icons\
-  manifests\
-    classes.yaml
-    backgrounds.csv
-    icons.csv
-```
+## 5. 三种典型使用方式
+
+### 5.1 只训练
+
+你只需要：
+
+1. 创建训练目录
+2. 把 YOLO 数据集拷到 `D:\sinan-captcha-work\datasets\...`
+3. 执行训练命令
+
+这种方式不需要 `materials/`，也不需要在训练机上运行生成器。
+
+### 5.2 先生成，再训练
+
+你需要：
+
+1. 初始化生成器工作区
+2. 让生成器直接输出一个完整 YOLO 数据集目录
+3. 把这个数据集目录交给训练 CLI
+4. 在训练目录里训练
+
+### 5.3 交付给另一台 Windows 训练机
+
+你需要准备：
+
+- Python 包发布源或 wheel
+- `sinan-generator.exe`
+- 生成器配置
+- `materials-pack.toml`
+- 可选的 `materials/`
+- 可选的 `datasets/`
+
+然后让训练机先执行：
 
 ```powershell
-Set-Location D:\sinan-captcha-repo
-uv run python .\scripts\export\export_group1_batch.py `
-  --binary D:\sinan-captcha-work\tools\generator\sinan-click-generator.exe `
-  --config D:\sinan-captcha-repo\generator\configs\default.yaml `
-  --materials-root D:\sinan-captcha-work\materials `
-  --output-root D:\sinan-captcha-work\datasets\group1\v1\raw
+uvx --from sinan-captcha sinan env setup-train --train-root D:\sinan-captcha-work --generator-root D:\sinan-captcha-generator
 ```
 
-### 4.2 把 JSONL 批次转成 YOLO 训练集
+## 6. 一个最常见的主链路
+
+### 6.1 在训练机创建训练目录
 
 ```powershell
-Set-Location D:\sinan-captcha-repo
-uv run python .\scripts\convert\build_yolo_dataset.py `
+uvx --from sinan-captcha sinan env setup-train --train-root D:\sinan-captcha-work --generator-root D:\sinan-captcha-generator
+```
+
+### 6.2 在生成器工作区准备素材
+
+```powershell
+sinan-generator.exe materials import --workspace D:\sinan-captcha-generator\workspace --from D:\materials-pack
+```
+
+### 6.3 直接生成 YOLO 数据集目录
+
+```powershell
+sinan-generator.exe make-dataset `
+  --workspace D:\sinan-captcha-generator\workspace `
   --task group1 `
-  --version v1 `
-  --source-dir D:\sinan-captcha-work\datasets\group1\v1\reviewed\batch_0001 `
-  --output-dir D:\sinan-captcha-work\datasets\group1\v1\yolo
+  --dataset-dir D:\sinan-captcha-work\datasets\group1\firstpass\yolo
 ```
 
-### 4.3 生成标准训练命令
+### 6.4 把数据集目录交给训练 CLI
 
 ```powershell
-Set-Location D:\sinan-captcha-repo
-.\scripts\train\train_group1.ps1 `
-  -DatasetYaml D:\sinan-captcha-work\datasets\group1\v1\yolo\dataset.yaml `
-  -ProjectDir D:\sinan-captcha-work\runs\group1 `
-  -Name v1 `
-  -Model yolo26n.pt
+uv run sinan train group1 `
+  --dataset-yaml D:\sinan-captcha-work\datasets\group1\firstpass\yolo\dataset.yaml `
+  --project D:\sinan-captcha-work\runs\group1 `
+  --name firstpass
 ```
 
-## 5. 当前编译结果还不能替你做什么
+### 6.5 交接边界
 
-为了避免误解，这里明确列出当前限制：
+- 生成器交付：`dataset.yaml` + `images/` + `labels/` + `.sinan/`
+- 训练 CLI 输入：`--dataset-yaml <dataset-dir>\dataset.yaml`
+- 训练 CLI 不读取生成器工作区
+- 生成器不负责训练环境和 `runs/`
 
-1. 第二专项还没有同等仓内导出入口。
-2. 自动标注和 JSONL 对比评估已经有离线入口，但还不是“训练完成后自动回灌业务”的完整闭环。
-3. 推理后处理还没有落成，尤其第一专项的顺序整理仍需你自己的推理脚本配合。
-4. 训练脚本当前主要负责生成标准命令，不是一键训练器。
-5. `pyproject.toml` 还没有把完整训练依赖写满，所以不要把“仓库能运行”误认为“训练环境已经完备”。
+## 7. 当前公开边界
 
-## 6. 什么时候算你已经会“使用项目编译结果”
+当前文档只承认下面这套正式使用方式：
 
-满足下面 4 条，就算这一路已经跑通：
+- 训练目录通过 `uvx --from sinan-captcha sinan env setup-train` 初始化
+- 训练数据生成走 `sinan-generator make-dataset --workspace <generator-workspace>`
+- 训练 CLI 和生成器只通过数据集目录交接
+- 数据工程和训练走 `uv run sinan`
+- 权重验证和模型验收继续走 `uv run yolo` 与 `uv run sinan evaluate`
 
-1. 你能说清每个产物属于仓库还是工作目录。
-2. 你能把生成器二进制和素材放到正确位置。
-3. 你能从仓库根目录调用脚本并指向工作目录。
-4. 你能用这些产物完成一次“导出样本 -> 转换数据 -> 生成训练命令”的链路。
+不要把脚本目录当成公开入口，也不要把这个项目理解成线上验证码服务。
 
-如果你已经继续跑完训练，下一步读：
+## 8. 这页完成标志
 
-- [训练完成后的模型使用与测试](./use-and-test-trained-models.md)
+如果你已经能做到下面 5 件事，就说明你已经掌握了交付物的使用方式：
 
-## 7. 下一步去哪里
+1. 能区分 `sinan-generator` 和 `sinan` 的职责
+2. 能区分生成器安装目录、生成器工作区和训练目录
+3. 知道 `materials/` 只属于生成器目录
+4. 能把样本直接生成到训练目录的 `datasets/`
+5. 能把生成器产出的 YOLO 数据集目录直接交给训练 CLI 并启动训练
 
-如果你下一步要真正把训练环境搭起来并拿到模型结果，请继续：
+下一步继续读：
 
-- [搭建训练环境并完成模型训练](./from-base-model-to-training-guide.md)
+- [Windows 训练机安装与模型训练完整指南](./from-base-model-to-training-guide.md)

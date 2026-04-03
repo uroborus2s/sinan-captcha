@@ -3,6 +3,7 @@ package material
 import (
 	"errors"
 	"fmt"
+	"image"
 	"os"
 	"path/filepath"
 	"strconv"
@@ -41,7 +42,7 @@ func Validate(root string) (ValidationSummary, error) {
 	}
 
 	backgroundDir := filepath.Join(root, "backgrounds")
-	backgroundCount, err := countImageFiles(backgroundDir)
+	backgroundCount, err := countValidImageFiles(backgroundDir)
 	if err != nil {
 		return summary, err
 	}
@@ -54,7 +55,7 @@ func Validate(root string) (ValidationSummary, error) {
 	iconDirCount := 0
 	for _, classItem := range manifest.Classes {
 		classDir := filepath.Join(iconsRoot, classItem.Name)
-		count, err := countImageFiles(classDir)
+		count, err := countValidImageFiles(classDir)
 		if err != nil {
 			return summary, err
 		}
@@ -76,12 +77,35 @@ func LoadManifest(path string) (ClassManifest, error) {
 	return manifest, parseManifest(content, &manifest)
 }
 
-func countImageFiles(dir string) (int, error) {
+func countValidImageFiles(dir string) (int, error) {
 	files, err := listImageFiles(dir)
 	if err != nil {
 		return 0, err
 	}
+	for _, path := range files {
+		if err := validateImageFile(path); err != nil {
+			return 0, fmt.Errorf("invalid image file %s: %w", path, err)
+		}
+	}
 	return len(files), nil
+}
+
+func validateImageFile(path string) error {
+	file, err := os.Open(path)
+	if err != nil {
+		return err
+	}
+	defer file.Close()
+
+	img, _, err := image.Decode(file)
+	if err != nil {
+		return err
+	}
+	bounds := img.Bounds()
+	if bounds.Dx() <= 0 || bounds.Dy() <= 0 {
+		return fmt.Errorf("invalid image bounds %dx%d", bounds.Dx(), bounds.Dy())
+	}
+	return nil
 }
 
 func parseManifest(content []byte, manifest *ClassManifest) error {

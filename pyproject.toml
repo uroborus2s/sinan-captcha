@@ -7,14 +7,24 @@ name = "sinan-captcha"
 version = "0.1.0"
 description = "Training and data engineering workspace for graphical captcha models."
 readme = "README.md"
-requires-python = ">=3.11"
+requires-python = ">=3.12"
 dependencies = []
 
+[project.optional-dependencies]
+train = [
+  "matplotlib",
+  "numpy",
+  "opencv-python",
+  "pandas",
+  "pillow",
+  "pyyaml",
+  "scikit-image",
+  "tqdm",
+  "ultralytics",
+]
+
 [project.scripts]
-sinan-dataset-validate = "core.dataset.cli:main"
-sinan-materials-build = "core.materials.cli:main"
-sinan-train-group1 = "core.train.group1.cli:main"
-sinan-train-group2 = "core.train.group2.cli:main"
+sinan = "core.cli:main"
 
 [tool.setuptools]
 include-package-data = true
@@ -24,7 +34,7 @@ where = ["."]
 include = ["core*"]
 
 [tool.ruff]
-target-version = "py311"
+target-version = "py312"
 line-length = 100
 
 [tool.ruff.lint]
@@ -36,7 +46,7 @@ pythonpath = ["."]
 addopts = "-q"
 
 [tool.mypy]
-python_version = "3.11"
+python_version = "3.12"
 packages = ["core"]
 strict = true
 warn_unused_configs = true

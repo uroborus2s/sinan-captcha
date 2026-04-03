@@ -1,7 +1,25 @@
 # 入门说明概览
 
-本目录收纳产品定位、快速开始、阅读路径和文档地图等入门材料。
+`sinan-captcha` 是一个由两个本地 CLI 组成的训练工程：
 
-- 本页是该目录的正文首页，用于说明范围、读者和维护边界。
-- 目录树、页面路径和访问级别统一由根 `docs/index.md` 声明，这里不重复维护页面清单。
-- 本目录下的 Markdown 页面、契约文件和资源文件应随内容变更一起演进。
+- `sinan-generator`
+  - Go 生成器
+  - 负责素材校验、原始样本生成和批次 QA
+- `sinan`
+  - Python CLI
+  - 负责素材包构建、数据转换、自动标注、评估和训练
+
+如果你第一次接触这个项目，先记住三件事：
+
+1. 这是一个本地 CLI 工程，不是 HTTP 服务。
+2. 生成样本和训练模型是两条独立主线，通过文件契约对接。
+3. 正式入口只有 `sinan-generator` 和 `sinan`。
+
+推荐阅读顺序：
+
+1. [用户指南总览](../02-user-guide/user-guide.md)
+2. [使用交付物与正式 CLI](../02-user-guide/use-build-artifacts.md)
+3. [Windows 训练机安装与模型训练完整指南](../02-user-guide/from-base-model-to-training-guide.md)
+4. [训练完成后的模型使用与测试](../02-user-guide/use-and-test-trained-models.md)
+
+本目录只负责把新读者带到正确入口，不承载维护者过程文档和内部设计材料。

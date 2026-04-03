@@ -1,20 +1,15 @@
-"""Thin CLI entry for offline autolabel flows."""
+"""CLI for offline autolabel flows."""
 
 from __future__ import annotations
 
 import argparse
 import json
-import sys
 from pathlib import Path
-
-REPO_ROOT = Path(__file__).resolve().parents[2]
-if str(REPO_ROOT) not in sys.path:
-    sys.path.insert(0, str(REPO_ROOT))
 
 from core.autolabel.service import AutolabelRequest, run_autolabel
 
 
-def main() -> int:
+def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(description="Run offline autolabel flows.")
     parser.add_argument("--task", choices=["group1", "group2"], required=True)
     parser.add_argument("--mode", required=True)
@@ -22,7 +17,12 @@ def main() -> int:
     parser.add_argument("--output-dir", type=Path, required=True)
     parser.add_argument("--limit", type=int, default=None)
     parser.add_argument("--jitter-pixels", type=int, default=4)
-    args = parser.parse_args()
+    return parser
+
+
+def main(argv: list[str] | None = None) -> int:
+    parser = build_parser()
+    args = parser.parse_args(argv)
 
     result = run_autolabel(
         AutolabelRequest(

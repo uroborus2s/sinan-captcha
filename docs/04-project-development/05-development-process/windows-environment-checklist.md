@@ -6,6 +6,12 @@
 - 负责人：Codex
 - 关联需求：`REQ-001`、`REQ-007`
 
+这份文档只保留核对项。
+
+面向用户的完整操作路径已经收口到：
+
+- [Windows 训练机安装与模型训练完整指南](../../../02-user-guide/from-base-model-to-training-guide.md)
+
 ## 1. 开始前先确认
 
 在开始前，逐条确认：
@@ -90,7 +96,7 @@ nvcc --version
 推荐再执行：
 
 ```powershell
-python -c "import torch; print(torch.version.cuda); print(torch.cuda.is_available())"
+uv run python -c "import torch; print(torch.version.cuda); print(torch.cuda.is_available())"
 ```
 
 通过标准：
@@ -123,22 +129,22 @@ uv --version
 
 - [ ] `uv --version` 能输出版本号
 
-## 5. 安装 Python 3.11
+## 5. 安装 Python 3.12
 
 执行：
 
 ```powershell
-uv python install 3.11
+uv python install 3.12
 uv python list
 ```
 
 通过标准：
 
-- [ ] `uv python list` 能看到 `3.11`
+- [ ] `uv python list` 能看到 `3.12`
 
 说明：
 
-- 第一版统一建议用 Python 3.11
+- 当前项目统一使用 Python 3.12
 - 不建议直接用系统里来路不明的旧 Python
 
 ## 6. 创建虚拟环境
@@ -147,28 +153,23 @@ uv python list
 
 ```powershell
 cd /d D:\sinan-captcha-work
-uv venv --python 3.11
+uv venv --python 3.12
 .\.venv\Scripts\activate
-python -V
+uv run python -V
 ```
 
 通过标准：
 
 - [ ] 虚拟环境已创建
-- [ ] `python -V` 显示 `3.11.x`
+- [ ] `uv run python -V` 显示 `3.12.x`
 - [ ] 命令行前面能看到虚拟环境提示，或确认当前使用的是 `.venv`
 
-## 7. 升级 pip
+## 7. 包管理规则
 
-执行：
+说明：
 
-```powershell
-python -m pip install --upgrade pip
-```
-
-通过标准：
-
-- [ ] 升级过程没有报错
+- [ ] 后续统一使用 `uv pip` 安装 Python 包
+- [ ] 不再单独执行 `pip install` 或 `python -m pip`
 
 ## 8. 安装 PyTorch GPU 版
 
@@ -193,7 +194,7 @@ uv pip install torch torchvision torchaudio --index-url https://download.pytorch
 安装后检查：
 
 ```powershell
-python -c "import torch; print(torch.__version__); print(torch.cuda.is_available())"
+uv run python -c "import torch; print(torch.__version__); print(torch.cuda.is_available())"
 ```
 
 通过标准：
@@ -234,7 +235,7 @@ uv pip install ultralytics opencv-python numpy pandas pillow pyyaml matplotlib s
 执行：
 
 ```powershell
-python -c "import torch; print(torch.__version__); print(torch.cuda.is_available()); print(torch.cuda.get_device_name(0) if torch.cuda.is_available() else 'no-gpu')"
+uv run python -c "import torch; print(torch.__version__); print(torch.cuda.is_available()); print(torch.cuda.get_device_name(0) if torch.cuda.is_available() else 'no-gpu')"
 uv run yolo checks
 ```
 
@@ -242,7 +243,7 @@ uv run yolo checks
 
 - [ ] 能打印 torch 版本
 - [ ] 能打印显卡名称
-- [ ] `yolo checks` 没有关键错误
+- [ ] `uv run yolo checks` 没有关键错误
 
 ## 12. 做一次最小冒烟训练
 
@@ -299,7 +300,7 @@ uv run yolo detect train data=D:\sinan-captcha-work\datasets\smoke\dataset.yaml 
 
 - [ ] 驱动正常
 - [ ] `uv` 正常
-- [ ] Python 3.11 正常
+- [ ] Python 3.12 正常
 - [ ] 虚拟环境正常
 - [ ] PyTorch GPU 版正常
 - [ ] 已确认 `nvidia-smi` 和 `torch.version.cuda` 的含义

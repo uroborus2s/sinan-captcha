@@ -1,7 +1,9 @@
 workspace:
   repo_root: .
   work_root: D:/sinan-captcha-work
+  generator_root: D:/sinan-captcha-generator
+  generator_workspace: D:/sinan-captcha-generator/workspace
 paths:
   datasets: D:/sinan-captcha-work/datasets
   reports: D:/sinan-captcha-work/reports
-  generator_binary: D:/sinan-captcha-work/tools/generator/sinan-click-generator.exe
+  generator_binary: D:/sinan-captcha-generator/sinan-generator.exe

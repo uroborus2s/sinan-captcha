@@ -14,6 +14,7 @@ htmlcov/
 !/dist/.gitkeep
 /build/
 *.egg-info/
+/generator/dist/
 
 # Go build artifacts
 /generator/build/*
@@ -35,6 +36,9 @@ htmlcov/
 !/materials/backgrounds/.gitkeep
 /materials/icons/*
 !/materials/icons/.gitkeep
+/materials/manifests/backgrounds.csv
+/materials/manifests/icons.csv
+/materials/quarantine/
 
 # Model and export artifacts
 *.pt
@@ -47,6 +51,8 @@ runs/
 models/
 exports/
 tmp/
+.cache/
+materials_stage*/
 
 # IDE and OS files
 .DS_Store
@@ -55,3 +61,5 @@ tmp/
 dist/
 build/
 output/
+.env
+.env.Local

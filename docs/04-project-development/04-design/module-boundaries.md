@@ -168,21 +168,20 @@
 ## 推荐实现目录
 
 ```text
+generator/
+  cmd/
+  internal/
 core/
-  generator/
+  cli.py
   dataset/
+  materials/
   autolabel/
-  review/
+  convert/
+  ops/
   train/
     group1/
     group2/
   inference/
-  evaluate/
-scripts/
-  export/
-  autolabel/
-  convert/
-  train/
   evaluate/
 tests/
 ```

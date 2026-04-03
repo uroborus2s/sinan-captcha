@@ -34,10 +34,10 @@
   - 批次元数据
   - 真值校验结果
 
-### 推荐命令形态
+### 正式命令形态
 
 ```bash
-uv run python scripts/export/export_samples.py --task group1 --mode click --backend native --count 1000 --out datasets/group1/v1/raw
+sinan-generator make-dataset --workspace D:\sinan-captcha-generator\workspace --task group1 --dataset-dir D:\sinan-captcha-work\datasets\group1\firstpass\yolo
 ```
 
 ## API-002 自动标注合同
@@ -52,10 +52,10 @@ uv run python scripts/export/export_samples.py --task group1 --mode click --back
   - `interim` 标签
   - 预标注统计
 
-### 推荐命令形态
+### 正式命令形态
 
 ```bash
-uv run python scripts/autolabel/run_autolabel.py --task group2 --mode rule --input datasets/group2/v1/raw --out datasets/group2/v1/interim
+uv run sinan autolabel --task group2 --mode rule --input-dir datasets/group2/v1/raw --output-dir datasets/group2/v1/interim
 ```
 
 ## API-003 数据转换合同
@@ -71,11 +71,16 @@ uv run python scripts/autolabel/run_autolabel.py --task group2 --mode rule --inp
   - YOLO 标签目录
   - `dataset.yaml`
 
-### 推荐命令形态
+### 正式命令形态
 
 ```bash
-uv run python scripts/convert/build_yolo_dataset.py --task group1 --version v1
+uv run sinan dataset build-yolo --task group1 --version v1 --source-dir datasets/group1/v1/reviewed --output-dir datasets/group1/v1/yolo
 ```
+
+说明：
+
+- 当前产品化生成器已可直接输出 YOLO 数据集目录
+- `dataset build-yolo` 仍保留给训练链路维护者和历史批次迁移场景
 
 ## API-004 训练入口合同
 
@@ -93,13 +98,13 @@ uv run python scripts/convert/build_yolo_dataset.py --task group1 --version v1
 ### 第二专项训练
 
 ```bash
-uv run yolo detect train data=datasets/group2/v1/yolo/dataset.yaml model=yolo26n.pt imgsz=640 epochs=100 batch=16 device=0
+uv run sinan train group2 --dataset-yaml datasets/group2/v1/yolo/dataset.yaml --project runs/group2
 ```
 
 ### 第一专项训练
 
 ```bash
-uv run yolo detect train data=datasets/group1/v1/yolo/dataset.yaml model=yolo26n.pt imgsz=640 epochs=120 batch=16 device=0
+uv run sinan train group1 --dataset-yaml datasets/group1/v1/yolo/dataset.yaml --project runs/group1
 ```
 
 ## API-005 评估入口合同
@@ -115,10 +120,10 @@ uv run yolo detect train data=datasets/group1/v1/yolo/dataset.yaml model=yolo26n
   - 失败样本清单
   - 版本摘要
 
-### 推荐命令形态
+### 正式命令形态
 
 ```bash
-uv run python scripts/evaluate/evaluate_model.py --task group1 --weights runs/group1/v1/weights/best.pt --dataset datasets/group1/v1
+uv run sinan evaluate --task group1 --gold-dir datasets/group1/v1/reviewed/batch_0001 --prediction-dir reports/group1/pred_jsonl_v1 --report-dir reports/group1/eval_jsonl_v1
 ```
 
 ## 未来 HTTP 服务的边界
@@ -137,7 +142,8 @@ uv run python scripts/evaluate/evaluate_model.py --task group1 --weights runs/gr
 
 ## 契约规则
 
-- 命令行入口统一通过 `uv run`
+- Go 侧正式入口统一通过 `sinan-generator`
+- Python 侧正式入口统一通过 `uv run sinan`
 - 图片和标签写盘后才视为成功
 - 标签主事实源始终是 JSONL
 - 任何入口的输出都要带批次标识

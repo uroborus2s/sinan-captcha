@@ -1,0 +1,23 @@
+project:
+  dataset_name: sinan_group2_firstpass
+  split: train
+  sample_count: 200
+  batch_id: group2_fp_0001
+  seed: 20260403
+
+canvas:
+  scene_width: 300
+  scene_height: 150
+  query_width: 120
+  query_height: 36
+
+sampling:
+  target_count_min: 2
+  target_count_max: 4
+  distractor_count_min: 3
+  distractor_count_max: 6
+
+slide:
+  gap_width: 52
+  gap_height: 52
+  max_vertical_jitter: 4

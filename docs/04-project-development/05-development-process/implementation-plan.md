@@ -95,7 +95,7 @@ nvidia-smi
 如果你想确认“CUDA 版本”具体怎么判断，按下面顺序看：
 
 1. `nvidia-smi`
-2. `python -c "import torch; print(torch.version.cuda); print(torch.cuda.is_available())"`
+2. `uv run python -c "import torch; print(torch.version.cuda); print(torch.cuda.is_available())"`
 3. 只有当你明确装过 CUDA Toolkit 时，再看 `nvcc --version`
 
 这里要分清：
@@ -114,16 +114,16 @@ nvidia-smi
 winget install --id=astral-sh.uv -e
 ```
 
-然后安装 Python 3.11：
+然后安装 Python 3.12：
 
 ```powershell
-uv python install 3.11
+uv python install 3.12
 ```
 
 说明：
 
 - 截至 2026-04-01，PyTorch 官方 Windows 安装页支持 Python 3.10-3.14。
-- 第一版建议保守使用 Python 3.11，兼容性通常更稳。
+- 当前项目统一收口到 Python 3.12，避免仓库配置、文档与训练机环境再分叉。
 
 ### 5.3 创建虚拟环境
 
@@ -131,9 +131,9 @@ uv python install 3.11
 
 ```powershell
 cd /d D:\sinan-captcha-work
-uv venv --python 3.11
+uv venv --python 3.12
 .\.venv\Scripts\activate
-python -m pip install --upgrade pip
+uv run python -V
 ```
 
 ### 5.4 安装 PyTorch GPU 版
@@ -171,7 +171,7 @@ uv pip install ultralytics opencv-python numpy pandas pillow pyyaml matplotlib s
 ### 5.6 做环境自检
 
 ```powershell
-python -c "import torch; print(torch.__version__); print(torch.cuda.is_available()); print(torch.cuda.get_device_name(0) if torch.cuda.is_available() else 'no-gpu')"
+uv run python -c "import torch; print(torch.__version__); print(torch.cuda.is_available()); print(torch.cuda.get_device_name(0) if torch.cuda.is_available() else 'no-gpu')"
 uv run yolo checks
 ```
 

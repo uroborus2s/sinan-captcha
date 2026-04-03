@@ -122,7 +122,7 @@
 
 ### 4.1 环境管理
 
-- Python 版本目标：3.11
+- Python 版本目标：3.12
 - 统一使用 `uv`
 - 统一使用 `pyproject.toml`
 - 统一提交 `uv.lock`
@@ -136,18 +136,18 @@
 sinan-captcha/
   pyproject.toml
   uv.lock
+  generator/
   core/
   tests/
-  scripts/
   datasets/
   reports/
 ```
 
 说明：
 
+- `generator/` 放 Go 生成器工程和正式生成器 CLI
 - `core/` 放 Python 训练与数据工程核心包
 - `tests/` 放测试
-- `scripts/` 放数据导出、数据转换、预标注、训练辅助脚本
 - `datasets/` 是数据资产目录，不混入核心 Python 包
 
 ### 4.3 质量门槛
@@ -155,7 +155,6 @@ sinan-captcha/
 后续进入实现阶段前，默认要准备：
 
 - `ruff`
-- `pytest`
 - `mypy`
 
 后续默认命令：
@@ -163,8 +162,8 @@ sinan-captcha/
 ```bash
 uv run ruff check .
 uv run ruff format --check .
-uv run mypy src tests
-uv run pytest
+uv run mypy core tests
+uv run python -m unittest discover -s tests/python -p 'test_*.py'
 ```
 
 ## 5. 数据与标注标准
