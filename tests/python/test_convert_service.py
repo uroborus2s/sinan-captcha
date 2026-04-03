@@ -71,7 +71,8 @@ class ConvertServiceTests(unittest.TestCase):
             )
 
             dataset_yaml = (output_dir / "dataset.yaml").read_text(encoding="utf-8")
-            self.assertIn("path: .", dataset_yaml)
+            self.assertNotIn("path:", dataset_yaml)
+            self.assertIn("train: images/train", dataset_yaml)
             self.assertIn("icon_house", dataset_yaml)
             self.assertIn("icon_leaf", dataset_yaml)
 
@@ -116,7 +117,8 @@ class ConvertServiceTests(unittest.TestCase):
             )
 
             dataset_yaml = (output_dir / "dataset.yaml").read_text(encoding="utf-8")
-            self.assertIn("path: .", dataset_yaml)
+            self.assertNotIn("path:", dataset_yaml)
+            self.assertIn("val: images/val", dataset_yaml)
             self.assertIn("slider_gap", dataset_yaml)
             train_labels = list((output_dir / "labels" / "train").glob("*.txt"))
             self.assertEqual(len(train_labels), 1)

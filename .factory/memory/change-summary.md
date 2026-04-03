@@ -1,5 +1,40 @@
 # 变更摘要
 
+## 2026-04-04 训练数据集路径解析兼容修复
+
+- 已修正 YOLO 数据集导出契约：
+  - 新生成的 `dataset.yaml` 不再写 `path: .`
+  - `train/val/test` 直接相对 `dataset.yaml` 所在目录组织
+- 已为训练 CLI 增加旧数据集兼容层：
+  - 如果旧版 `dataset.yaml` 仍包含相对 `path:`，训练前会自动生成兼容 Ultralytics 的规范化 YAML
+  - 旧数据集无需先整批重导即可继续训练
+- 已补充单测覆盖：
+  - 新数据集不再生成 `path:` 字段
+  - 旧版 `path: .` 数据集会在训练前被自动改写为绝对数据集根
+- 已同步更新：
+  - `core/convert/service.py`
+  - `core/train/base.py`
+  - `tests/python/test_convert_service.py`
+  - `tests/python/test_training_jobs.py`
+  - `docs/02-user-guide/from-base-model-to-training-guide.md`
+  - `docs/04-project-development/04-design/generator-productization.md`
+
+## 2026-04-04 训练机旧版 CLI 升级说明补齐
+
+- 已把“训练机当前仍是 `0.1.1` 时如何升级到 `0.1.2`”补进正式用户指南
+- 已明确推荐的升级路径是：
+  - 重新执行 `uvx --from "sinan-captcha==0.1.2" sinan env setup-train ...`
+  - 或在交付包场景下改为从新的 wheel 执行 `setup-train`
+- 已明确升级行为：
+  - 会重写训练目录里的 `pyproject.toml`
+  - 会重新执行 `uv sync`
+  - 不会删除既有 `datasets/`、`runs/`、`reports/`
+- 已同步更新：
+  - `docs/02-user-guide/windows-quickstart.md`
+  - `docs/02-user-guide/from-base-model-to-training-guide.md`
+  - `docs/02-user-guide/windows-bundle-install.md`
+  - `docs/02-user-guide/use-build-artifacts.md`
+
 ## 2026-04-04 CUDA 13.x 支持、默认训练路径与 PyPI 版本升级
 
 - 已修正 `core/ops/setup_train.py` 中的 PyTorch backend 自动映射：
@@ -123,7 +158,7 @@
   - 工作区会维护当前激活素材集
 - 已新增 Go 侧数据集导出层：
   - 生成器内部直接把 raw batch 导出成 YOLO 数据集目录
-  - `dataset.yaml` 已与训练 CLI 对齐为相对路径 `path: .`
+  - `dataset.yaml` 曾对齐为相对路径 `path: .`
   - `.sinan/raw/`、`manifest.json`、`job.json` 保留审计线索，但不参与训练 CLI 输入
 - 已更新公开文档与设计文档，移除旧的公开口径：
   - `README.md`

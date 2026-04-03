@@ -64,6 +64,17 @@
 
 发布命令也已经收口到 `sinan release ...`，但那是维护者入口，不是训练执行者的主路径。
 
+如果训练机上当前还是旧版 `0.1.1`，推荐直接用新版 `setup-train` 原地升级训练目录，而不是手工改训练目录里的依赖：
+
+```powershell
+uvx --from "sinan-captcha==0.1.2" sinan env setup-train `
+  --train-root D:\sinan-captcha-work `
+  --generator-root D:\sinan-captcha-generator `
+  --yes
+```
+
+这会升级训练环境，但不会删除已有 `datasets\`、`runs\`、`reports\`。
+
 ### 1.3 运行资产
 
 除了二进制和 Python 包，还会涉及这些运行资产：

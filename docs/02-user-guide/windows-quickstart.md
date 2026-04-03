@@ -98,6 +98,27 @@ uvx --from sinan-captcha sinan env setup-train `
 
 ![setup-train 输出示意](./assets/setup-train-terminal.svg)
 
+### 3.3.1 如果训练机现在还是 `0.1.1`，怎么升级
+
+如果你之前已经用 `0.1.1` 创建过训练目录，不需要删掉 `D:\sinan-captcha-work` 重来。直接用新版 CLI 再执行一次 `setup-train` 即可：
+
+```powershell
+uvx --from "sinan-captcha==0.1.2" sinan env setup-train `
+  --train-root D:\sinan-captcha-work `
+  --generator-root D:\sinan-captcha-generator `
+  --yes
+```
+
+这条命令会做 3 件事：
+
+- 用 `0.1.2` 的 CLI 重新写入训练目录里的 `pyproject.toml`
+- 重新执行一次 `uv sync`，把训练环境升级到当前版本
+- 保留原有 `datasets\`、`runs\`、`reports\`，不会删除你的训练数据和训练结果
+
+如果你不是从 PyPI 路线安装，而是从交付包里的 wheel 启动训练目录，把 `--from` 换成新的 wheel 文件路径即可。对应示例见：
+
+- [使用交付包在 Windows 训练机上安装](./windows-bundle-install.md)
+
 ### 3.4 把数据集拷进去
 
 推荐放法：

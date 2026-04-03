@@ -62,7 +62,8 @@
 - 已新增本地发布与交付命令：`uv run sinan release build`、`uv run sinan release publish`、`uv run sinan release package-windows`
 - 已将 `sinan-captcha[train]` 作为训练扩展依赖收口到 Python 包中，`torch` 继续通过训练目录运行时 `pyproject.toml` 和 PyTorch index 配置安装
 - 已把生成器与训练 CLI 的交接面收口为 YOLO 数据集目录：`dataset.yaml`、`images/`、`labels/` 与 `.sinan/`
-- 生成器产出的 `dataset.yaml` 统一采用相对路径 `path: .`，现在数据集可直接交给训练 CLI 使用
+- 新生成器产出的 `dataset.yaml` 不再写 `path:` 字段，`train/val/test` 直接相对 `dataset.yaml` 所在目录组织
+- 训练 CLI 已兼容旧版包含相对 `path:` 的数据集，会在训练前自动规范化为 Ultralytics 可用的 YAML
 - 旧的 `scripts/*` 薄包装入口和分散命令名已移除，避免对外口径继续漂移
 - 已重新构建正式交付物：
   - `generator/dist/generator/darwin-arm64/sinan-generator`
@@ -96,6 +97,7 @@
 - `setup-train` 当前已支持 CUDA 13.x 自动映射到 `cu130`
 - 训练 CLI 当前已支持在训练目录下省略 `--dataset-yaml` 与 `--project`，改用 `--dataset-version <版本目录名>` 走默认路径
 - Python 包版本当前已提升到 `0.1.2`，用于承载默认训练路径机制
+- 正式用户指南已补齐“训练机当前仍为 `0.1.1` 时如何原地升级到 `0.1.2`”的步骤，当前推荐做法是重新执行新版 `setup-train`
 
 ## 最近条目
 

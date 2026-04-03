@@ -5,6 +5,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 import importlib
 from pathlib import Path
+from pathlib import PurePosixPath, PureWindowsPath
 import shutil
 import subprocess
 
@@ -54,14 +55,73 @@ def default_project_dir(train_root: Path, task: str) -> Path:
 
 def execute_training_job(job: TrainingJob) -> int:
     _ensure_training_dependencies()
+    dataset_yaml = prepare_dataset_yaml_for_ultralytics(job.dataset_yaml)
     try:
-        completed = subprocess.run(job.command(), check=True)
+        command = TrainingJob(
+            task=job.task,
+            dataset_yaml=dataset_yaml,
+            model=job.model,
+            epochs=job.epochs,
+            batch=job.batch,
+            imgsz=job.imgsz,
+            device=job.device,
+            project_dir=job.project_dir,
+            run_name=job.run_name,
+        ).command()
+        completed = subprocess.run(command, check=True)
     except FileNotFoundError as exc:
         raise RuntimeError(
             "未找到训练启动器 `uv run yolo`。请先安装 `uv`，并在当前训练环境中安装 "
             "`sinan-captcha[train]`。"
         ) from exc
     return completed.returncode
+
+
+def prepare_dataset_yaml_for_ultralytics(dataset_yaml: Path) -> Path:
+    if not dataset_yaml.exists():
+        raise RuntimeError(f"未找到训练数据集配置文件：{dataset_yaml}")
+    content = dataset_yaml.read_text(encoding="utf-8")
+    rewritten = _rewrite_relative_dataset_root(content, dataset_yaml.parent.resolve())
+    if rewritten == content:
+        return dataset_yaml
+
+    normalized_dir = dataset_yaml.parent / ".sinan"
+    normalized_dir.mkdir(parents=True, exist_ok=True)
+    normalized_path = normalized_dir / "dataset.ultralytics.yaml"
+    normalized_path.write_text(rewritten, encoding="utf-8")
+    return normalized_path
+
+
+def _rewrite_relative_dataset_root(content: str, dataset_root: Path) -> str:
+    rewritten_lines: list[str] = []
+    changed = False
+    for line in content.splitlines():
+        stripped = line.strip()
+        if not stripped.startswith("path:"):
+            rewritten_lines.append(line)
+            continue
+
+        raw_value = stripped.split(":", 1)[1].strip()
+        if not raw_value:
+            rewritten_lines.append(line)
+            continue
+
+        if _is_absolute_dataset_path(raw_value):
+            rewritten_lines.append(line)
+            continue
+
+        resolved_root = (dataset_root / raw_value).resolve()
+        rewritten_lines.append(f"path: {resolved_root.as_posix()}")
+        changed = True
+
+    if not changed:
+        return content
+    return "\n".join(rewritten_lines) + "\n"
+
+
+def _is_absolute_dataset_path(value: str) -> bool:
+    normalized = value.strip().strip("'\"")
+    return PureWindowsPath(normalized).is_absolute() or PurePosixPath(normalized).is_absolute()
 
 
 def _ensure_training_dependencies() -> None:

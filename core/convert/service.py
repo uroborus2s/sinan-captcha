@@ -135,7 +135,6 @@ def _to_yolo_line(obj: dict[str, object], width: int, height: int) -> str:
 
 def _write_dataset_yaml(output_dir: Path, class_map: dict[int, str]) -> None:
     lines = [
-        "path: .",
         "train: images/train",
         "val: images/val",
         "test: images/test",

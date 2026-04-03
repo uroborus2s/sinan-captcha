@@ -113,6 +113,37 @@ uvx --from D:\sinan-delivery\python\sinan_captcha-0.1.2-py3-none-any.whl sinan e
 - 如果完全没有可用包源，这一步还是会卡在依赖下载
 - 如果你们走公司内网镜像，先确认训练机能访问镜像，再执行这一步
 
+### 3.3 如果训练机当前还是 `0.1.1`，如何升级
+
+如果这台机器之前已经是 `0.1.1`，不要手工去改训练目录里的依赖版本。正式升级方式仍然是重新执行一次 `setup-train`。
+
+如果你走 PyPI 路线：
+
+```powershell
+uvx --from "sinan-captcha==0.1.2" sinan env setup-train `
+  --train-root D:\sinan-captcha-work `
+  --generator-root D:\sinan-captcha-generator `
+  --yes
+```
+
+如果你走交付包 wheel 路线：
+
+```powershell
+uvx --from D:\sinan-delivery\python\sinan_captcha-0.1.2-py3-none-any.whl sinan env setup-train `
+  --train-root D:\sinan-captcha-work `
+  --generator-root D:\sinan-captcha-generator `
+  --package-spec "sinan-captcha[train] @ file:///D:/sinan-delivery/python/sinan_captcha-0.1.2-py3-none-any.whl" `
+  --yes
+```
+
+这两条命令都会：
+
+- 用新版 CLI 重写训练目录里的 `pyproject.toml`
+- 重新执行 `uv sync`
+- 保留原有 `datasets\`、`runs\`、`reports\`
+
+所以你不需要先删除训练目录，也不需要重新拷贝训练数据。
+
 ## 4. 什么时候你其实不能按这页继续
 
 出现下面任一情况，就不要继续按这页硬跑：

@@ -121,7 +121,7 @@
 约束如下：
 
 - `dataset.yaml` 是生成器交给训练 CLI 的唯一主入口
-- `dataset.yaml` 内部必须使用相对路径 `path: .`
+- `dataset.yaml` 内部不再写 `path:` 字段，`train/val/test` 直接相对 `dataset.yaml` 所在目录组织
 - `.sinan/raw/` 保留生成器原始批次与审计线索
 - 数据集目录不得依赖 EXE 所在目录
 - 训练环境、`.venv`、`pyproject.toml` 和 `runs/` 不属于生成器职责

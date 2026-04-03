@@ -177,6 +177,33 @@ uvx --from sinan-captcha sinan env setup-train `
 - 训练目录里有 `pyproject.toml`、`.python-version` 和 `.venv`
 - 命令结束后终端会打印“数据怎么放、后续怎么训练”的中文提示
 
+### 6.1 如果训练机已经是旧版 `0.1.1`
+
+如果这台训练机之前已经执行过旧版 `setup-train`，最简单的升级方式不是手工改 `pyproject.toml`，而是直接重新运行新版命令：
+
+```powershell
+uvx --from "sinan-captcha==0.1.2" sinan env setup-train `
+  --train-root D:\sinan-captcha-work `
+  --generator-root D:\sinan-captcha-generator `
+  --yes
+```
+
+这样做的原因很简单：
+
+- 它会用最新版 CLI 重新生成训练目录里的 `pyproject.toml`
+- 它会自动重新执行 `uv sync`
+- 它不会删除现有 `datasets\`、`runs\`、`reports\`
+
+也就是说：
+
+- 训练环境会升级
+- 数据集会保留
+- 已有训练结果会保留
+
+如果你当前不是从 PyPI 安装，而是用交付包里的 wheel 启动训练目录，请改走交付包升级命令，见：
+
+- [使用交付包在 Windows 训练机上安装](./windows-bundle-install.md)
+
 ## 7. 进入训练目录并自检
 
 ```powershell
@@ -377,10 +404,18 @@ D:\sinan-captcha-work\runs\group2\firstpass\
 
 结论：
 
-- 你拿到的是旧版绝对路径数据集
-- 让提供方重新导出一版相对路径数据集
-  或
-- 你自己重新执行一次 `sinan-generator make-dataset`
+- 你拿到的是旧版数据集
+- 常见旧问题有两类：
+  - `dataset.yaml` 里还写着别台机器的绝对路径
+  - `dataset.yaml` 里写了 `path: .`，而 Ultralytics 把它错误解析到了训练目录根
+- 如果报错里出现的是：
+  - `...\sinan-captcha-work\images\val`
+  - 而不是 `...\datasets\group1\<version>\yolo\images\val`
+  这通常就是第二种问题
+- 处理方式：
+  - 升级到最新版 `sinan-captcha` 训练 CLI 后重新执行训练
+  - 或让提供方重新导出一版新数据集
+  - 或你自己重新执行一次 `sinan-generator make-dataset`
 
 ### 15.3 训练一启动就显存爆掉
 
