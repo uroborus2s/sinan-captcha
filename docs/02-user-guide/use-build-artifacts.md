@@ -59,7 +59,8 @@
 
 其中：
 
-- 普通训练执行者的主链路不需要 `materials build` 或 `dataset build-yolo`
+- 普通训练执行者的主链路不需要 `materials build`
+- 训练数据目录应直接由 `sinan-generator make-dataset` 生成
 - 训练 CLI 的正式输入是现成数据集目录里的 `dataset.yaml`
 
 发布命令也已经收口到 `sinan release ...`，但那是维护者入口，不是训练执行者的主路径。

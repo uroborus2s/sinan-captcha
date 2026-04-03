@@ -1,5 +1,25 @@
 # 变更摘要
 
+## 2026-04-04 删除 Python 数据集迁移链路并收口 dataset.yaml 责任
+
+- 已删除 Python 侧旧数据集迁移命令与对应转换模块
+- 当前正式口径已收口为：
+  - `dataset.yaml`、`images/`、`labels/`、`.sinan/` 只由 `sinan-generator make-dataset` 产出
+  - Python `sinan` CLI 只消费现成 `dataset.yaml` 并负责训练、评估、环境初始化与发布
+- 已同步修正 Go 生成器 `dataset.yaml` 导出：
+  - 不再写 `path: .`
+  - `train/val/test` 直接相对 `dataset.yaml` 所在目录组织
+- 已补充回归：
+  - Python 根 CLI 不再接受旧数据集迁移命令
+  - Go `make-dataset` 测试会校验 `dataset.yaml` 不含 `path:` 字段
+- 已同步更新：
+  - `core/cli.py`
+  - `generator/internal/dataset/build.go`
+  - `generator/internal/app/make_dataset_test.go`
+  - `tests/python/test_root_cli.py`
+  - `docs/04-project-development/04-design/api-design.md`
+  - `docs/04-project-development/04-design/module-structure-and-delivery.md`
+
 ## 2026-04-04 训练数据集路径解析兼容修复
 
 - 已修正 YOLO 数据集导出契约：
@@ -12,9 +32,7 @@
   - 新数据集不再生成 `path:` 字段
   - 旧版 `path: .` 数据集会在训练前被自动改写为绝对数据集根
 - 已同步更新：
-  - `core/convert/service.py`
   - `core/train/base.py`
-  - `tests/python/test_convert_service.py`
   - `tests/python/test_training_jobs.py`
   - `docs/02-user-guide/from-base-model-to-training-guide.md`
   - `docs/04-project-development/04-design/generator-productization.md`
@@ -158,7 +176,7 @@
   - 工作区会维护当前激活素材集
 - 已新增 Go 侧数据集导出层：
   - 生成器内部直接把 raw batch 导出成 YOLO 数据集目录
-  - `dataset.yaml` 曾对齐为相对路径 `path: .`
+  - `dataset.yaml` 曾写入 `path:` 字段，现已废止
   - `.sinan/raw/`、`manifest.json`、`job.json` 保留审计线索，但不参与训练 CLI 输入
 - 已更新公开文档与设计文档，移除旧的公开口径：
   - `README.md`
@@ -197,12 +215,12 @@
   - `uv run sinan release package-windows`
 - 已新增 Windows 交付打包能力，可把 wheel、生成器二进制、配置和可选资产整理成独立交付包
 - 已把训练前依赖缺失提示改成中文引导，明确提示先创建训练目录并执行 `uv sync`
-- 已将 `dataset.yaml` 的 `path:` 改为相对路径 `.`
+- 已将 `dataset.yaml` 的 `path:` 改为相对路径写法（该方案后续已废止）
 - 已新增 Python 单测覆盖：
   - 发布 CLI 分发
   - 本地发布服务
   - 训练目录初始化
-  - 相对路径 `dataset.yaml`
+  - 训练目录运行时数据集契约
 - 回归验证通过：
   - `/Users/uroborus/.local/share/uv/python/cpython-3.12.12-macos-aarch64-none/bin/python3.12 -m unittest discover -s tests/python -p 'test_*.py'`
   - `GOCACHE=/tmp/sinan-go-build-cache go test ./...`
@@ -270,7 +288,6 @@
   - `uv run sinan env check`
   - `uv run sinan materials build`
   - `uv run sinan dataset validate`
-  - `uv run sinan dataset build-yolo`
   - `uv run sinan autolabel`
   - `uv run sinan evaluate`
   - `uv run sinan train group1`
@@ -283,8 +300,8 @@
   - `--batch`
   - `--imgsz`
   - `--device`
-- 已新增 `core/convert/cli.py`、`core/autolabel/cli.py`、`core/evaluate/cli.py`、`core/ops/env.py`
-- 已删除原 `scripts/convert/build_yolo_dataset.py`、`scripts/autolabel/run_autolabel.py`、`scripts/evaluate/evaluate_model.py` 等薄包装入口
+- 已新增 Python 自动标注、评估与环境检查入口
+- 已删除原 `scripts/convert/*`、`scripts/autolabel/run_autolabel.py`、`scripts/evaluate/evaluate_model.py` 等薄包装入口
 - 已新增训练 CLI 单测并通过；Python 全量测试通过，共 28 个测试
 - 已完成本地分发构建验证，`dist/` 下已产出：
   - `sinan_captcha-0.1.0.tar.gz`
@@ -315,7 +332,7 @@
   - 本地 `materials-pack/`
   - 本地 `materials-pack.zip`
   - 可访问的素材包下载地址
-- 已把 `uv run sinan materials build`、`uv run sinan dataset build-yolo` 从生成器主链路中降级为非普通用户默认路径
+- 已把 `uv run sinan materials build` 从生成器主链路中降级为非普通用户默认路径
 - 已同步修正以下公开页面：
   - `docs/02-user-guide/prepare-training-data-with-generator.md`
   - `docs/02-user-guide/use-build-artifacts.md`

@@ -6,7 +6,6 @@ import sys
 from collections.abc import Callable
 
 from core.autolabel import cli as autolabel_cli
-from core.convert import cli as convert_cli
 from core.dataset import cli as dataset_cli
 from core.evaluate import cli as evaluate_cli
 from core.materials import cli as materials_cli
@@ -23,7 +22,6 @@ COMMANDS: list[CommandHandler] = [
     (("env", "setup-train"), lambda argv: setup_train_cli.main(argv)),
     (("materials", "build"), lambda argv: materials_cli.main(argv)),
     (("dataset", "validate"), lambda argv: dataset_cli.main(argv)),
-    (("dataset", "build-yolo"), lambda argv: convert_cli.main(argv)),
     (("autolabel",), lambda argv: autolabel_cli.main(argv)),
     (("evaluate",), lambda argv: evaluate_cli.main(argv)),
     (("train", "group1"), lambda argv: train_group1_cli.main(argv)),
@@ -57,7 +55,6 @@ def _usage() -> str:
             "  env setup-train               Create a dedicated training root and bootstrap its uv environment.",
             "  materials build               Build a local offline materials pack.",
             "  dataset validate              Validate a JSONL dataset file.",
-            "  dataset build-yolo            Convert a labeled batch into a YOLO dataset.",
             "  autolabel                     Run offline autolabel flows.",
             "  evaluate                      Evaluate prediction JSONL files against gold data.",
             "  train group1                  Run group1 YOLO training.",
@@ -68,7 +65,6 @@ def _usage() -> str:
             "  uv run sinan env check",
             "  uv run sinan env setup-train --train-root D:\\sinan-captcha-work",
             "  uv run sinan materials build --spec configs/materials-pack.toml --output-root materials",
-            "  uv run sinan dataset build-yolo --task group1 --version v1 --source-dir batch --output-dir yolo",
             "  uv run sinan train group1 --dataset-version v1 --name firstpass",
             "  uv run sinan release build --project-dir .",
         ]

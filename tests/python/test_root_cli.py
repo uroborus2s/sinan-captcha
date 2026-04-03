@@ -22,36 +22,6 @@ class RootCliTests(unittest.TestCase):
         self.assertEqual(code, 0)
         handler.assert_called_once_with(["--dry-run"])
 
-    def test_dispatches_dataset_build_yolo(self) -> None:
-        with patch("core.cli.convert_cli.main", return_value=0) as handler:
-            code = cli.main(
-                [
-                    "dataset",
-                    "build-yolo",
-                    "--task",
-                    "group1",
-                    "--version",
-                    "v1",
-                    "--source-dir",
-                    "batch",
-                    "--output-dir",
-                    "yolo",
-                ]
-            )
-        self.assertEqual(code, 0)
-        handler.assert_called_once_with(
-            [
-                "--task",
-                "group1",
-                "--version",
-                "v1",
-                "--source-dir",
-                "batch",
-                "--output-dir",
-                "yolo",
-            ]
-        )
-
     def test_dispatches_env_setup_train(self) -> None:
         with patch("core.cli.setup_train_cli.main", return_value=0) as handler:
             code = cli.main(["env", "setup-train", "--yes"])
@@ -66,6 +36,10 @@ class RootCliTests(unittest.TestCase):
 
     def test_returns_error_for_unknown_command(self) -> None:
         code = cli.main(["unknown"])
+        self.assertEqual(code, 1)
+
+    def test_removed_dataset_build_yolo_is_unknown_command(self) -> None:
+        code = cli.main(["dataset", "build-yolo"])
         self.assertEqual(code, 1)
 
 

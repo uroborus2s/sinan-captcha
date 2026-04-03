@@ -225,14 +225,7 @@ core/
   - 第二专项规则法预标注
   - 第一专项暖启动模型预标注
 
-### 5.5 `core/convert`
-
-- 语言：Python
-- 模块职责：
-  - JSONL 转 YOLO 数据集
-  - 生成 `dataset.yaml`
-
-### 5.6 `core/train/group1`
+### 5.5 `core/train/group1`
 
 - 语言：Python
 - 模块职责：
@@ -242,7 +235,7 @@ core/
 - 正式入口：
   - `uv run sinan train group1`
 
-### 5.7 `core/train/group2`
+### 5.6 `core/train/group2`
 
 - 语言：Python
 - 模块职责：
@@ -252,7 +245,7 @@ core/
 - 正式入口：
   - `uv run sinan train group2`
 
-### 5.8 `core/ops`
+### 5.7 `core/ops`
 
 - 语言：Python
 - 模块职责：
@@ -263,7 +256,7 @@ core/
   - `uv run sinan env check`
   - `uvx --from sinan-captcha sinan env setup-train`
 
-### 5.9 `core/release`
+### 5.8 `core/release`
 
 - 语言：Python
 - 模块职责：
@@ -275,7 +268,7 @@ core/
   - `uv run sinan release publish`
   - `uv run sinan release package-windows`
 
-### 5.10 `core/inference` 与 `core/evaluate`
+### 5.9 `core/inference` 与 `core/evaluate`
 
 - `core/inference`：推理结果到业务语义的后处理
 - `core/evaluate`：指标计算、失败样本导出、报告生成
@@ -376,7 +369,6 @@ tests/
 | `core/dataset` | Python | 否 | wheel 内部模块 | Python 环境 |
 | `core/materials` | Python | 否 | wheel 内部模块 | Python 环境 |
 | `core/autolabel` | Python | 否 | wheel 内部模块 | Python 环境 |
-| `core/convert` | Python | 否 | wheel 内部模块 | Python 环境 |
 | `core/train/group1` | Python | 否 | wheel 内部模块 | Python 环境 |
 | `core/train/group2` | Python | 否 | wheel 内部模块 | Python 环境 |
 | `core/inference` | Python | 否 | wheel 内部模块 | Python 环境 |
@@ -392,12 +384,11 @@ tests/
 3. `core/cli.py`
 4. `core/dataset`
 5. `core/materials`
-6. `core/convert`
-7. `core/autolabel`
-8. `core/train/group2`
-9. `core/train/group1`
-10. `core/inference`
-11. `core/evaluate`
+6. `core/autolabel`
+7. `core/train/group2`
+8. `core/train/group1`
+9. `core/inference`
+10. `core/evaluate`
 
 不要先做：
 

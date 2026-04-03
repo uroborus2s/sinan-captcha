@@ -32,6 +32,7 @@ func TestMakeDatasetBuildsGroup1TrainingDirectory(t *testing.T) {
 	assertFileExists(t, filepath.Join(trainingDir, ".sinan", "job.json"))
 	assertFileExists(t, filepath.Join(trainingDir, ".sinan", "manifest.json"))
 	assertDirHasFiles(t, filepath.Join(trainingDir, ".sinan", "raw", filepath.Base(result.BatchRoot), "scene"))
+	assertDatasetYAMLHasNoPathField(t, filepath.Join(trainingDir, "dataset.yaml"))
 	if !strings.Contains(result.DatasetYAML, filepath.Join(trainingDir, "dataset.yaml")) {
 		t.Fatalf("unexpected dataset yaml path: %s", result.DatasetYAML)
 	}
@@ -58,6 +59,7 @@ func TestMakeDatasetBuildsGroup2TrainingDirectory(t *testing.T) {
 	assertDirHasFiles(t, filepath.Join(trainingDir, "labels", "train"))
 	assertDirHasFiles(t, filepath.Join(trainingDir, ".sinan", "raw", filepath.Base(result.BatchRoot), "master"))
 	assertDirHasFiles(t, filepath.Join(trainingDir, ".sinan", "raw", filepath.Base(result.BatchRoot), "tile"))
+	assertDatasetYAMLHasNoPathField(t, filepath.Join(trainingDir, "dataset.yaml"))
 }
 
 func createMaterialsPack(t *testing.T) string {
@@ -131,5 +133,20 @@ func assertDirHasFiles(t *testing.T, path string) {
 	}
 	if len(entries) == 0 {
 		t.Fatalf("expected directory %s to contain files", path)
+	}
+}
+
+func assertDatasetYAMLHasNoPathField(t *testing.T, path string) {
+	t.Helper()
+	content, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatalf("read dataset yaml %s: %v", path, err)
+	}
+	text := string(content)
+	if strings.Contains(text, "\npath:") || strings.HasPrefix(text, "path:") {
+		t.Fatalf("dataset yaml should not contain path field:\n%s", text)
+	}
+	if !strings.Contains(text, "train: images/train") {
+		t.Fatalf("dataset yaml missing train path:\n%s", text)
 	}
 }

@@ -248,7 +248,6 @@ func writeDatasetYAML(path string, classMap map[int]string) error {
 	}
 	sort.Ints(classIDs)
 	lines := []string{
-		"path: .",
 		"train: images/train",
 		"val: images/val",
 		"test: images/test",

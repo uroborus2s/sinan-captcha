@@ -9,7 +9,7 @@
 
 - 数据导出入口
 - 自动标注入口
-- 数据转换入口
+- 数据集目录入口
 - 训练入口
 - 评估入口
 
@@ -58,14 +58,14 @@ sinan-generator make-dataset --workspace D:\sinan-captcha-generator\workspace --
 uv run sinan autolabel --task group2 --mode rule --input-dir datasets/group2/v1/raw --output-dir datasets/group2/v1/interim
 ```
 
-## API-003 数据转换合同
+## API-003 数据集目录合同
 
 - 类型：内部函数 / 脚本入口
-- 调用方：数据工程脚本
+- 调用方：生成器导出层、训练执行者
 - 输入：
-  - `reviewed` 标签
   - 目标任务
-  - 类别表
+  - 生成器批次输出
+  - 数据集目录
 - 输出：
   - YOLO 图片目录
   - YOLO 标签目录
@@ -74,13 +74,13 @@ uv run sinan autolabel --task group2 --mode rule --input-dir datasets/group2/v1/
 ### 正式命令形态
 
 ```bash
-uv run sinan dataset build-yolo --task group1 --version v1 --source-dir datasets/group1/v1/reviewed --output-dir datasets/group1/v1/yolo
+sinan-generator make-dataset --workspace D:\sinan-captcha-generator\workspace --task group1 --dataset-dir D:\sinan-captcha-work\datasets\group1\firstpass\yolo
 ```
 
 说明：
 
-- 当前产品化生成器已可直接输出 YOLO 数据集目录
-- `dataset build-yolo` 仍保留给训练链路维护者和历史批次迁移场景
+- 当前正式产品化生成器直接输出 YOLO 数据集目录
+- Python 训练 CLI 不再承担 JSONL 到 YOLO 的迁移转换职责
 
 ## API-004 训练入口合同
 

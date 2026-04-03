@@ -228,7 +228,7 @@ uv run yolo checks
 - `D:\sinan-captcha-work\datasets\group1\firstpass\yolo`
 - `D:\sinan-captcha-work\datasets\group2\firstpass\yolo`
 
-当前新版 `dataset.yaml` 使用相对路径，拷过去即可用；如果你手上的旧数据集仍然是绝对路径，建议让提供方重新导出，或者你自己重新执行一次 `sinan-generator make-dataset`。
+当前新版 `dataset.yaml` 不再写 `path:` 字段，只要和 `images/`、`labels/` 放在同一个 `yolo` 目录里，拷过去即可用；如果你手上的旧数据集仍然是绝对路径，建议让提供方重新导出，或者你自己重新执行一次 `sinan-generator make-dataset`。
 
 下面训练命令里如果出现 `firstpass` 或 `v1`，都表示“你的实际数据版本名”。直接替换成你手里的版本目录即可。
 

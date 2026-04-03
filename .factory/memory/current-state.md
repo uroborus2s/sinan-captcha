@@ -51,7 +51,7 @@
 - 当前训练数据链路已可用，但本机 Python 环境仍缺少 `torch` 与 `ultralytics`，尚不能直接启动训练
 - 已将正式入口收口为两个 CLI：Go 侧 `sinan-generator`，Python 侧 `sinan`
 - `sinan-generator` 当前负责 `workspace init|show`、`materials import|fetch`、`make-dataset`
-- `sinan` 当前负责 `env check`、`env setup-train`、`dataset build-yolo`、`autolabel`、`evaluate`、`train group1`、`train group2`、`release build/publish/package-windows`
+- `sinan` 当前负责 `env check`、`env setup-train`、`autolabel`、`evaluate`、`train group1`、`train group2`、`release build/publish/package-windows`
 - 上述 Python 子命令统一通过 `uv run sinan ...` 形式调用，不再把直接执行 `sinan` 当作对外默认口径
 - Python 侧执行口径已统一为 `uv`：安装使用 `uv pip`，运行使用 `uv run sinan` / `uv run yolo`
 - 已新增独立训练目录初始化能力：`uvx --from sinan-captcha sinan env setup-train`
