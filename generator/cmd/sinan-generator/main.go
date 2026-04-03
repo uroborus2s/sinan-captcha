@@ -55,16 +55,22 @@ func run(args []string) int {
 func usage() string {
 	return "" +
 		"sinan-generator <command>\n\n" +
+		"PowerShell users should run .\\sinan-generator.exe when launching from the current directory.\n\n" +
 		"Commands:\n" +
 		"  workspace init                Create or refresh the fixed workspace.\n" +
 		"  workspace show                Print workspace metadata.\n" +
 		"  materials import              Import a local materials pack into the workspace.\n" +
 		"  materials fetch               Fetch a zipped materials pack into the workspace.\n" +
 		"  make-dataset                  Generate a ready-to-train YOLO dataset directory.\n\n" +
+		"Notes:\n" +
+		"  Presets: firstpass=200 samples, smoke=20 samples.\n" +
+		"  Materials can come from a local directory, a local zip, or an http(s) zip URL.\n" +
+		"  Re-running make-dataset with --force overwrites the same dataset directory.\n\n" +
 		"Examples:\n" +
-		"  sinan-generator workspace init\n" +
-		"  sinan-generator materials import --from D:\\materials-pack\n" +
-		"  sinan-generator make-dataset --task group1 --dataset-dir D:\\datasets\\group1\\firstpass\\yolo\n"
+		"  sinan-generator workspace init --workspace D:\\sinan-captcha-generator\\workspace\n" +
+		"  sinan-generator materials import --workspace D:\\sinan-captcha-generator\\workspace --from D:\\materials-pack\n" +
+		"  sinan-generator materials fetch --workspace D:\\sinan-captcha-generator\\workspace --source https://example.com/materials-pack.zip\n" +
+		"  sinan-generator make-dataset --workspace D:\\sinan-captcha-generator\\workspace --task group1 --dataset-dir D:\\sinan-captcha-work\\datasets\\group1\\firstpass\\yolo\n"
 }
 
 func runWorkspace(args []string) error {
