@@ -14,6 +14,11 @@ class SetupTrainTests(unittest.TestCase):
         self.assertEqual(backend.name, "cu126")
         self.assertEqual(backend.index_url, "https://download.pytorch.org/whl/cu126")
 
+    def test_resolve_torch_backend_supports_cuda_13(self) -> None:
+        backend = setup_train.resolve_torch_backend("13.2", override="auto")
+        self.assertEqual(backend.name, "cu130")
+        self.assertEqual(backend.index_url, "https://download.pytorch.org/whl/cu130")
+
     def test_resolve_torch_backend_rejects_unsupported_cuda(self) -> None:
         with self.assertRaises(ValueError):
             setup_train.resolve_torch_backend("12.4", override="auto")
@@ -23,7 +28,7 @@ class SetupTrainTests(unittest.TestCase):
             train_root = Path(tmpdir) / "sinan-captcha-work"
             plan = setup_train.TrainingSetupPlan(
                 train_root=train_root,
-                package_spec="sinan-captcha[train]==0.1.0",
+                package_spec="sinan-captcha[train]==0.1.2",
                 torch_backend=setup_train.resolve_torch_backend("12.6", override="auto"),
                 cuda_version="12.6",
                 python_version="3.12",
@@ -33,7 +38,7 @@ class SetupTrainTests(unittest.TestCase):
 
             self.assertTrue((train_root / ".python-version").exists())
             pyproject = (train_root / "pyproject.toml").read_text(encoding="utf-8")
-            self.assertIn('sinan-captcha[train]==0.1.0', pyproject)
+            self.assertIn('sinan-captcha[train]==0.1.2', pyproject)
             self.assertIn('torch', pyproject)
             self.assertIn('name = "pytorch-cu126"', pyproject)
             self.assertTrue((train_root / "datasets" / "group1").exists())
@@ -63,7 +68,7 @@ class SetupTrainTests(unittest.TestCase):
                         "--torch-backend",
                         "cpu",
                         "--package-spec",
-                        "sinan-captcha[train]==0.1.0",
+                        "sinan-captcha[train]==0.1.2",
                     ]
                 )
 

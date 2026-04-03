@@ -42,6 +42,14 @@ CUDA Version: 12.8
 - NVIDIA 驱动正常
 - 机器具备跑 GPU 训练的基本条件
 
+如果你看到的是：
+
+```text
+CUDA Version: 13.2
+```
+
+也不用意外。这通常表示你的驱动已经支持 CUDA 13.x 运行时。
+
 ## 3. 第二种方法：看是否装了 CUDA Toolkit
 
 如果你装过 NVIDIA CUDA Toolkit，再执行：
@@ -99,6 +107,18 @@ True
 - 你装的 PyTorch 用的是 12.6 版本的 CUDA 运行时
 
 只要 `torch.cuda.is_available()` 是 `True`，一般就能训练。
+
+### 情况 A2
+
+`nvidia-smi` 显示 `CUDA Version: 13.2`
+`torch.version.cuda` 显示 `13.0`
+
+这通常也是正常的。
+
+说明：
+
+- 你的驱动支持到 13.2
+- 你装的 PyTorch 用的是 13.0 版本的 CUDA 运行时
 
 ### 情况 B
 

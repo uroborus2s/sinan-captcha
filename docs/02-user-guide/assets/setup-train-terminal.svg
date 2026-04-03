@@ -1,0 +1,23 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1180" height="560" viewBox="0 0 1180 560" role="img" aria-labelledby="title desc">
+  <title id="title">setup-train terminal example</title>
+  <desc id="desc">Example terminal output for setup-train summary.</desc>
+  <rect width="1180" height="560" fill="#111827"/>
+  <rect x="24" y="24" width="1132" height="512" rx="14" fill="#0b1220" stroke="#334155" stroke-width="2"/>
+  <circle cx="54" cy="54" r="7" fill="#ef4444"/>
+  <circle cx="78" cy="54" r="7" fill="#f59e0b"/>
+  <circle cx="102" cy="54" r="7" fill="#22c55e"/>
+  <text x="128" y="60" fill="#cbd5e1" font-family="Menlo, Consolas, monospace" font-size="22">PowerShell - setup-train summary</text>
+  <g fill="#e2e8f0" font-family="Menlo, Consolas, monospace" font-size="22">
+    <text x="48" y="108">&gt; uvx --from sinan-captcha sinan env setup-train --train-root D:\sinan-captcha-work</text>
+    <text x="48" y="154">Operating system: Windows</text>
+    <text x="48" y="190">Training root: D:\sinan-captcha-work</text>
+    <text x="48" y="226">Generator root: D:\sinan-captcha-generator</text>
+    <text x="48" y="262">Generator workspace: D:\sinan-captcha-generator\workspace</text>
+    <text x="48" y="298">Python version: 3.12</text>
+    <text x="48" y="334">Detected CUDA version: 13.2</text>
+    <text x="48" y="370">Selected PyTorch backend: cu130</text>
+    <text x="48" y="406">Will install: sinan-captcha[train]==0.1.2</text>
+    <text x="48" y="454">Data directories: datasets/group1 and datasets/group2</text>
+    <text x="48" y="502">Confirm create training root and install dependencies? [y/N]: y</text>
+  </g>
+</svg>

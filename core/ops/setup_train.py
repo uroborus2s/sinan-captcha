@@ -35,6 +35,7 @@ TORCH_BACKENDS: dict[str, TorchBackend] = {
     "cu118": TorchBackend("cu118", "pytorch-cu118", "https://download.pytorch.org/whl/cu118"),
     "cu126": TorchBackend("cu126", "pytorch-cu126", "https://download.pytorch.org/whl/cu126"),
     "cu128": TorchBackend("cu128", "pytorch-cu128", "https://download.pytorch.org/whl/cu128"),
+    "cu130": TorchBackend("cu130", "pytorch-cu130", "https://download.pytorch.org/whl/cu130"),
 }
 
 
@@ -43,7 +44,11 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--train-root", type=Path, default=Path.cwd() / "sinan-captcha-work")
     parser.add_argument("--generator-root", type=Path, default=None)
     parser.add_argument("--package-spec", default=_default_package_spec())
-    parser.add_argument("--torch-backend", choices=("auto", "cpu", "cu118", "cu126", "cu128"), default="auto")
+    parser.add_argument(
+        "--torch-backend",
+        choices=("auto", "cpu", "cu118", "cu126", "cu128", "cu130"),
+        default="auto",
+    )
     parser.add_argument("--yes", action="store_true")
     return parser
 
@@ -98,12 +103,14 @@ def resolve_torch_backend(cuda_version: str | None, *, override: str) -> TorchBa
 
     if normalized == (11, 8):
         return TORCH_BACKENDS["cu118"]
+    if normalized >= (13, 0):
+        return TORCH_BACKENDS["cu130"]
     if normalized >= (12, 8):
         return TORCH_BACKENDS["cu128"]
     if normalized >= (12, 6):
         return TORCH_BACKENDS["cu126"]
     raise ValueError(
-        "当前自动安装矩阵仅支持 CUDA 11.8、12.6+ 或 CPU。"
+        "当前自动安装矩阵仅支持 CUDA 11.8、12.6+、13.0+ 或 CPU。"
         f"检测到 {cuda_version}，请升级驱动后重试，或使用 --torch-backend 手动指定。"
     )
 
@@ -180,8 +187,8 @@ def render_setup_summary(plan: TrainingSetupPlan) -> str:
         3. 如果希望把生成器工作区固定在安装目录下，后续生成器命令统一带上：
            - --workspace {generator_workspace}
         4. 训练命令在训练目录内执行：
-           - uv run sinan train group1 --dataset-yaml datasets/group1/v1/yolo/dataset.yaml --project runs/group1
-           - uv run sinan train group2 --dataset-yaml datasets/group2/v1/yolo/dataset.yaml --project runs/group2
+           - uv run sinan train group1 --dataset-version v1 --name firstpass
+           - uv run sinan train group2 --dataset-version v1 --name firstpass
         """
     ).strip()
 
@@ -191,7 +198,7 @@ def render_train_pyproject(plan: TrainingSetupPlan) -> str:
         f"""
         [project]
         name = "sinan-captcha-train"
-        version = "0.1.0"
+        version = "0.1.2"
         requires-python = ">={plan.python_version},<{int(plan.python_version.split('.')[0])}.{int(plan.python_version.split('.')[1]) + 1}"
         dependencies = [
           "{plan.package_spec}",
@@ -232,8 +239,8 @@ def render_train_readme(plan: TrainingSetupPlan) -> str:
            - sinan-generator materials import --workspace {generator_workspace} --from <materials-pack>
            - sinan-generator make-dataset --workspace {generator_workspace} --task group1 --dataset-dir {plan.train_root / "datasets" / "group1" / "v1" / "yolo"}
         6. 训练命令示例：
-           - uv run sinan train group1 --dataset-yaml datasets/group1/v1/yolo/dataset.yaml --project runs/group1
-           - uv run sinan train group2 --dataset-yaml datasets/group2/v1/yolo/dataset.yaml --project runs/group2
+           - uv run sinan train group1 --dataset-version v1 --name firstpass
+           - uv run sinan train group2 --dataset-version v1 --name firstpass
         7. 评估命令示例：
            - uv run sinan evaluate --task group1 --gold-dir <gold-dir> --prediction-dir <pred-dir> --report-dir reports/group1/eval
         """
@@ -249,7 +256,7 @@ def _default_package_spec() -> str:
     try:
         version = importlib.metadata.version("sinan-captcha")
     except importlib.metadata.PackageNotFoundError:
-        version = "0.1.0"
+        version = "0.1.2"
     return f"sinan-captcha[train]=={version}"
 
 

@@ -15,5 +15,5 @@
 
 当前交付模型明确分为两个目录：
 
-- 生成器安装目录：`sinan-generator.exe`、配置、可选显式工作区 `workspace/`
+- 生成器安装目录：`sinan-generator.exe`、可选显式工作区 `workspace/`
 - 训练目录：运行时 `pyproject.toml`、`.venv`、`datasets/`、`runs/`、`reports/`

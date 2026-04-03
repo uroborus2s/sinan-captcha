@@ -47,16 +47,12 @@ class ReleaseServiceTests(unittest.TestCase):
             root = Path(tmpdir)
             dist_dir = root / "dist"
             dist_dir.mkdir()
-            wheel = dist_dir / "sinan_captcha-0.1.0-py3-none-any.whl"
+            wheel = dist_dir / "sinan_captcha-0.1.2-py3-none-any.whl"
             wheel.write_text("wheel", encoding="utf-8")
 
             generator_exe = root / "generator" / "dist" / "generator" / "windows-amd64" / "sinan-generator.exe"
             generator_exe.parent.mkdir(parents=True)
             generator_exe.write_text("exe", encoding="utf-8")
-
-            configs_dir = root / "generator" / "configs"
-            configs_dir.mkdir(parents=True)
-            (configs_dir / "default.yaml").write_text("sample_count: 1\n", encoding="utf-8")
 
             output_dir = root / "bundle"
             package_windows_bundle(
@@ -69,5 +65,7 @@ class ReleaseServiceTests(unittest.TestCase):
 
             self.assertTrue((output_dir / "python" / wheel.name).exists())
             self.assertTrue((output_dir / "generator" / "sinan-generator.exe").exists())
-            self.assertTrue((output_dir / "generator" / "configs" / "default.yaml").exists())
             self.assertTrue((output_dir / "README-交付包说明.txt").exists())
+            readme = (output_dir / "README-交付包说明.txt").read_text(encoding="utf-8")
+            self.assertIn(".\\sinan-generator.exe", readme)
+            self.assertIn("firstpass 预设一次生成 200 条", readme)

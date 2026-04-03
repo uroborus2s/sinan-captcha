@@ -16,11 +16,20 @@ mkdocs:
         - title: 使用指南总览
           path: 02-user-guide/user-guide.md
           access: public
+        - title: Windows 快速开始
+          path: 02-user-guide/windows-quickstart.md
+          access: public
+        - title: 使用交付包在 Windows 训练机上安装
+          path: 02-user-guide/windows-bundle-install.md
+          access: public
         - title: 使用交付物与正式 CLI
           path: 02-user-guide/use-build-artifacts.md
           access: public
         - title: Windows 训练机安装与模型训练
           path: 02-user-guide/from-base-model-to-training-guide.md
+          access: public
+        - title: 用生成器准备训练数据
+          path: 02-user-guide/prepare-training-data-with-generator.md
           access: public
         - title: 训练完成后的模型使用与测试
           path: 02-user-guide/use-and-test-trained-models.md
@@ -35,6 +44,15 @@ mkdocs:
           access: public
         - title: 维护者快速使用说明
           path: 03-developer-guide/maintainer-quickstart.md
+          access: private
+        - title: 仓库结构与边界
+          path: 03-developer-guide/repository-structure-and-boundaries.md
+          access: private
+        - title: 本地开发与验证工作流
+          path: 03-developer-guide/local-development-workflow.md
+          access: private
+        - title: 发布与交付工作流
+          path: 03-developer-guide/release-and-delivery-workflow.md
           access: private
     - title: 项目开发文档（内）
       children:

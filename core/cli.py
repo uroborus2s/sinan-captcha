@@ -69,7 +69,7 @@ def _usage() -> str:
             "  uv run sinan env setup-train --train-root D:\\sinan-captcha-work",
             "  uv run sinan materials build --spec configs/materials-pack.toml --output-root materials",
             "  uv run sinan dataset build-yolo --task group1 --version v1 --source-dir batch --output-dir yolo",
-            "  uv run sinan train group1 --dataset-yaml datasets/group1/v1/yolo/dataset.yaml --project runs/group1",
+            "  uv run sinan train group1 --dataset-version v1 --name firstpass",
             "  uv run sinan release build --project-dir .",
         ]
     )

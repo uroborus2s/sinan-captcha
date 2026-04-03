@@ -145,7 +145,7 @@ uv run python -V
 - Language: Python
 - Compute Platform: 选择与你机器兼容的 CUDA 版本
 
-截至 2026-04-01，官方稳定页提供的 Windows 选项包含 `CUDA 11.8`、`CUDA 12.6`、`CUDA 12.8`。
+截至 2026-04-04，官方稳定页提供的 Windows 选项包含 `CUDA 11.8`、`CUDA 12.6`、`CUDA 12.8`、`CUDA 13.0`。
 
 常见示例命令之一是：
 

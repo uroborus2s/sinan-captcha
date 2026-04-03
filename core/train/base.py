@@ -44,6 +44,14 @@ class TrainingJob:
         return " ".join(str(part) for part in self.command())
 
 
+def default_dataset_yaml(train_root: Path, task: str, dataset_version: str) -> Path:
+    return train_root / "datasets" / task / dataset_version / "yolo" / "dataset.yaml"
+
+
+def default_project_dir(train_root: Path, task: str) -> Path:
+    return train_root / "runs" / task
+
+
 def execute_training_job(job: TrainingJob) -> int:
     _ensure_training_dependencies()
     try:

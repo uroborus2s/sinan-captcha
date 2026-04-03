@@ -67,10 +67,9 @@
 - 已重新构建正式交付物：
   - `generator/dist/generator/darwin-arm64/sinan-generator`
   - `generator/dist/generator/windows-amd64/sinan-generator.exe`
-  - `dist/sinan_captcha-0.1.0-py3-none-any.whl`
-  - `dist/sinan_captcha-0.1.0.tar.gz`
-- 已完成本地 PyPI 分发构建验证，`dist/` 下已生成 `sinan_captcha-0.1.0.tar.gz` 与 `sinan_captcha-0.1.0-py3-none-any.whl`
-- 当前本地发布命令已就位，仍需用户提供 `PYPI_TOKEN` 后执行实际上传
+  - `dist/sinan_captcha-0.1.2-py3-none-any.whl`
+  - `dist/sinan_captcha-0.1.2.tar.gz`
+- 已完成 `0.1.2` 本地 PyPI 分发构建与实际上传，PyPI 当前已存在 `sinan-captcha 0.1.2`
 - 已将公开用户手册重构为面向 Windows 训练机的完整安装与训练文档，覆盖 wheel 交付、数据集放置、环境安装、自检、冒烟和正式训练
 - 已把 Windows 环境 checklist 收口为配套核对表，避免用户在公开手册和内部过程文档之间来回切换
 - 已按双 CLI 架构重写对外文档，README、入门页、用户指南、交付物页、Windows 训练手册和训练后验证页均已统一到当前正式命令与目录结构
@@ -78,6 +77,25 @@
 - 公开文档中的生成器命令已统一显式示例 `--workspace <generator-workspace>`，并明确 Windows 默认工作区仍是 `%LOCALAPPDATA%\\SinanGenerator`
 - 已将 Python 工程规则、公开文档和训练机说明统一收口到 Python 3.12
 - 已将运行时生成的 `materials/manifests/backgrounds.csv`、`materials/manifests/icons.csv` 与 `materials/quarantine/` 收口为忽略项，避免运行素材索引和坏图隔离产物继续进入 Git
+- 已继续重构用户指南目录，新增“Windows 快速开始”和“用生成器准备训练数据”两条公开路径
+- 已按第一次上手的 Windows 训练执行者视角完成公开文档复审，并补齐了占位符说明、盘符替换提示、生成器配置放置位置、旧版绝对路径 `dataset.yaml` 的识别与处理方式
+- 已补充“使用交付包在 Windows 训练机上安装”公开页面，并明确当前交付包对受限网络与完全离线场景的支持边界
+- 已再次复查公开使用指南，移除普通用户文档里残留的 `configs/*.yaml` 手工拷贝要求和旧素材构建链路，现统一为“EXE + 工作区 + materials import|fetch + make-dataset”
+- 已同步修正开发者与交付口径：`release package-windows` 不再默认把 `generator/configs/` 打进交付包，生成器安装目录现在正式收口为单 EXE
+- 已补齐生成器实操文档缺口：PowerShell 执行方式、素材包结构校验、远程构建素材包、默认样本规模、多次生成策略和数据集复用规则已进入正式用户指南
+- 已把“训练后第一眼看哪里、同一份数据是否可重复训练、需要更多数据时如何处理”同步补齐到快速开始页、完整训练手册和总览页
+- 已把 `sinan-generator` 帮助文本和交付包内置说明同步到当前用户口径，避免命令行、交付包和正式文档继续漂移
+- 已把仓库首页 README 收口为“用户最短入口优先、开发者信息后置”的结构，当前首页已与正式用户指南主线保持一致
+- 已把 `docs/02-user-guide/index.md` 同步收口为用户入口首页，当前仓库首页与文档首页已基本采用同一阅读结构
+- 已新增两张终端示意图，分别展示 `setup-train` 中文摘要和 smoke 训练启动后的典型终端形态
+- 已把第三部分开发者指南从占位页扩展为可执行维护手册，当前包含：
+  - 维护者快速使用说明
+  - 仓库结构与边界
+  - 本地开发与验证工作流
+  - 发布与交付工作流
+- `setup-train` 当前已支持 CUDA 13.x 自动映射到 `cu130`
+- 训练 CLI 当前已支持在训练目录下省略 `--dataset-yaml` 与 `--project`，改用 `--dataset-version <版本目录名>` 走默认路径
+- Python 包版本当前已提升到 `0.1.2`，用于承载默认训练路径机制
 
 ## 最近条目
 
@@ -95,6 +113,8 @@
 - 下一步扩充图标变体和样本规模，把 firstpass 从流程验证批次提升到正式 warm-up 批次
 - 下一步把素材包构建阶段也接入图片完整解码校验，避免坏图只在生成前才暴露
 - 下一步继续补 slide 模式的视觉复杂度、抗规则化扰动和更多 QA 断言，再评估是否进入 `gocaptcha` adapter Spike
+- 下一步可补一页“离线训练机安装”说明，覆盖无法直接访问 PyPI 的交付场景
+- 下一步可补一条“开发者读者视角复审”固化流程，在重大文档调整后形成固定检查单
 - 若 UX/UI 需要可视化评审，优先登记真实设计交付物而不是只写文字
 - 若工作项进入收尾，确认关联 PR 已完成评审并合并
 - 阶段切换前先更新正式文档，再刷新 `/.factory/memory/` 压缩记忆

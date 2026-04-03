@@ -1,5 +1,82 @@
 # 变更摘要
 
+## 2026-04-04 CUDA 13.x 支持、默认训练路径与 PyPI 版本升级
+
+- 已修正 `core/ops/setup_train.py` 中的 PyTorch backend 自动映射：
+  - `>= 13.0` 现在选择 `cu130`
+  - `>= 12.8 && < 13.0` 继续选择 `cu128`
+  - `>= 12.6 && < 12.8` 继续选择 `cu126`
+  - `11.8` 继续选择 `cu118`
+- 已把 `--torch-backend` 的可选值扩展到 `cu130`
+- 已新增 Python 单测覆盖 CUDA 13.2 -> `cu130` 的自动映射
+- 训练 CLI 已支持默认训练路径机制：
+  - 在训练目录下可省略 `--dataset-yaml`
+  - 在训练目录下可省略 `--project`
+  - 新增 `--dataset-version <版本目录名>`，用于从 `datasets/<task>/<dataset-version>/yolo/dataset.yaml` 推导默认数据集路径
+- 已把 Python 包版本从 `0.1.0` 提升到 `0.1.2`
+- 已构建并上传：
+  - `dist/sinan_captcha-0.1.2-py3-none-any.whl`
+  - `dist/sinan_captcha-0.1.2.tar.gz`
+  - PyPI 包版本：`sinan-captcha 0.1.2`
+- 已同步更新当前生效的文档与终端示意图：
+  - `docs/02-user-guide/how-to-check-cuda-version.md`
+  - `docs/02-user-guide/windows-bundle-install.md`
+  - `docs/02-user-guide/assets/setup-train-terminal.svg`
+  - `docs/03-developer-guide/local-development-workflow.md`
+  - `docs/02-user-guide/windows-quickstart.md`
+  - `docs/02-user-guide/from-base-model-to-training-guide.md`
+  - `docs/02-user-guide/prepare-training-data-with-generator.md`
+
+## 2026-04-03 用户指南结构重构与读者视角复审
+
+- 已把公开用户指南重构为更清晰的阅读路径：
+  - `docs/02-user-guide/windows-quickstart.md`
+  - `docs/02-user-guide/prepare-training-data-with-generator.md`
+  - `docs/02-user-guide/use-build-artifacts.md`
+  - `docs/02-user-guide/from-base-model-to-training-guide.md`
+- 已按首次上手的 Windows 训练执行者视角复审文档，并补齐关键认知缺口：
+  - 先解释“生成器安装目录 / 生成器工作区 / 训练目录”三层模型
+  - 新增常用占位符说明：`<generator-root>`、`<generator-workspace>`、`<train-root>`、`<version>`
+  - 显式补充“没有 `D:` 盘时如何替换盘符”
+  - 显式补充生成器配置文件应放到 `D:\sinan-captcha-generator\configs\`
+  - 显式补充旧版绝对路径 `dataset.yaml` 的识别与处理方式
+  - 显式补充 `uvx --from sinan-captcha ...` 不要求本机先克隆源码仓库
+- 已同步更新导航入口：
+  - `README.md`
+  - `docs/index.md`
+  - `docs/01-getting-started/index.md`
+  - `docs/02-user-guide/index.md`
+- 当前公开文档已可支持一名第一次接触项目的 Windows 读者，按“快速开始”或“本地生成再训练”两条路线完成环境初始化、数据放置和训练启动
+
+## 2026-04-04 交付包安装页与第三部分开发者指南重构
+
+- 已补充用户侧交付包安装页：
+  - `docs/02-user-guide/windows-bundle-install.md`
+- 当前该页已明确说明：
+  - 交付包典型结构
+  - PyPI 路线与交付包 wheel 路线的区别
+  - 当前版本对“完全离线安装”的真实边界
+  - 训练目录创建完成后下一步应该跳转到哪一页
+- 已补充两张终端示意图资源：
+  - `docs/02-user-guide/assets/setup-train-terminal.svg`
+  - `docs/02-user-guide/assets/train-smoke-terminal.svg`
+- 已把第三部分“开发者指南”从占位结构扩展为 4 条主线：
+  - `docs/03-developer-guide/index.md`
+  - `docs/03-developer-guide/maintainer-quickstart.md`
+  - `docs/03-developer-guide/repository-structure-and-boundaries.md`
+  - `docs/03-developer-guide/local-development-workflow.md`
+  - `docs/03-developer-guide/release-and-delivery-workflow.md`
+- 已把开发者文档收口到维护者真正会使用的主题：
+  - 新维护者接手顺序
+  - 仓库与运行目录边界
+  - 本地修改、验证、同步文档与 `.factory` 的闭环
+  - Python 包、Go 二进制和 Windows 交付包的发布流程
+- 已同步更新：
+  - `README.md`
+  - `docs/index.md`
+  - `docs/01-getting-started/index.md`
+  - `docs/02-user-guide/index.md`
+
 ## 2026-04-03 文档读者视角收口与仓库忽略规则修正
 
 - 已按读者视角重审公开文档，并收口到统一目录心智模型：
@@ -194,6 +271,57 @@
   - `docs/02-user-guide/user-guide.md`
   - `docs/04-project-development/05-development-process/windows-environment-checklist.md`
 - 当前公开用户路径已不再要求读者先理解内部开发过程文档，就可以在 Windows 训练机上完成安装与训练
+
+## 2026-04-04 公开使用指南纠偏
+
+- 已复查 `README.md`、入门页和主要用户指南，清理生成器产品化之后残留的旧口径
+- 已从普通用户路径中移除“手工拷贝 `configs/*.yaml` 到 EXE 同级目录”的过时要求
+- 已把素材准备口径统一为：
+  - 本地 `materials-pack/`
+  - 本地 `materials-pack.zip`
+  - 可访问的素材包下载地址
+- 已把 `uv run sinan materials build`、`uv run sinan dataset build-yolo` 从生成器主链路中降级为非普通用户默认路径
+- 已同步修正以下公开页面：
+  - `docs/02-user-guide/prepare-training-data-with-generator.md`
+  - `docs/02-user-guide/use-build-artifacts.md`
+  - `docs/02-user-guide/from-base-model-to-training-guide.md`
+  - `docs/02-user-guide/windows-bundle-install.md`
+  - `docs/02-user-guide/user-guide.md`
+  - `docs/01-getting-started/index.md`
+  - `README.md`
+- 已继续复查开发者与交付文档，并同步修正 `release package-windows`：
+  - 交付包不再默认复制 `generator/configs/`
+  - 交付包说明改为“单 EXE + 可选素材/数据集”
+  - 开发者文档已统一到“安装目录不要求手工维护 `configs/*.yaml`”
+- 已补齐生成器用户指南中的高频实操问题：
+  - PowerShell 下应使用 `.\sinan-generator.exe`
+  - 如何判断素材包结构是否合格
+  - 如何补齐/增加素材并保留素材版本
+  - 如何通过 `PEXELS_API_KEY` + `materials-pack.toml` 构建远程素材包
+  - `smoke=20`、`firstpass=200` 的生成规模说明
+  - 如何多次生成不同版本数据集，以及数据集可重复用于多轮训练
+- 已补齐训练后验证指南中的“第一次训练完成后先看什么”和“同一份数据集可重复训练”说明
+- 已继续把同类说明补到：
+  - `docs/02-user-guide/windows-quickstart.md`
+  - `docs/02-user-guide/from-base-model-to-training-guide.md`
+  - `docs/02-user-guide/user-guide.md`
+- 现在快速开始、完整训练手册和总览页都已对齐：
+  - 训练后第一眼看哪里
+  - 同一份数据集可以重复训练
+  - 需要更多数据时应新建数据版本，而不是覆盖旧目录
+- 已把命令行帮助和交付包说明同步到当前口径：
+  - `sinan-generator --help` 现在明确提示 PowerShell 用 `.\sinan-generator.exe`
+  - 帮助文本已补充素材来源、默认预设规模和 `--force` 覆盖语义
+  - `README-交付包说明.txt` 现在包含工作区初始化、素材导入/抓取、样本规模和覆盖规则
+- 已继续收口仓库首页 `README.md`：
+  - 用户入口前置
+  - 典型命令改为用户视角
+  - 开发者信息后置
+  - 移除首页上的维护者工作流干扰
+- 已继续收口 `docs/02-user-guide/index.md`：
+  - 结构与 README 首页对齐
+  - 先按起点选入口
+  - 再给最短心智模型、最短流程和补充入口
 
 ## 2026-04-02
 

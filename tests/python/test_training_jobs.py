@@ -61,6 +61,25 @@ class TrainingJobTests(unittest.TestCase):
         self.assertIn("batch=8", output)
         self.assertIn("data=datasets/group1/v1/yolo/dataset.yaml", output)
 
+    def test_group1_cli_uses_default_paths_from_training_root(self) -> None:
+        buffer = io.StringIO()
+        with patch("core.train.group1.cli.Path.cwd", return_value=Path("D:/sinan-captcha-work")):
+            with redirect_stdout(buffer):
+                code = group1_cli.main(
+                    [
+                        "--dataset-version",
+                        "firstpass",
+                        "--name",
+                        "smoke",
+                        "--dry-run",
+                    ]
+                )
+        self.assertEqual(code, 0)
+        output = buffer.getvalue()
+        self.assertIn("data=D:/sinan-captcha-work/datasets/group1/firstpass/yolo/dataset.yaml", output)
+        self.assertIn("project=D:/sinan-captcha-work/runs/group1", output)
+        self.assertIn("name=smoke", output)
+
     def test_group2_cli_executes_training_command(self) -> None:
         with patch("core.train.base._ensure_training_dependencies") as ensure_deps:
             with patch("core.train.base.subprocess.run") as subprocess_run:
@@ -84,6 +103,25 @@ class TrainingJobTests(unittest.TestCase):
         self.assertEqual(command[2], "yolo")
         self.assertIn("epochs=100", command)
         self.assertIn("name=firstpass", command)
+
+    def test_group2_cli_uses_default_paths_from_training_root(self) -> None:
+        buffer = io.StringIO()
+        with patch("core.train.group2.cli.Path.cwd", return_value=Path("D:/sinan-captcha-work")):
+            with redirect_stdout(buffer):
+                code = group2_cli.main(
+                    [
+                        "--dataset-version",
+                        "firstpass",
+                        "--name",
+                        "smoke",
+                        "--dry-run",
+                    ]
+                )
+        self.assertEqual(code, 0)
+        output = buffer.getvalue()
+        self.assertIn("data=D:/sinan-captcha-work/datasets/group2/firstpass/yolo/dataset.yaml", output)
+        self.assertIn("project=D:/sinan-captcha-work/runs/group2", output)
+        self.assertIn("name=smoke", output)
 
 
 if __name__ == "__main__":

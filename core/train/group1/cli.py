@@ -5,14 +5,25 @@ from __future__ import annotations
 import argparse
 from pathlib import Path
 
-from core.train.base import execute_training_job
+from core.train.base import default_dataset_yaml, default_project_dir, execute_training_job
 from core.train.group1.service import build_group1_training_job
 
 
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(description="Run the group1 YOLO training command.")
-    parser.add_argument("--dataset-yaml", type=Path, required=True)
-    parser.add_argument("--project", type=Path, required=True)
+    parser.add_argument(
+        "--dataset-yaml",
+        type=Path,
+        required=False,
+        help="optional; defaults to <cwd>/datasets/group1/<dataset-version>/yolo/dataset.yaml",
+    )
+    parser.add_argument("--dataset-version", default="v1")
+    parser.add_argument(
+        "--project",
+        type=Path,
+        required=False,
+        help="optional; defaults to <cwd>/runs/group1",
+    )
     parser.add_argument("--name", default="v1")
     parser.add_argument("--model", default="yolo26n.pt")
     parser.add_argument("--epochs", type=int, default=None)
@@ -26,9 +37,12 @@ def build_parser() -> argparse.ArgumentParser:
 def main(argv: list[str] | None = None) -> int:
     parser = build_parser()
     args = parser.parse_args(argv)
+    train_root = Path.cwd()
+    dataset_yaml = args.dataset_yaml or default_dataset_yaml(train_root, "group1", args.dataset_version)
+    project_dir = args.project or default_project_dir(train_root, "group1")
     job = build_group1_training_job(
-        dataset_yaml=args.dataset_yaml,
-        project_dir=args.project,
+        dataset_yaml=dataset_yaml,
+        project_dir=project_dir,
         model=args.model,
         run_name=args.name,
         epochs=args.epochs,

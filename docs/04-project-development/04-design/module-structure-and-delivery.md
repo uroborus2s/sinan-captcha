@@ -215,6 +215,8 @@ core/
   - 为 Go 生成器准备已索引的素材目录
 - 正式入口：
   - `uv run sinan materials build`
+- 使用边界：
+  - 这是维护者或历史批次迁移入口，不是普通用户生成器主链路
 
 ### 5.4 `core/autolabel`
 
@@ -340,8 +342,8 @@ tests/
   - `go build -o ../dist/generator/windows-amd64/sinan-generator.exe ./cmd/sinan-generator`
 - 交付形态：
   - `sinan-generator.exe`
-  - `generator/configs/*.yaml`
-  - `materials/`
+  - 可选预构建素材目录或压缩包
+  - 工作区会在首次运行时自动创建并展开 `presets/`
 
 ### 8.2 Python 训练链路
 
