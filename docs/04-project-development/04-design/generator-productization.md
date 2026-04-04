@@ -12,7 +12,7 @@
 
 生成器对普通用户的目标只有一个：
 
-- 安装或复制 `sinan-generator.exe` 后，用户只需选择任务类型和数据集目录，就能生成可直接交给训练 CLI 的 YOLO 数据集目录。
+- 安装或复制 `sinan-generator.exe` 后，用户只需选择任务类型和数据集目录，就能生成可直接交给训练 CLI 的正式训练数据集目录。
 
 ## 2. 分发与运行
 
@@ -103,15 +103,8 @@
 
 ```text
 <dataset-dir>\
-  dataset.yaml
-  images\
-    train\
-    val\
-    test\
-  labels\
-    train\
-    val\
-    test\
+  group1: dataset.yaml + images/ + labels/
+  group2: dataset.json + master/ + tile/ + splits/
   .sinan\
     raw\
     manifest.json
@@ -120,8 +113,9 @@
 
 约束如下：
 
-- `dataset.yaml` 是生成器交给训练 CLI 的唯一主入口
-- `dataset.yaml` 内部不再写 `path:` 字段，`train/val/test` 直接相对 `dataset.yaml` 所在目录组织
+- `group1` 的主入口仍是 `dataset.yaml`
+- `group2` 的主入口改为 `dataset.json`
+- `group2` 的 `splits/*.jsonl` 中每条样本都必须同时引用 `master_image` 和 `tile_image`
 - `.sinan/raw/` 保留生成器原始批次与审计线索
 - 数据集目录不得依赖 EXE 所在目录
 - 训练环境、`.venv`、`pyproject.toml` 和 `runs/` 不属于生成器职责

@@ -13,6 +13,7 @@ type Config struct {
 	Canvas   CanvasConfig   `yaml:"canvas"`
 	Sampling SamplingConfig `yaml:"sampling"`
 	Slide    SlideConfig    `yaml:"slide"`
+	Effects  EffectsConfig  `yaml:"effects"`
 }
 
 type ProjectConfig struct {
@@ -41,6 +42,40 @@ type SlideConfig struct {
 	GapWidth          int `yaml:"gap_width"`
 	GapHeight         int `yaml:"gap_height"`
 	MaxVerticalJitter int `yaml:"max_vertical_jitter"`
+}
+
+type EffectsConfig struct {
+	Common CommonEffectsConfig `yaml:"common"`
+	Click  ClickEffectsConfig  `yaml:"click"`
+	Slide  SlideEffectsConfig  `yaml:"slide"`
+}
+
+type CommonEffectsConfig struct {
+	SceneVeilStrength       float64 `yaml:"scene_veil_strength"`
+	BackgroundBlurRadiusMin int     `yaml:"background_blur_radius_min"`
+	BackgroundBlurRadiusMax int     `yaml:"background_blur_radius_max"`
+}
+
+type ClickEffectsConfig struct {
+	IconShadowAlphaMin    float64 `yaml:"icon_shadow_alpha_min"`
+	IconShadowAlphaMax    float64 `yaml:"icon_shadow_alpha_max"`
+	IconShadowOffsetXMin  int     `yaml:"icon_shadow_offset_x_min"`
+	IconShadowOffsetXMax  int     `yaml:"icon_shadow_offset_x_max"`
+	IconShadowOffsetYMin  int     `yaml:"icon_shadow_offset_y_min"`
+	IconShadowOffsetYMax  int     `yaml:"icon_shadow_offset_y_max"`
+	IconEdgeBlurRadiusMin int     `yaml:"icon_edge_blur_radius_min"`
+	IconEdgeBlurRadiusMax int     `yaml:"icon_edge_blur_radius_max"`
+}
+
+type SlideEffectsConfig struct {
+	GapShadowAlphaMin     float64 `yaml:"gap_shadow_alpha_min"`
+	GapShadowAlphaMax     float64 `yaml:"gap_shadow_alpha_max"`
+	GapShadowOffsetXMin   int     `yaml:"gap_shadow_offset_x_min"`
+	GapShadowOffsetXMax   int     `yaml:"gap_shadow_offset_x_max"`
+	GapShadowOffsetYMin   int     `yaml:"gap_shadow_offset_y_min"`
+	GapShadowOffsetYMax   int     `yaml:"gap_shadow_offset_y_max"`
+	TileEdgeBlurRadiusMin int     `yaml:"tile_edge_blur_radius_min"`
+	TileEdgeBlurRadiusMax int     `yaml:"tile_edge_blur_radius_max"`
 }
 
 func Load(path string) (Config, error) {
@@ -74,20 +109,62 @@ func (c Config) Validate() error {
 		return errors.New("sampling distractor count range is invalid")
 	case c.Slide.GapWidth < 0 || c.Slide.GapHeight < 0 || c.Slide.MaxVerticalJitter < 0:
 		return errors.New("slide config values cannot be negative")
+	case c.Effects.Common.SceneVeilStrength < 0:
+		return errors.New("effects.common.scene_veil_strength cannot be negative")
 	default:
+		if err := validateIntRange("effects.common.background_blur_radius", c.Effects.Common.BackgroundBlurRadiusMin, c.Effects.Common.BackgroundBlurRadiusMax); err != nil {
+			return err
+		}
+		if err := validateFloatRange("effects.click.icon_shadow_alpha", c.Effects.Click.IconShadowAlphaMin, c.Effects.Click.IconShadowAlphaMax, 0, 1); err != nil {
+			return err
+		}
+		if err := validateIntRange("effects.click.icon_shadow_offset_x", c.Effects.Click.IconShadowOffsetXMin, c.Effects.Click.IconShadowOffsetXMax); err != nil {
+			return err
+		}
+		if err := validateIntRange("effects.click.icon_shadow_offset_y", c.Effects.Click.IconShadowOffsetYMin, c.Effects.Click.IconShadowOffsetYMax); err != nil {
+			return err
+		}
+		if err := validateIntRange("effects.click.icon_edge_blur_radius", c.Effects.Click.IconEdgeBlurRadiusMin, c.Effects.Click.IconEdgeBlurRadiusMax); err != nil {
+			return err
+		}
+		if err := validateFloatRange("effects.slide.gap_shadow_alpha", c.Effects.Slide.GapShadowAlphaMin, c.Effects.Slide.GapShadowAlphaMax, 0, 1); err != nil {
+			return err
+		}
+		if err := validateIntRange("effects.slide.gap_shadow_offset_x", c.Effects.Slide.GapShadowOffsetXMin, c.Effects.Slide.GapShadowOffsetXMax); err != nil {
+			return err
+		}
+		if err := validateIntRange("effects.slide.gap_shadow_offset_y", c.Effects.Slide.GapShadowOffsetYMin, c.Effects.Slide.GapShadowOffsetYMax); err != nil {
+			return err
+		}
+		if err := validateIntRange("effects.slide.tile_edge_blur_radius", c.Effects.Slide.TileEdgeBlurRadiusMin, c.Effects.Slide.TileEdgeBlurRadiusMax); err != nil {
+			return err
+		}
 		return nil
 	}
 }
 
 func parseConfig(content []byte, cfg *Config) error {
 	section := ""
+	subsection := ""
 	for lineNumber, rawLine := range strings.Split(string(content), "\n") {
 		line := strings.TrimSpace(rawLine)
 		if line == "" || strings.HasPrefix(line, "#") {
 			continue
 		}
+		indent := len(rawLine) - len(strings.TrimLeft(rawLine, " "))
 		if strings.HasSuffix(line, ":") && !strings.Contains(line, " ") {
-			section = strings.TrimSuffix(line, ":")
+			switch indent {
+			case 0:
+				section = strings.TrimSuffix(line, ":")
+				subsection = ""
+			case 2:
+				if section != "effects" {
+					return fmt.Errorf("nested section %q on line %d is only supported under effects", strings.TrimSuffix(line, ":"), lineNumber+1)
+				}
+				subsection = strings.TrimSuffix(line, ":")
+			default:
+				return fmt.Errorf("unsupported indentation for section on line %d", lineNumber+1)
+			}
 			continue
 		}
 
@@ -112,6 +189,23 @@ func parseConfig(content []byte, cfg *Config) error {
 		case "slide":
 			if err := assignSlideField(&cfg.Slide, key, value); err != nil {
 				return fmt.Errorf("invalid slide field on line %d: %w", lineNumber+1, err)
+			}
+		case "effects":
+			switch subsection {
+			case "common":
+				if err := assignCommonEffectsField(&cfg.Effects.Common, key, value); err != nil {
+					return fmt.Errorf("invalid effects.common field on line %d: %w", lineNumber+1, err)
+				}
+			case "click":
+				if err := assignClickEffectsField(&cfg.Effects.Click, key, value); err != nil {
+					return fmt.Errorf("invalid effects.click field on line %d: %w", lineNumber+1, err)
+				}
+			case "slide":
+				if err := assignSlideEffectsField(&cfg.Effects.Slide, key, value); err != nil {
+					return fmt.Errorf("invalid effects.slide field on line %d: %w", lineNumber+1, err)
+				}
+			default:
+				return fmt.Errorf("effects subsection is required before fields on line %d", lineNumber+1)
 			}
 		default:
 			return fmt.Errorf("unknown config section %q on line %d", section, lineNumber+1)
@@ -204,6 +298,144 @@ func assignSlideField(slide *SlideConfig, key string, value string) error {
 	return nil
 }
 
+func assignCommonEffectsField(common *CommonEffectsConfig, key string, value string) error {
+	switch key {
+	case "scene_veil_strength":
+		parsed, err := strconv.ParseFloat(value, 64)
+		if err != nil {
+			return err
+		}
+		common.SceneVeilStrength = parsed
+	case "background_blur_radius_min":
+		parsed, err := strconv.Atoi(value)
+		if err != nil {
+			return err
+		}
+		common.BackgroundBlurRadiusMin = parsed
+	case "background_blur_radius_max":
+		parsed, err := strconv.Atoi(value)
+		if err != nil {
+			return err
+		}
+		common.BackgroundBlurRadiusMax = parsed
+	default:
+		return fmt.Errorf("unsupported key: %s", key)
+	}
+	return nil
+}
+
+func assignClickEffectsField(click *ClickEffectsConfig, key string, value string) error {
+	switch key {
+	case "icon_shadow_alpha_min":
+		parsed, err := strconv.ParseFloat(value, 64)
+		if err != nil {
+			return err
+		}
+		click.IconShadowAlphaMin = parsed
+	case "icon_shadow_alpha_max":
+		parsed, err := strconv.ParseFloat(value, 64)
+		if err != nil {
+			return err
+		}
+		click.IconShadowAlphaMax = parsed
+	case "icon_shadow_offset_x_min":
+		parsed, err := strconv.Atoi(value)
+		if err != nil {
+			return err
+		}
+		click.IconShadowOffsetXMin = parsed
+	case "icon_shadow_offset_x_max":
+		parsed, err := strconv.Atoi(value)
+		if err != nil {
+			return err
+		}
+		click.IconShadowOffsetXMax = parsed
+	case "icon_shadow_offset_y_min":
+		parsed, err := strconv.Atoi(value)
+		if err != nil {
+			return err
+		}
+		click.IconShadowOffsetYMin = parsed
+	case "icon_shadow_offset_y_max":
+		parsed, err := strconv.Atoi(value)
+		if err != nil {
+			return err
+		}
+		click.IconShadowOffsetYMax = parsed
+	case "icon_edge_blur_radius_min":
+		parsed, err := strconv.Atoi(value)
+		if err != nil {
+			return err
+		}
+		click.IconEdgeBlurRadiusMin = parsed
+	case "icon_edge_blur_radius_max":
+		parsed, err := strconv.Atoi(value)
+		if err != nil {
+			return err
+		}
+		click.IconEdgeBlurRadiusMax = parsed
+	default:
+		return fmt.Errorf("unsupported key: %s", key)
+	}
+	return nil
+}
+
+func assignSlideEffectsField(slide *SlideEffectsConfig, key string, value string) error {
+	switch key {
+	case "gap_shadow_alpha_min":
+		parsed, err := strconv.ParseFloat(value, 64)
+		if err != nil {
+			return err
+		}
+		slide.GapShadowAlphaMin = parsed
+	case "gap_shadow_alpha_max":
+		parsed, err := strconv.ParseFloat(value, 64)
+		if err != nil {
+			return err
+		}
+		slide.GapShadowAlphaMax = parsed
+	case "gap_shadow_offset_x_min":
+		parsed, err := strconv.Atoi(value)
+		if err != nil {
+			return err
+		}
+		slide.GapShadowOffsetXMin = parsed
+	case "gap_shadow_offset_x_max":
+		parsed, err := strconv.Atoi(value)
+		if err != nil {
+			return err
+		}
+		slide.GapShadowOffsetXMax = parsed
+	case "gap_shadow_offset_y_min":
+		parsed, err := strconv.Atoi(value)
+		if err != nil {
+			return err
+		}
+		slide.GapShadowOffsetYMin = parsed
+	case "gap_shadow_offset_y_max":
+		parsed, err := strconv.Atoi(value)
+		if err != nil {
+			return err
+		}
+		slide.GapShadowOffsetYMax = parsed
+	case "tile_edge_blur_radius_min":
+		parsed, err := strconv.Atoi(value)
+		if err != nil {
+			return err
+		}
+		slide.TileEdgeBlurRadiusMin = parsed
+	case "tile_edge_blur_radius_max":
+		parsed, err := strconv.Atoi(value)
+		if err != nil {
+			return err
+		}
+		slide.TileEdgeBlurRadiusMax = parsed
+	default:
+		return fmt.Errorf("unsupported key: %s", key)
+	}
+	return nil
+}
+
 func splitYAMLField(line string) (string, string, error) {
 	parts := strings.SplitN(line, ":", 2)
 	if len(parts) != 2 {
@@ -244,6 +476,52 @@ func Format(cfg Config) string {
 		fmt.Sprintf("  gap_height: %d", cfg.Slide.GapHeight),
 		fmt.Sprintf("  max_vertical_jitter: %d", cfg.Slide.MaxVerticalJitter),
 		"",
+		"effects:",
+		"  common:",
+		fmt.Sprintf("    scene_veil_strength: %.2f", cfg.Effects.Common.SceneVeilStrength),
+		fmt.Sprintf("    background_blur_radius_min: %d", cfg.Effects.Common.BackgroundBlurRadiusMin),
+		fmt.Sprintf("    background_blur_radius_max: %d", cfg.Effects.Common.BackgroundBlurRadiusMax),
+		"  click:",
+		fmt.Sprintf("    icon_shadow_alpha_min: %.2f", cfg.Effects.Click.IconShadowAlphaMin),
+		fmt.Sprintf("    icon_shadow_alpha_max: %.2f", cfg.Effects.Click.IconShadowAlphaMax),
+		fmt.Sprintf("    icon_shadow_offset_x_min: %d", cfg.Effects.Click.IconShadowOffsetXMin),
+		fmt.Sprintf("    icon_shadow_offset_x_max: %d", cfg.Effects.Click.IconShadowOffsetXMax),
+		fmt.Sprintf("    icon_shadow_offset_y_min: %d", cfg.Effects.Click.IconShadowOffsetYMin),
+		fmt.Sprintf("    icon_shadow_offset_y_max: %d", cfg.Effects.Click.IconShadowOffsetYMax),
+		fmt.Sprintf("    icon_edge_blur_radius_min: %d", cfg.Effects.Click.IconEdgeBlurRadiusMin),
+		fmt.Sprintf("    icon_edge_blur_radius_max: %d", cfg.Effects.Click.IconEdgeBlurRadiusMax),
+		"  slide:",
+		fmt.Sprintf("    gap_shadow_alpha_min: %.2f", cfg.Effects.Slide.GapShadowAlphaMin),
+		fmt.Sprintf("    gap_shadow_alpha_max: %.2f", cfg.Effects.Slide.GapShadowAlphaMax),
+		fmt.Sprintf("    gap_shadow_offset_x_min: %d", cfg.Effects.Slide.GapShadowOffsetXMin),
+		fmt.Sprintf("    gap_shadow_offset_x_max: %d", cfg.Effects.Slide.GapShadowOffsetXMax),
+		fmt.Sprintf("    gap_shadow_offset_y_min: %d", cfg.Effects.Slide.GapShadowOffsetYMin),
+		fmt.Sprintf("    gap_shadow_offset_y_max: %d", cfg.Effects.Slide.GapShadowOffsetYMax),
+		fmt.Sprintf("    tile_edge_blur_radius_min: %d", cfg.Effects.Slide.TileEdgeBlurRadiusMin),
+		fmt.Sprintf("    tile_edge_blur_radius_max: %d", cfg.Effects.Slide.TileEdgeBlurRadiusMax),
+		"",
 	}
 	return strings.Join(lines, "\n")
+}
+
+func validateIntRange(name string, minValue int, maxValue int) error {
+	switch {
+	case minValue < 0:
+		return fmt.Errorf("%s min cannot be negative", name)
+	case maxValue < minValue:
+		return fmt.Errorf("%s range is invalid", name)
+	default:
+		return nil
+	}
+}
+
+func validateFloatRange(name string, minValue float64, maxValue float64, lower float64, upper float64) error {
+	switch {
+	case minValue < lower || minValue > upper:
+		return fmt.Errorf("%s min must be between %.0f and %.0f", name, lower, upper)
+	case maxValue < minValue || maxValue > upper:
+		return fmt.Errorf("%s range is invalid", name)
+	default:
+		return nil
+	}
 }

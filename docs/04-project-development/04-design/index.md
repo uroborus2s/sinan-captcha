@@ -12,3 +12,4 @@
 - [接口与入口基线](./api-design.md)
 - [多模式验证码样本生成器设计](./graphic-click-generator-design.md)
 - [模块结构与构建交付设计](./module-structure-and-delivery.md)
+- [自主训练控制器与 OpenCode 接入设计](./autonomous-training-and-opencode-design.md)

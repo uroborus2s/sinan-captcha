@@ -49,6 +49,19 @@
 | 第 13-14 天 | 第一组正式训练 | 产出第一个可评估模型 |
 | 第 15 天 | 验收与归档 | 形成版本、指标、失败样本清单 |
 
+## 3.1 新增第二阶段：自主训练控制器
+
+在当前“人工可执行训练闭环”已经成立之后，新增第二阶段主线：
+
+1. 先固定 `study` 契约、状态文件和停止规则。
+2. 再接入 `opencode` 的 project-local commands 与 skills。
+3. 再把结果压缩、判断、数据规划和归档拆成独立职责单元。
+4. 最后接入 `Optuna` 做参数搜索，并把 group1/group2 策略分开。
+
+这条主线的目标不是替代现有 CLI，而是把它们编排成可恢复的自动循环。实施顺序和验收任务见：
+
+- [自主训练任务拆解](./autonomous-training-task-breakdown.md)
+
 ## 4. Windows 电脑上先准备什么
 
 在开始之前，先确认这 6 件事：
@@ -342,16 +355,19 @@ datasets/
       raw/
       interim/
       reviewed/
-      yolo/
-        images/
-          train/
-          val/
-          test/
-        labels/
-          train/
-          val/
-          test/
-        dataset.yaml
+      master/
+        train/
+        val/
+        test/
+      tile/
+        train/
+        val/
+        test/
+      splits/
+        train.jsonl
+        val.jsonl
+        test.jsonl
+      dataset.json
       reports/
 ```
 
@@ -360,7 +376,9 @@ datasets/
 1. 原始样本永不覆盖。
 2. 自动标注结果放 `interim/`。
 3. 审核通过后放 `reviewed/`。
-4. 给训练框架转换后的结果放 `yolo/`。
+4. 给训练框架转换后的结果放任务专属训练目录：
+   - `group1` 放 `yolo/`
+   - `group2` 放 `master/`、`tile/`、`splits/` 与 `dataset.json`
 5. 每次追加样本都开新版本，如 `v2`、`v3`。
 
 ## 10. 第六步：训练怎么开始
@@ -372,14 +390,14 @@ datasets/
 示例命令：
 
 ```powershell
-uv run yolo detect train data=D:\sinan-captcha-work\datasets\group2\v1\yolo\dataset.yaml model=yolo26n.pt imgsz=640 epochs=100 batch=16 device=0 project=D:\sinan-captcha-work\runs\group2 name=v1
+uv run sinan train group2 --dataset-version v1 --name v1 --epochs 100 --batch 16 --imgsz 192 --device 0
 ```
 
 建议：
 
-- 模型先用小模型 `n` 版。
+- 先用默认 paired model 初始化。
 - 如果显存不够，把 `batch` 降到 `8` 或 `4`。
-- 如果图片目标很小，可在设计阶段再评估更高分辨率。
+- 如果定位精度不足，再评估更大的 `imgsz` 或继续微调上一轮 `best.pt`。
 
 ### 10.2 第一专项后训练
 

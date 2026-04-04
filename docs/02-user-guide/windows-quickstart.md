@@ -10,7 +10,7 @@
 
 这页只解决一件事：
 
-- 你已经有现成 YOLO 数据集，想在一台 Windows + NVIDIA 电脑上尽快把训练跑起来
+- 你已经有现成训练数据集，想在一台 Windows + NVIDIA 电脑上尽快把训练跑起来
 
 如果你还没有训练数据，先跳到：
 
@@ -30,13 +30,20 @@
 至少满足下面两种情况之一：
 
 - 已经拿到 `group1` 的 YOLO 数据集目录
-- 已经拿到 `group2` 的 YOLO 数据集目录
+- 已经拿到 `group2` 的 paired dataset 目录
 
-YOLO 数据集目录最少要包含：
+`group1` 数据集目录最少要包含：
 
 - `dataset.yaml`
 - `images/`
 - `labels/`
+
+`group2` 数据集目录最少要包含：
+
+- `dataset.json`
+- `master/`
+- `tile/`
+- `splits/`
 
 ## 2. 你将得到什么
 
@@ -103,7 +110,7 @@ uvx --from sinan-captcha sinan env setup-train `
 如果你之前已经用 `0.1.1` 创建过训练目录，不需要删掉 `D:\sinan-captcha-work` 重来。直接用新版 CLI 再执行一次 `setup-train` 即可：
 
 ```powershell
-uvx --from "sinan-captcha==0.1.2" sinan env setup-train `
+uvx --from "sinan-captcha==0.1.3" sinan env setup-train `
   --train-root D:\sinan-captcha-work `
   --generator-root D:\sinan-captcha-generator `
   --yes
@@ -111,7 +118,7 @@ uvx --from "sinan-captcha==0.1.2" sinan env setup-train `
 
 这条命令会做 3 件事：
 
-- 用 `0.1.2` 的 CLI 重新写入训练目录里的 `pyproject.toml`
+- 用 `0.1.3` 的 CLI 重新写入训练目录里的 `pyproject.toml`
 - 重新执行一次 `uv sync`，把训练环境升级到当前版本
 - 保留原有 `datasets\`、`runs\`、`reports\`，不会删除你的训练数据和训练结果
 
@@ -124,18 +131,20 @@ uvx --from "sinan-captcha==0.1.2" sinan env setup-train `
 推荐放法：
 
 - `D:\sinan-captcha-work\datasets\group1\firstpass\yolo`
-- `D:\sinan-captcha-work\datasets\group2\firstpass\yolo`
+- `D:\sinan-captcha-work\datasets\group2\firstpass`
 
 如果你只有一个专项，就只放一个。
 
-如果你拿到的是旧版数据集，打开 `dataset.yaml` 后看到的还是别台机器的绝对路径，或者还带着 `path: .`，不要继续硬跑；请改走完整手册，重新生成一版新数据集。
+如果你拿到的是旧版数据集，不要继续硬跑：
+
+- `group1`：如果 `dataset.yaml` 里还是别台机器的绝对路径，或者还带着 `path: .`，请重新导出
+- `group2`：如果目录里还是旧版训练目录结构，而不是 `dataset.json + master/tile/splits`，请重新导出
 
 ### 3.5 进入训练目录做自检
 
 ```powershell
 Set-Location D:\sinan-captcha-work
 uv run sinan env check
-uv run yolo checks
 ```
 
 通过标准：
@@ -143,20 +152,21 @@ uv run yolo checks
 - `uv run sinan env check` 能输出 JSON
 - JSON 里 `torch_installed=true`
 - 如果是 GPU 训练，最好看到 `torch_cuda_available=true`
-- `uv run yolo checks` 没有关键错误
+- 如果你要训练 `group1`，再补跑 `uv run yolo checks`，且没有关键错误
 
 ### 3.6 先做一次 `dry-run`
 
 如果你当前已经在训练目录里：
 
 - `--project` 可以省略，默认就是 `runs/group1` 或 `runs/group2`
-- `--dataset-yaml` 也可以省略
-  但这时要用 `--dataset-version` 指明数据版本目录
+- `group1` 的 `--dataset-yaml` 可以省略
+- `group2` 的 `--dataset-config` 可以省略
+  但这时都要用 `--dataset-version` 指明数据版本目录
 
 例如你的数据放在：
 
 - `datasets/group1/firstpass/yolo`
-- `datasets/group2/firstpass/yolo`
+- `datasets/group2/firstpass`
 
 那就传 `--dataset-version firstpass`
 
@@ -208,6 +218,11 @@ uv run sinan train group2 `
 
 ![smoke 训练输出示意](./assets/train-smoke-terminal.svg)
 
+说明：
+
+- 这张图更接近 `group1` 的 YOLO 训练输出
+- `group2` 现在走 paired-input runner，终端字段会不同，但 `dry-run` 路径和训练目录原则相同
+
 ## 4. 冒烟训练完成后看什么
 
 至少检查这些位置：
@@ -217,9 +232,8 @@ uv run sinan train group2 `
 
 重点看：
 
-- `weights\best.pt`
-- `weights\last.pt`
-- `results.csv`
+- `group1`：`weights\best.pt`、`weights\last.pt`、`results.csv`
+- `group2`：`weights\best.pt`、`weights\last.pt`、`summary.json`
 
 如果你想先快速判断“这轮训练是不是基本正常”，再补看两件事：
 
@@ -236,9 +250,8 @@ uv run sinan train group2 `
 
 只要下面这些文件还在：
 
-- `dataset.yaml`
-- `images\`
-- `labels\`
+- `group1`：`dataset.yaml`、`images\`、`labels\`
+- `group2`：`dataset.json`、`master\`、`tile\`、`splits\`
 
 同一份数据就可以反复用于：
 
@@ -276,10 +289,9 @@ uv run sinan train group1 `
 uv run sinan train group2 `
   --dataset-version firstpass `
   --name firstpass `
-  --model yolo26n.pt `
   --epochs 100 `
   --batch 16 `
-  --imgsz 640 `
+  --imgsz 192 `
   --device 0
 ```
 
@@ -289,7 +301,8 @@ uv run sinan train group2 `
 
 - `nvidia-smi` 失败
 - `uv run sinan env check` 里 `torch_installed=false`
-- 数据集目录里没有 `dataset.yaml`
+- `group1` 数据集目录里没有 `dataset.yaml`
+- `group2` 数据集目录里没有 `dataset.json`
 - `dry-run` 打印出来的命令路径明显不对
 
 这时请继续读：
@@ -303,6 +316,6 @@ uv run sinan train group2 `
 
 1. `nvidia-smi` 正常
 2. `uvx --from sinan-captcha sinan env setup-train` 成功
-3. YOLO 数据集已放到训练目录下
+3. 训练数据集已放到训练目录下
 4. 至少一个专项的 `dry-run` 正常
 5. 至少一个专项的 `smoke` 训练正常启动

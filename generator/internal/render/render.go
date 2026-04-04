@@ -7,9 +7,11 @@ import (
 	_ "image/jpeg"
 	_ "image/png"
 	"math"
+	"math/rand"
 	"os"
 
 	"sinan-captcha/generator/internal/config"
+	"sinan-captcha/generator/internal/imagefx"
 	"sinan-captcha/generator/internal/sampler"
 )
 
@@ -21,25 +23,31 @@ var (
 	iconTint             = color.RGBA{26, 40, 58, 255}
 )
 
-func Build(plan sampler.SamplePlan, canvas config.CanvasConfig) (image.Image, image.Image, error) {
-	scene, err := buildScene(plan, canvas)
+func Build(plan sampler.SamplePlan, cfg config.Config) (image.Image, image.Image, error) {
+	scene, err := buildScene(plan, cfg)
 	if err != nil {
 		return nil, nil, err
 	}
-	query, err := buildQuery(plan, canvas)
+	query, err := buildQuery(plan, cfg.Canvas)
 	if err != nil {
 		return nil, nil, err
 	}
 	return query, scene, nil
 }
 
-func buildScene(plan sampler.SamplePlan, canvas config.CanvasConfig) (image.Image, error) {
+func buildScene(plan sampler.SamplePlan, cfg config.Config) (image.Image, error) {
+	canvas := cfg.Canvas
 	background, err := loadImage(plan.BackgroundPath)
 	if err != nil {
 		return nil, err
 	}
 	scene := coverResize(background, canvas.SceneWidth, canvas.SceneHeight)
-	applySceneVeil(scene)
+	rng := rand.New(rand.NewSource(plan.Record.Seed))
+	backgroundBlurRadius := imagefx.IntRange(rng, cfg.Effects.Common.BackgroundBlurRadiusMin, cfg.Effects.Common.BackgroundBlurRadiusMax)
+	if backgroundBlurRadius > 0 {
+		scene = imagefx.BlurRGBA(scene, backgroundBlurRadius)
+	}
+	imagefx.ApplySceneVeil(scene, cfg.Effects.Common.SceneVeilStrength)
 
 	for _, object := range append(append([]sampler.PlacedObject{}, plan.Targets...), plan.Distractors...) {
 		icon, err := loadImage(object.IconPath)
@@ -48,11 +56,20 @@ func buildScene(plan sampler.SamplePlan, canvas config.CanvasConfig) (image.Imag
 		}
 		sprite := tintAndResize(icon, object.BaseWidth, object.BaseHeight, object.Alpha)
 		rotatedSprite := rotateRGBA(sprite, object.RotationDeg)
-		shadow := shadowSprite(rotatedSprite, 0.24)
+		iconBlurRadius := imagefx.IntRange(rng, cfg.Effects.Click.IconEdgeBlurRadiusMin, cfg.Effects.Click.IconEdgeBlurRadiusMax)
+		if iconBlurRadius > 0 {
+			rotatedSprite = imagefx.BlurRGBA(rotatedSprite, iconBlurRadius)
+		}
 
-		shadowPoint := image.Point{X: object.BBox[0] + 2, Y: object.BBox[1] + 3}
-		shadowRect := image.Rectangle{Min: shadowPoint, Max: shadowPoint.Add(shadow.Bounds().Size())}
-		draw.Draw(scene, shadowRect, shadow, image.Point{}, draw.Over)
+		shadowAlpha := imagefx.FloatRange(rng, cfg.Effects.Click.IconShadowAlphaMin, cfg.Effects.Click.IconShadowAlphaMax)
+		if shadowAlpha > 0 {
+			shadow := imagefx.ShadowSprite(rotatedSprite, shadowAlpha)
+			shadowOffsetX := imagefx.IntRange(rng, cfg.Effects.Click.IconShadowOffsetXMin, cfg.Effects.Click.IconShadowOffsetXMax)
+			shadowOffsetY := imagefx.IntRange(rng, cfg.Effects.Click.IconShadowOffsetYMin, cfg.Effects.Click.IconShadowOffsetYMax)
+			shadowPoint := image.Point{X: object.BBox[0] + shadowOffsetX, Y: object.BBox[1] + shadowOffsetY}
+			shadowRect := image.Rectangle{Min: shadowPoint, Max: shadowPoint.Add(shadow.Bounds().Size())}
+			draw.Draw(scene, shadowRect, shadow, image.Point{}, draw.Over)
+		}
 
 		spritePoint := image.Point{X: object.BBox[0], Y: object.BBox[1]}
 		spriteRect := image.Rectangle{Min: spritePoint, Max: spritePoint.Add(rotatedSprite.Bounds().Size())}
@@ -119,22 +136,6 @@ func drawPanel(img *image.RGBA) {
 	}
 }
 
-func applySceneVeil(img *image.RGBA) {
-	bounds := img.Bounds()
-	for x := bounds.Min.X; x < bounds.Max.X; x++ {
-		for y := bounds.Min.Y; y < bounds.Max.Y; y++ {
-			red, green, blue, alpha := img.At(x, y).RGBA()
-			coolLift := uint8(clamp(int((x+y)%9), 0, 10))
-			img.SetRGBA(x, y, color.RGBA{
-				R: uint8(clamp(int((red>>8)*93/100)+int(coolLift), 0, 255)),
-				G: uint8(clamp(int((green>>8)*94/100)+int(coolLift), 0, 255)),
-				B: uint8(clamp(int((blue>>8)*97/100)+int(coolLift)+4, 0, 255)),
-				A: uint8(alpha >> 8),
-			})
-		}
-	}
-}
-
 func loadImage(path string) (image.Image, error) {
 	file, err := os.Open(path)
 	if err != nil {
@@ -176,25 +177,6 @@ func tintAndResize(src image.Image, width int, height int, alphaFactor float64) 
 				G: iconTint.G,
 				B: iconTint.B,
 				A: alpha,
-			})
-		}
-	}
-	return dst
-}
-
-func shadowSprite(src *image.RGBA, alphaFactor float64) *image.RGBA {
-	dst := image.NewRGBA(src.Bounds())
-	for y := 0; y < src.Bounds().Dy(); y++ {
-		for x := 0; x < src.Bounds().Dx(); x++ {
-			_, _, _, alpha := src.At(x, y).RGBA()
-			if alpha == 0 {
-				continue
-			}
-			dst.SetRGBA(x, y, color.RGBA{
-				R: 8,
-				G: 12,
-				B: 16,
-				A: uint8(clamp(int(math.Round(float64(alpha>>8)*alphaFactor)), 0, 255)),
 			})
 		}
 	}

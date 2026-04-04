@@ -79,10 +79,12 @@ uv run sinan predict group2 `
   --train-name firstpass
 ```
 
-这条命令会自动给底层 `uv run yolo detect predict` 补齐默认路径：
+这条命令会自动给底层预测入口补齐默认路径：
 
 - `model` 默认指向 `runs\<task>\<train-name>\weights\best.pt`
-- `source` 默认指向 `datasets\<task>\<dataset-version>\yolo\images\val`
+- `group1` 的 `source` 默认指向 `datasets\<task>\<dataset-version>\yolo\images\val`
+- `group2` 的 `source` 默认指向 `datasets\group2\<dataset-version>\splits\val.jsonl`
+- `group2` 还会自动读取 `datasets\group2\<dataset-version>\dataset.json`
 - `project` 默认指向 `reports\<task>`
 
 如果你想先看它到底会执行什么原生命令，可以先加：
@@ -119,9 +121,9 @@ uv run sinan test group2 `
 
 这条命令会顺序完成：
 
-1. 检查 `best.pt`、`dataset.yaml` 和验证集图片是否存在
+1. 检查 `best.pt` 和正式测试输入是否存在
 2. 跑一次 `predict`
-3. 跑一次 `val`
+3. `group1` 跑一次 `val`；`group2` 跑一次 paired prediction 后再做 JSONL 对比评估
 4. 直接在终端输出一份初学者可读的中文结论
 5. 同时写出正式报告
 
@@ -146,29 +148,26 @@ reports\group2\test_firstpass\summary.json
 1. 先看终端里的中文结论
 2. 再打开 `summary.md`
 3. 再打开 `predict_*` 目录里的图片做肉眼检查
-4. 最后回看 `val_*` 目录里的 `results.csv`
+4. `group1` 回看 `val_*` 目录里的 `results.csv`；`group2` 回看 `val_*` 目录里的 JSONL 评估摘要
 
-### 5.1 中文报告里最重要的 4 个指标
+### 5.1 中文报告里最重要的指标
 
-- `Precision（精确率）`
-  表示模型框出来的结果里，有多少是真的。
-- `Recall（召回率）`
-  表示该找出来的目标里，模型找出来了多少。
-- `mAP50`
-  可以先粗略理解成“这轮模型整体准不准”。
-- `mAP50-95`
-  这是更严格的综合指标，通常会比 `mAP50` 更低。
+- `group1`
+  - 重点看 `Precision`、`Recall`、`mAP50`、`mAP50-95`
+- `group2`
+  - 重点看 `point_hit_rate`、`mean_center_error_px`、`mean_iou`、`mean_inference_ms`
 
 ### 5.2 初学者怎么先做粗判断
 
-- `mAP50 >= 0.85`
-  说明这轮通常已经比较稳，可以先进入人工抽查和业务联调。
-- `0.70 <= mAP50 < 0.85`
-  说明已经有明显效果，下一轮重点是补难样本和做针对性微调。
-- `0.55 <= mAP50 < 0.70`
-  说明模型已经学到东西，但还不够稳，优先补数据质量。
-- `mAP50 < 0.55`
-  说明模型还在起步阶段，先查数据、标签和素材分布，不要只靠硬拉 `epochs`。
+- `group1`
+  - 继续沿用 `mAP50` 粗判断：`>= 0.85` 基本稳定，`0.70-0.85` 已有明显效果，`< 0.70` 先补数据质量。
+- `group2`
+  - `point_hit_rate >= 0.92` 且 `mean_iou >= 0.85`
+    说明这轮双输入定位已经比较稳。
+  - `point_hit_rate >= 0.80` 且 `mean_iou >= 0.70`
+    说明已经有明显效果，优先补复杂背景和弱对比样本。
+  - `point_hit_rate < 0.80`
+    先查双输入样本契约、图案 mask 一致性和数据规模，不要只靠硬拉 `epochs`。
 
 这只是入门级判断口径，不是最终业务验收线。
 
@@ -282,7 +281,7 @@ uv run sinan train group1 `
 第一次正式训练默认就是在预训练权重基础上微调：
 
 - `group1` 默认 `yolo26n.pt`
-- `group2` 默认 `yolo26n.pt`
+- `group2` 默认从内置的 paired-input 相关性定位器开始训练；如果指定 `--from-run`，则会从上一轮 `best.pt` 继续微调
 
 也就是说，第一轮已经不是从零训练。
 

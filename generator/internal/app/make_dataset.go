@@ -35,7 +35,7 @@ type MakeDatasetResult struct {
 	WorkspaceRoot string                   `json:"workspace_root"`
 	DatasetDir    string                   `json:"dataset_dir"`
 	BatchRoot     string                   `json:"batch_root"`
-	DatasetYAML   string                   `json:"dataset_yaml"`
+	DatasetConfig string                   `json:"dataset_config"`
 	JobPath       string                   `json:"job_path"`
 	Preset        string                   `json:"preset"`
 	Task          string                   `json:"task"`
@@ -52,7 +52,7 @@ type jobRecord struct {
 	DatasetDir    string                   `json:"dataset_dir"`
 	Materials     workspace.MaterialSetRef `json:"materials"`
 	BatchRoot     string                   `json:"batch_root"`
-	DatasetYAML   string                   `json:"dataset_yaml"`
+	DatasetConfig string                   `json:"dataset_config"`
 	Generated     int                      `json:"generated"`
 }
 
@@ -81,7 +81,7 @@ func MakeDataset(request MakeDatasetRequest) (MakeDatasetResult, error) {
 	}
 	notify(request.Writer, "materials ready: %s/%s\n", materials.Ref.Scope, materials.Ref.Name)
 
-	selectedPreset, err := preset.Resolve(task, request.Preset)
+	selectedPreset, err := preset.ResolveForWorkspace(state.Layout.PresetsDir, task, request.Preset)
 	if err != nil {
 		return MakeDatasetResult{}, err
 	}
@@ -171,19 +171,19 @@ func MakeDataset(request MakeDatasetRequest) (MakeDatasetResult, error) {
 		DatasetDir:    request.DatasetDir,
 		Materials:     materials.Ref,
 		BatchRoot:     batchResult.BatchRoot,
-		DatasetYAML:   datasetResult.DatasetYAML,
+		DatasetConfig: datasetResult.DatasetConfig,
 		Generated:     batchResult.GeneratedCount,
 	}
 	if err := writeJSON(jobPath, job); err != nil {
 		return MakeDatasetResult{}, err
 	}
 
-	notify(request.Writer, "done: %s\n", datasetResult.DatasetYAML)
+	notify(request.Writer, "done: %s\n", datasetResult.DatasetConfig)
 	return MakeDatasetResult{
 		WorkspaceRoot: state.Layout.Root,
 		DatasetDir:    request.DatasetDir,
 		BatchRoot:     batchResult.BatchRoot,
-		DatasetYAML:   datasetResult.DatasetYAML,
+		DatasetConfig: datasetResult.DatasetConfig,
 		JobPath:       jobPath,
 		Preset:        selectedPreset.Name,
 		Task:          task,
@@ -217,6 +217,10 @@ func prepareDatasetDir(datasetDir string, force bool) error {
 		filepath.Join(datasetDir, "images"),
 		filepath.Join(datasetDir, "labels"),
 		filepath.Join(datasetDir, "dataset.yaml"),
+		filepath.Join(datasetDir, "master"),
+		filepath.Join(datasetDir, "tile"),
+		filepath.Join(datasetDir, "splits"),
+		filepath.Join(datasetDir, "dataset.json"),
 		filepath.Join(datasetDir, ".sinan"),
 	}
 	if !force {

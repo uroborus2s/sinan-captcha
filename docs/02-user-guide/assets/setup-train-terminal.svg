@@ -16,7 +16,7 @@
     <text x="48" y="298">Python version: 3.12</text>
     <text x="48" y="334">Detected CUDA version: 13.2</text>
     <text x="48" y="370">Selected PyTorch backend: cu130</text>
-    <text x="48" y="406">Will install: sinan-captcha[train]==0.1.2</text>
+    <text x="48" y="406">Will install: sinan-captcha[train]==0.1.3</text>
     <text x="48" y="454">Data directories: datasets/group1 and datasets/group2</text>
     <text x="48" y="502">Confirm create training root and install dependencies? [y/N]: y</text>
   </g>

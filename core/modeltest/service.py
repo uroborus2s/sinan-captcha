@@ -6,16 +6,37 @@ import csv
 from dataclasses import asdict, dataclass
 import json
 from pathlib import Path
+import re
 import subprocess
 
+from core.common.jsonl import write_jsonl
+from core.evaluate.service import EvaluationRequest, evaluate_model
 from core.predict.service import PredictionJob, count_images
-from core.train.base import _ensure_training_dependencies, prepare_dataset_yaml_for_ultralytics
+from core.train.base import (
+    _ensure_training_dependencies as _ensure_group1_training_dependencies,
+    prepare_dataset_yaml_for_ultralytics,
+)
+from core.train.group2.dataset import load_group2_dataset_config, load_group2_rows
+from core.train.group2.service import (
+    _ensure_group2_training_dependencies,
+    Group2PredictionJob,
+    build_group2_prediction_job,
+    run_group2_prediction_job,
+)
+
+
+@dataclass(frozen=True)
+class CommandPreview:
+    command: str
+
+    def command_string(self) -> str:
+        return self.command
 
 
 @dataclass(frozen=True)
 class ValidationJob:
     task: str
-    dataset_yaml: Path
+    dataset_config: Path
     model_path: Path
     project_dir: Path
     run_name: str
@@ -32,7 +53,7 @@ class ValidationJob:
             "yolo",
             "detect",
             "val",
-            f"data={self.dataset_yaml}",
+            f"data={self.dataset_config}",
             f"model={self.model_path}",
             f"device={self.device}",
             f"imgsz={self.imgsz}",
@@ -50,7 +71,7 @@ class ModelTestRequest:
     task: str
     dataset_version: str
     train_name: str
-    dataset_yaml: Path
+    dataset_config: Path
     model_path: Path
     source: Path
     project_dir: Path
@@ -68,7 +89,7 @@ class ModelTestResult:
     dataset_version: str
     train_name: str
     model_path: Path
-    dataset_yaml: Path
+    dataset_config: Path
     source: Path
     project_dir: Path
     report_dir: Path
@@ -87,7 +108,7 @@ class ModelTestResult:
         payload = asdict(self)
         for key in (
             "model_path",
-            "dataset_yaml",
+            "dataset_config",
             "source",
             "project_dir",
             "report_dir",
@@ -98,12 +119,7 @@ class ModelTestResult:
         return payload
 
     def render_console_report(self) -> str:
-        metric_lines = [
-            f"- Precision（框出来的里有多少是真的）：{_format_metric(self.metrics['precision'])}",
-            f"- Recall（该找出来的里找到了多少）：{_format_metric(self.metrics['recall'])}",
-            f"- mAP50（综合看框和分类是否到位）：{_format_metric(self.metrics['map50'])}",
-            f"- mAP50-95（更严格的综合指标）：{_format_metric(self.metrics['map50_95'])}",
-        ]
+        metric_lines = _render_metric_lines(self.task, self.metrics)
         next_actions = "\n".join(f"- {item}" for item in self.next_actions)
         return "\n".join(
             [
@@ -112,7 +128,7 @@ class ModelTestResult:
                 f"- 数据版本：{self.dataset_version}",
                 f"- 训练版本：{self.train_name}",
                 f"- 权重文件：{self.model_path}",
-                f"- 本次预测图片数：{self.source_image_count}",
+                f"- 本次预测样本数：{self.source_image_count}",
                 f"- 预测输出目录：{self.predict_output_dir}",
                 f"- 验证输出目录：{self.val_output_dir}",
                 f"- 中文报告目录：{self.report_dir}",
@@ -129,7 +145,7 @@ class ModelTestResult:
 
 def build_validation_job(
     task: str,
-    dataset_yaml: Path,
+    dataset_config: Path,
     model_path: Path,
     project_dir: Path,
     run_name: str,
@@ -139,7 +155,7 @@ def build_validation_job(
 ) -> ValidationJob:
     return ValidationJob(
         task=task,
-        dataset_yaml=dataset_yaml,
+        dataset_config=dataset_config,
         model_path=model_path,
         project_dir=project_dir,
         run_name=run_name,
@@ -148,8 +164,28 @@ def build_validation_job(
     )
 
 
-def build_model_test_jobs(request: ModelTestRequest) -> tuple[PredictionJob, ValidationJob]:
-    normalized_dataset = prepare_dataset_yaml_for_ultralytics(request.dataset_yaml)
+def build_model_test_jobs(
+    request: ModelTestRequest,
+) -> tuple[PredictionJob | Group2PredictionJob, ValidationJob | CommandPreview]:
+    if request.task == "group2":
+        prediction_job = build_group2_prediction_job(
+            dataset_config=request.dataset_config,
+            model_path=request.model_path,
+            source=request.source,
+            project_dir=request.project_dir,
+            run_name=request.predict_name,
+            imgsz=request.imgsz,
+            device=request.device,
+        )
+        gold_dir = request.report_dir / "_gold"
+        evaluate_command = _build_group2_evaluate_command(
+            gold_dir=gold_dir,
+            prediction_dir=prediction_job.output_dir(),
+            report_dir=request.project_dir / request.val_name,
+        )
+        return prediction_job, CommandPreview(evaluate_command)
+
+    normalized_dataset = prepare_dataset_yaml_for_ultralytics(request.dataset_config)
     predict_job = PredictionJob(
         task=request.task,
         model_path=request.model_path,
@@ -162,7 +198,7 @@ def build_model_test_jobs(request: ModelTestRequest) -> tuple[PredictionJob, Val
     )
     val_job = build_validation_job(
         task=request.task,
-        dataset_yaml=normalized_dataset,
+        dataset_config=normalized_dataset,
         model_path=request.model_path,
         project_dir=request.project_dir,
         run_name=request.val_name,
@@ -173,34 +209,36 @@ def build_model_test_jobs(request: ModelTestRequest) -> tuple[PredictionJob, Val
 
 
 def run_model_test(request: ModelTestRequest) -> ModelTestResult:
-    _ensure_training_dependencies()
+    if request.task == "group2":
+        return _run_group2_model_test(request)
+
+    _ensure_training_dependencies("group1")
     if not request.model_path.exists():
         raise RuntimeError(f"未找到测试权重文件：{request.model_path}")
     if not request.source.exists():
         raise RuntimeError(f"未找到测试图片来源：{request.source}")
 
     predict_job, val_job = build_model_test_jobs(request)
+    assert isinstance(predict_job, PredictionJob)
+    assert isinstance(val_job, ValidationJob)
     source_image_count = count_images(request.source)
 
-    try:
-        subprocess.run(predict_job.command(), check=True)
-        subprocess.run(val_job.command(), check=True)
-    except FileNotFoundError as exc:
-        raise RuntimeError(
-            "未找到测试启动器 `uv run yolo`。请先安装 `uv`，并在当前训练环境中安装 "
-            "`sinan-captcha[train]`。"
-        ) from exc
+    _execute_and_capture_output(predict_job.command())
+    val_output = _execute_and_capture_output(val_job.command())
 
     predicted_image_count = count_images(predict_job.output_dir())
-    metrics = _read_validation_metrics(val_job.output_dir() / "results.csv")
-    verdict_title, verdict_detail = _summarize_verdict(metrics)
-    next_actions = _build_next_actions(metrics)
+    metrics = _read_validation_metrics(
+        results_csv=val_job.output_dir() / "results.csv",
+        command_output=val_output,
+    )
+    verdict_title, verdict_detail = _summarize_verdict("group1", metrics)
+    next_actions = _build_next_actions("group1", metrics)
     result = ModelTestResult(
         task=request.task,
         dataset_version=request.dataset_version,
         train_name=request.train_name,
         model_path=request.model_path,
-        dataset_yaml=request.dataset_yaml,
+        dataset_config=request.dataset_config,
         source=request.source,
         project_dir=request.project_dir,
         report_dir=request.report_dir,
@@ -219,7 +257,121 @@ def run_model_test(request: ModelTestRequest) -> ModelTestResult:
     return result
 
 
-def _read_validation_metrics(results_csv: Path) -> dict[str, float | None]:
+def _run_group2_model_test(request: ModelTestRequest) -> ModelTestResult:
+    _ensure_training_dependencies("group2")
+    if not request.model_path.exists():
+        raise RuntimeError(f"未找到测试权重文件：{request.model_path}")
+    if not request.source.exists():
+        raise RuntimeError(f"未找到测试样本来源：{request.source}")
+
+    dataset_config = load_group2_dataset_config(request.dataset_config)
+    gold_rows = load_group2_rows(dataset_config, request.source)
+    prediction_job = build_group2_prediction_job(
+        dataset_config=request.dataset_config,
+        model_path=request.model_path,
+        source=request.source,
+        project_dir=request.project_dir,
+        run_name=request.predict_name,
+        imgsz=request.imgsz,
+        device=request.device,
+    )
+    prediction_result = run_group2_prediction_job(prediction_job)
+
+    gold_dir = request.report_dir / "_gold"
+    write_jsonl(gold_dir / "labels.jsonl", gold_rows)
+    evaluate_report_dir = request.project_dir / request.val_name
+    evaluation = evaluate_model(
+        EvaluationRequest(
+            task="group2",
+            gold_dir=gold_dir,
+            prediction_dir=prediction_result.output_dir,
+            report_dir=evaluate_report_dir,
+        )
+    )
+    metrics = {
+        "point_hit_rate": _metric_value(evaluation.metrics, "point_hit_rate"),
+        "mean_center_error_px": _metric_value(evaluation.metrics, "mean_center_error_px"),
+        "mean_iou": _metric_value(evaluation.metrics, "mean_iou"),
+        "mean_inference_ms": _metric_value(evaluation.metrics, "mean_inference_ms"),
+    }
+    verdict_title, verdict_detail = _summarize_verdict("group2", metrics)
+    next_actions = _build_next_actions("group2", metrics)
+    result = ModelTestResult(
+        task=request.task,
+        dataset_version=request.dataset_version,
+        train_name=request.train_name,
+        model_path=request.model_path,
+        dataset_config=request.dataset_config,
+        source=request.source,
+        project_dir=request.project_dir,
+        report_dir=request.report_dir,
+        predict_output_dir=prediction_result.output_dir,
+        val_output_dir=evaluation.report_dir,
+        source_image_count=len(gold_rows),
+        predicted_image_count=prediction_result.sample_count,
+        metrics=metrics,
+        verdict_title=verdict_title,
+        verdict_detail=verdict_detail,
+        next_actions=next_actions,
+        predict_command=prediction_result.command,
+        val_command=_build_group2_evaluate_command(
+            gold_dir=gold_dir,
+            prediction_dir=prediction_result.output_dir,
+            report_dir=evaluation.report_dir,
+        ),
+    )
+    _write_reports(result)
+    return result
+
+
+def _ensure_training_dependencies(task: str) -> None:
+    if task == "group2":
+        _ensure_group2_training_dependencies()
+        return
+    _ensure_group1_training_dependencies()
+
+
+def _execute_and_capture_output(command: list[str]) -> str:
+    output_lines: list[str] = []
+    try:
+        with subprocess.Popen(
+            command,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.STDOUT,
+            text=True,
+            bufsize=1,
+        ) as process:
+            assert process.stdout is not None
+            for line in process.stdout:
+                print(line, end="")
+                output_lines.append(line)
+            return_code = process.wait()
+    except FileNotFoundError as exc:
+        raise RuntimeError(
+            "未找到测试启动器 `uv run yolo`。请先安装 `uv`，并在当前训练环境中安装 "
+            "`sinan-captcha[train]`。"
+        ) from exc
+
+    if return_code != 0:
+        raise RuntimeError("模型测试失败，请先查看上面的 YOLO 原始输出。")
+    return "".join(output_lines)
+
+
+def _read_validation_metrics(results_csv: Path, command_output: str) -> dict[str, float | None]:
+    if results_csv.exists():
+        return _read_validation_metrics_from_csv(results_csv)
+
+    parsed = _parse_validation_metrics_from_output(command_output)
+    if parsed is not None:
+        return parsed
+
+    raise RuntimeError(
+        "验证完成后未找到 `results.csv`，并且无法从终端输出中解析验证指标。"
+        f"请检查验证输出目录：{results_csv.parent}"
+    )
+
+
+def _read_validation_metrics_from_csv(results_csv: Path) -> dict[str, float | None]:
     if not results_csv.exists():
         raise RuntimeError(f"验证完成后未找到 results.csv：{results_csv}")
 
@@ -238,6 +390,28 @@ def _read_validation_metrics(results_csv: Path) -> dict[str, float | None]:
     }
 
 
+def _parse_validation_metrics_from_output(command_output: str) -> dict[str, float | None] | None:
+    pattern = re.compile(
+        r"^\s*all\s+\d+\s+\d+\s+"
+        r"(?P<precision>\d+(?:\.\d+)?)\s+"
+        r"(?P<recall>\d+(?:\.\d+)?)\s+"
+        r"(?P<map50>\d+(?:\.\d+)?)\s+"
+        r"(?P<map50_95>\d+(?:\.\d+)?)\s*$",
+        re.MULTILINE,
+    )
+    match = pattern.search(command_output)
+    if match is None:
+        return None
+
+    return {
+        "precision": float(match.group("precision")),
+        "recall": float(match.group("recall")),
+        "map50": float(match.group("map50")),
+        "map50_95": float(match.group("map50_95")),
+        "fitness": None,
+    }
+
+
 def _read_float(row: dict[str, str], key: str) -> float | None:
     raw_value = row.get(key)
     if raw_value in {None, ""}:
@@ -245,8 +419,21 @@ def _read_float(row: dict[str, str], key: str) -> float | None:
     return float(raw_value)
 
 
-def _summarize_verdict(metrics: dict[str, float | None]) -> tuple[str, str]:
-    map50 = metrics["map50"]
+def _summarize_verdict(task: str, metrics: dict[str, float | None]) -> tuple[str, str]:
+    if task == "group2":
+        point_hit_rate = metrics.get("point_hit_rate")
+        mean_iou = metrics.get("mean_iou")
+        if point_hit_rate is None or mean_iou is None:
+            return "验证结果不完整", "group2 预测和评估已经跑完，但关键指标没有完整落盘，请先检查预测输出和评估目录。"
+        if point_hit_rate >= 0.92 and mean_iou >= 0.85:
+            return "这轮双输入定位已经比较稳", "可以开始做业务联调和难样本抽查，再决定是否继续追更高指标。"
+        if point_hit_rate >= 0.8 and mean_iou >= 0.7:
+            return "这轮双输入定位已经有明显效果", "可以继续补复杂背景和弱对比样本，把定位误差再往下压。"
+        if point_hit_rate >= 0.65:
+            return "这轮模型已经学到配对关系", "但定位稳定性还不够，优先补更多图案形状和难背景。"
+        return "这轮模型还在起步阶段", "先回头检查双输入样本契约、缺口图案一致性和训练集规模。"
+
+    map50 = metrics.get("map50")
     if map50 is None:
         return "验证结果不完整", "YOLO 已经跑完，但没有从 results.csv 读到 mAP50，请先检查验证输出目录。"
     if map50 >= 0.85:
@@ -258,11 +445,28 @@ def _summarize_verdict(metrics: dict[str, float | None]) -> tuple[str, str]:
     return "这轮模型还在起步阶段", "先回头检查数据、标签和素材分布，不建议只靠硬拉 epoch。"
 
 
-def _build_next_actions(metrics: dict[str, float | None]) -> list[str]:
-    next_actions: list[str] = []
-    precision = metrics["precision"]
-    recall = metrics["recall"]
-    map50 = metrics["map50"]
+def _build_next_actions(task: str, metrics: dict[str, float | None]) -> list[str]:
+    if task == "group2":
+        next_actions: list[str] = []
+        point_hit_rate = metrics.get("point_hit_rate")
+        mean_iou = metrics.get("mean_iou")
+        center_error = metrics.get("mean_center_error_px")
+        if point_hit_rate is not None and point_hit_rate < 0.8:
+            next_actions.append("优先补更多真实图案缺口样本，特别是弱对比背景和边缘位置样本。")
+        if mean_iou is not None and mean_iou < 0.75:
+            next_actions.append("重点检查 tile 图案和主图缺口是否严格同源，先清理任何形状不一致样本。")
+        if center_error is not None and center_error > 12:
+            next_actions.append("当前更像是定位偏移偏大，建议先固定一版数据集，再单独调 imgsz、batch 或继续训练轮数。")
+        if not next_actions:
+            next_actions.append("保留当前 paired dataset 不动，再开一个新训练名做对照实验，避免把好结果覆盖掉。")
+        next_actions.append("如果只是训练被打断，用 `--resume` 继续；如果是沿用上一轮最佳权重开新实验，用 `--from-run`。")
+        next_actions.append("每次只改一类因素，例如只换数据版本、只加 epoch、或只调 imgsz，这样你才能看懂变化原因。")
+        return next_actions
+
+    next_actions = []
+    precision = metrics.get("precision")
+    recall = metrics.get("recall")
+    map50 = metrics.get("map50")
 
     if map50 is None:
         return [
@@ -293,6 +497,7 @@ def _write_reports(result: ModelTestResult) -> None:
 
 
 def _render_markdown(result: ModelTestResult) -> str:
+    metric_lines = _render_markdown_metric_lines(result.task, result.metrics)
     lines = [
         f"# {result.task} 模型测试报告",
         "",
@@ -305,21 +510,14 @@ def _render_markdown(result: ModelTestResult) -> str:
         "## 本次测试做了什么",
         "",
         f"- 已加载权重：`{result.model_path}`",
-        f"- 已在验证集来源上执行 `predict`：`{result.source}`",
-        f"- 已执行 `val` 验证：`{result.dataset_yaml}`",
-        f"- 本次预测图片数：{result.source_image_count}",
-        f"- 成功写出的预测图片数：{result.predicted_image_count}",
+        f"- 已在验证集来源上执行预测：`{result.source}`",
+        f"- 已执行验证/评估：`{result.dataset_config}`",
+        f"- 本次预测样本数：{result.source_image_count}",
+        f"- 成功写出的预测样本数：{result.predicted_image_count}",
         "",
         "## 关键指标怎么读",
         "",
-        f"- Precision（精确率）：{_format_metric(result.metrics['precision'])}",
-        "  表示“模型框出来的结果里，有多少是真的”。",
-        f"- Recall（召回率）：{_format_metric(result.metrics['recall'])}",
-        "  表示“该找出来的目标里，模型实际找出来了多少”。",
-        f"- mAP50：{_format_metric(result.metrics['map50'])}",
-        "  可以把它先粗略理解成“这轮模型整体准不准”。",
-        f"- mAP50-95：{_format_metric(result.metrics['map50_95'])}",
-        "  这是更严格的综合指标，通常会比 mAP50 更低。",
+        *metric_lines,
         "",
         "## 输出目录",
         "",
@@ -341,5 +539,59 @@ def _render_markdown(result: ModelTestResult) -> str:
     return "\n".join(lines) + "\n"
 
 
+def _render_metric_lines(task: str, metrics: dict[str, float | None]) -> list[str]:
+    if task == "group2":
+        return [
+            f"- 点位命中率（point_hit_rate）：{_format_metric(metrics.get('point_hit_rate'))}",
+            f"- 平均中心误差（mean_center_error_px）：{_format_metric(metrics.get('mean_center_error_px'))}",
+            f"- 平均 IoU（mean_iou）：{_format_metric(metrics.get('mean_iou'))}",
+            f"- 平均推理耗时（mean_inference_ms）：{_format_metric(metrics.get('mean_inference_ms'))}",
+        ]
+    return [
+        f"- Precision（框出来的里有多少是真的）：{_format_metric(metrics.get('precision'))}",
+        f"- Recall（该找出来的里找到了多少）：{_format_metric(metrics.get('recall'))}",
+        f"- mAP50（综合看框和分类是否到位）：{_format_metric(metrics.get('map50'))}",
+        f"- mAP50-95（更严格的综合指标）：{_format_metric(metrics.get('map50_95'))}",
+    ]
+
+
+def _render_markdown_metric_lines(task: str, metrics: dict[str, float | None]) -> list[str]:
+    if task == "group2":
+        return [
+            f"- 点位命中率（point_hit_rate）：{_format_metric(metrics.get('point_hit_rate'))}",
+            "  表示“滑块 tile 放回去后，目标中心点是否落在可接受误差范围内”。",
+            f"- 平均中心误差（mean_center_error_px）：{_format_metric(metrics.get('mean_center_error_px'))}",
+            "  表示预测缺口中心点离真实中心点平均差了多少像素。",
+            f"- mean_iou：{_format_metric(metrics.get('mean_iou'))}",
+            "  表示预测缺口框和真实缺口框的平均重叠程度。",
+            f"- mean_inference_ms：{_format_metric(metrics.get('mean_inference_ms'))}",
+            "  表示单条 paired 样本平均推理耗时。",
+        ]
+    return [
+        f"- Precision（精确率）：{_format_metric(metrics.get('precision'))}",
+        "  表示“模型框出来的结果里，有多少是真的”。",
+        f"- Recall（召回率）：{_format_metric(metrics.get('recall'))}",
+        "  表示“该找出来的目标里，模型实际找出来了多少”。",
+        f"- mAP50：{_format_metric(metrics.get('map50'))}",
+        "  可以把它先粗略理解成“这轮模型整体准不准”。",
+        f"- mAP50-95：{_format_metric(metrics.get('map50_95'))}",
+        "  这是更严格的综合指标，通常会比 mAP50 更低。",
+    ]
+
+
+def _build_group2_evaluate_command(gold_dir: Path, prediction_dir: Path, report_dir: Path) -> str:
+    return (
+        "uv run sinan evaluate"
+        f" --task group2 --gold-dir {gold_dir}"
+        f" --prediction-dir {prediction_dir}"
+        f" --report-dir {report_dir}"
+    )
+
+
+def _metric_value(metrics: dict[str, float | None], key: str) -> float | None:
+    value = metrics.get(key)
+    if value is None:
+        return None
+    return float(value)
 def _format_metric(value: float | None) -> str:
     return "n/a" if value is None else f"{value:.4f}"

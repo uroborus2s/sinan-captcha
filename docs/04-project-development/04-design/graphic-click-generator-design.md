@@ -106,8 +106,8 @@ flowchart LR
     G --> H["负样本校验"]
     H --> I["导出器"]
     I --> J["images + labels.jsonl + manifest.json"]
-    J --> K["Python 转换脚本"]
-    K --> L["YOLO / 下游训练数据"]
+    J --> K["数据集构建层"]
+    K --> L["group1 YOLO / group2 paired dataset"]
 ```
 
 ### 4.1 控制层职责
@@ -338,7 +338,7 @@ sinan-generator workspace init --workspace D:\sinan-captcha-generator\workspace
 sinan-generator materials import --workspace D:\sinan-captcha-generator\workspace --from D:\materials-pack
 sinan-generator materials fetch --workspace D:\sinan-captcha-generator\workspace --source https://example.com/materials-pack.zip
 sinan-generator make-dataset --workspace D:\sinan-captcha-generator\workspace --task group1 --dataset-dir D:\sinan-captcha-work\datasets\group1\firstpass\yolo
-sinan-generator make-dataset --workspace D:\sinan-captcha-generator\workspace --task group2 --dataset-dir D:\sinan-captcha-work\datasets\group2\firstpass\yolo
+sinan-generator make-dataset --workspace D:\sinan-captcha-generator\workspace --task group2 --dataset-dir D:\sinan-captcha-work\datasets\group2\firstpass
 ```
 
 ## 10. 风险与应对

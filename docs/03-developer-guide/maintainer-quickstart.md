@@ -81,7 +81,7 @@ git status --short
 1. 这个项目只有两个正式 CLI：`sinan-generator` 和 `sinan`
 2. 生成器工作区不等于生成器安装目录
 3. 训练目录不等于源码仓库
-4. 生成器和训练 CLI 只通过 YOLO 数据集目录交接
+4. 生成器和训练 CLI 只通过 `group1 YOLO / group2 paired` 数据集目录交接
 
 ## 5. 常见维护任务怎么分
 

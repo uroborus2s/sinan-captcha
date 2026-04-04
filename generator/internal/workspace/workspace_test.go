@@ -49,6 +49,8 @@ func TestEnsureCreatesWorkspaceLayoutAndMetadata(t *testing.T) {
 		filepath.Join(state.Layout.PresetsDir, "smoke.yaml"),
 		filepath.Join(state.Layout.PresetsDir, "group1.firstpass.yaml"),
 		filepath.Join(state.Layout.PresetsDir, "group2.firstpass.yaml"),
+		filepath.Join(state.Layout.PresetsDir, "group1.hard.yaml"),
+		filepath.Join(state.Layout.PresetsDir, "group2.hard.yaml"),
 	}
 	for _, path := range expectedPresets {
 		if _, err := os.Stat(path); err != nil {
@@ -75,5 +77,31 @@ func TestEnsurePreservesExistingMetadata(t *testing.T) {
 	}
 	if second.Metadata.DefaultMaterialSource != "https://example.com/materials.zip" {
 		t.Fatalf("expected metadata to persist, got %q", second.Metadata.DefaultMaterialSource)
+	}
+}
+
+func TestEnsurePreservesExistingPresetOverrides(t *testing.T) {
+	root := filepath.Join(t.TempDir(), "workspace")
+
+	first, err := Ensure(root)
+	if err != nil {
+		t.Fatalf("first ensure: %v", err)
+	}
+	overridePath := filepath.Join(first.Layout.PresetsDir, "group1.hard.yaml")
+	overrideContent := []byte("project:\n  dataset_name: custom_group1_hard\n")
+	if err := os.WriteFile(overridePath, overrideContent, 0o644); err != nil {
+		t.Fatalf("write preset override: %v", err)
+	}
+
+	second, err := Ensure(root)
+	if err != nil {
+		t.Fatalf("second ensure: %v", err)
+	}
+	content, err := os.ReadFile(filepath.Join(second.Layout.PresetsDir, "group1.hard.yaml"))
+	if err != nil {
+		t.Fatalf("read preset override: %v", err)
+	}
+	if string(content) != string(overrideContent) {
+		t.Fatalf("expected preset override to be preserved, got:\n%s", string(content))
 	}
 }

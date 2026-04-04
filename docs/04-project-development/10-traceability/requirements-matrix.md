@@ -63,6 +63,16 @@
 | REQ-008 | 落点 | docs/04-project-development/04-design/module-boundaries.md | 有效 | 2026-04-01 | Codex | 已定义评估与报告模块 |
 | REQ-008 | 落点 | docs/04-project-development/04-design/system-architecture.md | 有效 | 2026-04-01 | Codex | 已定义失败样本回灌链路 |
 | REQ-008 | 落点 | docs/04-project-development/04-design/module-structure-and-delivery.md | 有效 | 2026-04-02 | Codex | 已明确模块交付物与部署边界，便于后续维护和归档 |
+| REQ-009 | 来源 | docs/04-project-development/02-discovery/input.md | 有效 | 2026-04-04 | Codex | 用户追加“V1 先接入 opencode”的自主训练要求 |
+| REQ-009 | 来源 | docs/04-project-development/02-discovery/brainstorm-record.md | 有效 | 2026-04-04 | Codex | 已收口为“Python 控制器 + opencode + skills + study 账本” |
+| REQ-009 | 落点 | docs/04-project-development/03-requirements/prd.md | 有效 | 2026-04-04 | Codex | 已定义自主训练控制器与 opencode 接入需求 |
+| REQ-009 | 落点 | docs/04-project-development/03-requirements/requirements-analysis.md | 有效 | 2026-04-04 | Codex | 已分析 study、skill、group 隔离和 fallback 风险 |
+| REQ-009 | 落点 | docs/04-project-development/04-design/technical-selection.md | 有效 | 2026-04-04 | Codex | 已定义 opencode、Optuna 和状态存储技术选型 |
+| REQ-009 | 落点 | docs/04-project-development/04-design/system-architecture.md | 有效 | 2026-04-04 | Codex | 已补充自主训练控制平面 |
+| REQ-009 | 落点 | docs/04-project-development/04-design/module-boundaries.md | 有效 | 2026-04-04 | Codex | 已补充控制器、agent 接入层和优化策略模块 |
+| REQ-009 | 落点 | docs/04-project-development/04-design/autonomous-training-and-opencode-design.md | 有效 | 2026-04-04 | Codex | 已形成自主训练与 OpenCode 接入详细设计 |
+| REQ-009 | 落点 | docs/04-project-development/05-development-process/implementation-plan.md | 有效 | 2026-04-04 | Codex | 已补充第二阶段自主训练实施主线 |
+| REQ-009 | 落点 | docs/04-project-development/05-development-process/autonomous-training-task-breakdown.md | 有效 | 2026-04-04 | Codex | 已形成自主训练任务拆解与顺序 |
 
 ## 更新记录
 
@@ -73,3 +83,4 @@
 - 2026-04-01：补充 CUDA 版本识别说明和图形点选生成器任务拆解，维护人：Codex。
 - 2026-04-02：补充模块结构与构建交付设计，维护人：Codex。
 - 2026-04-02：将生成器设计统一收口为“受控集成 + 可插拔 backend”，并把第二专项改为滑块缺口定位，维护人：Codex。
+- 2026-04-04：新增 `REQ-009`，把“自主训练控制器 + OpenCode 先行接入”落到需求、设计和任务拆解文档，维护人：Codex。

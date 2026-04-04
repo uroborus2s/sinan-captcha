@@ -118,6 +118,9 @@ mkdocs:
             - title: 模块结构与构建交付设计
               path: 04-project-development/04-design/module-structure-and-delivery.md
               access: private
+            - title: 自主训练控制器与 OpenCode 接入设计
+              path: 04-project-development/04-design/autonomous-training-and-opencode-design.md
+              access: private
         - title: 开发过程文档
           children:
             - title: 概览
@@ -134,6 +137,9 @@ mkdocs:
               access: private
             - title: 多模式验证码生成器任务拆解
               path: 04-project-development/05-development-process/generator-task-breakdown.md
+              access: private
+            - title: 自主训练任务拆解
+              path: 04-project-development/05-development-process/autonomous-training-task-breakdown.md
               access: private
         - title: 测试与验证
           children:

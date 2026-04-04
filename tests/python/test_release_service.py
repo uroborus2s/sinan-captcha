@@ -47,7 +47,7 @@ class ReleaseServiceTests(unittest.TestCase):
             root = Path(tmpdir)
             dist_dir = root / "dist"
             dist_dir.mkdir()
-            wheel = dist_dir / "sinan_captcha-0.1.2-py3-none-any.whl"
+            wheel = dist_dir / "sinan_captcha-0.1.3-py3-none-any.whl"
             wheel.write_text("wheel", encoding="utf-8")
 
             generator_exe = root / "generator" / "dist" / "generator" / "windows-amd64" / "sinan-generator.exe"

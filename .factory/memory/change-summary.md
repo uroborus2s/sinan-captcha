@@ -1,5 +1,437 @@
 # 变更摘要
 
+## 2026-04-04 落地实现 `TASK-AT-007` 自主训练 skills、`decision.json` schema 与 fallback
+
+- 已新增：
+  - `core/auto_train/opencode_skills.py`
+  - `core/auto_train/decision_protocol.py`
+  - `.opencode/skills/result-reader/SKILL.md`
+  - `.opencode/skills/training-judge/SKILL.md`
+  - `.opencode/skills/dataset-planner/SKILL.md`
+  - `.opencode/skills/study-archivist/SKILL.md`
+  - `tests/python/test_auto_train_opencode_skills.py`
+  - `tests/python/test_auto_train_decision_protocol.py`
+- 已更新：
+  - `core/auto_train/contracts.py`
+  - `core/auto_train/__init__.py`
+  - `.opencode/commands/result-read.md`
+  - `.opencode/commands/judge-trial.md`
+  - `.opencode/commands/plan-dataset.md`
+  - `.opencode/commands/study-status.md`
+- 当前已把自主训练首版 skill 数量正式冻结为 4 个：
+  - `result-reader`
+  - `training-judge`
+  - `dataset-planner`
+  - `study-archivist`
+- 当前 skill 契约已固定到 Python 注册表与 `.opencode/skills/*/SKILL.md` 两层，避免技能职责只停留在设计文档
+- 当前 skill 模板已统一要求：
+  - 只读取附加文件
+  - 不运行 shell 命令
+  - 不请求训练执行权限
+  - 只返回 JSON
+- 当前已新增 `JudgeDecisionPayload`，把模型原始输出的 JSON schema 与最终落盘 `DecisionRecord` 分离
+- 当前已实现 `parse_or_fallback_decision(...)`：
+  - 合法 JSON 输出 -> 直接转成 `DecisionRecord`
+  - 非法 JSON -> `fallback_invalid_json`
+  - 非法动作/缺字段 -> `fallback_invalid_payload`
+- 当前已实现首轮确定性 fallback：
+  - 弱类或失败模式明显 -> `REGENERATE_DATA`
+  - 明显退化 -> `ABANDON_BRANCH`
+  - 持续改善且无显著失败 -> `PROMOTE_BRANCH`
+  - 其他情况 -> `RETUNE`
+- 当前 `.opencode/commands/*.md` 已与四个 skill 显式绑定，避免 command 名与 skill 名再度漂移
+- 已新增回归覆盖：
+  - skill 注册表数量与输出工件
+  - `.opencode/skills/*/SKILL.md` front matter 与边界文本
+  - 合法 decision 解析
+  - 非法 JSON fallback
+  - 非法动作 fallback
+- 已运行验证：
+  - `uv run python -m unittest tests.python.test_auto_train_opencode_skills tests.python.test_auto_train_decision_protocol`
+  - `uv run python -m unittest discover -s tests/python -p 'test_*.py'`
+  - 当前 86 个 Python 测试通过
+
+## 2026-04-04 `group2` 全量切换到双输入 paired dataset 契约
+
+- 已更新 Go 生成器 `group2`：
+  - `generator/internal/slide/slide.go`
+  - `generator/internal/slide/slide_test.go`
+  - `generator/internal/dataset/build.go`
+  - `generator/internal/app/make_dataset.go`
+  - `generator/internal/app/make_dataset_test.go`
+- 当前 `group2` 已从“矩形洞旧结构”切到“图案 mask 挖洞 + master/tile paired dataset”：
+  - 缺口由同一图案 mask 在背景图上雕刻生成
+  - `tile_image` 与 `master_image` 缺口保持同源
+  - 训练导出不再写 `dataset.yaml/images/labels`
+  - 正式训练入口改为 `dataset.json + master/ + tile/ + splits/*.jsonl`
+- 已新增 Python 双输入执行链：
+  - `core/train/group2/dataset.py`
+  - `core/train/group2/runner.py`
+  - `core/train/group2/service.py`
+- 已更新 Python 入口与 runner：
+  - `core/train/group2/cli.py`
+  - `core/predict/cli.py`
+  - `core/modeltest/cli.py`
+  - `core/modeltest/service.py`
+  - `core/auto_train/runners/train.py`
+  - `core/auto_train/runners/test.py`
+  - `core/ops/setup_train.py`
+  - `core/cli.py`
+- 当前 `uv run sinan train group2`、`predict group2`、`test group2` 已全部切到 paired-input runner，入口统一为 `dataset.json`
+- 已同步更新正式需求/设计与用户入口文档，明确：
+  - `group1` 保留 YOLO 数据集合同
+  - `group2` 正式合同为 paired dataset
+- 已运行验证：
+  - `go test ./internal/slide ./internal/dataset ./internal/app`
+  - `uv run python -m unittest tests.python.test_training_jobs tests.python.test_prediction_and_model_test tests.python.test_auto_train_runners`
+  - `uv run python -m unittest tests.python.test_setup_train tests.python.test_root_cli`
+
+## 2026-04-04 落地实现 `TASK-AT-006` 自主训练 OpenCode commands 契约
+
+- 已新增：
+  - `core/auto_train/opencode_commands.py`
+  - `.opencode/commands/result-read.md`
+  - `.opencode/commands/judge-trial.md`
+  - `.opencode/commands/plan-dataset.md`
+  - `.opencode/commands/study-status.md`
+  - `tests/python/test_auto_train_opencode_commands.py`
+- 已更新：
+  - `core/auto_train/__init__.py`
+- 当前已把自主训练首版 OpenCode command 数量正式冻结为 4 个：
+  - `result-read`
+  - `judge-trial`
+  - `plan-dataset`
+  - `study-status`
+- 当前 command 契约已固定到 Python 注册表与 `.opencode/commands/*.md` 两层，避免控制器依赖临时 prompt
+- 当前已固定 headless 调用方式：
+  - `opencode run --command <name> --format json`
+  - 可选 `--attach <server-url>`
+  - 使用多个 `--file <path>` 附加结构化工件
+  - 最后传递 message arguments
+- 当前 `.opencode/commands/*.md` 已固定 front matter：
+  - `description`
+  - `agent: plan`
+  - `subtask: true`
+- 当前四个 command 的输出工件已固定：
+  - `result-read` -> `result_summary.json`
+  - `judge-trial` -> `decision.json`
+  - `plan-dataset` -> `dataset_plan.json`
+  - `study-status` -> `study_status.json`
+- 当前命令模板已统一要求：
+  - 只读附加文件
+  - 只返回一个 JSON 对象
+  - 不输出 markdown fence
+  - 不输出 JSON 之外的自然语言
+  - 不请求 shell 访问
+- 已新增回归覆盖：
+  - command 注册表数量与输出工件
+  - headless 调用参数拼装
+  - `.opencode/commands/*.md` 文件内容与 front matter
+- 已运行验证：
+  - `uv run python -m unittest tests.python.test_auto_train_opencode_commands`
+  - `uv run python -m unittest discover -s tests/python -p 'test_*.py'`
+  - 当前 79 个 Python 测试通过
+
+## 2026-04-04 落地实现 `TASK-AT-005` 自主训练结果摘要层
+
+- 已新增：
+  - `core/auto_train/summary.py`
+  - `tests/python/test_auto_train_summary.py`
+- 已更新：
+  - `core/auto_train/contracts.py`
+  - `core/auto_train/storage.py`
+  - `core/auto_train/__init__.py`
+- 当前已把 `result_summary.json` 正式固化为代码契约：
+  - `ResultSummaryRecord`
+  - `ResultSummarySnapshot`
+- 当前 `result_summary.json` 已固定以下判断所需字段：
+  - 当前 trial 基本信息
+  - `primary_metric` / `primary_score`
+  - `test_metrics`
+  - `evaluation_metrics`
+  - `failure_count`
+  - `trend`
+  - `delta_vs_previous`
+  - `delta_vs_best`
+  - `weak_classes`
+  - `failure_patterns`
+  - `recent_trials`
+  - `best_trial`
+  - `evidence`
+- 当前已固定“最近 N 轮 + 最佳轮”压缩策略：
+  - 最近 N 轮来自当前 trial 之前、且已存在 `result_summary.json` 的历史 trial
+  - 最佳轮来自 `best_trial.json`
+  - 摘要层只看结构化工件，不依赖长终端输出
+- 当前已实现首轮压缩规则：
+  - 可从 `per_class_metrics` 提取 `weak_classes`
+  - group1 可压出 `sequence_consistency`、`order_errors`
+  - group2 可压出 `point_hits`、`center_offset`、`low_iou`
+  - 通用检测侧可压出 `detection_precision`、`detection_recall`、`strict_localization`
+- 当前已实现趋势分类：
+  - `baseline`
+  - `improving`
+  - `declining`
+  - `plateau`
+- 已新增回归覆盖：
+  - 当前 trial 摘要字段
+  - 最近窗口截断
+  - best trial 读取
+  - 弱类提取
+  - 失败模式压缩
+  - `result_summary.json` round-trip
+- 已运行验证：
+  - `uv run python -m unittest tests.python.test_auto_train_summary`
+  - `uv run python -m unittest discover -s tests/python -p 'test_*.py'`
+  - 当前 76 个 Python 测试通过
+
+## 2026-04-04 落地实现 `TASK-AT-004` 自主训练 runner 适配层
+
+- 已新增 `core/auto_train/runners/` 目录：
+  - `core/auto_train/runners/__init__.py`
+  - `core/auto_train/runners/common.py`
+  - `core/auto_train/runners/dataset.py`
+  - `core/auto_train/runners/train.py`
+  - `core/auto_train/runners/test.py`
+  - `core/auto_train/runners/evaluate.py`
+- 已更新：
+  - `core/auto_train/__init__.py`
+- 当前已把控制器与现有执行入口的边界收口为四类 runner：
+  - dataset runner：封装 `sinan-generator make-dataset`
+  - train runner：封装现有 group1/group2 task-specific training job
+  - test runner：封装现有 `predict + val + 中文报告`
+  - evaluate runner：封装现有 JSONL 评估流程
+- 当前 runner 层只负责执行与结果采集，不负责 AI 判断、状态机推进或排行榜更新
+- 已新增统一的 runner 错误封装：
+  - `RunnerExecutionError`
+  - `stage`
+  - `reason`
+  - `retryable`
+  - `command`
+- 当前已固定的错误边界包括：
+  - `missing_input`
+  - `missing_launcher`
+  - `missing_dependency`
+  - `command_failed`
+  - `invalid_request`
+- 已新增回归覆盖：
+  - `tests/python/test_auto_train_runners.py`
+  - 覆盖 dataset runner 命令构造与工作区缺失
+  - 覆盖 train runner 的 `from_run` 路径解析与非法请求
+  - 覆盖 test runner 到 `TestRecord` 的归一化
+  - 覆盖 evaluate runner 到 `EvaluateRecord` 的归一化与失败分类
+- 已运行验证：
+  - `uv run python -m unittest tests.python.test_auto_train_runners`
+  - `uv run python -m unittest discover -s tests/python -p 'test_*.py'`
+  - 当前 73 个 Python 测试通过
+
+## 2026-04-04 落地实现 `TASK-AT-003` 自主训练目录蓝图、排行榜与恢复语义
+
+- 已新增 `core/auto_train/` 第三批实现文件：
+  - `core/auto_train/layout.py`
+  - `core/auto_train/recovery.py`
+- 已扩展自主训练状态契约与持久化层：
+  - `core/auto_train/contracts.py`
+  - `core/auto_train/storage.py`
+  - `core/auto_train/state_machine.py`
+  - `core/auto_train/__init__.py`
+- 当前已把 study/trial 物理目录约定固化为代码路径助手：
+  - `studies/<task>/<study_name>/study.json`
+  - `best_trial.json`
+  - `trial_history.jsonl`
+  - `decisions.jsonl`
+  - `leaderboard.json`
+  - `summary.md`
+  - `STOP`
+  - `trials/trial_0001/...`
+- 当前已把 trial 命名规则固定为 `trial_0001` 四位零填充，并为 `group1/group2` 提供独立 study 根目录路径，避免交叉覆盖
+- 当前已新增排行榜与最佳 trial 契约：
+  - `LeaderboardEntry`
+  - `LeaderboardRecord`
+  - `BestTrialRecord`
+- 当前恢复逻辑已从“读取最高层已存在工件”升级为“按顺序完整性寻找最早缺失边界”：
+  - 如果 `dataset.json` 缺失，即使 `train.json` 已存在，也会回退到 `BUILD_DATASET`
+  - 如果 `decision.json` 已存在，当前 trial 视为完成并进入 `NEXT_ACTION`
+  - `STOP` 文件仍然优先把恢复入口切到 `STOP`
+- 已新增回归覆盖：
+  - `tests/python/test_auto_train_layout.py`
+  - 覆盖 study 路径蓝图
+  - 覆盖 trial 命名规则
+  - 覆盖 `leaderboard.json` 排序与 `best_trial.json` 落盘
+  - 覆盖“中间工件缺失时回退重跑”的恢复语义
+- 已运行验证：
+  - `uv run python -m unittest tests.python.test_auto_train_layout`
+  - `uv run python -m unittest discover -s tests/python -p 'test_*.py'`
+  - 当前 66 个 Python 测试通过
+
+## 2026-04-04 落地实现 `TASK-AT-002` 自主训练状态机与停止规则
+
+- 已新增 `core/auto_train/` 第二批实现文件：
+  - `core/auto_train/state_machine.py`
+  - `core/auto_train/stop_rules.py`
+- 当前已把自主训练阶段顺序固定为：
+  - `PLAN`
+  - `BUILD_DATASET`
+  - `TRAIN`
+  - `TEST`
+  - `EVALUATE`
+  - `SUMMARIZE`
+  - `JUDGE`
+  - `NEXT_ACTION`
+  - `STOP`
+- 当前已实现基于 trial 工件的恢复入口推断：
+  - `input.json` -> `BUILD_DATASET`
+  - `dataset.json` -> `TRAIN`
+  - `train.json` -> `TEST`
+  - `test.json` -> `EVALUATE`
+  - `evaluate.json` -> `SUMMARIZE`
+  - `result_summary.json` -> `JUDGE`
+  - `decision.json` -> `NEXT_ACTION`
+  - `STOP` 文件 -> `STOP`
+- 当前已实现首轮停止规则：
+  - trial 数上限
+  - 小时数上限
+  - no-improve 上限
+  - 平台期检测
+  - `STOP` 文件
+  - fatal error
+- 已新增回归覆盖：
+  - `tests/python/test_auto_train_state_machine.py`
+  - 覆盖阶段迁移、恢复入口、STOP 文件、预算停止、平台期和继续执行场景
+- 已运行验证：
+  - `uv run python -m unittest tests.python.test_auto_train_state_machine`
+  - `uv run python -m unittest discover -s tests/python -p 'test_*.py'`
+  - 当前 61 个 Python 测试通过
+
+## 2026-04-04 落地实现 `TASK-AT-001` 自主训练状态契约
+
+- 已新增 `core/auto_train/` 首批实现文件：
+  - `core/auto_train/__init__.py`
+  - `core/auto_train/contracts.py`
+  - `core/auto_train/storage.py`
+- 当前已把自主训练的核心状态工件固化成代码契约：
+  - `study.json`
+  - `input.json`
+  - `dataset.json`
+  - `train.json`
+  - `test.json`
+  - `evaluate.json`
+  - `decision.json`
+  - `trial_history.jsonl`
+  - `decisions.jsonl`
+- 已为以下关键约束增加校验：
+  - `task` 只能是 `group1/group2`
+  - `train_mode=from_run` 时必须提供 `base_run`
+  - `decision` 只能落在允许动作集
+  - `confidence` 必须位于 `0.0-1.0`
+- 已新增回归覆盖：
+  - `tests/python/test_auto_train_contracts.py`
+  - 覆盖 study 嵌套字段 round-trip
+  - 覆盖 trial JSON/JSONL 落盘回读
+  - 覆盖非法 decision 拦截
+  - 覆盖 `from_run` 缺少 `base_run` 的阻断
+- 已运行验证：
+  - `uv run python -m unittest tests.python.test_auto_train_contracts`
+  - `uv run python -m unittest discover -s tests/python -p 'test_*.py'`
+  - 当前 53 个 Python 测试通过
+
+## 2026-04-04 将“自主训练控制器 + OpenCode 先行接入”落到正式需求、设计与任务文档
+
+- 已把新增要求正式落到需求层：
+  - `REQ-009` 自主训练控制器与 `opencode` 接入
+  - `NFR-006` 自主训练可控性与上下文隔离
+- 已同步更新：
+  - `docs/04-project-development/02-discovery/input.md`
+  - `docs/04-project-development/02-discovery/brainstorm-record.md`
+  - `docs/04-project-development/03-requirements/prd.md`
+  - `docs/04-project-development/03-requirements/requirements-analysis.md`
+  - `docs/04-project-development/03-requirements/requirements-verification.md`
+- 已把设计层收口为：
+  - Python 控制器负责确定性执行与状态机
+  - `opencode` 负责 commands / skills / 结构化判断
+  - `Optuna` 负责可插拔参数搜索
+  - group1/group2 保持独立 study 和独立指标
+- 已新增设计与任务文档：
+  - `docs/04-project-development/04-design/autonomous-training-and-opencode-design.md`
+  - `docs/04-project-development/05-development-process/autonomous-training-task-breakdown.md`
+- 已同步更新导航、追踪矩阵与 `.factory` 摘要，避免新设计停留在单页草稿
+
+## 2026-04-04 生成器新增可配置视觉难度参数与 `hard` preset
+
+- 已为 Go 生成器配置模型新增 `effects` 区块，正式支持：
+  - `common`：`scene_veil_strength`、`background_blur_radius_*`
+  - `click`：图标阴影透明度、阴影偏移、边缘模糊半径
+  - `slide`：缺口阴影透明度、阴影偏移、滑块边缘模糊半径
+- 已新增共享视觉扰动实现：
+  - `generator/internal/imagefx/effects.go`
+  - 统一承载 scene veil、box blur、shadow sprite 和确定性范围采样
+- 已把 `group1` 与 `group2` 两条渲染链都接到新参数上：
+  - `generator/internal/render/render.go`
+  - `generator/internal/slide/slide.go`
+- 已新增内置 `hard` preset：
+  - `group1.hard.yaml`
+  - `group2.hard.yaml`
+- 已把 workspace preset 机制收口为固定命名自动覆盖：
+  - `workspace\presets\smoke.yaml`
+  - `workspace\presets\group1.firstpass.yaml`
+  - `workspace\presets\group1.hard.yaml`
+  - `workspace\presets\group2.firstpass.yaml`
+  - `workspace\presets\group2.hard.yaml`
+- `workspace init` 现在只会补齐缺失 preset，不再覆盖已有工作区覆盖文件
+- `make-dataset` 当前会自动优先读取工作区同名 preset，找不到时回退内置 preset
+- 已补充回归覆盖：
+  - `generator/internal/config/load_test.go`
+  - `generator/internal/preset/preset_test.go`
+  - `generator/internal/render/render_test.go`
+  - `generator/internal/slide/slide_test.go`
+  - `generator/internal/app/make_dataset_test.go`
+  - `generator/internal/workspace/workspace_test.go`
+- 已同步更新帮助文本和公开用户文档：
+  - `generator/cmd/sinan-generator/main.go`
+  - `README.md`
+  - `docs/02-user-guide/index.md`
+  - `docs/02-user-guide/prepare-training-data-with-generator.md`
+- 在需求变更后已继续补齐测试与正式设计文档：
+  - 新增 `ResolveForWorkspace` 的回退、共享 `smoke.yaml` 覆盖和损坏配置报错测试
+  - 已把像素级视觉增强边界、workspace preset 固定命名规则和 truth-preserving 约束同步写入 PRD、需求分析、需求校验、技术选型、系统架构和模块边界文档
+
+## 2026-04-04 修复 `sinan test` 在 `val` 无 `results.csv` 时中文报告生成失败
+
+- 已修复 `core/modeltest/service.py` 中对 Ultralytics `val` 产物的错误假设
+- 旧逻辑会把 `results.csv` 当成 `val` 的必有文件，导致：
+  - `predict` 成功
+  - `val` 成功
+  - 但中文报告在读取指标时中断
+- 新逻辑已改为：
+  - 优先读取 `results.csv`
+  - 若 `results.csv` 不存在，则回退解析 `val` 终端输出中的 `P/R/mAP50/mAP50-95`
+  - 只要验证命令成功并能识别汇总指标，就继续生成 `summary.md` 和 `summary.json`
+- 已新增回归覆盖：
+  - `tests/python/test_prediction_and_model_test.py`
+  - 覆盖“无 `results.csv` 但终端输出含 `all` 汇总行”的真实兼容场景
+
+## 2026-04-04 发布 `sinan-captcha 0.1.3` 到 PyPI
+
+- 已把 Python 包版本从 `0.1.2` 提升到 `0.1.3`
+- 已同步更新当前正式用户/维护者文档中的版本化安装示例：
+  - `docs/02-user-guide/use-build-artifacts.md`
+  - `docs/02-user-guide/from-base-model-to-training-guide.md`
+  - `docs/02-user-guide/windows-quickstart.md`
+  - `docs/02-user-guide/windows-bundle-install.md`
+  - `docs/03-developer-guide/local-development-workflow.md`
+  - `docs/03-developer-guide/release-and-delivery-workflow.md`
+- 已同步更新训练目录初始化默认版本与包内版本：
+  - `pyproject.toml`
+  - `core/__init__.py`
+  - `core/ops/setup_train.py`
+- 已同步更新回归断言与交付物文件名：
+  - `tests/python/test_setup_train.py`
+  - `tests/python/test_release_service.py`
+- 已完成本地构建：
+  - `dist/sinan_captcha-0.1.3-py3-none-any.whl`
+  - `dist/sinan_captcha-0.1.3.tar.gz`
+- 已完成 PyPI 上传：
+  - `sinan-captcha 0.1.3`
+
 ## 2026-04-04 训练后测试入口、中文报告与续训命令补齐
 
 - 已为训练目录新增两个正式用户入口：
@@ -301,9 +733,9 @@
 - 两批原始样本 QA 均通过：
   - click：`query=200`、`scene=200`、`labels=200`
   - slide：`master=200`、`tile=200`、`labels=200`
-- 已完成 YOLO 转换：
+- 已完成正式训练数据导出：
   - `datasets/group1/firstpass/yolo`
-  - `datasets/group2/firstpass/yolo`
+  - `datasets/group2/firstpass`
   - 两批均为 `train=160`、`val=20`、`test=20`
 - 当前仍未进入正式训练，原因是本机 Python 环境缺少 `torch` 与 `ultralytics`
 

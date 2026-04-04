@@ -10,12 +10,12 @@
 
 这页只解决一件事：
 
-- 怎样用 `sinan-generator` 在 Windows 机器上准备素材，并直接生成可训练的 YOLO 数据集目录
+- 怎样用 `sinan-generator` 在 Windows 机器上准备素材，并直接生成可训练的数据集目录
 
 最终目标是让你拿到这样的目录：
 
 - `D:\sinan-captcha-work\datasets\group1\<version>\yolo`
-- `D:\sinan-captcha-work\datasets\group2\<version>\yolo`
+- `D:\sinan-captcha-work\datasets\group2\<version>`
 
 然后马上接：
 
@@ -67,6 +67,7 @@ D:\sinan-captcha-generator\
 - 不需要手工拷贝 `configs/*.yaml`
 - 预设配置已经内置到生成器里
 - 首次运行时，生成器会自动把工作区需要的预设副本写到 `workspace\presets\`
+- 如果你要覆盖默认难度参数，也只改 `workspace\presets\*.yaml`，不要在 `exe` 同级新增配置文件
 
 如果你在 Windows PowerShell 里直接进入这个目录执行命令：
 
@@ -129,6 +130,7 @@ materials-pack\
 - `backgrounds\` 里放背景图
 - `icons\<class_name>\` 里放该类别的图标
 - `manifests\classes.yaml` 负责声明类别名和类别 ID
+- `group2` 会把图标 PNG 的 alpha mask 当作缺口图案素材使用，所以背景图和图标目录都必需
 - 当前实现会统一校验这套结构；即使你只生成 `group2`，当前也仍然要求素材包里有完整的 `classes.yaml` 和图标目录
 - 如果你拿到的是源码仓库里的某个 `materials\` 目录，只有当它本身已经满足这套结构时，才能直接 `materials import`
 
@@ -290,17 +292,20 @@ Set-Location D:\sinan-captcha-generator
 .\sinan-generator.exe make-dataset `
   --workspace D:\sinan-captcha-generator\workspace `
   --task group2 `
-  --dataset-dir D:\sinan-captcha-work\datasets\group2\firstpass\yolo
+  --dataset-dir D:\sinan-captcha-work\datasets\group2\firstpass
 ```
 
 ### 6.3 一次默认会生成多少条训练数据
 
-当前公开生成器只有两个预设：
+当前公开生成器有三个预设：
 
 - `smoke`
   - 每次生成 `20` 条
 - `firstpass`
   - 每次生成 `200` 条
+- `hard`
+  - 每次生成 `200` 条
+  - 在不改变标签语义的前提下，增加更强的阴影、背景模糊和边缘软化
 
 如果你不显式传 `--preset`，默认就是：
 
@@ -326,12 +331,36 @@ Set-Location D:\sinan-captcha-generator
 
 ### 6.4 如果要生成更多训练数据，应该怎么做
 
-当前普通用户 CLI 没有单独暴露 `--sample-count`。
+当前普通用户 CLI 没有单独暴露 `--sample-count`，但现在多了两个稳定手段：
 
-所以“生成更多”有两种稳定做法：
+1. 用内置 `hard` preset 提高样本难度
+2. 多跑几次，生成多个版本目录
+3. 高级用户在 `workspace\presets\` 里覆盖固定命名 preset
 
-1. 多跑几次，生成多个版本目录
-2. 让维护者准备更大的 preset
+例如直接切到 `hard`：
+
+```powershell
+Set-Location D:\sinan-captcha-generator
+.\sinan-generator.exe make-dataset `
+  --workspace D:\sinan-captcha-generator\workspace `
+  --task group1 `
+  --preset hard `
+  --dataset-dir D:\sinan-captcha-work\datasets\group1\hard_v1\yolo
+```
+
+如果你确实要覆盖默认参数，生成器会按固定文件名自动优先读取：
+
+- `workspace\presets\smoke.yaml`
+- `workspace\presets\group1.firstpass.yaml`
+- `workspace\presets\group1.hard.yaml`
+- `workspace\presets\group2.firstpass.yaml`
+- `workspace\presets\group2.hard.yaml`
+
+规则是：
+
+- 找到对应文件就使用工作区版本
+- 找不到就回退到生成器内置 preset
+- 文件存在但格式错误时，命令会直接报错，不会静默忽略
 
 普通用户最稳的做法是多跑几次，但每次都输出到不同目录，例如：
 
@@ -361,11 +390,10 @@ Set-Location D:\sinan-captcha-generator
 
 可以。
 
-只要下面这些文件还在：
+只要正式训练入口文件和对应资源还在：
 
-- `dataset.yaml`
-- `images\`
-- `labels\`
+- `group1`：`dataset.yaml`、`images\`、`labels\`
+- `group2`：`dataset.json`、`master\`、`tile\`、`splits\`
 
 同一份训练数据可以反复用于：
 
@@ -385,19 +413,17 @@ Set-Location D:\sinan-captcha-generator
 
 每个数据集目录都至少应包含：
 
-- `dataset.yaml`
-- `images/`
-- `labels/`
-- `.sinan/`
+- `group1`：`dataset.yaml`、`images/`、`labels/`、`.sinan/`
+- `group2`：`dataset.json`、`master/`、`tile/`、`splits/`、`.sinan/`
 
 其中：
 
-- `dataset.yaml`
-  - 是训练 CLI 的正式入口
-- `images/`
-  - 给 YOLO 训练直接读取
-- `labels/`
-  - 是 YOLO 标签
+- `group1/dataset.yaml`
+  - 是第一组训练 CLI 的正式入口
+- `group2/dataset.json`
+  - 是第二组 paired-input 训练 CLI 的正式入口
+- `group2/master/`、`group2/tile/`、`group2/splits/`
+  - 共同组成第二组双输入样本
 - `.sinan/`
   - 保留 raw、manifest、job 等审计线索
 
@@ -472,7 +498,7 @@ uv run sinan train group2 `
 - 所有生成器命令统一显式带上：
   - `--workspace D:\sinan-captcha-generator\workspace`
 
-### 9.2 训练目录里没有 `dataset.yaml`
+### 9.2 训练目录里缺少正式数据集入口文件
 
 表现：
 
@@ -504,6 +530,6 @@ uv run sinan train group2 `
 
 1. 初始化了显式生成器工作区
 2. 至少导入或抓取过一次素材包
-3. 成功生成了 `group1` 或 `group2` 的 YOLO 数据集目录
-4. 数据集目录里有 `dataset.yaml`
+3. 成功生成了 `group1` 或 `group2` 的正式训练数据集目录
+4. `group1` 目录里有 `dataset.yaml`，或 `group2` 目录里有 `dataset.json`
 5. 训练 CLI 能对这个数据集执行 `dry-run`

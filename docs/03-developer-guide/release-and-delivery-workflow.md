@@ -108,7 +108,7 @@ GOCACHE=/tmp/sinan-go-build-cache go test ./...
 uv run sinan release package-windows \
   --project-dir . \
   --generator-exe generator/dist/generator/windows-amd64/sinan-generator.exe \
-  --output-dir dist/windows-bundle-0.1.2
+  --output-dir dist/windows-bundle-0.1.3
 ```
 
 如果你要顺手把数据集或素材也打进去，可以加：
@@ -117,7 +117,7 @@ uv run sinan release package-windows \
 uv run sinan release package-windows \
   --project-dir . \
   --generator-exe generator/dist/generator/windows-amd64/sinan-generator.exe \
-  --output-dir dist/windows-bundle-0.1.2 \
+  --output-dir dist/windows-bundle-0.1.3 \
   --datasets-dir datasets \
   --materials-dir materials
 ```

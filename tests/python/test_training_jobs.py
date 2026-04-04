@@ -20,10 +20,15 @@ class TrainingJobTests(unittest.TestCase):
         self.assertIn("epochs=120", command)
 
     def test_group2_uses_expected_defaults(self) -> None:
-        job = build_group2_training_job(Path("datasets/group2/v1/yolo/dataset.yaml"), Path("runs/group2"))
+        job = build_group2_training_job(Path("datasets/group2/v1/dataset.json"), Path("runs/group2"))
         command = job.command()
-        self.assertIn("model=yolo26n.pt", command)
-        self.assertIn("epochs=100", command)
+        self.assertEqual(command[:5], ["uv", "run", "python", "-m", "core.train.group2.runner"])
+        self.assertIn("--dataset-config", command)
+        self.assertIn("datasets/group2/v1/dataset.json", command)
+        self.assertIn("--model", command)
+        self.assertIn("paired_cnn_v1", command)
+        self.assertIn("--epochs", command)
+        self.assertIn("100", command)
 
     def test_group1_allows_runtime_overrides(self) -> None:
         job = build_group1_training_job(
@@ -121,16 +126,22 @@ class TrainingJobTests(unittest.TestCase):
         self.assertIn("model=D:/sinan-captcha-work/runs/group1/firstpass/weights/last.pt", output)
 
     def test_group2_cli_executes_training_command(self) -> None:
-        with patch("core.train.base._ensure_training_dependencies") as ensure_deps:
-            with patch("core.train.base.prepare_dataset_yaml_for_ultralytics") as normalize_dataset:
-                with patch("core.train.base.subprocess.run") as subprocess_run:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            root = Path(tmpdir)
+            dataset_config = root / "datasets" / "group2" / "v1" / "dataset.json"
+            dataset_config.parent.mkdir(parents=True)
+            dataset_config.write_text(
+                '{"task":"group2","format":"sinan.group2.paired.v1","splits":{"train":"splits/train.jsonl","val":"splits/val.jsonl","test":"splits/test.jsonl"}}',
+                encoding="utf-8",
+            )
+            with patch("core.train.group2.service._ensure_group2_training_dependencies") as ensure_deps:
+                with patch("core.train.group2.service.subprocess.run") as subprocess_run:
                     ensure_deps.return_value = None
-                    normalize_dataset.return_value = Path("datasets/group2/v1/yolo/.sinan/dataset.ultralytics.yaml")
                     subprocess_run.return_value.returncode = 0
                     code = group2_cli.main(
                         [
-                            "--dataset-yaml",
-                            "datasets/group2/v1/yolo/dataset.yaml",
+                            "--dataset-config",
+                            str(dataset_config),
                             "--project",
                             "runs/group2",
                             "--name",
@@ -142,10 +153,15 @@ class TrainingJobTests(unittest.TestCase):
         command = subprocess_run.call_args.args[0]
         self.assertEqual(command[0], "uv")
         self.assertEqual(command[1], "run")
-        self.assertEqual(command[2], "yolo")
-        self.assertIn("data=datasets/group2/v1/yolo/.sinan/dataset.ultralytics.yaml", command)
-        self.assertIn("epochs=100", command)
-        self.assertIn("name=firstpass", command)
+        self.assertEqual(command[2], "python")
+        self.assertEqual(command[3], "-m")
+        self.assertEqual(command[4], "core.train.group2.runner")
+        self.assertIn("--dataset-config", command)
+        self.assertIn(str(dataset_config), command)
+        self.assertIn("--epochs", command)
+        self.assertIn("100", command)
+        self.assertIn("--name", command)
+        self.assertIn("firstpass", command)
 
     def test_group2_cli_uses_default_paths_from_training_root(self) -> None:
         buffer = io.StringIO()
@@ -162,9 +178,9 @@ class TrainingJobTests(unittest.TestCase):
                 )
         self.assertEqual(code, 0)
         output = buffer.getvalue()
-        self.assertIn("data=D:/sinan-captcha-work/datasets/group2/firstpass/yolo/dataset.yaml", output)
-        self.assertIn("project=D:/sinan-captcha-work/runs/group2", output)
-        self.assertIn("name=smoke", output)
+        self.assertIn("--dataset-config D:/sinan-captcha-work/datasets/group2/firstpass/dataset.json", output)
+        self.assertIn("--project D:/sinan-captcha-work/runs/group2", output)
+        self.assertIn("--name smoke", output)
 
     def test_prepare_dataset_yaml_rewrites_relative_path_for_ultralytics(self) -> None:
         with tempfile.TemporaryDirectory() as tmpdir:

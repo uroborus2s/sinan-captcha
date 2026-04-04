@@ -2,7 +2,7 @@
 
 - 项目名称：sinan-captcha
 - 当前阶段：DESIGN
-- 当前技术栈：Python, Ultralytics YOLO, Windows, CUDA, X-AnyLabeling/CVAT
+- 当前技术栈：Python, PyTorch, Ultralytics YOLO（group1）, Windows, CUDA, X-AnyLabeling/CVAT, OpenCode, Optuna, SQLite
 
 ## 边界设计原则
 
@@ -20,6 +20,7 @@
   - 连接自有验证码生成逻辑或内部生成器 backend
   - 统一导出图形点选和滑块两类样本的图片与真值标签
   - 维护 backend 选择、随机种子、批次元数据和阻断规则
+  - 维护内置 preset、workspace 固定命名覆盖和像素级视觉增强参数
   - 产出通过真值校验的原始样本批次
 - 不负责：
   - 模型训练
@@ -27,14 +28,16 @@
   - 评估报告
 - 输入：
   - 生成参数、模板、背景、图形资源、backend 配置
+  - preset 与 workspace `presets/` 覆盖文件
 - 输出：
   - `raw` 目录图片
   - JSONL 标签
 - 依赖：
   - 自有生成端或开源底座（如 `go-captcha`），但只能通过适配层接入
 - 禁止耦合：
-  - 不直接写入 YOLO 训练标签
+  - 不直接绕过数据契约层写入任务专属训练数据集
   - 不允许绕过控制层直接把第三方接口返回值当作 `gold`
+  - 不允许 backend 自行定义会改变标签几何的视觉增强参数
 
 ### MOD-002 数据契约与版本管理
 
@@ -75,7 +78,7 @@
   - 将 `auto` 或 `gold` 标签导入 X-AnyLabeling / CVAT
   - 汇总抽检结果
   - 生成 `reviewed` 标签
-  - 把 JSONL 转换为 YOLO 训练格式
+  - 把 `reviewed` / `gold` 数据转换成训练 CLI 可直接消费的任务专属数据集
 - 不负责：
   - 生成图片
   - 模型训练
@@ -83,9 +86,13 @@
   - `gold` / `auto` 标签
 - 输出：
   - `reviewed` 标签
-  - `yolo/images/*`
-  - `yolo/labels/*`
-  - `dataset.yaml`
+  - `group1 yolo/images/*`
+  - `group1 yolo/labels/*`
+  - `group1 dataset.yaml`
+  - `group2 master/*`
+  - `group2 tile/*`
+  - `group2 splits/*.jsonl`
+  - `group2 dataset.json`
 
 ### MOD-005 第一专项训练模块
 
@@ -113,8 +120,8 @@
   - 规则法本身的长期维护策略决策
   - 第一专项训练
 - 输入：
-  - 第二组 `reviewed` 数据
-  - 预训练权重
+  - 第二组 paired dataset
+  - 初始化方式或历史检查点
 - 输出：
   - 第二专项模型权重
   - 训练日志
@@ -150,6 +157,57 @@
   - 失败样本清单
   - 版本对比摘要
 
+### MOD-009 自主训练控制器
+
+- 职责：
+  - 维护 study 生命周期、trial 编号、停止规则和恢复逻辑
+  - 调用生成、训练、测试、评估等既有 CLI
+  - 校验 AI 决策 JSON 并执行下一轮动作
+- 不负责：
+  - 直接生成模型判断结论
+  - 直接提供人类可读长报告之外的解释
+- 输入：
+  - study 配置
+  - runner 执行结果
+  - AI 决策 JSON
+- 输出：
+  - `study.json`
+  - `trial_history.jsonl`
+  - 各 trial 工件目录
+
+### MOD-010 agent skills 与命令接入层
+
+- 职责：
+  - 通过 `opencode` project-local commands 和 skills 承担结果摘要、判断、数据规划和归档建议
+  - 约束 AI 的动作空间和返回 JSON 契约
+- 不负责：
+  - 直接持久化 study 状态
+  - 直接运行训练命令
+- 输入：
+  - `test.json`
+  - `evaluate.json`
+  - 最近 N 轮摘要
+- 输出：
+  - `decision.json`
+  - 数据规划建议
+  - study 摘要建议
+
+### MOD-011 优化与策略模块
+
+- 职责：
+  - 维护 `group1`/`group2` 的目标函数、停止规则和参数搜索空间
+  - 驱动 `Optuna` 选择下一轮参数
+- 不负责：
+  - 直接解释业务结论
+  - 直接读写原始日志
+- 输入：
+  - 当前最优结果
+  - 最近 trial 指标
+  - AI 决策方向
+- 输出：
+  - 下一轮参数候选
+  - pruning/plateau 结论
+
 ## 共享边界
 
 ### 共享模块
@@ -158,6 +216,9 @@
 - `MOD-003` 自动标注流水线
 - `MOD-004` 标注复核与转换层
 - `MOD-008` 评估与报告模块
+- `MOD-009` 自主训练控制器
+- `MOD-010` agent skills 与命令接入层
+- `MOD-011` 优化与策略模块
 
 ### 专项隔离模块
 
@@ -173,6 +234,7 @@ generator/
   internal/
 core/
   cli.py
+  auto_train/
   dataset/
   materials/
   autolabel/
@@ -183,6 +245,9 @@ core/
     group2/
   inference/
   evaluate/
+.opencode/
+  commands/
+  skills/
 tests/
 ```
 
@@ -192,6 +257,8 @@ tests/
 - 自动标注模块不得绕过数据契约层直接写训练目录
 - 评估模块不得直接篡改 `reviewed` 标签
 - 生成器适配层不得直接依赖训练框架
+- `opencode` commands/skills 不得直接接管训练 shell
+- 控制器不得把 AI 输出当作无需校验的命令执行
 
 ## 错误与降级策略
 
@@ -206,3 +273,6 @@ tests/
   - 发起设计变更，不在实现中临时热修
 - 第二专项规则法失效时：
   - 保留规则法为对照工具，但不替代模型训练目标
+- AI 决策 JSON 非法或与当前状态冲突时：
+  - 回退到规则模式
+  - 当前 trial 仍需完整落盘

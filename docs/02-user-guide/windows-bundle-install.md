@@ -52,7 +52,7 @@
 ```text
 D:\sinan-delivery\
   python\
-    sinan_captcha-0.1.2-py3-none-any.whl
+    sinan_captcha-0.1.3-py3-none-any.whl
   generator\
     sinan-generator.exe
   materials-pack\
@@ -99,10 +99,10 @@ uvx --from sinan-captcha sinan env setup-train `
 直接从交付包里的 wheel 启动：
 
 ```powershell
-uvx --from D:\sinan-delivery\python\sinan_captcha-0.1.2-py3-none-any.whl sinan env setup-train `
+uvx --from D:\sinan-delivery\python\sinan_captcha-0.1.3-py3-none-any.whl sinan env setup-train `
   --train-root D:\sinan-captcha-work `
   --generator-root D:\sinan-captcha-generator `
-  --package-spec "sinan-captcha[train] @ file:///D:/sinan-delivery/python/sinan_captcha-0.1.2-py3-none-any.whl"
+  --package-spec "sinan-captcha[train] @ file:///D:/sinan-delivery/python/sinan_captcha-0.1.3-py3-none-any.whl"
 ```
 
 说明：
@@ -120,7 +120,7 @@ uvx --from D:\sinan-delivery\python\sinan_captcha-0.1.2-py3-none-any.whl sinan e
 如果你走 PyPI 路线：
 
 ```powershell
-uvx --from "sinan-captcha==0.1.2" sinan env setup-train `
+uvx --from "sinan-captcha==0.1.3" sinan env setup-train `
   --train-root D:\sinan-captcha-work `
   --generator-root D:\sinan-captcha-generator `
   --yes
@@ -129,10 +129,10 @@ uvx --from "sinan-captcha==0.1.2" sinan env setup-train `
 如果你走交付包 wheel 路线：
 
 ```powershell
-uvx --from D:\sinan-delivery\python\sinan_captcha-0.1.2-py3-none-any.whl sinan env setup-train `
+uvx --from D:\sinan-delivery\python\sinan_captcha-0.1.3-py3-none-any.whl sinan env setup-train `
   --train-root D:\sinan-captcha-work `
   --generator-root D:\sinan-captcha-generator `
-  --package-spec "sinan-captcha[train] @ file:///D:/sinan-delivery/python/sinan_captcha-0.1.2-py3-none-any.whl" `
+  --package-spec "sinan-captcha[train] @ file:///D:/sinan-delivery/python/sinan_captcha-0.1.3-py3-none-any.whl" `
   --yes
 ```
 
@@ -160,12 +160,12 @@ uvx --from D:\sinan-delivery\python\sinan_captcha-0.1.2-py3-none-any.whl sinan e
 
 ## 5. 训练目录创建完成后下一步做什么
 
-### 5.1 如果你已经拿到 YOLO 数据集
+### 5.1 如果你已经拿到训练数据集
 
 直接放到：
 
 - `D:\sinan-captcha-work\datasets\group1\<version>\yolo`
-- `D:\sinan-captcha-work\datasets\group2\<version>\yolo`
+- `D:\sinan-captcha-work\datasets\group2\<version>`
 
 然后继续读：
 

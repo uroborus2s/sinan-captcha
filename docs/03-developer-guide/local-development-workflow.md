@@ -47,7 +47,7 @@
 
 例如：
 
-- `dataset.yaml` 契约变化
+- `group1 dataset.yaml / group2 dataset.json` 契约变化
 - 生成器交付目录变化
 - 发布交付目录变化
 - 训练目录结构变化
@@ -205,7 +205,7 @@ uv run sinan release build --project-dir .
 uv run sinan release package-windows \
   --project-dir . \
   --generator-exe generator/dist/generator/windows-amd64/sinan-generator.exe \
-  --output-dir dist/windows-bundle-0.1.2
+  --output-dir dist/windows-bundle-0.1.3
 ```
 
 ### 5.5 在训练目录中做默认路径 dry-run

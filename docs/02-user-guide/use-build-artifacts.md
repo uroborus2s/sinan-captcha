@@ -31,7 +31,7 @@
 - 导入或同步素材包
 - 生成 `group1/group2` 原始批次
 - 对生成批次做 QA
-- 直接导出 YOLO 数据集目录
+- 直接导出任务专属训练数据集目录
 
 它不负责：
 
@@ -61,14 +61,15 @@
 
 - 普通训练执行者的主链路不需要 `materials build`
 - 训练数据目录应直接由 `sinan-generator make-dataset` 生成
-- 训练 CLI 的正式输入是现成数据集目录里的 `dataset.yaml`
+- `group1` 训练 CLI 的正式输入是现成数据集目录里的 `dataset.yaml`
+- `group2` 训练 CLI 的正式输入是现成数据集目录里的 `dataset.json`
 
 发布命令也已经收口到 `sinan release ...`，但那是维护者入口，不是训练执行者的主路径。
 
 如果训练机上当前还是旧版 `0.1.1`，推荐直接用新版 `setup-train` 原地升级训练目录，而不是手工改训练目录里的依赖：
 
 ```powershell
-uvx --from "sinan-captcha==0.1.2" sinan env setup-train `
+uvx --from "sinan-captcha==0.1.3" sinan env setup-train `
   --train-root D:\sinan-captcha-work `
   --generator-root D:\sinan-captcha-generator `
   --yes
@@ -88,15 +89,16 @@ uvx --from "sinan-captcha==0.1.2" sinan env setup-train `
 
 - 普通用户不需要手工拷贝 `configs/*.yaml`
 - 生成器内置预设会在首次运行时自动写入工作区 `presets/`
+- 生成器当前内置 `smoke`、`firstpass`、`hard` 三个 preset；其中 `hard` 仍是 200 条样本，但会增加更强的阴影、背景模糊和边缘软化
 - 生成器工作区只属于 `sinan-generator`
-- 训练 CLI 最小只需要训练环境和 `dataset.yaml`
+- 训练 CLI 最小只需要训练环境和正式训练数据集目录
 - 如果训练机只负责训练，不在本地生成样本，就不需要生成器工作区
 
 ## 2. 3 种最常见的交付场景
 
 | 场景 | 你手里要有的东西 | 不需要带什么 |
 | --- | --- | --- |
-| 只训练 | 训练目录初始化命令、YOLO 数据集目录 | `materials/`、生成器工作区 |
+| 只训练 | 训练目录初始化命令、正式训练数据集目录 | `materials/`、生成器工作区 |
 | 本地生成再训练 | `sinan-generator.exe`、素材包目录/zip/下载地址、训练目录 | 源码仓库完整目录 |
 | 交付给另一台训练机 | wheel 或 PyPI 包、生成器可执行文件、可选素材包、可选数据集 | `core/`、`generator/` 源码 |
 
@@ -157,7 +159,7 @@ D:\sinan-captcha-generator\
 %LOCALAPPDATA%\SinanGenerator\
 ```
 
-普通用户不需要把 `configs/*.yaml` 复制到安装目录。`workspace init` 会自动在工作区写出 `presets/`。
+普通用户不需要把 `configs/*.yaml` 复制到安装目录。`workspace init` 会自动在工作区写出 `presets/`。如果高级用户要覆盖默认视觉难度参数，也只允许改工作区里的固定命名 preset，不支持 `exe` 同级配置覆盖。
 
 ### 4.2 训练目录
 
@@ -213,7 +215,7 @@ uv run sinan release build --project-dir <源码仓库目录>
 - PyPI 上的 `sinan-captcha`
   或
 - wheel 文件
-- 至少一个 YOLO 数据集目录
+- 至少一个正式训练数据集目录
 
 不需要：
 
@@ -257,7 +259,7 @@ uv run sinan release build --project-dir <源码仓库目录>
 你只需要：
 
 1. 创建训练目录
-2. 把 YOLO 数据集拷到 `D:\sinan-captcha-work\datasets\...`
+2. 把训练数据集拷到 `D:\sinan-captcha-work\datasets\...`
 3. 执行训练命令
 
 这种方式不需要 `materials/`，也不需要在训练机上运行生成器。
@@ -267,7 +269,7 @@ uv run sinan release build --project-dir <源码仓库目录>
 你需要：
 
 1. 初始化生成器工作区
-2. 让生成器直接输出一个完整 YOLO 数据集目录
+2. 让生成器直接输出一个完整训练数据集目录
 3. 把这个数据集目录交给训练 CLI
 4. 在训练目录里训练
 
@@ -301,13 +303,22 @@ uvx --from sinan-captcha sinan env setup-train --train-root D:\sinan-captcha-wor
 sinan-generator.exe materials import --workspace D:\sinan-captcha-generator\workspace --from D:\materials-pack
 ```
 
-### 8.3 直接生成 YOLO 数据集目录
+### 8.3 直接生成训练数据集目录
 
 ```powershell
 sinan-generator.exe make-dataset `
   --workspace D:\sinan-captcha-generator\workspace `
   --task group1 `
   --dataset-dir D:\sinan-captcha-work\datasets\group1\firstpass\yolo
+```
+
+或：
+
+```powershell
+sinan-generator.exe make-dataset `
+  --workspace D:\sinan-captcha-generator\workspace `
+  --task group2 `
+  --dataset-dir D:\sinan-captcha-work\datasets\group2\firstpass
 ```
 
 ### 8.4 把数据集目录交给训练 CLI
@@ -320,9 +331,13 @@ uv run sinan train group1 `
 
 ### 8.5 交接边界
 
-- 生成器交付：`dataset.yaml` + `images/` + `labels/` + `.sinan/`
-- 训练 CLI 输入：
+- `group1` 生成器交付：`dataset.yaml` + `images/` + `labels/` + `.sinan/`
+- `group1` 训练 CLI 输入：
   - 显式模式：`--dataset-yaml <dataset-dir>\dataset.yaml`
+  - 默认模式：在训练目录里使用 `--dataset-version <版本目录名>`
+- `group2` 生成器交付：`dataset.json` + `master/` + `tile/` + `splits/` + `.sinan/`
+- `group2` 训练 CLI 输入：
+  - 显式模式：`--dataset-config <dataset-dir>\dataset.json`
   - 默认模式：在训练目录里使用 `--dataset-version <版本目录名>`
 - 训练 CLI 不读取生成器工作区
 - 生成器不负责训练环境和 `runs/`
@@ -335,7 +350,8 @@ uv run sinan train group1 `
 - 训练数据生成走 `sinan-generator make-dataset --workspace <generator-workspace>`
 - 训练 CLI 和生成器只通过数据集目录交接
 - 数据工程和训练走 `uv run sinan`
-- 权重验证和模型验收继续走 `uv run yolo` 与 `uv run sinan evaluate`
+- `group1` 的底层训练/验证继续走 `uv run yolo`
+- `group2` 的训练/验证走 paired runner 与 `uv run sinan evaluate`
 
 不要把脚本目录当成公开入口，也不要把这个项目理解成线上验证码服务。
 
@@ -347,7 +363,7 @@ uv run sinan train group1 `
 2. 能区分生成器安装目录、生成器工作区和训练目录
 3. 知道 `materials/` 只属于生成器目录
 4. 能把样本直接生成到训练目录的 `datasets/`
-5. 能把生成器产出的 YOLO 数据集目录直接交给训练 CLI 并启动训练
+5. 能把生成器产出的任务专属训练数据集目录直接交给训练 CLI 并启动训练
 
 下一步继续读：
 

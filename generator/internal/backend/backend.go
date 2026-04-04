@@ -114,7 +114,7 @@ func generateClick(index int, cfg config.Config, catalog material.Catalog) (expo
 	if err != nil {
 		return export.SampleRecord{}, nil, err
 	}
-	queryImage, sceneImage, err := render.Build(plan, cfg.Canvas)
+	queryImage, sceneImage, err := render.Build(plan, cfg)
 	if err != nil {
 		return export.SampleRecord{}, nil, err
 	}

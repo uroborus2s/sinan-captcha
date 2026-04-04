@@ -116,7 +116,7 @@ generator/
   - 提供生成器总 CLI
   - 暴露 `workspace init|show`、`materials import|fetch`、`make-dataset`
   - 固定工作区初始化与默认预设展开
-  - 直接输出可交给训练 CLI 的 YOLO 数据集目录
+  - 直接输出可交给训练 CLI 的任务专属训练数据集目录
 - 构建方式：
   - `go build -o ../dist/generator/windows-amd64/sinan-generator.exe ./cmd/sinan-generator`
 - 打包产物：
@@ -316,7 +316,11 @@ tests/
   - `raw/`
   - `interim/`
   - `reviewed/`
-  - `yolo/`
+  - `group1/yolo/`
+  - `group2/master/`
+  - `group2/tile/`
+  - `group2/splits/`
+  - `group2/dataset.json`
 
 ### 7.4 `reports/`
 

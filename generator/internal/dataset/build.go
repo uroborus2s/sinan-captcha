@@ -24,21 +24,28 @@ type BuildRequest struct {
 }
 
 type BuildResult struct {
-	DatasetDir  string         `json:"dataset_dir"`
-	DatasetYAML string         `json:"dataset_yaml"`
-	RawBatch    string         `json:"raw_batch"`
-	SplitCounts map[string]int `json:"split_counts"`
+	DatasetDir    string         `json:"dataset_dir"`
+	DatasetConfig string         `json:"dataset_config"`
+	RawBatch      string         `json:"raw_batch"`
+	SplitCounts   map[string]int `json:"split_counts"`
 }
 
 func Build(request BuildRequest) (BuildResult, error) {
 	result := BuildResult{
 		DatasetDir:  request.DatasetDir,
-		DatasetYAML: filepath.Join(request.DatasetDir, "dataset.yaml"),
 		RawBatch:    request.BatchRoot,
 		SplitCounts: map[string]int{},
 	}
+	switch request.Task {
+	case "group1":
+		result.DatasetConfig = filepath.Join(request.DatasetDir, "dataset.yaml")
+	case "group2":
+		result.DatasetConfig = filepath.Join(request.DatasetDir, "dataset.json")
+	default:
+		return result, fmt.Errorf("unsupported task: %s", request.Task)
+	}
 
-	if err := prepareDatasetDir(request.DatasetDir, request.Force); err != nil {
+	if err := prepareDatasetDir(request.Task, request.DatasetDir, request.Force); err != nil {
 		return result, err
 	}
 
@@ -51,18 +58,41 @@ func Build(request BuildRequest) (BuildResult, error) {
 	}
 
 	assignments := splitRecords(records)
-	classMap, err := collectClassMap(request.Task, records)
-	if err != nil {
-		return result, err
-	}
-	for _, assignment := range assignments {
-		if err := writeAssignment(request, assignment); err != nil {
+	switch request.Task {
+	case "group1":
+		classMap, err := collectClassMap(request.Task, records)
+		if err != nil {
 			return result, err
 		}
-		result.SplitCounts[assignment.Split]++
-	}
-	if err := writeDatasetYAML(result.DatasetYAML, classMap); err != nil {
-		return result, err
+		for _, assignment := range assignments {
+			if err := writeGroup1Assignment(request, assignment); err != nil {
+				return result, err
+			}
+			result.SplitCounts[assignment.Split]++
+		}
+		if err := writeDatasetYAML(result.DatasetConfig, classMap); err != nil {
+			return result, err
+		}
+	case "group2":
+		splitRows := map[string][]export.SampleRecord{
+			"train": {},
+			"val":   {},
+			"test":  {},
+		}
+		for _, assignment := range assignments {
+			row, err := writeGroup2Assignment(request, assignment)
+			if err != nil {
+				return result, err
+			}
+			splitRows[assignment.Split] = append(splitRows[assignment.Split], row)
+			result.SplitCounts[assignment.Split]++
+		}
+		if err := writeGroup2DatasetConfig(result.DatasetConfig); err != nil {
+			return result, err
+		}
+		if err := writeGroup2SplitJSONL(request.DatasetDir, splitRows); err != nil {
+			return result, err
+		}
 	}
 	return result, nil
 }
@@ -72,11 +102,24 @@ type assignment struct {
 	Record export.SampleRecord
 }
 
-func prepareDatasetDir(datasetDir string, force bool) error {
-	managedPaths := []string{
-		filepath.Join(datasetDir, "images"),
-		filepath.Join(datasetDir, "labels"),
-		filepath.Join(datasetDir, "dataset.yaml"),
+func prepareDatasetDir(task string, datasetDir string, force bool) error {
+	var managedPaths []string
+	switch task {
+	case "group1":
+		managedPaths = []string{
+			filepath.Join(datasetDir, "images"),
+			filepath.Join(datasetDir, "labels"),
+			filepath.Join(datasetDir, "dataset.yaml"),
+		}
+	case "group2":
+		managedPaths = []string{
+			filepath.Join(datasetDir, "master"),
+			filepath.Join(datasetDir, "tile"),
+			filepath.Join(datasetDir, "splits"),
+			filepath.Join(datasetDir, "dataset.json"),
+		}
+	default:
+		return fmt.Errorf("unsupported task: %s", task)
 	}
 	if !force {
 		for _, path := range managedPaths {
@@ -90,12 +133,27 @@ func prepareDatasetDir(datasetDir string, force bool) error {
 			return err
 		}
 	}
-	for _, split := range []string{"train", "val", "test"} {
-		if err := os.MkdirAll(filepath.Join(datasetDir, "images", split), 0o755); err != nil {
+	switch task {
+	case "group1":
+		for _, split := range []string{"train", "val", "test"} {
+			if err := os.MkdirAll(filepath.Join(datasetDir, "images", split), 0o755); err != nil {
+				return err
+			}
+			if err := os.MkdirAll(filepath.Join(datasetDir, "labels", split), 0o755); err != nil {
+				return err
+			}
+		}
+	case "group2":
+		if err := os.MkdirAll(filepath.Join(datasetDir, "splits"), 0o755); err != nil {
 			return err
 		}
-		if err := os.MkdirAll(filepath.Join(datasetDir, "labels", split), 0o755); err != nil {
-			return err
+		for _, split := range []string{"train", "val", "test"} {
+			if err := os.MkdirAll(filepath.Join(datasetDir, "master", split), 0o755); err != nil {
+				return err
+			}
+			if err := os.MkdirAll(filepath.Join(datasetDir, "tile", split), 0o755); err != nil {
+				return err
+			}
 		}
 	}
 	return nil
@@ -191,18 +249,10 @@ func collectClassMap(task string, records []export.SampleRecord) (map[int]string
 	return classMap, nil
 }
 
-func writeAssignment(request BuildRequest, item assignment) error {
+func writeGroup1Assignment(request BuildRequest, item assignment) error {
 	imageRelative := item.Record.SceneImage
 	objects := append([]export.ObjectRecord(nil), item.Record.Targets...)
-	if request.Task == "group2" {
-		imageRelative = item.Record.MasterImage
-		if item.Record.TargetGap == nil {
-			return fmt.Errorf("target_gap is required for group2")
-		}
-		objects = []export.ObjectRecord{*item.Record.TargetGap}
-	} else {
-		objects = append(objects, item.Record.Distractors...)
-	}
+	objects = append(objects, item.Record.Distractors...)
 
 	sourceImage := filepath.Join(request.BatchRoot, filepath.FromSlash(imageRelative))
 	if _, err := os.Stat(sourceImage); err != nil {
@@ -223,6 +273,38 @@ func writeAssignment(request BuildRequest, item assignment) error {
 	}
 	labelPath := filepath.Join(request.DatasetDir, "labels", item.Split, stringsTrimExt(filepath.Base(sourceImage))+".txt")
 	return os.WriteFile(labelPath, []byte(joinLines(lines)), 0o644)
+}
+
+func writeGroup2Assignment(request BuildRequest, item assignment) (export.SampleRecord, error) {
+	record := item.Record
+	if record.TargetGap == nil {
+		return export.SampleRecord{}, fmt.Errorf("target_gap is required for group2")
+	}
+	if record.TileBBox == nil {
+		return export.SampleRecord{}, fmt.Errorf("tile_bbox is required for group2")
+	}
+
+	masterSource := filepath.Join(request.BatchRoot, filepath.FromSlash(record.MasterImage))
+	tileSource := filepath.Join(request.BatchRoot, filepath.FromSlash(record.TileImage))
+	if _, err := os.Stat(masterSource); err != nil {
+		return export.SampleRecord{}, err
+	}
+	if _, err := os.Stat(tileSource); err != nil {
+		return export.SampleRecord{}, err
+	}
+
+	masterRelative := filepath.ToSlash(filepath.Join("master", item.Split, filepath.Base(masterSource)))
+	tileRelative := filepath.ToSlash(filepath.Join("tile", item.Split, filepath.Base(tileSource)))
+	if err := copyFile(masterSource, filepath.Join(request.DatasetDir, filepath.FromSlash(masterRelative))); err != nil {
+		return export.SampleRecord{}, err
+	}
+	if err := copyFile(tileSource, filepath.Join(request.DatasetDir, filepath.FromSlash(tileRelative))); err != nil {
+		return export.SampleRecord{}, err
+	}
+
+	record.MasterImage = masterRelative
+	record.TileImage = tileRelative
+	return record, nil
 }
 
 func toYOLOLine(object export.ObjectRecord, width int, height int) string {
@@ -257,6 +339,55 @@ func writeDatasetYAML(path string, classMap map[int]string) error {
 		lines = append(lines, fmt.Sprintf("  %d: %s", classID, classMap[classID]))
 	}
 	return os.WriteFile(path, []byte(joinLines(lines)), 0o644)
+}
+
+type pairedDatasetConfig struct {
+	Task    string            `json:"task"`
+	Format  string            `json:"format"`
+	Splits  map[string]string `json:"splits"`
+	ClassID int               `json:"class_id"`
+	Class   string            `json:"class"`
+}
+
+func writeGroup2DatasetConfig(path string) error {
+	content, err := json.MarshalIndent(
+		pairedDatasetConfig{
+			Task:   "group2",
+			Format: "sinan.group2.paired.v1",
+			Splits: map[string]string{
+				"train": "splits/train.jsonl",
+				"val":   "splits/val.jsonl",
+				"test":  "splits/test.jsonl",
+			},
+			ClassID: 0,
+			Class:   "slider_gap",
+		},
+		"",
+		"  ",
+	)
+	if err != nil {
+		return err
+	}
+	return os.WriteFile(path, append(content, '\n'), 0o644)
+}
+
+func writeGroup2SplitJSONL(datasetDir string, splitRows map[string][]export.SampleRecord) error {
+	for _, split := range []string{"train", "val", "test"} {
+		rows := splitRows[split]
+		content := make([]byte, 0, len(rows)*256)
+		for _, row := range rows {
+			line, err := json.Marshal(row)
+			if err != nil {
+				return err
+			}
+			content = append(content, line...)
+			content = append(content, '\n')
+		}
+		if err := os.WriteFile(filepath.Join(datasetDir, "splits", split+".jsonl"), content, 0o644); err != nil {
+			return err
+		}
+	}
+	return nil
 }
 
 func copyFile(source string, destination string) error {

@@ -47,7 +47,7 @@
 - 已修复 `validate-materials` 漏检截断 JPEG 的问题，当前会对背景图和图标做完整解码校验，坏素材会在生成前被拦截
 - 已隔离 5 张损坏背景图到 `materials/quarantine/backgrounds/`，并同步修正 `backgrounds.csv` 索引，避免素材目录与 manifest 漂移
 - 已完成 `group1` click 和 `group2` slide 两批 firstpass 原始样本生成，各 200 条，批次 QA 全部通过
-- 已完成 `datasets/group1/firstpass/yolo` 与 `datasets/group2/firstpass/yolo` 转换，两批数据均为 160/20/20 的 train/val/test 划分
+- 已完成 `datasets/group1/firstpass/yolo` 转换和 `datasets/group2/firstpass` paired dataset 导出；两批数据当前都为 160/20/20 的 train/val/test 划分
 - 当前训练数据链路已可用，但本机 Python 环境仍缺少 `torch` 与 `ultralytics`，尚不能直接启动训练
 - 已将正式入口收口为两个 CLI：Go 侧 `sinan-generator`，Python 侧 `sinan`
 - `sinan-generator` 当前负责 `workspace init|show`、`materials import|fetch`、`make-dataset`
@@ -57,20 +57,24 @@
 - 已新增独立训练目录初始化能力：`uvx --from sinan-captcha sinan env setup-train`
 - 训练目录与生成器目录已正式分离：
   - 生成器工作区承载 `workspace.json`、`presets/`、`materials/`、`cache/`、`jobs/`、`logs/`
-  - 训练 CLI 只消费数据集目录中的 `dataset.yaml`
+  - `group1` 训练 CLI 消费数据集目录中的 `dataset.yaml`
+  - `group2` 训练 CLI 消费数据集目录中的 `dataset.json`
   - 训练目录承载运行时 `pyproject.toml`、`.venv`、`runs/`、`reports/`
 - 已新增本地发布与交付命令：`uv run sinan release build`、`uv run sinan release publish`、`uv run sinan release package-windows`
 - 已将 `sinan-captcha[train]` 作为训练扩展依赖收口到 Python 包中，`torch` 继续通过训练目录运行时 `pyproject.toml` 和 PyTorch index 配置安装
-- 已把生成器与训练 CLI 的交接面收口为 YOLO 数据集目录：`dataset.yaml`、`images/`、`labels/` 与 `.sinan/`
-- 新生成器产出的 `dataset.yaml` 不再写 `path:` 字段，`train/val/test` 直接相对 `dataset.yaml` 所在目录组织
-- 训练 CLI 已兼容旧版包含相对 `path:` 的数据集，会在训练前自动规范化为 Ultralytics 可用的 YAML
+- 已把生成器与训练 CLI 的交接面重新收口为双合同：
+  - `group1`：YOLO 数据集目录，入口为 `dataset.yaml`
+  - `group2`：paired dataset 目录，入口为 `dataset.json`
+- `group2` 生成器当前已改为使用图标 alpha mask 雕刻缺口，并导出 `master/`、`tile/`、`splits/*.jsonl`
+- `group2` 训练/预测/测试 CLI 当前已切到自定义 paired-input runner，正式入口固定为 `dataset.json`
+- 新生成器产出的 `group1 dataset.yaml` 不再写 `path:` 字段，`train/val/test` 直接相对 `dataset.yaml` 所在目录组织
 - 旧的 `scripts/*` 薄包装入口和分散命令名已移除，避免对外口径继续漂移
 - 已重新构建正式交付物：
   - `generator/dist/generator/darwin-arm64/sinan-generator`
   - `generator/dist/generator/windows-amd64/sinan-generator.exe`
-  - `dist/sinan_captcha-0.1.2-py3-none-any.whl`
-  - `dist/sinan_captcha-0.1.2.tar.gz`
-- 已完成 `0.1.2` 本地 PyPI 分发构建与实际上传，PyPI 当前已存在 `sinan-captcha 0.1.2`
+  - `dist/sinan_captcha-0.1.3-py3-none-any.whl`
+  - `dist/sinan_captcha-0.1.3.tar.gz`
+- 已完成 `0.1.3` 本地 PyPI 分发构建与实际上传，PyPI 当前已存在 `sinan-captcha 0.1.3`
 - 已将公开用户手册重构为面向 Windows 训练机的完整安装与训练文档，覆盖 wheel 交付、数据集放置、环境安装、自检、冒烟和正式训练
 - 已把 Windows 环境 checklist 收口为配套核对表，避免用户在公开手册和内部过程文档之间来回切换
 - 已按双 CLI 架构重写对外文档，README、入门页、用户指南、交付物页、Windows 训练手册和训练后验证页均已统一到当前正式命令与目录结构
@@ -86,6 +90,10 @@
 - 已补齐生成器实操文档缺口：PowerShell 执行方式、素材包结构校验、远程构建素材包、默认样本规模、多次生成策略和数据集复用规则已进入正式用户指南
 - 已把“训练后第一眼看哪里、同一份数据是否可重复训练、需要更多数据时如何处理”同步补齐到快速开始页、完整训练手册和总览页
 - 已把 `sinan-generator` 帮助文本和交付包内置说明同步到当前用户口径，避免命令行、交付包和正式文档继续漂移
+- 已为生成器新增可配置视觉难度参数：`effects.common/click/slide` 当前已可控制 scene veil、背景模糊、图标阴影、缺口阴影与边缘模糊
+- 已新增内置 `hard` preset，并收口为 workspace 固定命名自动覆盖；`make-dataset` 现在会优先读取 `workspace/presets/*.yaml`，找不到时回退内置 preset
+- 已补齐对应测试案例：当前已覆盖 workspace preset 回退、共享 `smoke.yaml` 覆盖、损坏覆盖文件报错，以及帮助文本中的 preset 口径
+- 已把上述能力同步写回正式需求/设计文档，当前公开文档、帮助文本、需求文档与设计文档口径一致
 - 已把仓库首页 README 收口为“用户最短入口优先、开发者信息后置”的结构，当前首页已与正式用户指南主线保持一致
 - 已把 `docs/02-user-guide/index.md` 同步收口为用户入口首页，当前仓库首页与文档首页已基本采用同一阅读结构
 - 已新增两张终端示意图，分别展示 `setup-train` 中文摘要和 smoke 训练启动后的典型终端形态
@@ -95,14 +103,226 @@
   - 本地开发与验证工作流
   - 发布与交付工作流
 - `setup-train` 当前已支持 CUDA 13.x 自动映射到 `cu130`
-- 训练 CLI 当前已支持在训练目录下省略 `--dataset-yaml` 与 `--project`，改用 `--dataset-version <版本目录名>` 走默认路径
+- 训练 CLI 当前已支持在训练目录下省略数据集入口与 `--project`，改用 `--dataset-version <版本目录名>` 走默认路径
 - 预测 CLI 当前已支持在训练目录下省略 `model/source/project`，改用 `uv run sinan predict group1|group2 --dataset-version <版本目录名> --train-name <训练名>` 走默认路径
-- 测试 CLI 当前已支持一条命令串联 `predict + val`，并输出初学者可读的中文报告：`uv run sinan test group1|group2 --dataset-version <版本目录名> --train-name <训练名>`
+- 测试 CLI 当前已支持一条命令串联任务专属的 `predict + validation`，并输出初学者可读的中文报告：`uv run sinan test group1|group2 --dataset-version <版本目录名> --train-name <训练名>`
+- 已修复测试 CLI 对 Ultralytics `val` 输出的兼容问题：当 `val` 目录里未落下 `results.csv` 时，现在会回退解析终端汇总指标，继续生成中文报告
 - 训练 CLI 当前已支持两种续训口径：
   - `--resume`：从当前训练版本的 `weights/last.pt` 继续
   - `--from-run <旧训练名>`：从上一轮 `weights/best.pt` 新开一轮
-- Python 包版本当前已提升到 `0.1.2`，用于承载默认训练路径机制
-- 正式用户指南已补齐“训练机当前仍为 `0.1.1` 时如何原地升级到 `0.1.2`”的步骤，当前推荐做法是重新执行新版 `setup-train`
+- Python 包版本当前已提升到 `0.1.3`，用于承载当前正式 CLI 发布
+- 正式用户指南已补齐“训练机当前仍为旧版时如何原地升级到 `0.1.3`”的步骤，当前推荐做法是重新执行新版 `setup-train`
+- 已将“自主训练控制器 + `opencode` 先行接入”正式落到需求、设计与任务拆解文档
+- 自主训练当前已收口为“Python 控制器 + `opencode` commands/skills + study 状态文件 + `Optuna` 可插拔搜索”
+- 当前两专项的自主训练要求已固定为独立 study、独立指标、独立停止规则，不再考虑共享一个总排行榜
+- 已完成 `TASK-AT-001` 首轮实现：新增 `core/auto_train/contracts.py` 与 `core/auto_train/storage.py`
+- 当前已把以下自主训练状态工件正式收口为代码契约并支持 JSON/JSONL 落盘：
+  - `study.json`
+  - `input.json`
+  - `dataset.json`
+  - `train.json`
+  - `test.json`
+  - `evaluate.json`
+  - `decision.json`
+  - `trial_history.jsonl`
+  - `decisions.jsonl`
+- `TASK-AT-001` 当前实现采用标准库 dataclass + 显式校验，先把契约和读写层落稳；`pydantic` 仍保留在后续依赖升级任务中评估是否切换
+- 已完成 `TASK-AT-002` 首轮实现：新增 `core/auto_train/state_machine.py` 与 `core/auto_train/stop_rules.py`
+- 当前已把自主训练控制循环的阶段顺序正式收口为：
+  - `PLAN`
+  - `BUILD_DATASET`
+  - `TRAIN`
+  - `TEST`
+  - `EVALUATE`
+  - `SUMMARIZE`
+  - `JUDGE`
+  - `NEXT_ACTION`
+  - `STOP`
+- 当前已具备基于 trial 工件推断恢复入口的能力：
+  - `input.json` -> `BUILD_DATASET`
+  - `dataset.json` -> `TRAIN`
+  - `train.json` -> `TEST`
+  - `test.json` -> `EVALUATE`
+  - `evaluate.json` -> `SUMMARIZE`
+  - `result_summary.json` -> `JUDGE`
+  - `decision.json` -> `NEXT_ACTION`
+  - `STOP` 文件 -> `STOP`
+- 当前已具备首轮停止规则实现：
+  - `max_trials`
+  - `max_hours`
+  - `max_no_improve_trials`
+  - `plateau_window + min_delta`
+  - `STOP` 文件
+  - `fatal_error`
+- 已完成 `TASK-AT-003` 首轮实现：新增 `core/auto_train/layout.py` 与 `core/auto_train/recovery.py`
+- 当前已把自主训练的 study/trial 物理目录蓝图正式收口为代码路径约定：
+  - `studies/<task>/<study_name>/study.json`
+  - `studies/<task>/<study_name>/best_trial.json`
+  - `studies/<task>/<study_name>/trial_history.jsonl`
+  - `studies/<task>/<study_name>/decisions.jsonl`
+  - `studies/<task>/<study_name>/leaderboard.json`
+  - `studies/<task>/<study_name>/summary.md`
+  - `studies/<task>/<study_name>/STOP`
+  - `studies/<task>/<study_name>/trials/trial_0001/...`
+- 当前 trial 编号和目录命名规则已固定：
+  - `trial_0001` 四位零填充
+  - `group1` 与 `group2` study 根目录完全隔离，避免互相覆盖
+- 当前已把排行榜与最佳 trial 工件正式收口为代码契约并支持 JSON 落盘：
+  - `leaderboard.json`
+  - `best_trial.json`
+- 当前恢复语义已从“找到最高层工件”升级为“按顺序完整性恢复”：
+  - 中间工件缺失时，即使后续工件存在，也会回退到最早缺失阶段重跑
+  - `decision.json` 存在时，当前 trial 视为可进入 `NEXT_ACTION`
+  - `STOP` 文件仍然优先中断恢复
+- 当前 `state_machine.infer_resume_stage(...)` 已切到新的恢复计划实现，后续控制器无需自行推断“应该从哪层补跑”
+- 当前 Python 回归总数已提升到 66 个，新增覆盖目录蓝图、trial 命名、leaderboard 排序、best trial 落盘和恢复边界回退
+- 已完成 `TASK-AT-004` 首轮实现：新增 `core/auto_train/runners/` 适配层
+- 当前已把自主训练控制器与现有 CLI/service 的执行边界正式收口为四类 runner：
+  - `dataset`：调用 `sinan-generator make-dataset`
+  - `train`：调用现有 group1/group2 training job 构造与执行逻辑
+  - `test`：调用现有 `predict + val + 中文报告` 测试逻辑
+  - `evaluate`：调用现有 JSONL 评估逻辑
+- 当前 runner 层只负责：
+  - 构造请求与默认路径
+  - 执行命令或 service
+  - 把结果归一成 `DatasetRecord` / `TrainRecord` / `TestRecord` / `EvaluateRecord`
+  - 返回稳定的命令审计字符串
+- 当前 runner 层明确不负责：
+  - AI 判断
+  - study 状态机迁移
+  - 决策 JSON 校验
+  - leaderboard 更新
+- 当前已为 runner 失败语义增加统一封装：
+  - `RunnerExecutionError`
+  - `stage`
+  - `reason`
+  - `retryable`
+  - `command`
+- 当前已固定的 runner 错误边界包括：
+  - `missing_input`
+  - `missing_launcher`
+  - `missing_dependency`
+  - `command_failed`
+  - `invalid_request`
+- 当前 `TASK-AT-004` 使用的主要模块为：
+  - `core/auto_train/runners/common.py`
+  - `core/auto_train/runners/dataset.py`
+  - `core/auto_train/runners/train.py`
+  - `core/auto_train/runners/test.py`
+  - `core/auto_train/runners/evaluate.py`
+- 当前 Python 回归总数已提升到 73 个，新增覆盖 dataset/train/test/evaluate runner 的成功路径与错误边界
+- 已完成 `TASK-AT-005` 首轮实现：新增 `core/auto_train/summary.py`
+- 当前已把 `result_summary.json` 正式收口为代码契约，并支持 JSON 落盘/回读：
+  - `ResultSummaryRecord`
+  - `ResultSummarySnapshot`
+- 当前 `result_summary.json` 已固定的核心字段包括：
+  - `study_name`
+  - `task`
+  - `trial_id`
+  - `dataset_version`
+  - `train_name`
+  - `primary_metric`
+  - `primary_score`
+  - `test_metrics`
+  - `evaluation_available`
+  - `evaluation_metrics`
+  - `failure_count`
+  - `trend`
+  - `delta_vs_previous`
+  - `delta_vs_best`
+  - `weak_classes`
+  - `failure_patterns`
+  - `recent_trials`
+  - `best_trial`
+  - `evidence`
+- 当前摘要层已固定“最近 N 轮 + 最佳轮”压缩策略：
+  - `recent_trials` 只读取当前 trial 之前、且已有 `result_summary.json` 的最近 N 轮
+  - `best_trial` 从 `best_trial.json` 读取，不依赖排行榜排序上下文
+  - 摘要层只保留可判断字段，不读取终端长日志
+- 当前摘要层已具备首轮弱类与失败模式压缩规则：
+  - 如果 `per_class_metrics` 可用，会按低于阈值的类提取 `weak_classes`
+  - `group1` 会根据 `full_sequence_hit_rate`、`order_error_rate` 等压出 `sequence_consistency`、`order_errors`
+  - `group2` 会根据 `point_hit_rate`、`mean_center_error_px`、`mean_iou` 压出 `point_hits`、`center_offset`、`low_iou`
+  - 通用检测侧会压出 `detection_precision`、`detection_recall`、`strict_localization`
+- 当前趋势规则已固定为：
+  - 无历史对比：`baseline`
+  - 相比上一轮提升超过 `min_delta`：`improving`
+  - 下降超过 `min_delta`：`declining`
+  - 否则：`plateau`
+- 当前 Python 回归总数已提升到 76 个，新增覆盖 `result_summary.json` 字段、弱类提取、失败模式压缩、最近窗口和 best trial 读取
+- 已完成 `TASK-AT-006` 首轮实现：新增 `core/auto_train/opencode_commands.py` 与 `.opencode/commands/`
+- 当前已把自主训练的 OpenCode command 集正式收口为 4 个固定命令：
+  - `result-read`
+  - `judge-trial`
+  - `plan-dataset`
+  - `study-status`
+- 当前 command 契约已同时落在两层：
+  - Python 侧注册表：`core/auto_train/opencode_commands.py`
+  - OpenCode 项目命令文件：`.opencode/commands/*.md`
+- 当前已固定的 headless 调用模式为：
+  - `opencode run --command <name> --format json`
+  - 可选 `--attach http://127.0.0.1:4096`
+  - 通过多个 `--file <path>` 附加结构化工件
+  - 最后传入 message arguments，而不是拼接长 prompt
+- 当前四个 command 的输入/输出职责已固定：
+  - `result-read`：读取 trial 工件，输出 `result_summary.json`
+  - `judge-trial`：读取当前摘要与 study 状态，输出 `decision.json`
+  - `plan-dataset`：读取弱类/失败模式摘要，输出 `dataset_plan.json`
+  - `study-status`：读取 `study.json` 与 `leaderboard.json`，输出 `study_status.json`
+- 当前 `.opencode/commands/*.md` 已固定 front matter：
+  - `description`
+  - `agent: plan`
+  - `subtask: true`
+- 当前命令模板已固定共同约束：
+  - 只读附加文件
+  - 只返回一个 JSON 对象
+  - 不输出 markdown fence
+  - 不输出 JSON 之外的自然语言
+  - 不请求 shell 访问
+- 当前 `TASK-AT-006` 已明确：
+  - `.opencode/` 放在仓库根目录，不放训练目录
+  - `opencode` 作为 AI 命令执行层，被 Python 控制器调用
+  - 自主训练总入口仍然是后续的 `sinan auto-train ...`，不是手工在 TUI 里逐条开训练
+- 当前 Python 回归总数已提升到 79 个，新增覆盖 command 注册表、headless 调用构造和 `.opencode/commands` 文件内容
+- 已完成 `TASK-AT-007` 首轮实现：新增 `.opencode/skills/`、`core/auto_train/opencode_skills.py` 与 `core/auto_train/decision_protocol.py`
+- 当前已把自主训练首版 OpenCode skill 数量正式收口为 4 个：
+  - `result-reader`
+  - `training-judge`
+  - `dataset-planner`
+  - `study-archivist`
+- 当前 skill 契约已同时落在两层：
+  - Python 侧注册表：`core/auto_train/opencode_skills.py`
+  - OpenCode skill 文件：`.opencode/skills/*/SKILL.md`
+- 当前四个 skill 的职责已固定：
+  - `result-reader`：把 `test/evaluate/history` 压成 `result_summary.json`
+  - `training-judge`：把摘要判断成 `decision.json`
+  - `dataset-planner`：把弱类/失败模式转成 `dataset_plan.json`
+  - `study-archivist`：把 study 级事实转成 `study_status.json`
+- 当前 skill 模板已固定共同边界：
+  - 不运行 shell 命令
+  - 不请求训练执行权限
+  - 只基于附加文件做判断
+  - 只返回 JSON
+- 当前已把 AI 输出的 `decision.json` schema 从持久化记录中拆成两层：
+  - `JudgeDecisionPayload`：模型原始输出 schema
+  - `DecisionRecord`：落盘后的最终记录，含 `trial_id` 与 `agent`
+- 当前已实现决策解析与 fallback 协议：
+  - `parse_or_fallback_decision(...)`
+  - 合法 JSON -> 直接转成 `DecisionRecord`
+  - 非法 JSON -> `fallback_invalid_json`
+  - 非法动作/缺字段 -> `fallback_invalid_payload`
+- 当前已具备首轮确定性 fallback 决策行为：
+  - 弱类/失败模式明显 -> `REGENERATE_DATA`
+  - 明显退化 -> `ABANDON_BRANCH`
+  - 持续改善且无明显失败 -> `PROMOTE_BRANCH`
+  - 其余情况 -> `RETUNE`
+- 当前 fallback 决策仍保留原始 agent 引用，并把 fallback 原因写入 `reason/evidence`，满足审计要求
+- 当前 `.opencode/commands/*.md` 已补充显式 skill 对齐：
+  - `result-read` -> `result-reader`
+  - `judge-trial` -> `training-judge`
+  - `plan-dataset` -> `dataset-planner`
+  - `study-status` -> `study-archivist`
+- 当前 Python 回归总数已提升到 86 个，新增覆盖 skill 注册表、`.opencode/skills` 文件、合法 decision 解析、非法 JSON fallback 和非法动作 fallback
 
 ## 最近条目
 
@@ -114,9 +334,11 @@
 
 - 先校验忽略规则，确认运行时数据、构建产物和本地环境不会误入仓库
 - 先确认 PyPI 发布 token 和远程仓库权限已就绪，再执行真正的发布动作
-- 先把生成器 `make-dataset -> dataset.yaml` 的交接契约当作稳定基线保住
+- 先把生成器 `make-dataset -> group1 dataset.yaml / group2 dataset.json` 的交接契约当作稳定基线保住
 - 下一步先在目标训练机安装 `torch` 与 `ultralytics`，确认 `group1/group2 firstpass` 的训练命令可实际起跑
-- 下一步补一条“生成器产出数据集 -> 训练 CLI dry-run”的跨边界回归，防止 `dataset.yaml` 契约再次漂移
+- 下一步补一条“生成器产出数据集 -> 训练 CLI dry-run”的跨边界回归，防止 `group1/group2` 数据集契约再次漂移
+- 下一步若进入实现，自主训练应先做 `study` 契约、控制器骨架和 `.opencode/commands` / `.opencode/skills`
+- 下一步自主训练应进入 `TASK-AT-008`，在现有 contracts/storage/layout/recovery/runners/summary/opencode_commands/opencode_skills/decision_protocol/state_machine/stop_rules 基础上固定 group1/group2 的目标函数、停止规则和晋级标准
 - 下一步扩充图标变体和样本规模，把 firstpass 从流程验证批次提升到正式 warm-up 批次
 - 下一步把素材包构建阶段也接入图片完整解码校验，避免坏图只在生成前才暴露
 - 下一步继续补 slide 模式的视觉复杂度、抗规则化扰动和更多 QA 断言，再评估是否进入 `gocaptcha` adapter Spike

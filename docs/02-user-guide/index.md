@@ -4,7 +4,7 @@
 
 如果你是第一次上手，先按你的起点选入口：
 
-- 已经有 YOLO 数据集，只想尽快开训：
+- 已经有现成训练数据集，只想尽快开训：
   - [Windows 快速开始](./windows-quickstart.md)
 - 还没有训练数据，想先生成训练数据：
   - [用生成器准备训练数据](./prepare-training-data-with-generator.md)
@@ -20,16 +20,21 @@
 项目当前对外只保留两个 CLI：
 
 - `sinan-generator`
-  - 负责素材导入/抓取、样本生成、批次 QA、YOLO 数据集导出
+  - 负责素材导入/抓取、样本生成、批次 QA、导出任务专属训练数据集
 - `sinan`
   - 负责训练目录初始化、训练环境自检、训练、评估
 
 两者通过一个稳定交接面配合：
 
-- YOLO 数据集目录
-- `dataset.yaml`
-- `images/`
-- `labels/`
+- `group1`：YOLO 数据集目录
+- `group1/dataset.yaml`
+- `group1/images/`
+- `group1/labels/`
+- `group2`：paired dataset 目录
+- `group2/dataset.json`
+- `group2/master/`
+- `group2/tile/`
+- `group2/splits/`
 - `.sinan/`
 
 运行时目录建议始终分开：
@@ -51,7 +56,7 @@
 1. 用 `uvx --from sinan-captcha sinan env setup-train` 创建独立训练目录
 2. 用 `sinan-generator workspace init --workspace <generator-workspace>` 初始化生成器固定工作区
 3. 用 `sinan-generator materials import|fetch --workspace <generator-workspace>` 准备素材
-4. 用 `sinan-generator make-dataset --workspace <generator-workspace>` 直接产出可交给训练 CLI 的 YOLO 数据集目录
+4. 用 `sinan-generator make-dataset --workspace <generator-workspace>` 直接产出可交给训练 CLI 的任务专属数据集目录
 5. 用 `uv run sinan train group1` 或 `uv run sinan train group2` 启动训练
 6. 用 `uv run sinan evaluate` 做 JSONL 对比评估
 
@@ -59,6 +64,7 @@
 
 - `smoke`：20 条
 - `firstpass`：200 条
+- `hard`：200 条，使用更强的阴影、背景模糊和边缘软化
 
 如果你对同一个 `dataset-dir` 重跑 `make-dataset` 并加 `--force`，会覆盖原目录；如果要保留旧数据，请换一个新的版本目录。
 

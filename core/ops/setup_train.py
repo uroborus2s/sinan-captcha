@@ -85,7 +85,7 @@ def main(argv: list[str] | None = None) -> int:
     print(
         "\n训练目录已创建完成。\n"
         f"- 训练目录：{plan.train_root}\n"
-        "- 现在你可以把 YOLO 数据集拷贝到 datasets/group1 或 datasets/group2 下，"
+        "- 现在你可以把 group1 YOLO 数据集和 group2 paired dataset 拷贝到 datasets/ 下，"
         "或者让生成器直接输出到这个训练目录的 datasets/ 下。"
     )
     return 0
@@ -178,12 +178,14 @@ def render_setup_summary(plan: TrainingSetupPlan) -> str:
         - 将安装的训练包：{plan.package_spec}
 
         训练目录创建完成后：
-        1. 你可以把现成 YOLO 数据集拷贝到：
+        1. 你可以把现成数据集拷贝到：
            - {plan.train_root / "datasets" / "group1"}
            - {plan.train_root / "datasets" / "group2"}
         2. 也可以让生成器直接输出到训练目录，例如：
            - group1 raw -> {plan.train_root / "datasets" / "group1" / "v1" / "raw"}
            - group1 yolo -> {plan.train_root / "datasets" / "group1" / "v1" / "yolo"}
+           - group2 raw -> {plan.train_root / "datasets" / "group2" / "v1" / ".sinan" / "raw"}
+           - group2 paired -> {plan.train_root / "datasets" / "group2" / "v1"}
         3. 如果希望把生成器工作区固定在安装目录下，后续生成器命令统一带上：
            - --workspace {generator_workspace}
         4. 训练命令在训练目录内执行：
@@ -198,7 +200,7 @@ def render_train_pyproject(plan: TrainingSetupPlan) -> str:
         f"""
         [project]
         name = "sinan-captcha-train"
-        version = "0.1.2"
+        version = "0.1.3"
         requires-python = ">={plan.python_version},<{int(plan.python_version.split('.')[0])}.{int(plan.python_version.split('.')[1]) + 1}"
         dependencies = [
           "{plan.package_spec}",
@@ -232,12 +234,14 @@ def render_train_readme(plan: TrainingSetupPlan) -> str:
         2. 生成器建议放到独立安装目录：{generator_root}
         3. 如果希望生成器工作区跟安装目录放在一起，建议固定为：{generator_workspace}
         4. 训练数据放置方式：
-           - 直接拷贝 YOLO 数据集到 datasets/group1/<版本>/yolo 或 datasets/group2/<版本>/yolo
+           - 直接拷贝 group1 YOLO 数据集到 datasets/group1/<版本>/yolo
+           - 直接拷贝 group2 paired dataset 到 datasets/group2/<版本>
            - 或让生成器直接输出到训练目录下的 datasets/
         5. 生成器命令示例：
            - sinan-generator workspace init --workspace {generator_workspace}
            - sinan-generator materials import --workspace {generator_workspace} --from <materials-pack>
            - sinan-generator make-dataset --workspace {generator_workspace} --task group1 --dataset-dir {plan.train_root / "datasets" / "group1" / "v1" / "yolo"}
+           - sinan-generator make-dataset --workspace {generator_workspace} --task group2 --dataset-dir {plan.train_root / "datasets" / "group2" / "v1"}
         6. 训练命令示例：
            - uv run sinan train group1 --dataset-version v1 --name firstpass
            - uv run sinan train group2 --dataset-version v1 --name firstpass
@@ -256,7 +260,7 @@ def _default_package_spec() -> str:
     try:
         version = importlib.metadata.version("sinan-captcha")
     except importlib.metadata.PackageNotFoundError:
-        version = "0.1.2"
+        version = "0.1.3"
     return f"sinan-captcha[train]=={version}"
 
 

@@ -111,7 +111,7 @@ D:\sinan-captcha-work\
 - 导入或同步素材
 - 生成训练样本
 - 做生成侧 QA
-- 直接导出 YOLO 数据集目录
+- 直接导出任务专属训练数据集目录
 
 ### 2.2 `sinan`
 
@@ -126,20 +126,23 @@ D:\sinan-captcha-work\
 
 ### 2.3 两者怎么交接
 
-稳定交接面只有一个：
+稳定交接面有两个专项合同：
 
-- YOLO 数据集目录
-
-也就是：
-
-- `dataset.yaml`
-- `images/`
-- `labels/`
+- `group1`：YOLO 数据集目录
+- `group1/dataset.yaml`
+- `group1/images/`
+- `group1/labels/`
+- `group2`：paired dataset 目录
+- `group2/dataset.json`
+- `group2/master/`
+- `group2/tile/`
+- `group2/splits/`
 - `.sinan/`
 
-训练 CLI 的正式输入仍然只有：
+训练 CLI 的正式输入分别是：
 
-- `--dataset-yaml <dataset-dir>/dataset.yaml`
+- `group1`：`--dataset-yaml <dataset-dir>/dataset.yaml`
+- `group2`：`--dataset-config <dataset-dir>/dataset.json`
 
 不要让训练 CLI 去直接读取生成器工作区，也不要让生成器承担训练环境初始化。
 

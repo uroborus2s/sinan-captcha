@@ -63,7 +63,9 @@ func usage() string {
 		"  materials fetch               Fetch a zipped materials pack into the workspace.\n" +
 		"  make-dataset                  Generate a ready-to-train YOLO dataset directory.\n\n" +
 		"Notes:\n" +
-		"  Presets: firstpass=200 samples, smoke=20 samples.\n" +
+		"  Presets: firstpass=200 samples, hard=200 samples, smoke=20 samples.\n" +
+		"  make-dataset --preset accepts firstpass, hard, or smoke.\n" +
+		"  Optional preset overrides are loaded from workspace\\presets\\smoke.yaml, group1.<preset>.yaml, or group2.<preset>.yaml.\n" +
 		"  Materials can come from a local directory, a local zip, or an http(s) zip URL.\n" +
 		"  Re-running make-dataset with --force overwrites the same dataset directory.\n\n" +
 		"Examples:\n" +
@@ -164,7 +166,7 @@ func runMaterials(args []string) error {
 func runMakeDataset(args []string) error {
 	fs := flag.NewFlagSet("make-dataset", flag.ContinueOnError)
 	task := fs.String("task", "group1", "dataset task: group1 or group2")
-	presetName := fs.String("preset", "firstpass", "preset name: firstpass or smoke")
+	presetName := fs.String("preset", "firstpass", "preset name: firstpass, hard, or smoke")
 	datasetDir := fs.String("dataset-dir", "", "path to the output dataset directory")
 	workspaceRoot := fs.String("workspace", "", "override workspace root")
 	materialsSelector := fs.String("materials", "", "materials selector in the form official/name or local/name")

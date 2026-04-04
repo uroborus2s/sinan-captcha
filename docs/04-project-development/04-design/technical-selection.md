@@ -2,36 +2,38 @@
 
 - 项目名称：sinan-captcha
 - 当前阶段：DESIGN
-- 最近更新：2026-04-02
+- 最近更新：2026-04-04
 - 负责人：Codex
 
 ## 1. 设计目标
 
-本阶段要固定的是“第一版如何稳妥落地”，不是追求最复杂的模型组合。设计目标有五个：
+本阶段要固定的是“第一版如何稳妥落地”，不是追求最复杂的模型组合。设计目标有六个：
 
 1. 让零基础用户在 Windows + NVIDIA 单机上可复现地跑通训练闭环。
 2. 把两类验证码任务清晰拆开，不混成一个大杂烩模型。
 3. 让样本获取和自动标注尽量依赖生成端真值，而不是大量人工标注。
 4. 把生成器收口成“受控集成 + 可插拔 backend”，不让第三方库反向定义训练契约。
 5. 让后续实现仍可在 Python 工程规范内维护，而不是变成一次性训练脚本。
+6. 让后续自主训练控制器可以在不依赖长对话上下文的前提下持续运行，并先与 `opencode` 接轨。
 
 ## 2. 核心技术决策
 
 ### 2.1 训练框架
 
-- 首选训练框架：Ultralytics YOLO
-- 任务类型：目标检测
+- 第一专项训练框架：Ultralytics YOLO
+- 第二专项训练框架：基于 PyTorch 的自定义 paired-input runner
 - 决策原因：
-  - 官方文档明确面向自定义检测数据集和预训练权重微调场景。
-  - CLI 和 Python 两种入口都成熟，适合零基础用户先从命令行跑通。
-  - Windows + 单 GPU 的资料和社区经验更丰富。
+  - 第一专项本质是标准单图目标检测，直接沿用 Ultralytics CLI 成本最低。
+  - 第二专项真实业务输入是 `master_image + tile_image` 双输入，不适合继续伪装成单图 YOLO detect。
+  - PyTorch 自定义 runner 能把第二专项的双输入契约、训练、预测和评估完整收口到仓库内部。
 
 ### 2.2 基础模型策略
 
-- 首版统一采用“预训练检测模型微调”，不从零训练。
+- 首版不把两组强行塞进同一种模型接口。
 - 第一专项基础权重：`yolo26n.pt`
-- 第二专项基础权重：`yolo26n.pt`
-- 资源允许且精度不足时，第二选择：`yolo26s.pt`
+- 第一专项资源允许且精度不足时，第二选择：`yolo26s.pt`
+- 第二专项默认初始化：`paired_cnn_v1`
+- 第二专项继续训练入口：上一轮 `best.pt`
 - 不采用“验证码专用底模”作为首版依赖。
 
 设计判断：
@@ -49,12 +51,42 @@
 ### 2.4 第二专项模型路线
 
 - 任务定义：滑块缺口定位
-- 输出：缺口目标框 + 中心点 + 横向偏移量
+- 输入：`master_image + tile_image`
+- 输出：缺口目标框 + 中心点 + 偏移量
+- 首版模型形态：仓库内自定义 paired-input 相关性定位器
 - 规则法在首版中的角色：
   - 预标注
   - 可行性验证
   - 与模型结果对照
-- 规则法不是正式交付物的唯一主线，正式模型仍为滑块缺口定位模型
+- 规则法不是正式交付物的唯一主线，正式模型仍为双输入滑块缺口定位模型
+
+### 2.5 自主训练控制器与 agent 运行时
+
+- 首版控制器：仓库内 Python 控制器
+- 首版 agent 运行时：`opencode`
+- 首版接入方式：
+  - 项目内本地 commands：`.opencode/commands/`
+  - 项目内本地 skills：`.opencode/skills/`
+  - 控制器通过 `opencode run` 触发命令式判断与结果摘要
+
+设计判断：
+
+- `opencode` 已提供 CLI、custom commands、agent skills 与权限控制能力，适合承载“结果解读与结构化判断”这类受限动作。
+- 首版不把 `opencode` 当成自由 shell 代理，而是只把它当成 agent 容器与 skill 分发层。
+- 确定性执行、状态持久化和停止规则仍由 Python 控制器掌握，避免长时间训练过程退化为不可审计的会话。
+
+### 2.6 自主训练优化与状态持久化
+
+- 超参数优化器：`Optuna`
+- HTTP 客户端：`httpx`
+- 结构化 schema：`pydantic`
+- 状态存储：SQLite + study 目录中的 JSON/JSONL 工件
+
+设计判断：
+
+- `Optuna` 负责数值搜索与 pruning，不负责业务判断。
+- AI agent 负责判断“该调参还是该补数据”，但不直接自由生成 shell 动作。
+- 所有 study 与 trial 结论都必须落盘，避免上下文成为唯一记忆源。
 
 ## 3. 生成与数据策略
 
@@ -116,6 +148,28 @@
 - 如果团队强依赖 Java / Spring Boot，可作为备选。
 - 如果主要目标是快速生成训练样本，不优先于 `go-captcha`。
 
+### 3.4 视觉难度增强策略
+
+- 第一版只支持像素级视觉增强：
+  - `scene veil`
+  - 背景轻模糊
+  - 图标/缺口阴影
+  - 边缘软化
+- 第一版不支持会改变标签几何语义的普通用户参数：
+  - 透视扭曲
+  - 遮挡
+  - 裁边
+  - 改变 bbox/center 语义的形变
+- 参数入口分层：
+  - 内置 preset：`smoke`、`firstpass`、`hard`
+  - 可选 workspace 覆盖：固定读取 `workspace/presets/*.yaml`
+  - 不支持 `exe` 同级配置覆盖
+
+设计判断：
+
+- 这类参数能提升样本难度，但仍能保持 `gold` 真值由采样与布局链路稳定给出。
+- 一旦参数开始改变几何语义，就不应再作为普通 preset 调整项，而应回到需求与设计阶段重评。
+
 ## 4. Python 工程规则
 
 本项目后续实现统一遵循 `python-uv-project` 规范。
@@ -134,10 +188,14 @@
 
 ```text
 sinan-captcha/
+  .opencode/
+    commands/
+    skills/
   pyproject.toml
   uv.lock
   generator/
   core/
+    auto_train/
   tests/
   datasets/
   reports/
@@ -147,6 +205,8 @@ sinan-captcha/
 
 - `generator/` 放 Go 生成器工程和正式生成器 CLI
 - `core/` 放 Python 训练与数据工程核心包
+- `.opencode/` 放项目级 agent commands 与 reusable skills
+- `core/auto_train/` 放自主训练控制器、状态管理、judge 适配和优化器
 - `tests/` 放测试
 - `datasets/` 是数据资产目录，不混入核心 Python 包
 
@@ -166,13 +226,29 @@ uv run mypy core tests
 uv run python -m unittest discover -s tests/python -p 'test_*.py'
 ```
 
+自主训练新增默认依赖与验证重点：
+
+- `optuna`
+- `httpx`
+- `pydantic`
+- `opencode`
+
+自主训练新增默认验证重点：
+
+- study 状态恢复
+- JSON 决策解析与 fallback
+- group1/group2 双 study 隔离
+- 停止规则与 resume 行为
+
 ## 5. 数据与标注标准
 
 ### 5.1 标签主事实源
 
 - 主事实源：JSONL
-- 派生产物：YOLO 格式文本标签
-- 禁止把 YOLO 文本标签作为唯一事实源
+- 派生产物：
+  - `group1`：YOLO 格式文本标签
+  - `group2`：paired dataset split JSONL 与 `dataset.json`
+- 禁止把任何派生产物当作唯一事实源
 
 ### 5.2 标签状态
 
@@ -207,6 +283,7 @@ uv run python -m unittest discover -s tests/python -p 'test_*.py'
 - 不要求先上线完整验证码平台
 - 不直接抓第三方未授权验证码作为训练数据
 - 不做分布式训练或多机训练
+- 不把 AI agent 放开为不受约束的命令执行者
 
 ## 7. 后续需要触发变更评估的条件
 
@@ -215,6 +292,7 @@ uv run python -m unittest discover -s tests/python -p 'test_*.py'
 - 生成端无法提供足够真值，且预标注质量长期低于门槛
 - 单机显存无法支撑首版训练节奏
 - 需要把内部生成器升级为真实对外服务
+- 需要把 agent 权限和状态账本统一冻结，否则自主训练无法审计
 
 ## 8. 参考来源
 
@@ -224,3 +302,10 @@ uv run python -m unittest discover -s tests/python -p 'test_*.py'
 - uv Getting Started: <https://docs.astral.sh/uv/getting-started/features/>
 - go-captcha: <https://github.com/wenlng/go-captcha>
 - tianai-captcha: <https://github.com/dromara/tianai-captcha>
+- OpenCode Intro: <https://opencode.ai/docs/>
+- OpenCode CLI: <https://opencode.ai/docs/cli/>
+- OpenCode Commands: <https://opencode.ai/docs/commands/>
+- OpenCode Agents: <https://opencode.ai/docs/agents/>
+- OpenCode Skills: <https://opencode.ai/docs/skills/>
+- Optuna Installation: <https://optuna.readthedocs.io/en/stable/installation.html>
+- Optuna Study: <https://optuna.readthedocs.io/en/latest/reference/study.html>

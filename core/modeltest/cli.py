@@ -8,7 +8,7 @@ from pathlib import Path
 from core.modeltest.service import ModelTestRequest, build_model_test_jobs, run_model_test
 from core.train.base import (
     default_best_weights,
-    default_dataset_yaml,
+    default_dataset_config,
     default_predict_source,
     default_report_dir,
 )
@@ -22,10 +22,14 @@ def build_parser() -> argparse.ArgumentParser:
     for task in ("group1", "group2"):
         task_parser = subparsers.add_parser(task, help=f"test {task} model")
         task_parser.add_argument(
-            "--dataset-yaml",
+            "--dataset-config",
             type=Path,
             required=False,
-            help=f"optional; defaults to <cwd>/datasets/{task}/<dataset-version>/yolo/dataset.yaml",
+            help=(
+                f"optional; defaults to <cwd>/datasets/{task}/<dataset-version>/yolo/dataset.yaml"
+                if task == "group1"
+                else "optional; defaults to <cwd>/datasets/group2/<dataset-version>/dataset.json"
+            ),
         )
         task_parser.add_argument("--dataset-version", default="v1")
         task_parser.add_argument(
@@ -39,7 +43,11 @@ def build_parser() -> argparse.ArgumentParser:
             "--source",
             type=Path,
             required=False,
-            help=f"optional; defaults to <cwd>/datasets/{task}/<dataset-version>/yolo/images/val",
+            help=(
+                f"optional; defaults to <cwd>/datasets/{task}/<dataset-version>/yolo/images/val"
+                if task == "group1"
+                else f"optional; defaults to <cwd>/datasets/{task}/<dataset-version>/splits/val.jsonl"
+            ),
         )
         task_parser.add_argument(
             "--project",
@@ -68,7 +76,7 @@ def main(argv: list[str] | None = None) -> int:
 
     train_root = Path.cwd()
     task = str(args.task)
-    dataset_yaml = args.dataset_yaml or default_dataset_yaml(train_root, task, args.dataset_version)
+    dataset_config = args.dataset_config or default_dataset_config(train_root, task, args.dataset_version)
     model_path = args.model or default_best_weights(train_root, task, args.train_name)
     source = args.source or default_predict_source(train_root, task, args.dataset_version)
     project_dir = args.project or default_report_dir(train_root, task)
@@ -80,7 +88,7 @@ def main(argv: list[str] | None = None) -> int:
         task=task,
         dataset_version=args.dataset_version,
         train_name=args.train_name,
-        dataset_yaml=dataset_yaml,
+        dataset_config=dataset_config,
         model_path=model_path,
         source=source,
         project_dir=project_dir,

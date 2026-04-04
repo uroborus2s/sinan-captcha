@@ -48,14 +48,18 @@ D:\sinan-captcha-work\datasets\
       raw\
       interim\
       reviewed\
-      yolo\
+      master\
+      tile\
+      splits\
+      dataset.json
       reports\
 ```
 
 检查项：
 
 - [ ] 第一组和第二组目录分开
-- [ ] 每组都有 `raw`、`interim`、`reviewed`、`yolo`、`reports`
+- [ ] `group1` 有 `raw`、`interim`、`reviewed`、`yolo`、`reports`
+- [ ] `group2` 有 `raw`、`interim`、`reviewed`、`master`、`tile`、`splits`、`dataset.json`、`reports`
 - [ ] 当前版本固定为 `v1`
 
 ## 4. 第一组导出 Checklist
@@ -94,6 +98,7 @@ D:\sinan-captcha-work\datasets\
 - [ ] `tile_image`
 - [ ] `target_gap.bbox`
 - [ ] `target_gap.center`
+- [ ] `tile_bbox`
 - [ ] `offset_x`
 - [ ] `offset_y`
 - [ ] `label_source`
@@ -102,6 +107,8 @@ D:\sinan-captcha-work\datasets\
 通过标准：
 
 - [ ] 一条样本里能明确缺口位置和滑块偏移量
+- [ ] `master_image` 的缺口和 `tile_image` 来自同一个图案 mask
+- [ ] `offset_x/y` 能由 `target_gap` 与 `tile_bbox` 一致推回
 
 ## 6. 样本来源合规 Checklist
 
@@ -219,14 +226,18 @@ D:\sinan-captcha-work\datasets\
 - [ ] 不进入 `reviewed`
 - [ ] 先修规则或修暖启动模型
 
-## 12. 转换成 YOLO 训练集 Checklist
+## 12. 转换成训练集 Checklist
 
 在进入训练前确认：
 
-- [ ] 图片已复制到 `yolo/images/train|val|test`
-- [ ] 标签已转换到 `yolo/labels/train|val|test`
-- [ ] `dataset.yaml` 已生成
-- [ ] 类别顺序固定
+- [ ] `group1` 图片已复制到 `yolo/images/train|val|test`
+- [ ] `group1` 标签已转换到 `yolo/labels/train|val|test`
+- [ ] `group1` 的 `dataset.yaml` 已生成
+- [ ] `group1` 类别顺序固定
+- [ ] `group2` 的 `master/train|val|test` 已生成
+- [ ] `group2` 的 `tile/train|val|test` 已生成
+- [ ] `group2` 的 `splits/train|val|test.jsonl` 已生成
+- [ ] `group2` 的 `dataset.json` 已生成
 - [ ] 第一组和第二组没有混在一起
 
 ## 13. 第一组特殊检查
@@ -245,6 +256,8 @@ D:\sinan-captcha-work\datasets\
 - [ ] `bbox` 存在
 - [ ] `center` 存在
 - [ ] `offset_x` 存在
+- [ ] `dataset.json`、`master/`、`tile/`、`splits/` 能互相对上
+- [ ] 缺口形状与 tile 外轮廓来自同一图案 mask
 - [ ] 复杂背景样本也被覆盖
 - [ ] 不同亮度条件下都有样本
 
@@ -260,4 +273,4 @@ D:\sinan-captcha-work\datasets\
 - [ ] 第一组有 `gold` 标签或有暖启动预标注能力
 - [ ] 第二组 `gold` 样本已通过真值校验
 - [ ] `reviewed` 数据集已形成
-- [ ] `yolo` 训练目录已生成
+- [ ] `group1 yolo` 与 `group2 paired dataset` 都已生成

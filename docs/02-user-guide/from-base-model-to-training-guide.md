@@ -12,7 +12,7 @@
 
 它覆盖两类起点：
 
-1. 你已经拿到了现成的 YOLO 数据集，准备直接训练
+1. 你已经拿到了现成训练数据集，准备直接训练
 2. 你有独立生成器目录和素材，准备从样本生成开始
 
 读完后你应能做到：
@@ -48,7 +48,7 @@
 还需要：
 
 - `group1` 的 YOLO 数据集目录
-- `group2` 的 YOLO 数据集目录
+- `group2` 的 paired dataset 目录
 
 ### 1.3 如果你要自己生成样本
 
@@ -182,7 +182,7 @@ uvx --from sinan-captcha sinan env setup-train `
 如果这台训练机之前已经执行过旧版 `setup-train`，最简单的升级方式不是手工改 `pyproject.toml`，而是直接重新运行新版命令：
 
 ```powershell
-uvx --from "sinan-captcha==0.1.2" sinan env setup-train `
+uvx --from "sinan-captcha==0.1.3" sinan env setup-train `
   --train-root D:\sinan-captcha-work `
   --generator-root D:\sinan-captcha-generator `
   --yes
@@ -210,32 +210,37 @@ uvx --from "sinan-captcha==0.1.2" sinan env setup-train `
 Set-Location D:\sinan-captcha-work
 uv run sinan --help
 uv run sinan env check
-uv run yolo checks
 ```
 
 通过标准：
 
 - `uv run sinan --help` 能显示子命令
 - `uv run sinan env check` 能输出 JSON
-- `uv run yolo checks` 没有关键错误
+- 如果你要训练 `group1`，再补跑 `uv run yolo checks`，且没有关键错误
 
 ## 8. 选择你的起点
 
-### 8.1 起点 A：你已经有 YOLO 数据集
+### 8.1 起点 A：你已经有训练数据集
 
 把数据直接放到训练目录下，例如：
 
 - `D:\sinan-captcha-work\datasets\group1\firstpass\yolo`
-- `D:\sinan-captcha-work\datasets\group2\firstpass\yolo`
+- `D:\sinan-captcha-work\datasets\group2\firstpass`
 
-当前新版 `dataset.yaml` 不再写 `path:` 字段，只要和 `images/`、`labels/` 放在同一个 `yolo` 目录里，拷过去即可用；如果你手上的旧数据集仍然是绝对路径，建议让提供方重新导出，或者你自己重新执行一次 `sinan-generator make-dataset`。
+当前新版训练数据要求：
+
+- `group1`：`dataset.yaml` 不再写 `path:` 字段，只要和 `images/`、`labels/` 放在同一个 `yolo` 目录里即可
+- `group2`：必须是 `dataset.json + master/ + tile/ + splits/` 的 paired dataset 目录
+
+如果你手上的旧 `group2` 数据集仍然不是 `dataset.json + master/ + tile/ + splits/` 这套结构，建议让提供方重新导出，或者你自己重新执行一次 `sinan-generator make-dataset`。
 
 下面训练命令里如果出现 `firstpass` 或 `v1`，都表示“你的实际数据版本名”。直接替换成你手里的版本目录即可。
 
 如果你已经在训练目录里执行命令：
 
 - `--project` 可以省略，默认会落到 `runs/group1` 或 `runs/group2`
-- `--dataset-yaml` 也可以省略
+- `group1` 的 `--dataset-yaml` 可以省略
+- `group2` 的 `--dataset-config` 可以省略
   但这时应改用 `--dataset-version <版本目录名>`
 
 ### 8.2 起点 B：你要从样本生成开始
@@ -244,19 +249,19 @@ uv run yolo checks
 
 - [用生成器准备训练数据](./prepare-training-data-with-generator.md)
 
-生成出 `dataset.yaml`、`images/`、`labels/` 之后，再回到本页第 9 节继续训练。
+生成出 `group1` 的 `dataset.yaml + images/ + labels/`，或 `group2` 的 `dataset.json + master/ + tile/ + splits/` 之后，再回到本页第 9 节继续训练。
 
 ## 9. 先做冒烟训练
 
-如果你走的是“自己生成再训练”路线，通常这里的 `dataset.yaml` 会落在：
+如果你走的是“自己生成再训练”路线，通常这里的数据入口会落在：
 
 - `D:\sinan-captcha-work\datasets\group1\v1\yolo\dataset.yaml`
-- `D:\sinan-captcha-work\datasets\group2\v1\yolo\dataset.yaml`
+- `D:\sinan-captcha-work\datasets\group2\v1\dataset.json`
 
 如果你走的是“直接拿现成数据集训练”路线，则可能是：
 
 - `D:\sinan-captcha-work\datasets\group1\firstpass\yolo\dataset.yaml`
-- `D:\sinan-captcha-work\datasets\group2\firstpass\yolo\dataset.yaml`
+- `D:\sinan-captcha-work\datasets\group2\firstpass\dataset.json`
 
 ### 9.1 `group1`
 
@@ -282,7 +287,7 @@ uv run sinan train group2 `
 
 - 环境能跑
 - 数据路径对
-- `uv run yolo` 能正常启动
+- `group1` 的 YOLO 训练能正常启动，或 `group2` 的 paired runner 能正常启动
 
 正常启动后的终端形态大致如下：
 
@@ -309,10 +314,9 @@ uv run sinan train group1 `
 uv run sinan train group2 `
   --dataset-version firstpass `
   --name firstpass `
-  --model yolo26n.pt `
   --epochs 100 `
   --batch 16 `
-  --imgsz 640 `
+  --imgsz 192 `
   --device 0
 ```
 
@@ -333,10 +337,8 @@ D:\sinan-captcha-work\runs\group2\firstpass\
 
 重点关注：
 
-- `weights\best.pt`
-- `weights\last.pt`
-- `results.csv`
-- `args.yaml`
+- `group1`：`weights\best.pt`、`weights\last.pt`、`results.csv`、`args.yaml`
+- `group2`：`weights\best.pt`、`weights\last.pt`、`summary.json`
 
 ## 12. 第一次训练完成后，先怎么看效果
 
@@ -370,8 +372,10 @@ uv run sinan test group2 --dataset-version firstpass --train-name firstpass
 
 其中：
 
-- `predict` 会自动补齐底层 `uv run yolo detect predict` 所需的 `model`、`source`、`project`
-- `test` 会顺序执行 `predict + val`，并直接生成一份中文总结报告
+- `group1` 的 `predict` 会自动补齐底层 `uv run yolo detect predict` 所需的 `model`、`source`、`project`
+- `group2` 的 `predict` 会自动补齐 paired runner 所需的 `dataset.json`、`splits/val.jsonl` 和权重路径
+- `group1` 的 `test` 会顺序执行 `predict + val`
+- `group2` 的 `test` 会顺序执行 paired prediction + JSONL 对比评估，并直接生成中文总结报告
 
 完整命令和验收方法继续读：
 
@@ -381,7 +385,7 @@ uv run sinan test group2 --dataset-version firstpass --train-name firstpass
 
 可以。
 
-只要数据集目录没有被覆盖，你可以反复拿同一个 `dataset.yaml` 去跑：
+只要数据集目录没有被覆盖，你可以反复拿同一份训练数据去跑：
 
 - `smoke`
 - 正式训练
@@ -442,7 +446,7 @@ uv run sinan train group2 --dataset-version firstpass_v2 --name round2 --from-ru
 
 结论：
 
-- 你拿到的是旧版数据集
+- 这是 `group1` 的旧版数据集问题
 - 常见旧问题有两类：
   - `dataset.yaml` 里还写着别台机器的绝对路径
   - `dataset.yaml` 里写了 `path: .`，而 Ultralytics 把它错误解析到了训练目录根
@@ -455,15 +459,31 @@ uv run sinan train group2 --dataset-version firstpass_v2 --name round2 --from-ru
   - 或让提供方重新导出一版新数据集
   - 或你自己重新执行一次 `sinan-generator make-dataset`
 
-### 15.3 训练一启动就显存爆掉
+### 15.3 `group2` 报 `dataset.json`、`splits/*.jsonl` 或配对图片缺失
+
+结论：
+
+- 你拿到的不是新版 `group2` paired dataset
+  或
+- 数据目录拷贝不完整
+
+处理方式：
+
+- 确认目录里同时存在 `dataset.json`、`master/`、`tile/`、`splits/`
+- 确认 `dataset.json` 指向的 split 文件都还在
+- 确认 split 里引用的 `master_image` 和 `tile_image` 路径能在数据目录下找到
+- 如果你拿到的是旧版 `group2` 数据集结构，直接重新导出，不要尝试兼容旧结构
+
+### 15.4 训练一启动就显存爆掉
 
 结论：
 
 - 先降 `batch`
 - 再降 `imgsz`
-- 先用 `yolo26n.pt`
+- `group1` 先用 `yolo26n.pt`
+- `group2` 保持默认 paired model 初始化即可，不需要再塞 YOLO 权重
 
-### 15.4 `sinan-generator materials import|fetch|make-dataset` 失败
+### 15.5 `sinan-generator materials import|fetch|make-dataset` 失败
 
 结论：
 

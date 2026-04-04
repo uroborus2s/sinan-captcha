@@ -14,6 +14,7 @@ import (
 
 	"sinan-captcha/generator/internal/config"
 	"sinan-captcha/generator/internal/export"
+	"sinan-captcha/generator/internal/imagefx"
 	"sinan-captcha/generator/internal/material"
 )
 
@@ -32,13 +33,21 @@ func Generate(index int, cfg config.Config, catalog material.Catalog) (export.Sa
 	rng := rand.New(rand.NewSource(sampleSeed))
 	sampleID := fmt.Sprintf("g2_%06d", index+1)
 	background := catalog.Backgrounds[rng.Intn(len(catalog.Backgrounds))]
+	shapeClass, shapeIcon, err := selectShapeAsset(catalog, rng)
+	if err != nil {
+		return export.SampleRecord{}, nil, err
+	}
 
 	sceneSource, err := loadImage(background.Path)
 	if err != nil {
 		return export.SampleRecord{}, nil, err
 	}
 	scene := coverResize(sceneSource, cfg.Canvas.SceneWidth, cfg.Canvas.SceneHeight)
-	applySceneVeil(scene)
+	backgroundBlurRadius := imagefx.IntRange(rng, cfg.Effects.Common.BackgroundBlurRadiusMin, cfg.Effects.Common.BackgroundBlurRadiusMax)
+	if backgroundBlurRadius > 0 {
+		scene = imagefx.BlurRGBA(scene, backgroundBlurRadius)
+	}
+	imagefx.ApplySceneVeil(scene, cfg.Effects.Common.SceneVeilStrength)
 
 	gapWidth := clampGapDimension(cfg.Slide.GapWidth, cfg.Canvas.SceneWidth, 52)
 	gapHeight := clampGapDimension(cfg.Slide.GapHeight, cfg.Canvas.SceneHeight, 52)
@@ -73,10 +82,25 @@ func Generate(index int, cfg config.Config, catalog material.Catalog) (export.Sa
 	gapBBox := [4]int{gapX, gapY, gapX + gapWidth, gapY + gapHeight}
 	tileBBox := [4]int{0, gapY, gapWidth, gapY + gapHeight}
 
-	tile := crop(scene, image.Rect(gapBBox[0], gapBBox[1], gapBBox[2], gapBBox[3]))
-	drawBorder(tile, tileStroke)
+	iconMaskSource, err := loadImage(shapeIcon.Path)
+	if err != nil {
+		return export.SampleRecord{}, nil, err
+	}
+	iconMask := resizeNearest(iconMaskSource, gapWidth, gapHeight)
+	tile := cropMasked(scene, iconMask, image.Rect(gapBBox[0], gapBBox[1], gapBBox[2], gapBBox[3]))
+	drawMaskedStroke(tile, iconMask, image.Point{}, tileStroke)
+	tileBlurRadius := imagefx.IntRange(rng, cfg.Effects.Slide.TileEdgeBlurRadiusMin, cfg.Effects.Slide.TileEdgeBlurRadiusMax)
+	if tileBlurRadius > 0 {
+		tile = imagefx.BlurRGBA(tile, tileBlurRadius)
+	}
 	master := cloneRGBA(scene)
-	carveGap(master, gapBBox)
+	gapShadowAlpha := imagefx.FloatRange(rng, cfg.Effects.Slide.GapShadowAlphaMin, cfg.Effects.Slide.GapShadowAlphaMax)
+	if gapShadowAlpha > 0 {
+		shadowOffsetX := imagefx.IntRange(rng, cfg.Effects.Slide.GapShadowOffsetXMin, cfg.Effects.Slide.GapShadowOffsetXMax)
+		shadowOffsetY := imagefx.IntRange(rng, cfg.Effects.Slide.GapShadowOffsetYMin, cfg.Effects.Slide.GapShadowOffsetYMax)
+		drawGapShadow(master, iconMask, gapBBox, shadowOffsetX, shadowOffsetY, gapShadowAlpha)
+	}
+	carveGap(master, iconMask, gapBBox)
 
 	center := [2]int{gapBBox[0] + gapWidth/2, gapBBox[1] + gapHeight/2}
 	offsetX := gapBBox[0] - tileBBox[0]
@@ -93,7 +117,7 @@ func Generate(index int, cfg config.Config, catalog material.Catalog) (export.Sa
 		OffsetX:      &offsetX,
 		OffsetY:      &offsetY,
 		BackgroundID: background.ID,
-		StyleID:      "default",
+		StyleID:      shapeClass.Name,
 		LabelSource:  "gold",
 		SourceBatch:  cfg.Project.BatchID,
 		Seed:         sampleSeed,
@@ -105,12 +129,16 @@ func Generate(index int, cfg config.Config, catalog material.Catalog) (export.Sa
 	}, nil
 }
 
-func carveGap(img *image.RGBA, bbox [4]int) {
-	x1, y1, x2, y2 := bbox[0], bbox[1], bbox[2], bbox[3]
-	for y := y1; y < y2; y++ {
-		for x := x1; x < x2; x++ {
-			base := img.RGBAAt(x, y)
-			img.SetRGBA(x, y, color.RGBA{
+func carveGap(img *image.RGBA, mask *image.RGBA, bbox [4]int) {
+	for y := 0; y < mask.Bounds().Dy(); y++ {
+		for x := 0; x < mask.Bounds().Dx(); x++ {
+			if mask.RGBAAt(x, y).A == 0 {
+				continue
+			}
+			absoluteX := bbox[0] + x
+			absoluteY := bbox[1] + y
+			base := img.RGBAAt(absoluteX, absoluteY)
+			img.SetRGBA(absoluteX, absoluteY, color.RGBA{
 				R: blend(base.R, gapFillColor.R, gapFillColor.A),
 				G: blend(base.G, gapFillColor.G, gapFillColor.A),
 				B: blend(base.B, gapFillColor.B, gapFillColor.A),
@@ -118,29 +146,45 @@ func carveGap(img *image.RGBA, bbox [4]int) {
 			})
 		}
 	}
-	drawRectStroke(img, x1, y1, x2, y2, gapStrokeColor)
+	drawMaskedStroke(img, mask, image.Point{X: bbox[0], Y: bbox[1]}, gapStrokeColor)
 }
 
-func drawRectStroke(img *image.RGBA, x1 int, y1 int, x2 int, y2 int, stroke color.RGBA) {
-	for x := x1; x < x2; x++ {
-		img.SetRGBA(x, y1, stroke)
-		img.SetRGBA(x, y2-1, stroke)
+func drawGapShadow(img *image.RGBA, mask *image.RGBA, bbox [4]int, offsetX int, offsetY int, alphaFactor float64) {
+	if alphaFactor <= 0 {
+		return
 	}
-	for y := y1; y < y2; y++ {
-		img.SetRGBA(x1, y, stroke)
-		img.SetRGBA(x2-1, y, stroke)
-	}
-}
 
-func drawBorder(img *image.RGBA, stroke color.RGBA) {
+	alpha := uint8(clamp(int(math.Round(alphaFactor*255)), 0, 255))
 	bounds := img.Bounds()
-	for x := bounds.Min.X; x < bounds.Max.X; x++ {
-		img.SetRGBA(x, bounds.Min.Y, stroke)
-		img.SetRGBA(x, bounds.Max.Y-1, stroke)
+	for y := 0; y < mask.Bounds().Dy(); y++ {
+		for x := 0; x < mask.Bounds().Dx(); x++ {
+			if mask.RGBAAt(x, y).A == 0 {
+				continue
+			}
+			absoluteX := bbox[0] + x + offsetX
+			absoluteY := bbox[1] + y + offsetY
+			if absoluteX < bounds.Min.X || absoluteX >= bounds.Max.X || absoluteY < bounds.Min.Y || absoluteY >= bounds.Max.Y {
+				continue
+			}
+			base := img.RGBAAt(absoluteX, absoluteY)
+			img.SetRGBA(absoluteX, absoluteY, color.RGBA{
+				R: blend(base.R, 8, alpha),
+				G: blend(base.G, 12, alpha),
+				B: blend(base.B, 16, alpha),
+				A: 255,
+			})
+		}
 	}
-	for y := bounds.Min.Y; y < bounds.Max.Y; y++ {
-		img.SetRGBA(bounds.Min.X, y, stroke)
-		img.SetRGBA(bounds.Max.X-1, y, stroke)
+}
+
+func drawMaskedStroke(img *image.RGBA, mask *image.RGBA, origin image.Point, stroke color.RGBA) {
+	for y := 0; y < mask.Bounds().Dy(); y++ {
+		for x := 0; x < mask.Bounds().Dx(); x++ {
+			if !isMaskBoundary(mask, x, y) {
+				continue
+			}
+			img.SetRGBA(origin.X+x, origin.Y+y, stroke)
+		}
 	}
 }
 
@@ -153,6 +197,19 @@ func cloneRGBA(src *image.RGBA) *image.RGBA {
 func crop(src *image.RGBA, rect image.Rectangle) *image.RGBA {
 	dst := image.NewRGBA(image.Rect(0, 0, rect.Dx(), rect.Dy()))
 	draw.Draw(dst, dst.Bounds(), src, rect.Min, draw.Src)
+	return dst
+}
+
+func cropMasked(src *image.RGBA, mask *image.RGBA, rect image.Rectangle) *image.RGBA {
+	dst := image.NewRGBA(image.Rect(0, 0, rect.Dx(), rect.Dy()))
+	for y := 0; y < rect.Dy(); y++ {
+		for x := 0; x < rect.Dx(); x++ {
+			if mask.RGBAAt(x, y).A == 0 {
+				continue
+			}
+			dst.SetRGBA(x, y, src.RGBAAt(rect.Min.X+x, rect.Min.Y+y))
+		}
+	}
 	return dst
 }
 
@@ -174,6 +231,23 @@ func clampGapDimension(value int, canvas int, fallback int) int {
 	}
 	maxAllowed := max(18, canvas-24)
 	return clamp(value, 18, maxAllowed)
+}
+
+func selectShapeAsset(catalog material.Catalog, rng *rand.Rand) (material.ClassAssets, material.IconAsset, error) {
+	candidates := make([]material.ClassAssets, 0, len(catalog.Classes))
+	for _, classAssets := range catalog.Classes {
+		if len(classAssets.Icons) == 0 {
+			continue
+		}
+		candidates = append(candidates, classAssets)
+	}
+	if len(candidates) == 0 {
+		return material.ClassAssets{}, material.IconAsset{}, fmt.Errorf("material catalog has no icon masks for slide mode")
+	}
+
+	selectedClass := candidates[rng.Intn(len(candidates))]
+	selectedIcon := selectedClass.Icons[rng.Intn(len(selectedClass.Icons))]
+	return selectedClass, selectedIcon, nil
 }
 
 func loadImage(path string) (image.Image, error) {
@@ -202,22 +276,6 @@ func coverResize(src image.Image, width int, height int) *image.RGBA {
 	return dst
 }
 
-func applySceneVeil(img *image.RGBA) {
-	bounds := img.Bounds()
-	for x := bounds.Min.X; x < bounds.Max.X; x++ {
-		for y := bounds.Min.Y; y < bounds.Max.Y; y++ {
-			red, green, blue, alpha := img.At(x, y).RGBA()
-			coolLift := uint8(clamp(int((x+y)%9), 0, 10))
-			img.SetRGBA(x, y, color.RGBA{
-				R: uint8(clamp(int((red>>8)*93/100)+int(coolLift), 0, 255)),
-				G: uint8(clamp(int((green>>8)*94/100)+int(coolLift), 0, 255)),
-				B: uint8(clamp(int((blue>>8)*97/100)+int(coolLift)+4, 0, 255)),
-				A: uint8(alpha >> 8),
-			})
-		}
-	}
-}
-
 func resizeNearest(src image.Image, width int, height int) *image.RGBA {
 	srcBounds := src.Bounds()
 	dst := image.NewRGBA(image.Rect(0, 0, width, height))
@@ -231,6 +289,23 @@ func resizeNearest(src image.Image, width int, height int) *image.RGBA {
 		}
 	}
 	return dst
+}
+
+func isMaskBoundary(mask *image.RGBA, x int, y int) bool {
+	if mask.RGBAAt(x, y).A == 0 {
+		return false
+	}
+	for _, delta := range [][2]int{{-1, 0}, {1, 0}, {0, -1}, {0, 1}} {
+		nx := x + delta[0]
+		ny := y + delta[1]
+		if nx < 0 || ny < 0 || nx >= mask.Bounds().Dx() || ny >= mask.Bounds().Dy() {
+			return true
+		}
+		if mask.RGBAAt(nx, ny).A == 0 {
+			return true
+		}
+	}
+	return false
 }
 
 func clamp(value int, lower int, upper int) int {

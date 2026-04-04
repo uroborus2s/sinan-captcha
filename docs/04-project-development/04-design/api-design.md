@@ -67,9 +67,8 @@ uv run sinan autolabel --task group2 --mode rule --input-dir datasets/group2/v1/
   - 生成器批次输出
   - 数据集目录
 - 输出：
-  - YOLO 图片目录
-  - YOLO 标签目录
-  - `dataset.yaml`
+  - `group1`：YOLO 图片目录、YOLO 标签目录、`dataset.yaml`
+  - `group2`：`master/`、`tile/`、`splits/*.jsonl`、`dataset.json`
 
 ### 正式命令形态
 
@@ -79,17 +78,17 @@ sinan-generator make-dataset --workspace D:\sinan-captcha-generator\workspace --
 
 说明：
 
-- 当前正式产品化生成器直接输出 YOLO 数据集目录
-- Python 训练 CLI 不再承担 JSONL 到 YOLO 的迁移转换职责
+- 当前正式产品化生成器直接输出训练 CLI 可消费的数据集目录
+- `group1` 仍为 YOLO 目录
+- `group2` 已切为 paired dataset，由 `dataset.json + master/tile/splits` 直接交接给训练 CLI
 
 ## API-004 训练入口合同
 
 - 类型：CLI 入口
 - 调用方：训练执行脚本、维护者
 - 输入：
-  - `dataset.yaml`
-  - 预训练权重
-  - 训练超参数
+  - `group1`：`dataset.yaml`、预训练权重、训练超参数
+  - `group2`：`dataset.json`、paired model 初始化方式/检查点、训练超参数
 - 输出：
   - 权重
   - 日志
@@ -98,7 +97,7 @@ sinan-generator make-dataset --workspace D:\sinan-captcha-generator\workspace --
 ### 第二专项训练
 
 ```bash
-uv run sinan train group2 --dataset-yaml datasets/group2/v1/yolo/dataset.yaml --project runs/group2
+uv run sinan train group2 --dataset-config datasets/group2/v1/dataset.json --project runs/group2
 ```
 
 ### 第一专项训练
