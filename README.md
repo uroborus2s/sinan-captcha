@@ -54,7 +54,8 @@
 3. 用 `sinan-generator materials import|fetch --workspace <generator-workspace>` 准备素材
 4. 用 `sinan-generator make-dataset --workspace <generator-workspace>` 直接产出可交给训练 CLI 的 YOLO 数据集目录
 5. 用 `uv run sinan train group1` 或 `uv run sinan train group2` 启动训练
-6. 用 `uv run sinan evaluate` 做 JSONL 对比评估
+6. 用 `uv run sinan test group1|group2` 做一键预测 + 验证，并生成中文报告
+7. 如果已有 JSONL 预测结果，再用 `uv run sinan evaluate` 做任务契约级评估
 
 ## 典型命令
 
@@ -66,6 +67,7 @@ Set-Location D:\sinan-captcha-generator
 .\sinan-generator.exe make-dataset --workspace D:\sinan-captcha-generator\workspace --task group1 --dataset-dir D:\sinan-captcha-work\datasets\group1\firstpass\yolo
 Set-Location D:\sinan-captcha-work
 uv run sinan train group1 --dataset-version firstpass --name firstpass
+uv run sinan test group1 --dataset-version firstpass --train-name firstpass
 ```
 
 默认样本规模：
@@ -74,6 +76,13 @@ uv run sinan train group1 --dataset-version firstpass --name firstpass
 - `firstpass`：200 条
 
 如果你对同一个 `dataset-dir` 重跑 `make-dataset` 并加 `--force`，会覆盖原目录；如果要保留旧数据，请换一个新的版本目录。
+
+继续训练的两个正式入口：
+
+- 训练中断后继续当前版本：
+  - `uv run sinan train group1 --name firstpass --resume`
+- 在上一轮最佳模型基础上开新一轮：
+  - `uv run sinan train group1 --dataset-version firstpass_v2 --name round2 --from-run firstpass`
 
 ## 文档入口
 

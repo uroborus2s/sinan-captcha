@@ -22,6 +22,18 @@ class RootCliTests(unittest.TestCase):
         self.assertEqual(code, 0)
         handler.assert_called_once_with(["--dry-run"])
 
+    def test_dispatches_predict_group1(self) -> None:
+        with patch("core.cli.predict_cli.main", return_value=0) as handler:
+            code = cli.main(["predict", "group1", "--dry-run"])
+        self.assertEqual(code, 0)
+        handler.assert_called_once_with(["group1", "--dry-run"])
+
+    def test_dispatches_test_group2(self) -> None:
+        with patch("core.cli.modeltest_cli.main", return_value=0) as handler:
+            code = cli.main(["test", "group2", "--dry-run"])
+        self.assertEqual(code, 0)
+        handler.assert_called_once_with(["group2", "--dry-run"])
+
     def test_dispatches_env_setup_train(self) -> None:
         with patch("core.cli.setup_train_cli.main", return_value=0) as handler:
             code = cli.main(["env", "setup-train", "--yes"])

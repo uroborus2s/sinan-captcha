@@ -344,8 +344,8 @@ D:\sinan-captcha-work\runs\group2\firstpass\
 
 1. `weights\best.pt` 是否存在
 2. `results.csv` 是否已生成
-3. 在验证集图片上跑一次 `predict`
-4. 再跑一次 `val`
+3. 先跑一次带默认路径的 `predict`
+4. 再跑一次一键测试命令
 
 判断思路：
 
@@ -353,6 +353,25 @@ D:\sinan-captcha-work\runs\group2\firstpass\
 - `results.csv` 可用于和上一个实验版本做横向比较
 - `predict` 适合做肉眼快速检查
 - `val` 更适合做指标对比和回归检查
+
+推荐命令：
+
+```powershell
+uv run sinan predict group1 --dataset-version firstpass --train-name firstpass
+uv run sinan test group1 --dataset-version firstpass --train-name firstpass
+```
+
+或：
+
+```powershell
+uv run sinan predict group2 --dataset-version firstpass --train-name firstpass
+uv run sinan test group2 --dataset-version firstpass --train-name firstpass
+```
+
+其中：
+
+- `predict` 会自动补齐底层 `uv run yolo detect predict` 所需的 `model`、`source`、`project`
+- `test` 会顺序执行 `predict + val`，并直接生成一份中文总结报告
 
 完整命令和验收方法继续读：
 
@@ -375,6 +394,25 @@ D:\sinan-captcha-work\runs\group2\firstpass\
 - 把数据目录当成版本化输入，例如 `firstpass`、`firstpass_v2`
 - 把训练输出放到不同的 `runs\<task>\<name>\`
 - 不要一边训练一边重新生成同一个数据集目录
+
+如果只是训练被打断，直接继续当前训练版本：
+
+```powershell
+uv run sinan train group1 --name firstpass --resume
+uv run sinan train group2 --name firstpass --resume
+```
+
+如果是想在上一轮最佳模型基础上继续微调，新开一轮训练：
+
+```powershell
+uv run sinan train group1 --dataset-version firstpass_v2 --name round2 --from-run firstpass
+uv run sinan train group2 --dataset-version firstpass_v2 --name round2 --from-run firstpass
+```
+
+这两种场景不要混在一起理解：
+
+- `--resume` 是“接着当前这次训练继续跑”
+- `--from-run` 是“拿上一轮最佳模型当新起点，再开一轮新的训练”
 
 如果你觉得当前训练效果不够好，需要更多训练数据，不要直接覆盖旧数据集；回到：
 

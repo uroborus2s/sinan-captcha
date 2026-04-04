@@ -17,6 +17,7 @@ def build_group1_training_job(
     batch: int | None = None,
     imgsz: int = 640,
     device: str = "0",
+    resume: bool = False,
 ) -> TrainingJob:
     return TrainingJob(
         task="group1",
@@ -28,4 +29,5 @@ def build_group1_training_job(
         device=device,
         project_dir=project_dir,
         run_name=run_name,
+        resume=resume,
     )

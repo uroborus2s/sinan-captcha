@@ -1,5 +1,31 @@
 # 变更摘要
 
+## 2026-04-04 训练后测试入口、中文报告与续训命令补齐
+
+- 已为训练目录新增两个正式用户入口：
+  - `uv run sinan predict group1|group2`
+  - `uv run sinan test group1|group2`
+- `predict` 当前已支持默认路径机制：
+  - `model` 默认指向 `runs/<task>/<train-name>/weights/best.pt`
+  - `source` 默认指向 `datasets/<task>/<dataset-version>/yolo/images/val`
+  - `project` 默认指向 `reports/<task>`
+- `test` 当前会串联执行 `predict + val`，并在 `reports/<task>/test_<train-name>/` 下生成：
+  - `summary.md`
+  - `summary.json`
+  - 终端中文摘要
+- 已为训练 CLI 补齐两种续训口径：
+  - `--resume`：从当前训练版本的 `weights/last.pt` 继续
+  - `--from-run <旧训练名>`：从上一轮 `weights/best.pt` 新开一轮
+- 已新增/更新 Python 回归覆盖：
+  - `tests/python/test_prediction_and_model_test.py`
+  - `tests/python/test_training_jobs.py`
+  - `tests/python/test_root_cli.py`
+- 已同步更新当前生效文档与记忆：
+  - `README.md`
+  - `docs/02-user-guide/use-and-test-trained-models.md`
+  - `docs/02-user-guide/from-base-model-to-training-guide.md`
+  - `.factory/memory/current-state.md`
+
 ## 2026-04-04 删除 Python 数据集迁移链路并收口 dataset.yaml 责任
 
 - 已删除 Python 侧旧数据集迁移命令与对应转换模块

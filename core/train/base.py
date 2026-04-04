@@ -21,8 +21,23 @@ class TrainingJob:
     device: str = "0"
     project_dir: Path | None = None
     run_name: str = "v1"
+    resume: bool = False
 
     def command(self) -> list[str]:
+        if self.resume:
+            command = [
+                "uv",
+                "run",
+                "yolo",
+                "detect",
+                "train",
+                "resume",
+                f"model={self.model}",
+            ]
+            if self.device:
+                command.append(f"device={self.device}")
+            return command
+
         command = [
             "uv",
             "run",
@@ -53,21 +68,51 @@ def default_project_dir(train_root: Path, task: str) -> Path:
     return train_root / "runs" / task
 
 
+def default_report_dir(train_root: Path, task: str) -> Path:
+    return train_root / "reports" / task
+
+
+def default_run_dir(train_root: Path, task: str, run_name: str) -> Path:
+    return default_project_dir(train_root, task) / run_name
+
+
+def default_run_weights(train_root: Path, task: str, run_name: str, filename: str) -> Path:
+    return default_run_dir(train_root, task, run_name) / "weights" / filename
+
+
+def default_best_weights(train_root: Path, task: str, run_name: str) -> Path:
+    return default_run_weights(train_root, task, run_name, "best.pt")
+
+
+def default_last_weights(train_root: Path, task: str, run_name: str) -> Path:
+    return default_run_weights(train_root, task, run_name, "last.pt")
+
+
+def default_predict_source(train_root: Path, task: str, dataset_version: str) -> Path:
+    return train_root / "datasets" / task / dataset_version / "yolo" / "images" / "val"
+
+
 def execute_training_job(job: TrainingJob) -> int:
     _ensure_training_dependencies()
-    dataset_yaml = prepare_dataset_yaml_for_ultralytics(job.dataset_yaml)
     try:
-        command = TrainingJob(
-            task=job.task,
-            dataset_yaml=dataset_yaml,
-            model=job.model,
-            epochs=job.epochs,
-            batch=job.batch,
-            imgsz=job.imgsz,
-            device=job.device,
-            project_dir=job.project_dir,
-            run_name=job.run_name,
-        ).command()
+        if job.resume:
+            if Path(job.model).suffix == ".pt" and not Path(job.model).exists():
+                raise RuntimeError(f"未找到可继续训练的检查点：{job.model}")
+            command = job.command()
+        else:
+            dataset_yaml = prepare_dataset_yaml_for_ultralytics(job.dataset_yaml)
+            command = TrainingJob(
+                task=job.task,
+                dataset_yaml=dataset_yaml,
+                model=job.model,
+                epochs=job.epochs,
+                batch=job.batch,
+                imgsz=job.imgsz,
+                device=job.device,
+                project_dir=job.project_dir,
+                run_name=job.run_name,
+                resume=job.resume,
+            ).command()
         completed = subprocess.run(command, check=True)
     except FileNotFoundError as exc:
         raise RuntimeError(

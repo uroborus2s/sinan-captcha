@@ -82,6 +82,44 @@ class TrainingJobTests(unittest.TestCase):
         self.assertIn("project=D:/sinan-captcha-work/runs/group1", output)
         self.assertIn("name=smoke", output)
 
+    def test_group1_cli_uses_previous_best_checkpoint_from_training_root(self) -> None:
+        buffer = io.StringIO()
+        with patch("core.train.group1.cli.Path.cwd", return_value=Path("D:/sinan-captcha-work")):
+            with redirect_stdout(buffer):
+                code = group1_cli.main(
+                    [
+                        "--dataset-version",
+                        "firstpass_v2",
+                        "--name",
+                        "round2",
+                        "--from-run",
+                        "firstpass",
+                        "--dry-run",
+                    ]
+                )
+        self.assertEqual(code, 0)
+        output = buffer.getvalue()
+        self.assertIn("data=D:/sinan-captcha-work/datasets/group1/firstpass_v2/yolo/dataset.yaml", output)
+        self.assertIn("model=D:/sinan-captcha-work/runs/group1/firstpass/weights/best.pt", output)
+        self.assertIn("name=round2", output)
+
+    def test_group1_cli_resumes_same_run_from_last_checkpoint(self) -> None:
+        buffer = io.StringIO()
+        with patch("core.train.group1.cli.Path.cwd", return_value=Path("D:/sinan-captcha-work")):
+            with redirect_stdout(buffer):
+                code = group1_cli.main(
+                    [
+                        "--name",
+                        "firstpass",
+                        "--resume",
+                        "--dry-run",
+                    ]
+                )
+        self.assertEqual(code, 0)
+        output = buffer.getvalue()
+        self.assertIn("uv run yolo detect train resume", output)
+        self.assertIn("model=D:/sinan-captcha-work/runs/group1/firstpass/weights/last.pt", output)
+
     def test_group2_cli_executes_training_command(self) -> None:
         with patch("core.train.base._ensure_training_dependencies") as ensure_deps:
             with patch("core.train.base.prepare_dataset_yaml_for_ultralytics") as normalize_dataset:

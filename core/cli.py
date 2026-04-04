@@ -9,8 +9,10 @@ from core.autolabel import cli as autolabel_cli
 from core.dataset import cli as dataset_cli
 from core.evaluate import cli as evaluate_cli
 from core.materials import cli as materials_cli
+from core.modeltest import cli as modeltest_cli
 from core.ops import env as env_cli
 from core.ops import setup_train as setup_train_cli
+from core.predict import cli as predict_cli
 from core.release import cli as release_cli
 from core.train.group1 import cli as train_group1_cli
 from core.train.group2 import cli as train_group2_cli
@@ -24,6 +26,8 @@ COMMANDS: list[CommandHandler] = [
     (("dataset", "validate"), lambda argv: dataset_cli.main(argv)),
     (("autolabel",), lambda argv: autolabel_cli.main(argv)),
     (("evaluate",), lambda argv: evaluate_cli.main(argv)),
+    (("predict",), lambda argv: predict_cli.main(argv)),
+    (("test",), lambda argv: modeltest_cli.main(argv)),
     (("train", "group1"), lambda argv: train_group1_cli.main(argv)),
     (("train", "group2"), lambda argv: train_group2_cli.main(argv)),
     (("release",), lambda argv: release_cli.main(argv)),
@@ -57,6 +61,8 @@ def _usage() -> str:
             "  dataset validate              Validate a JSONL dataset file.",
             "  autolabel                     Run offline autolabel flows.",
             "  evaluate                      Evaluate prediction JSONL files against gold data.",
+            "  predict group1|group2         Run YOLO predict with default model/source/project paths.",
+            "  test group1|group2            Run predict + val and export a beginner-friendly Chinese report.",
             "  train group1                  Run group1 YOLO training.",
             "  train group2                  Run group2 YOLO training.",
             "  release <subcommand>          Build, publish, or package delivery artifacts.",
@@ -65,6 +71,8 @@ def _usage() -> str:
             "  uv run sinan env check",
             "  uv run sinan env setup-train --train-root D:\\sinan-captcha-work",
             "  uv run sinan materials build --spec configs/materials-pack.toml --output-root materials",
+            "  uv run sinan predict group1 --dataset-version firstpass --train-name firstpass",
+            "  uv run sinan test group2 --dataset-version firstpass --train-name firstpass",
             "  uv run sinan train group1 --dataset-version v1 --name firstpass",
             "  uv run sinan release build --project-dir .",
         ]

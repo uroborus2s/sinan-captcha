@@ -51,7 +51,7 @@
 - 当前训练数据链路已可用，但本机 Python 环境仍缺少 `torch` 与 `ultralytics`，尚不能直接启动训练
 - 已将正式入口收口为两个 CLI：Go 侧 `sinan-generator`，Python 侧 `sinan`
 - `sinan-generator` 当前负责 `workspace init|show`、`materials import|fetch`、`make-dataset`
-- `sinan` 当前负责 `env check`、`env setup-train`、`autolabel`、`evaluate`、`train group1`、`train group2`、`release build/publish/package-windows`
+- `sinan` 当前负责 `env check`、`env setup-train`、`autolabel`、`evaluate`、`predict group1|group2`、`test group1|group2`、`train group1|group2`、`release build/publish/package-windows`
 - 上述 Python 子命令统一通过 `uv run sinan ...` 形式调用，不再把直接执行 `sinan` 当作对外默认口径
 - Python 侧执行口径已统一为 `uv`：安装使用 `uv pip`，运行使用 `uv run sinan` / `uv run yolo`
 - 已新增独立训练目录初始化能力：`uvx --from sinan-captcha sinan env setup-train`
@@ -96,6 +96,11 @@
   - 发布与交付工作流
 - `setup-train` 当前已支持 CUDA 13.x 自动映射到 `cu130`
 - 训练 CLI 当前已支持在训练目录下省略 `--dataset-yaml` 与 `--project`，改用 `--dataset-version <版本目录名>` 走默认路径
+- 预测 CLI 当前已支持在训练目录下省略 `model/source/project`，改用 `uv run sinan predict group1|group2 --dataset-version <版本目录名> --train-name <训练名>` 走默认路径
+- 测试 CLI 当前已支持一条命令串联 `predict + val`，并输出初学者可读的中文报告：`uv run sinan test group1|group2 --dataset-version <版本目录名> --train-name <训练名>`
+- 训练 CLI 当前已支持两种续训口径：
+  - `--resume`：从当前训练版本的 `weights/last.pt` 继续
+  - `--from-run <旧训练名>`：从上一轮 `weights/best.pt` 新开一轮
 - Python 包版本当前已提升到 `0.1.2`，用于承载默认训练路径机制
 - 正式用户指南已补齐“训练机当前仍为 `0.1.1` 时如何原地升级到 `0.1.2`”的步骤，当前推荐做法是重新执行新版 `setup-train`
 
