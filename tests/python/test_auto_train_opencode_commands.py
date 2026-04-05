@@ -20,7 +20,7 @@ class AutoTrainOpenCodeCommandsTests(unittest.TestCase):
         self.assertEqual(registry["plan-dataset"].output_artifact, "dataset_plan.json")
         self.assertEqual(registry["study-status"].output_artifact, "study_status.json")
 
-    def test_headless_invocation_uses_command_flag_json_events_and_attached_files(self) -> None:
+    def test_headless_invocation_uses_command_flag_and_attached_files(self) -> None:
         with tempfile.TemporaryDirectory() as tmpdir:
             root = Path(tmpdir)
             first = root / "one.json"
@@ -35,12 +35,11 @@ class AutoTrainOpenCodeCommandsTests(unittest.TestCase):
                 attach_url="http://127.0.0.1:4096",
             )
 
-            self.assertEqual(command[0:5], ["opencode", "run", "--command", "judge-trial", "--format"])
-            self.assertIn("json", command)
+            self.assertEqual(command[0:6], ["opencode", "run", "--format", "json", "--command", "judge-trial"])
             self.assertIn("--attach", command)
             self.assertIn("http://127.0.0.1:4096", command)
             self.assertEqual(command.count("--file"), 2)
-            self.assertEqual(command[-3:], ["study_001", "group1", "trial_0004"])
+            self.assertEqual(command[-4:], ["--", "study_001", "group1", "trial_0004"])
 
     def test_markdown_command_files_match_registered_specs(self) -> None:
         project_root = Path("/Users/uroborus/AiProject/sinan-captcha")
@@ -51,7 +50,8 @@ class AutoTrainOpenCodeCommandsTests(unittest.TestCase):
             self.assertTrue(path.exists(), f"missing command file: {path}")
             text = path.read_text(encoding="utf-8")
             self.assertIn(f"description: {spec.description}", text)
-            self.assertIn("agent: plan", text)
+            self.assertIn("agent: build", text)
+            self.assertNotIn("subtask: true", text)
             self.assertIn("Return only one JSON object", text)
             for argument_name in spec.message_arguments:
                 self.assertIn(argument_name, text)

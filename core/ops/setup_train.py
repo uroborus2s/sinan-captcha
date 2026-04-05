@@ -12,6 +12,8 @@ import shutil
 import subprocess
 import textwrap
 
+from core.auto_train import opencode_assets
+
 
 @dataclass(frozen=True)
 class TorchBackend:
@@ -85,7 +87,7 @@ def main(argv: list[str] | None = None) -> int:
     print(
         "\n训练目录已创建完成。\n"
         f"- 训练目录：{plan.train_root}\n"
-        "- 现在你可以把 group1 YOLO 数据集和 group2 paired dataset 拷贝到 datasets/ 下，"
+        "- 现在你可以把 group1 pipeline dataset 和 group2 paired dataset 拷贝到 datasets/ 下，"
         "或者让生成器直接输出到这个训练目录的 datasets/ 下。"
     )
     return 0
@@ -146,6 +148,7 @@ def prepare_training_root(plan: TrainingSetupPlan) -> None:
         "reports/group2",
     ):
         (plan.train_root / relative).mkdir(parents=True, exist_ok=True)
+    opencode_assets.copy_opencode_assets(plan.train_root)
 
     (plan.train_root / ".python-version").write_text(f"{plan.python_version}\n", encoding="utf-8")
     (plan.train_root / "pyproject.toml").write_text(render_train_pyproject(plan), encoding="utf-8")
@@ -183,12 +186,17 @@ def render_setup_summary(plan: TrainingSetupPlan) -> str:
            - {plan.train_root / "datasets" / "group2"}
         2. 也可以让生成器直接输出到训练目录，例如：
            - group1 raw -> {plan.train_root / "datasets" / "group1" / "v1" / "raw"}
-           - group1 yolo -> {plan.train_root / "datasets" / "group1" / "v1" / "yolo"}
+           - group1 pipeline -> {plan.train_root / "datasets" / "group1" / "v1"}
            - group2 raw -> {plan.train_root / "datasets" / "group2" / "v1" / ".sinan" / "raw"}
            - group2 paired -> {plan.train_root / "datasets" / "group2" / "v1"}
         3. 如果希望把生成器工作区固定在安装目录下，后续生成器命令统一带上：
            - --workspace {generator_workspace}
-        4. 训练命令在训练目录内执行：
+        4. 训练目录会自动包含：
+           - {plan.train_root / ".opencode" / "commands"}
+           - {plan.train_root / ".opencode" / "skills"}
+        5. `opencode` 路线下建议直接在训练目录启动：
+           - opencode serve --port 4096
+        6. 训练命令在训练目录内执行：
            - uv run sinan train group1 --dataset-version v1 --name firstpass
            - uv run sinan train group2 --dataset-version v1 --name firstpass
         """
@@ -200,7 +208,7 @@ def render_train_pyproject(plan: TrainingSetupPlan) -> str:
         f"""
         [project]
         name = "sinan-captcha-train"
-        version = "0.1.3"
+        version = "0.1.13"
         requires-python = ">={plan.python_version},<{int(plan.python_version.split('.')[0])}.{int(plan.python_version.split('.')[1]) + 1}"
         dependencies = [
           "{plan.package_spec}",
@@ -233,19 +241,24 @@ def render_train_readme(plan: TrainingSetupPlan) -> str:
         1. 当前目录是训练目录，不存放生成器素材。
         2. 生成器建议放到独立安装目录：{generator_root}
         3. 如果希望生成器工作区跟安装目录放在一起，建议固定为：{generator_workspace}
-        4. 训练数据放置方式：
-           - 直接拷贝 group1 YOLO 数据集到 datasets/group1/<版本>/yolo
+        4. 当前目录会自动包含：
+           - .opencode/commands
+           - .opencode/skills
+        5. 如果要启用 `auto-train --judge-provider opencode`，建议直接在当前目录执行：
+           - opencode serve --port 4096
+        6. 训练数据放置方式：
+           - 直接拷贝 group1 pipeline dataset 到 datasets/group1/<版本>
            - 直接拷贝 group2 paired dataset 到 datasets/group2/<版本>
            - 或让生成器直接输出到训练目录下的 datasets/
-        5. 生成器命令示例：
+        7. 生成器命令示例：
            - sinan-generator workspace init --workspace {generator_workspace}
            - sinan-generator materials import --workspace {generator_workspace} --from <materials-pack>
-           - sinan-generator make-dataset --workspace {generator_workspace} --task group1 --dataset-dir {plan.train_root / "datasets" / "group1" / "v1" / "yolo"}
+           - sinan-generator make-dataset --workspace {generator_workspace} --task group1 --dataset-dir {plan.train_root / "datasets" / "group1" / "v1"}
            - sinan-generator make-dataset --workspace {generator_workspace} --task group2 --dataset-dir {plan.train_root / "datasets" / "group2" / "v1"}
-        6. 训练命令示例：
+        8. 训练命令示例：
            - uv run sinan train group1 --dataset-version v1 --name firstpass
            - uv run sinan train group2 --dataset-version v1 --name firstpass
-        7. 评估命令示例：
+        9. 评估命令示例：
            - uv run sinan evaluate --task group1 --gold-dir <gold-dir> --prediction-dir <pred-dir> --report-dir reports/group1/eval
         """
     ).strip() + "\n"
@@ -260,7 +273,7 @@ def _default_package_spec() -> str:
     try:
         version = importlib.metadata.version("sinan-captcha")
     except importlib.metadata.PackageNotFoundError:
-        version = "0.1.3"
+        version = "0.1.13"
     return f"sinan-captcha[train]=={version}"
 
 

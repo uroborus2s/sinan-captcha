@@ -28,7 +28,7 @@ class SetupTrainTests(unittest.TestCase):
             train_root = Path(tmpdir) / "sinan-captcha-work"
             plan = setup_train.TrainingSetupPlan(
                 train_root=train_root,
-                package_spec="sinan-captcha[train]==0.1.3",
+                package_spec="sinan-captcha[train]==0.1.13",
                 torch_backend=setup_train.resolve_torch_backend("12.6", override="auto"),
                 cuda_version="12.6",
                 python_version="3.12",
@@ -38,12 +38,17 @@ class SetupTrainTests(unittest.TestCase):
 
             self.assertTrue((train_root / ".python-version").exists())
             pyproject = (train_root / "pyproject.toml").read_text(encoding="utf-8")
-            self.assertIn('sinan-captcha[train]==0.1.3', pyproject)
+            self.assertIn('sinan-captcha[train]==0.1.13', pyproject)
             self.assertIn('torch', pyproject)
             self.assertIn('name = "pytorch-cu126"', pyproject)
             self.assertTrue((train_root / "datasets" / "group1").exists())
             self.assertTrue((train_root / "datasets" / "group2").exists())
             self.assertTrue((train_root / "README-训练机使用说明.txt").exists())
+            self.assertTrue((train_root / ".opencode" / "commands" / "judge-trial.md").exists())
+            self.assertTrue((train_root / ".opencode" / "skills" / "training-judge" / "SKILL.md").exists())
+            readme = (train_root / "README-训练机使用说明.txt").read_text(encoding="utf-8")
+            self.assertIn(".opencode/commands", readme)
+            self.assertIn("opencode serve --port 4096", readme)
 
     def test_sync_training_root_runs_uv_install_and_sync(self) -> None:
         with tempfile.TemporaryDirectory() as tmpdir:
@@ -68,7 +73,7 @@ class SetupTrainTests(unittest.TestCase):
                         "--torch-backend",
                         "cpu",
                         "--package-spec",
-                        "sinan-captcha[train]==0.1.3",
+                        "sinan-captcha[train]==0.1.13",
                     ]
                 )
 

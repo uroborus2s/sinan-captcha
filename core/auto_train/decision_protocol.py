@@ -5,7 +5,7 @@ from __future__ import annotations
 import json
 from dataclasses import dataclass
 
-from core.auto_train import contracts
+from core.auto_train import contracts, json_extract, policies
 
 
 @dataclass(frozen=True)
@@ -25,28 +25,34 @@ def parse_or_fallback_decision(
     """Parse one judge response into a persisted decision, with deterministic fallback."""
 
     try:
-        payload = json.loads(raw_output)
-    except json.JSONDecodeError:
-        return DecisionParseOutcome(
-            record=_fallback_decision(trial_id=trial_id, agent=agent, summary=summary, reason_code="invalid_json"),
-            used_fallback=True,
-            fallback_reason="invalid_json",
+        payload = json_extract.extract_json_object_from_opencode_output(
+            raw_output,
+            required_keys={"decision", "reason", "confidence", "next_action", "evidence"},
+        )
+    except ValueError:
+        return fallback_decision(
+            trial_id=trial_id,
+            agent=agent,
+            summary=summary,
+            reason_code="invalid_json",
         )
 
     if not isinstance(payload, dict):
-        return DecisionParseOutcome(
-            record=_fallback_decision(trial_id=trial_id, agent=agent, summary=summary, reason_code="invalid_payload"),
-            used_fallback=True,
-            fallback_reason="invalid_payload",
+        return fallback_decision(
+            trial_id=trial_id,
+            agent=agent,
+            summary=summary,
+            reason_code="invalid_payload",
         )
 
     try:
         parsed = contracts.JudgeDecisionPayload.from_dict(payload)
     except ValueError:
-        return DecisionParseOutcome(
-            record=_fallback_decision(trial_id=trial_id, agent=agent, summary=summary, reason_code="invalid_payload"),
-            used_fallback=True,
-            fallback_reason="invalid_payload",
+        return fallback_decision(
+            trial_id=trial_id,
+            agent=agent,
+            summary=summary,
+            reason_code="invalid_payload",
         )
 
     return DecisionParseOutcome(
@@ -64,25 +70,52 @@ def parse_or_fallback_decision(
     )
 
 
+def fallback_decision(
+    *,
+    trial_id: str,
+    agent: contracts.AgentRef,
+    summary: contracts.ResultSummaryRecord,
+    reason_code: str,
+    extra_evidence: list[str] | None = None,
+) -> DecisionParseOutcome:
+    return DecisionParseOutcome(
+        record=_fallback_decision(
+            trial_id=trial_id,
+            agent=agent,
+            summary=summary,
+            reason_code=reason_code,
+            extra_evidence=extra_evidence,
+        ),
+        used_fallback=True,
+        fallback_reason=reason_code,
+    )
+
+
 def _fallback_decision(
     *,
     trial_id: str,
     agent: contracts.AgentRef,
     summary: contracts.ResultSummaryRecord,
     reason_code: str,
+    extra_evidence: list[str] | None = None,
 ) -> contracts.DecisionRecord:
-    decision = _fallback_action(summary)
+    recommendation = policies.evaluate_summary(summary)
+    decision = recommendation.decision
     next_action = _fallback_next_action(summary, decision)
     evidence = [
         f"fallback_reason={reason_code}",
+        f"policy_reason={recommendation.reason}",
         f"trend={summary.trend}",
     ]
+    evidence.extend(recommendation.evidence)
     if summary.weak_classes:
         evidence.append(f"weak_classes={', '.join(summary.weak_classes)}")
     if summary.failure_patterns:
         evidence.append(f"failure_patterns={', '.join(summary.failure_patterns)}")
     if summary.delta_vs_best is not None:
         evidence.append(f"delta_vs_best={summary.delta_vs_best:+.6f}")
+    if extra_evidence:
+        evidence.extend(item for item in extra_evidence if item.strip())
 
     confidence = 0.4 if reason_code == "invalid_json" else 0.45
     return contracts.DecisionRecord(
@@ -94,21 +127,6 @@ def _fallback_decision(
         evidence=evidence,
         agent=agent,
     )
-
-
-def _fallback_action(summary: contracts.ResultSummaryRecord) -> str:
-    if summary.weak_classes or summary.failure_patterns or (summary.failure_count or 0) >= 5:
-        return "REGENERATE_DATA"
-    if summary.trend == "declining" and (summary.delta_vs_best or 0.0) <= -0.05:
-        return "ABANDON_BRANCH"
-    if (
-        summary.trend == "improving"
-        and not summary.weak_classes
-        and not summary.failure_patterns
-        and (summary.failure_count in (None, 0))
-    ):
-        return "PROMOTE_BRANCH"
-    return "RETUNE"
 
 
 def _fallback_next_action(summary: contracts.ResultSummaryRecord, decision: str) -> dict[str, contracts.JsonValue]:

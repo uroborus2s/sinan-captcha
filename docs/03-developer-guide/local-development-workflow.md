@@ -4,7 +4,7 @@
 - 当前阶段：IMPLEMENTATION
 - 目标读者：会在本仓库内改代码、改文档、跑验证的维护者
 - 负责人：Codex
-- 最近更新：2026-04-04
+- 最近更新：2026-04-05
 
 ## 0. 这页解决什么问题
 
@@ -47,9 +47,10 @@
 
 例如：
 
-- `group1 dataset.yaml / group2 dataset.json` 契约变化
+- `group1 dataset.json / group2 dataset.json` 契约变化
 - 生成器交付目录变化
 - 发布交付目录变化
+- solver bundle 合同变化
 - 训练目录结构变化
 
 跨边界类一定要同时更新：
@@ -178,6 +179,16 @@ git diff --check
 - `docs/04-project-development/`
 - `.factory/memory/current-state.md`
 
+### 4.4 改 solver / bundle 集成面
+
+同步更新：
+
+- `docs/02-user-guide/use-solver-bundle.md`
+- `docs/03-developer-guide/solver-bundle-and-integration.md`
+- `docs/04-project-development/04-design/`
+- `docs/04-project-development/07-release-delivery/`
+- `.factory/memory/current-state.md`
+
 ## 5. 常用命令清单
 
 ### 5.1 Python 测试
@@ -205,7 +216,7 @@ uv run sinan release build --project-dir .
 uv run sinan release package-windows \
   --project-dir . \
   --generator-exe generator/dist/generator/windows-amd64/sinan-generator.exe \
-  --output-dir dist/windows-bundle-0.1.3
+  --output-dir dist/windows-bundle-0.1.13
 ```
 
 ### 5.5 在训练目录中做默认路径 dry-run

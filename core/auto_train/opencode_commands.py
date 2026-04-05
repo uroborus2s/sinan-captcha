@@ -15,8 +15,8 @@ class OpenCodeCommandSpec:
     required_files: tuple[str, ...]
     optional_files: tuple[str, ...]
     output_artifact: str
-    agent: str = "plan"
-    subtask: bool = True
+    skill_name: str | None = None
+    agent: str = "build"
 
     def markdown_path(self, project_root: Path) -> Path:
         return project_root / ".opencode" / "commands" / f"{self.name}.md"
@@ -33,6 +33,7 @@ def command_registry() -> "OrderedDict[str, OpenCodeCommandSpec]":
         required_files=("test.json",),
         optional_files=("evaluate.json", "best_trial.json", "recent result_summary.json"),
         output_artifact="result_summary.json",
+        skill_name="result-reader",
     )
     registry["judge-trial"] = OpenCodeCommandSpec(
         name="judge-trial",
@@ -41,6 +42,7 @@ def command_registry() -> "OrderedDict[str, OpenCodeCommandSpec]":
         required_files=("study.json", "result_summary.json"),
         optional_files=("leaderboard.json", "decisions.jsonl"),
         output_artifact="decision.json",
+        skill_name="training-judge",
     )
     registry["plan-dataset"] = OpenCodeCommandSpec(
         name="plan-dataset",
@@ -49,6 +51,7 @@ def command_registry() -> "OrderedDict[str, OpenCodeCommandSpec]":
         required_files=("result_summary.json",),
         optional_files=("leaderboard.json", "best_trial.json"),
         output_artifact="dataset_plan.json",
+        skill_name="dataset-planner",
     )
     registry["study-status"] = OpenCodeCommandSpec(
         name="study-status",
@@ -57,6 +60,7 @@ def command_registry() -> "OrderedDict[str, OpenCodeCommandSpec]":
         required_files=("study.json", "leaderboard.json"),
         optional_files=("best_trial.json", "decisions.jsonl"),
         output_artifact="study_status.json",
+        skill_name="study-archivist",
     )
     return registry
 
@@ -87,12 +91,14 @@ def build_headless_invocation(
         expected = ", ".join(spec.message_arguments)
         raise ValueError(f"{name} expects {len(spec.message_arguments)} arguments: {expected}")
 
-    command = ["opencode", "run", "--command", spec.name, "--format", "json"]
+    command = ["opencode", "run", "--format", "json", "--command", spec.name]
     if attach_url is not None:
         command.extend(["--attach", attach_url])
     if model is not None:
         command.extend(["--model", model])
     for file in files:
         command.extend(["--file", str(file)])
+    if arguments:
+        command.append("--")
     command.extend(arguments)
     return command

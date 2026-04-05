@@ -1,191 +1,107 @@
-# 使用交付包在 Windows 训练机上安装
+# 训练者角色：训练机安装
 
-- 文档状态：生效
-- 当前阶段：IMPLEMENTATION
-- 目标读者：拿到交付包、但不准备在训练机上克隆源码仓库的人
-- 负责人：Codex
-- 最近更新：2026-04-04
+这页只解决一件事：
 
-## 0. 这页解决什么问题
+- 在 Windows + NVIDIA 训练机上，把训练目录和生成器目录搭起来。
 
-这页解决的是这类场景：
+## 1. 当前推荐目录
 
-- 你拿到的是别人给你的 Windows 交付包
-- 你不想在训练机上克隆源码仓库
-- 你希望先用交付包把训练目录搭起来，再开始训练
-
-这页不负责解释完整训练主线。完整训练步骤仍看：
-
-- [Windows 快速开始](./windows-quickstart.md)
-- [Windows 训练机安装与模型训练完整指南](./from-base-model-to-training-guide.md)
-
-如果你的机器没有 `D:` 盘，把本页里的 `D:\` 统一替换成你的实际盘符。
-
-## 1. 先看清楚当前支持边界
-
-当前交付包能稳定解决的是：
-
-- 不需要源码仓库
-- 可以直接拿到 Python wheel
-- 可以直接拿到 `sinan-generator.exe`
-- 可以直接拿到可选 `datasets/`、`materials-pack/` 或 `materials-pack.zip`
-
-当前交付包还没有做到“一包完全离线解决全部 Python 依赖”。
-
-这意味着：
-
-- 如果训练机能访问 PyPI，最简单，直接用本页做
-- 如果训练机不能访问 PyPI，但能访问公司内网镜像，也可以做
-- 如果训练机完全隔离外网和内网镜像，当前版本还不能保证一条命令装齐 `torch`、`ultralytics` 等训练依赖
-
-所以这页最适合：
-
-- 有交付包
-- 至少能访问 PyPI
-  或
-- 至少能访问你们自己的 Python 包镜像
-
-## 2. 交付包里通常应该有什么
-
-典型结构如下：
+建议固定两个目录：
 
 ```text
-D:\sinan-delivery\
-  python\
-    sinan_captcha-0.1.3-py3-none-any.whl
-  generator\
-    sinan-generator.exe
-  materials-pack\
-  materials-pack.zip
-  datasets\
-  README-交付包说明.txt
+D:\
+  sinan-captcha-work\
+  sinan-captcha-generator\
 ```
 
-你至少要有：
+其中：
 
-- `python\sinan_captcha-*.whl`
+- `sinan-captcha-work`
+  - 训练目录
+  - 保存 `pyproject.toml`、`.venv/`、`.opencode/`、`datasets/`、`runs/`、`reports/`
+- `sinan-captcha-generator`
+  - 生成器安装目录
+  - 保存 `sinan-generator.exe`
+  - 可选保存 `workspace\`
 
-如果你还要在训练机本地生成数据，再加上：
+## 2. 训练机前提
 
-- `generator\sinan-generator.exe`
-- 可选 `materials-pack\`
-  或
-- 可选 `materials-pack.zip`
-  或
-- 一个可访问的素材包下载地址
+至少满足：
 
-## 3. 两种安装路径怎么选
+- Windows
+- NVIDIA 显卡
+- 已装显卡驱动
+- 已安装 `uv`
+- 能访问 PyPI 或你们自己的 Python 镜像
 
-### 3.1 路线 A：训练机能访问 PyPI
+如果你还没确认 CUDA 版本，先看：
 
-优先用这个，最简单：
+- [训练者角色：CUDA 版本检查](./how-to-check-cuda-version.md)
+
+## 3. 训练目录安装
+
+最简单的做法：
 
 ```powershell
-Set-Location D:\
 uvx --from sinan-captcha sinan env setup-train `
   --train-root D:\sinan-captcha-work `
   --generator-root D:\sinan-captcha-generator
 ```
 
-这条路线不依赖你手里的 wheel，只要能访问 PyPI 就够。
+这条命令会：
 
-### 3.2 路线 B：你要明确从交付包里的 wheel 启动
+- 创建训练目录
+- 写入训练目录自己的 `pyproject.toml`
+- 自动铺入 `.opencode/commands` 和 `.opencode/skills`
+- 安装训练环境
 
-这条路线适合：
-
-- 你已经拿到了交付包
-- 你想保证训练机用的是交付包里的 wheel
-
-直接从交付包里的 wheel 启动：
+如果你手里拿的是 wheel，也可以用 wheel 路线：
 
 ```powershell
-uvx --from D:\sinan-delivery\python\sinan_captcha-0.1.3-py3-none-any.whl sinan env setup-train `
+uvx --from D:\sinan-delivery\python\sinan_captcha-0.1.13-py3-none-any.whl sinan env setup-train `
   --train-root D:\sinan-captcha-work `
   --generator-root D:\sinan-captcha-generator `
-  --package-spec "sinan-captcha[train] @ file:///D:/sinan-delivery/python/sinan_captcha-0.1.3-py3-none-any.whl"
+  --package-spec "sinan-captcha[train] @ file:///D:/sinan-delivery/python/sinan_captcha-0.1.13-py3-none-any.whl"
 ```
 
-说明：
+## 4. 安装后立即做的检查
 
-- 这一步不需要先克隆源码仓库
-- 这一步会让训练目录自己的 `pyproject.toml` 绑定到你交付包里的 wheel
-- 但后续 `uv sync` 仍然需要去解析训练依赖
-- 如果完全没有可用包源，这一步还是会卡在依赖下载
-- 如果你们走公司内网镜像，先确认训练机能访问镜像，再执行这一步
-
-### 3.3 如果训练机当前还是 `0.1.1`，如何升级
-
-如果这台机器之前已经是 `0.1.1`，不要手工去改训练目录里的依赖版本。正式升级方式仍然是重新执行一次 `setup-train`。
-
-如果你走 PyPI 路线：
+进入训练目录：
 
 ```powershell
-uvx --from "sinan-captcha==0.1.3" sinan env setup-train `
-  --train-root D:\sinan-captcha-work `
-  --generator-root D:\sinan-captcha-generator `
-  --yes
+Set-Location D:\sinan-captcha-work
+uv run sinan env check
 ```
 
-如果你走交付包 wheel 路线：
+通过标准：
 
-```powershell
-uvx --from D:\sinan-delivery\python\sinan_captcha-0.1.3-py3-none-any.whl sinan env setup-train `
-  --train-root D:\sinan-captcha-work `
-  --generator-root D:\sinan-captcha-generator `
-  --package-spec "sinan-captcha[train] @ file:///D:/sinan-delivery/python/sinan_captcha-0.1.3-py3-none-any.whl" `
-  --yes
-```
+- 能正常输出 JSON
+- `torch_installed=true`
+- 如果要跑 GPU，最好看到 `torch_cuda_available=true`
 
-这两条命令都会：
+如果你后面要启用 `auto-train --judge-provider opencode`，此时训练目录里已经会有：
 
-- 用新版 CLI 重写训练目录里的 `pyproject.toml`
-- 重新执行 `uv sync`
-- 保留原有 `datasets\`、`runs\`、`reports\`
+- `D:\sinan-captcha-work\.opencode\commands`
+- `D:\sinan-captcha-work\.opencode\skills`
 
-所以你不需要先删除训练目录，也不需要重新拷贝训练数据。
+后续直接在训练目录启动 `opencode serve` 即可。
 
-## 4. 什么时候你其实不能按这页继续
+## 5. 下一步怎么走
 
-出现下面任一情况，就不要继续按这页硬跑：
+### 你已经有训练数据
 
-- 训练机完全不能访问 PyPI，也没有公司镜像
-- 你手里的交付包里没有 Python wheel
-- 你手里的交付包里没有 `sinan-generator.exe`，但你又要本地生成数据
+继续读：
 
-这时应该先补交付条件：
+- [训练者角色：快速开始](./windows-quickstart.md)
 
-1. 补 wheel
-2. 补生成器可执行文件
-3. 补公司镜像或离线 wheelhouse
+### 你还没有训练数据
 
-## 5. 训练目录创建完成后下一步做什么
+继续读：
 
-### 5.1 如果你已经拿到训练数据集
+- [训练者角色：使用生成器准备训练数据](./prepare-training-data-with-generator.md)
 
-直接放到：
+### 你要尝试自动化训练
 
-- `D:\sinan-captcha-work\datasets\group1\<version>\yolo`
-- `D:\sinan-captcha-work\datasets\group2\<version>`
+继续读：
 
-然后继续读：
-
-- [Windows 快速开始](./windows-quickstart.md)
-
-### 5.2 如果你还要本地生成训练数据
-
-把交付包里的生成器文件放到：
-
-- `D:\sinan-captcha-generator`
-
-然后继续读：
-
-- [用生成器准备训练数据](./prepare-training-data-with-generator.md)
-
-## 6. 这页完成标志
-
-满足下面 4 条，就说明你已经掌握“用交付包安装训练机”这条路线：
-
-1. 知道交付包里哪些文件是必须的
-2. 知道自己应该走 PyPI 路线还是交付包 wheel 路线
-3. 能成功创建 `D:\sinan-captcha-work`
-4. 知道创建完成后应跳回哪一页继续
+- [训练者角色：使用自动化训练](./auto-train-on-training-machine.md)

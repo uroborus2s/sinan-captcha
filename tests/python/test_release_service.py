@@ -47,12 +47,18 @@ class ReleaseServiceTests(unittest.TestCase):
             root = Path(tmpdir)
             dist_dir = root / "dist"
             dist_dir.mkdir()
-            wheel = dist_dir / "sinan_captcha-0.1.3-py3-none-any.whl"
+            wheel = dist_dir / "sinan_captcha-0.1.13-py3-none-any.whl"
             wheel.write_text("wheel", encoding="utf-8")
 
             generator_exe = root / "generator" / "dist" / "generator" / "windows-amd64" / "sinan-generator.exe"
             generator_exe.parent.mkdir(parents=True)
             generator_exe.write_text("exe", encoding="utf-8")
+            bundle_dir = root / "bundles" / "solver" / "current"
+            manifest_path = bundle_dir / "manifest.json"
+            model_path = bundle_dir / "models" / "group2" / "locator" / "model.pt"
+            model_path.parent.mkdir(parents=True, exist_ok=True)
+            manifest_path.write_text('{"bundle_version":"bundle_20260405"}', encoding="utf-8")
+            model_path.write_text("model", encoding="utf-8")
 
             output_dir = root / "bundle"
             package_windows_bundle(
@@ -60,12 +66,16 @@ class ReleaseServiceTests(unittest.TestCase):
                     project_dir=root,
                     generator_exe=generator_exe,
                     output_dir=output_dir,
+                    bundle_dir=bundle_dir,
                 )
             )
 
             self.assertTrue((output_dir / "python" / wheel.name).exists())
             self.assertTrue((output_dir / "generator" / "sinan-generator.exe").exists())
+            self.assertTrue((output_dir / "bundle" / "manifest.json").exists())
+            self.assertTrue((output_dir / "bundle" / "models" / "group2" / "locator" / "model.pt").exists())
             self.assertTrue((output_dir / "README-交付包说明.txt").exists())
             readme = (output_dir / "README-交付包说明.txt").read_text(encoding="utf-8")
             self.assertIn(".\\sinan-generator.exe", readme)
             self.assertIn("firstpass 预设一次生成 200 条", readme)
+            self.assertIn("bundle\\manifest.json", readme)

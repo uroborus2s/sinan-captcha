@@ -1,5 +1,1116 @@
 # 变更摘要
 
+## 2026-04-05 已发布 `sinan-captcha==0.1.13`，修复 OpenCode `--command` 调用回归并支持 JSON 事件流解析
+
+- 已更新：
+  - `core/auto_train/opencode_runtime.py`
+  - `core/auto_train/controller.py`
+  - `tests/python/test_auto_train_opencode_runtime.py`
+  - `tests/python/test_auto_train_controller.py`
+  - `docs/02-user-guide/auto-train-on-training-machine.md`
+  - `core/auto_train/json_extract.py`
+  - `core/auto_train/opencode_commands.py`
+  - `core/auto_train/decision_protocol.py`
+  - `core/auto_train/controller.py`
+  - `tests/python/test_auto_train_opencode_commands.py`
+  - `tests/python/test_auto_train_opencode_runtime.py`
+  - `tests/python/test_auto_train_json_extract.py`
+  - `tests/python/test_auto_train_decision_protocol.py`
+  - `.opencode/commands/result-read.md`
+  - `.opencode/commands/judge-trial.md`
+  - `.opencode/commands/plan-dataset.md`
+  - `.opencode/commands/study-status.md`
+  - `core/auto_train/resources/opencode/commands/result-read.md`
+  - `core/auto_train/resources/opencode/commands/judge-trial.md`
+  - `core/auto_train/resources/opencode/commands/plan-dataset.md`
+  - `core/auto_train/resources/opencode/commands/study-status.md`
+  - `core/auto_train/summary.py`
+  - `tests/python/test_auto_train_summary.py`
+  - `docs/02-user-guide/auto-train-on-training-machine.md`
+  - `pyproject.toml`
+  - `core/__init__.py`
+  - `core/ops/setup_train.py`
+  - `uv.lock`
+  - `tests/python/test_setup_train.py`
+  - `tests/python/test_release_service.py`
+  - `docs/02-user-guide/windows-bundle-install.md`
+  - `docs/02-user-guide/assets/setup-train-terminal.svg`
+  - `docs/03-developer-guide/local-development-workflow.md`
+  - `docs/03-developer-guide/release-and-delivery-workflow.md`
+  - `.factory/memory/current-state.md`
+  - `.factory/memory/change-summary.md`
+- 当前已完成的目标：
+  - 已修复 Windows 训练机上 `subprocess.run(..., text=True)` 使用系统默认编码读取 OpenCode 输出时触发的 `UnicodeDecodeError: 'gbk' codec can't decode byte ...`
+  - OpenCode runtime 当前会显式使用 `encoding='utf-8', errors='replace'`
+  - 已修复 trace 记录在 `stdout` 或 `stderr` 为 `None` 时调用 `.strip()` 触发的二次崩溃
+  - 已把 OpenCode 默认超时从 `60` 秒提升到 `300` 秒
+  - 超时错误当前会明确提示增加 `--opencode-timeout-seconds`
+  - 已修复 `SUMMARIZE` 阶段当 `primary_score=None` 且 `best_primary_score` 存在时，证据拼接执行 `None - float` 的崩溃
+  - `summary.py` 当前只会在当前分数和对比分数都存在时输出 `delta_vs_previous` / `delta_vs_best`
+  - 已修复 OpenCode headless 调用把位置参数误并入 `--file` 解析的问题
+  - `opencode run` 当前会在附带文件参数和 `study_name/task/trial_id` 之间显式插入 `--`
+  - 已修复 OpenCode headless 调用误把 `--format json` 原始事件流当成最终 JSON 输出的问题
+  - 已修复 OpenCode custom command 使用 `agent: plan` + `subtask: true` 导致模型进入 Plan Mode 而不返回最终 JSON 的问题
+  - OpenCode commands 当前已切到 `agent: build`，并移除 `subtask: true`
+  - 自动训练当前会从 markdown fenced JSON 或带少量前后文字的输出中提取最终对象，减少无意义 fallback
+  - 训练机用户指南中的 `study-status` / `judge-trial` 手工排错命令当前已移除 `--format json`
+  - Python 包版本当前已提升到 `0.1.13`
+  - 训练目录初始化默认包规格当前已切到 `sinan-captcha[train]==0.1.13`
+- 已运行验证：
+  - `./.venv/bin/python -m unittest tests.python.test_auto_train_json_extract tests.python.test_auto_train_decision_protocol tests.python.test_auto_train_opencode_commands tests.python.test_auto_train_opencode_runtime`
+  - `./.venv/bin/python -m unittest tests.python.test_auto_train_controller tests.python.test_root_cli`
+  - `./.venv/bin/python -m unittest tests.python.test_auto_train_opencode_commands tests.python.test_auto_train_opencode_runtime`
+  - `./.venv/bin/python -m unittest tests.python.test_auto_train_controller tests.python.test_root_cli`
+  - `./.venv/bin/python -m unittest tests.python.test_auto_train_summary`
+  - `./.venv/bin/python -m unittest tests.python.test_auto_train_controller tests.python.test_auto_train_opencode_runtime tests.python.test_auto_train_runners`
+  - `git diff --check`
+  - `uvx --from docs-stratego docs-stratego source validate --repo-path .`
+
+## 2026-04-05 发布 `sinan-captcha==0.1.7` 并补齐训练机 OpenCode 排错命令
+
+- 已更新：
+  - `pyproject.toml`
+  - `core/__init__.py`
+  - `core/ops/setup_train.py`
+  - `uv.lock`
+  - `tests/python/test_setup_train.py`
+  - `tests/python/test_release_service.py`
+  - `docs/02-user-guide/auto-train-on-training-machine.md`
+  - `docs/02-user-guide/windows-bundle-install.md`
+  - `docs/02-user-guide/assets/setup-train-terminal.svg`
+  - `docs/03-developer-guide/local-development-workflow.md`
+  - `docs/03-developer-guide/release-and-delivery-workflow.md`
+  - `.factory/memory/current-state.md`
+  - `.factory/memory/change-summary.md`
+- 当前已完成的目标：
+  - Python 包版本当前已提升到 `0.1.7`
+  - `uv publish` 已成功把 `sinan_captcha-0.1.7-py3-none-any.whl` 和 `sinan_captcha-0.1.7.tar.gz` 上传到 PyPI
+  - 训练目录初始化默认包规格当前已切到 `sinan-captcha[train]==0.1.7`
+  - 训练机用户指南当前已补齐 `opencode` 命令存在性检查、`study-status` 自检命令和 `judge-trial` 自检命令
+- 已运行验证：
+  - `./.venv/bin/python -m unittest tests.python.test_setup_train tests.python.test_release_service tests.python.test_auto_train_opencode_runtime tests.python.test_auto_train_controller`
+  - `git diff --check`
+  - `uv build`
+  - `uv publish --publish-url https://upload.pypi.org/legacy/ --check-url https://pypi.org/simple dist/sinan_captcha-0.1.7-py3-none-any.whl dist/sinan_captcha-0.1.7.tar.gz`
+  - `uvx --from docs-stratego docs-stratego source validate --repo-path .`
+
+## 2026-04-05 增强 auto-train 对 OpenCode 交互的终端与日志可观测性
+
+- 已更新：
+  - `core/auto_train/opencode_runtime.py`
+  - `core/auto_train/controller.py`
+  - `core/auto_train/layout.py`
+  - `core/auto_train/storage.py`
+  - `tests/python/test_auto_train_opencode_runtime.py`
+  - `tests/python/test_auto_train_controller.py`
+  - `docs/02-user-guide/auto-train-on-training-machine.md`
+  - `.factory/memory/current-state.md`
+  - `.factory/memory/change-summary.md`
+- 当前已完成的目标：
+  - 默认 OpenCode runtime 当前会为每次 `result-read` / `judge-trial` / `plan-dataset` / `study-status` 调用生成结构化 trace
+  - trace 当前会记录 `.opencode/commands/*.md` 文本、调用参数、附带文件内容预览、原始 `stdout/stderr`、返回码和错误信息
+  - controller 当前会把 trace 同时打印到终端并写入 `studies/<task>/<study>/opencode.log`
+  - trial 级和 study 级 trace 当前会分别落到 `trials/<trial_id>/opencode/*.json` 与 `opencode/*.json`
+  - 训练者文档当前已明确如何在训练机上查看这些 trace，以确认 OpenCode 如何判断和如何给出数据计划
+- 已运行验证：
+  - `./.venv/bin/python -m unittest tests.python.test_auto_train_opencode_runtime tests.python.test_auto_train_controller tests.python.test_root_cli tests.python.test_auto_train_runners`
+  - `git diff --check`
+  - `uvx --from docs-stratego docs-stratego source validate --repo-path .`
+
+## 2026-04-05 按方案 B 重构 materials schema，彻底分离 `group1` 图标池与 `group2` 缺口形状池
+
+- 已更新：
+  - `generator/internal/material/catalog.go`
+  - `generator/internal/material/validate.go`
+  - `generator/internal/material/validate_test.go`
+  - `generator/internal/materialset/store.go`
+  - `generator/internal/materialset/store_test.go`
+  - `generator/internal/app/make_dataset.go`
+  - `generator/internal/app/make_dataset_test.go`
+  - `generator/internal/sampler/sample.go`
+  - `generator/internal/slide/slide.go`
+  - `generator/internal/slide/slide_test.go`
+  - `generator/internal/qa/check_test.go`
+  - `core/materials/service.py`
+  - `tests/python/test_materials_service.py`
+  - `configs/materials-pack.toml`
+  - `configs/materials-pack.example.toml`
+  - `docs/02-user-guide/prepare-training-data-with-generator.md`
+  - `docs/03-developer-guide/repository-structure-and-boundaries.md`
+  - `docs/04-project-development/04-design/module-structure-and-delivery.md`
+  - `docs/04-project-development/05-development-process/generator-task-breakdown.md`
+  - `.factory/memory/current-state.md`
+  - `.factory/memory/change-summary.md`
+- 已删除：
+  - `generator/internal/material/scaffold.go`
+  - `generator/internal/material/scaffold_test.go`
+- 当前已完成的目标：
+  - Go generator 当前只接受 `schema_version: 2` 的 materials pack
+  - `group1` 当前只读取 `group1/icons/` 和 `group1.classes.yaml`
+  - `group2` 当前只读取 `group2/shapes/` 和 `group2.shapes.yaml`
+  - Python materials builder 当前会直接产出 `materials.yaml`、`group1.classes.yaml`、`group2.shapes.yaml`、`group1.icons.csv`、`group2.shapes.csv`
+  - 旧的共享 `icons/ + classes.yaml` 契约和无用 scaffold 代码已完全移除
+- 已运行验证：
+  - `GOCACHE=/tmp/go-cache go test ./...`（`generator/` 子模块）
+  - `./.venv/bin/python -m unittest tests.python.test_materials_service`
+  - `git diff --check`
+
+## 2026-04-05 修正 materials 重构后的 task-scoped 校验与迁移说明
+
+- 已更新：
+  - `generator/internal/material/validate.go`
+  - `generator/internal/material/validate_test.go`
+  - `generator/internal/materialset/store.go`
+  - `generator/internal/materialset/store_test.go`
+  - `generator/internal/app/make_dataset.go`
+  - `generator/internal/app/make_dataset_test.go`
+  - `generator/cmd/sinan-generator/main.go`
+  - `generator/cmd/sinan-generator/main_test.go`
+  - `docs/02-user-guide/prepare-training-data-with-generator.md`
+  - `docs/02-user-guide/auto-train-on-training-machine.md`
+  - `.factory/memory/current-state.md`
+  - `.factory/memory/change-summary.md`
+- 当前已完成的目标：
+  - 保留 `materials import/fetch` 默认全量校验语义
+  - 新增 `ValidateForTask(...)` 供 `make-dataset` 与自动训练的建数阶段按任务校验
+  - `materials import/fetch` 当前已支持 `--task group1|group2`，可导入单任务素材包
+  - zip 包导入时的 materials root 探测当前已支持单任务 pack
+  - 用户文档当前已补齐旧 materials 包向新目录结构的迁移说明
+- 已运行验证：
+  - `GOCACHE=/tmp/go-build go test ./internal/material ./internal/materialset ./internal/app ./cmd/sinan-generator`
+
+## 2026-04-05 准备训练 CLI 新版本发布
+
+- 已更新：
+  - `pyproject.toml`
+  - `core/__init__.py`
+  - `core/ops/setup_train.py`
+  - `tests/python/test_setup_train.py`
+  - `tests/python/test_release_service.py`
+  - `docs/02-user-guide/windows-bundle-install.md`
+  - `docs/03-developer-guide/local-development-workflow.md`
+  - `docs/03-developer-guide/release-and-delivery-workflow.md`
+- 当前已完成的目标：
+  - 根 Python 包版本当前已从 `0.1.3` 提升到 `0.1.5`
+  - 训练目录初始化默认包规格当前已切到 `sinan-captcha[train]==0.1.5`
+  - 发布与安装文档中的 wheel 文件名当前已同步到 `0.1.5`
+
+## 2026-04-05 修复 auto-train 恢复 study 时误跳过建数的问题
+
+- 已更新：
+  - `core/auto_train/controller.py`
+  - `tests/python/test_auto_train_controller.py`
+  - `.factory/memory/current-state.md`
+  - `.factory/memory/change-summary.md`
+- 当前已完成的目标：
+  - 当 trial 工件里已有 `dataset.json` 但训练目录中的真实 dataset config 已缺失时，控制器当前会把恢复阶段从 `TRAIN/TEST` 回退到 `BUILD_DATASET`
+  - `BUILD_DATASET` 当前会校验真实 dataset config，而不是仅凭目录存在就判定为可用
+  - 当目录存在但数据集不完整时，当前会以 `force=True` 重新调用生成器覆盖重建
+- 已运行验证：
+  - `./.venv/bin/python -m unittest tests.python.test_auto_train_controller tests.python.test_auto_train_runners tests.python.test_root_cli`
+
+## 2026-04-05 修复 auto-train 在 Windows 训练机上找不到生成器命令的问题
+
+- 已更新：
+  - `core/auto_train/controller.py`
+  - `core/auto_train/cli.py`
+  - `tests/python/test_auto_train_controller.py`
+  - `docs/02-user-guide/auto-train-on-training-machine.md`
+  - `pyproject.toml`
+  - `core/__init__.py`
+  - `core/ops/setup_train.py`
+  - `tests/python/test_setup_train.py`
+  - `tests/python/test_release_service.py`
+  - `docs/02-user-guide/windows-bundle-install.md`
+  - `docs/02-user-guide/assets/setup-train-terminal.svg`
+  - `docs/03-developer-guide/local-development-workflow.md`
+  - `docs/03-developer-guide/release-and-delivery-workflow.md`
+  - `uv.lock`
+  - `.factory/memory/current-state.md`
+  - `.factory/memory/change-summary.md`
+- 当前已完成的目标：
+  - `auto-train` 当前已支持 `--generator-executable`
+  - `BUILD_DATASET` 当前会把该路径透传给 dataset runner
+  - Windows 默认生成器命令名当前已切到 `sinan-generator.exe`
+  - 文档当前已明确建议在训练机上显式传完整 exe 路径
+  - Python 包版本当前已提升到 `0.1.6`
+- 已运行验证：
+  - `./.venv/bin/python -m unittest tests.python.test_auto_train_controller tests.python.test_auto_train_runners tests.python.test_root_cli`
+
+## 2026-04-05 将 OpenCode 训练机部署默认切到 `train_root`
+
+- 已更新：
+  - `core/auto_train/opencode_assets.py`
+  - `core/auto_train/resources/opencode/commands/*.md`
+  - `core/auto_train/resources/opencode/skills/*/SKILL.md`
+  - `core/ops/setup_train.py`
+  - `core/auto_train/controller.py`
+  - `pyproject.toml`
+  - `tests/python/test_setup_train.py`
+  - `tests/python/test_auto_train_controller.py`
+  - `docs/02-user-guide/windows-bundle-install.md`
+  - `docs/02-user-guide/windows-quickstart.md`
+  - `docs/02-user-guide/auto-train-on-training-machine.md`
+  - `docs/02-user-guide/user-guide.md`
+  - `README.md`
+  - `.factory/memory/current-state.md`
+  - `.factory/memory/change-summary.md`
+- 当前已完成的目标：
+  - `env setup-train` 现在会自动把 `.opencode/commands` 和 `.opencode/skills` 复制到训练目录
+  - `auto-train` 现在默认把 `train_root` 当成 OpenCode `project_root`
+  - 训练者现在可以直接在 `sinan-captcha-work` 内执行 `opencode serve`
+  - Python 包现在会随发行物分发 `core.auto_train.resources/opencode/**`，为训练目录初始化提供资产来源
+- 已运行验证：
+  - `./.venv/bin/python -m unittest tests.python.test_setup_train tests.python.test_auto_train_controller tests.python.test_auto_train_opencode_runtime`
+
+## 2026-04-05 优化 `auto-train-on-training-machine` 的训练机搭建说明
+
+- 已更新：
+  - `docs/02-user-guide/auto-train-on-training-machine.md`
+  - `docs/02-user-guide/user-guide.md`
+  - `.factory/memory/current-state.md`
+  - `.factory/memory/change-summary.md`
+- 当前已完成的目标：
+  - 已把自动训练文档明确拆成 `rules` 与 `opencode` 两条训练机部署路线
+  - 已明确 `rules` 路线不需要大模型，也不需要 `opencode`
+  - 已明确 `.opencode/commands/` 与 `.opencode/skills/` 当前不是单独安装到训练机的 pip 包
+  - 当时的控制目录部署建议已被后续的“训练目录内置 `.opencode`”方案替代
+- 已运行验证：
+  - `git diff --check`
+  - `uvx --from docs-stratego docs-stratego source validate --repo-path .`
+
+## 2026-04-05 修正 `02-user-guide` 的 4 个使用者视角问题
+
+- 已更新：
+  - `docs/02-user-guide/use-solver-bundle.md`
+  - `docs/02-user-guide/application-integration.md`
+  - `docs/02-user-guide/prepare-training-data-with-generator.md`
+  - `docs/02-user-guide/auto-train-on-training-machine.md`
+  - `docs/02-user-guide/index.md`
+  - `docs/02-user-guide/use-build-artifacts.md`
+  - `.factory/memory/current-state.md`
+  - `.factory/memory/change-summary.md`
+- 当前已完成的目标：
+  - 已把 `use-solver-bundle` 改成纯安装与公开调用面说明，不再夹带交付状态与实现进度
+  - 已把 `application-integration` 改成库调用手册，补齐函数参数、返回值、异常和接入样例
+  - 已把 `prepare-training-data-with-generator` 补成可执行操作文档，明确素材结构、放置目录、导入/下载方式、`make-dataset` 参数与 `override-file` 字段语义
+  - 已把 `auto-train-on-training-machine` 改成训练机操作页，补齐启动命令、预算参数、恢复方式、停止方式和 study 工件阅读顺序
+- 已运行验证：
+  - `git diff --check`
+
+## 2026-04-05 修复 `auto-train` 的 3 个关键闭环缺口
+
+- 已更新：
+  - `core/auto_train/contracts.py`
+  - `core/auto_train/controller.py`
+  - `core/auto_train/stop_rules.py`
+  - `tests/python/test_auto_train_controller.py`
+  - `tests/python/test_auto_train_state_machine.py`
+  - `docs/02-user-guide/index.md`
+  - `docs/02-user-guide/user-guide.md`
+  - `docs/02-user-guide/auto-train-on-training-machine.md`
+  - `.factory/memory/current-state.md`
+  - `.factory/memory/change-summary.md`
+- 当前已完成的目标：
+  - `EVALUATE` 现在会自动接上 `TEST` 产物生成的 `_gold/labels.jsonl` 和预测目录
+  - `max_hours` 现在会基于 study `started_at` 形成真实计时停止规则
+  - `max_new_datasets` 现在会在需要继续 `new_version` 时阻止超预算再生数据
+  - `02-user-guide` 中关于 `auto-train` 的公开结论已同步到最新事实
+- 当前判断：
+  - `auto-train` 已达到“训练机可开始受控自动训练”的程度
+  - 当前仍不应宣称为“Windows 训练机无人值守正式入口”
+- 已运行验证：
+  - `./.venv/bin/python -m unittest tests.python.test_auto_train_controller tests.python.test_auto_train_state_machine`
+  - `./.venv/bin/python -m unittest tests.python.test_auto_train_contracts tests.python.test_auto_train_runners tests.python.test_auto_train_controller tests.python.test_auto_train_state_machine tests.python.test_auto_train_optimize tests.python.test_auto_train_optuna_runtime tests.python.test_auto_train_policies tests.python.test_auto_train_opencode_runtime`
+
+## 2026-04-05 完成训练产线审核并重构 `02-user-guide` 角色结构
+
+- 已新增：
+  - `docs/02-user-guide/application-integration.md`
+  - `docs/02-user-guide/auto-train-on-training-machine.md`
+- 已更新：
+  - `docs/02-user-guide/index.md`
+  - `docs/02-user-guide/user-guide.md`
+  - `docs/02-user-guide/use-solver-bundle.md`
+  - `docs/02-user-guide/windows-bundle-install.md`
+  - `docs/02-user-guide/windows-quickstart.md`
+  - `docs/02-user-guide/prepare-training-data-with-generator.md`
+  - `docs/02-user-guide/from-base-model-to-training-guide.md`
+  - `docs/02-user-guide/use-and-test-trained-models.md`
+  - `docs/02-user-guide/use-build-artifacts.md`
+  - `docs/index.md`
+  - `docs/01-getting-started/index.md`
+  - `README.md`
+  - `.factory/memory/current-state.md`
+  - `.factory/memory/change-summary.md`
+- 当前已完成的目标：
+  - 已按“使用者角色 / 训练者角色”重排公开用户文档入口
+  - 已把生成器 CLI、手动训练 CLI、自动化训练 CLI 的审核结论写入公开总览页
+  - 已为业务方补齐“在自己的应用里接入并做业务测试”的专页
+  - 已为训练者补齐“训练机安装 / 生成器 / 训练器 / 自动化训练 / 训练后验收”的角色化阅读路径
+- 当前审核结论：
+  - `sinan-generator`：训练数据准备主线可用
+  - `sinan` 手动训练主线：可用
+  - `auto-train`：可做受控 study，但还不是“全部完成”的无人值守正式入口
+- 已运行验证：
+  - `./.venv/bin/python -m unittest tests.python.test_root_cli tests.python.test_training_jobs tests.python.test_auto_train_contracts tests.python.test_auto_train_runners tests.python.test_auto_train_controller tests.python.test_auto_train_optimize tests.python.test_auto_train_optuna_runtime tests.python.test_auto_train_policies tests.python.test_auto_train_opencode_runtime`
+  - `GOCACHE=/tmp/go-build go test ./cmd/sinan-generator ./internal/app ./internal/config ./internal/dataset ./internal/materialset ./internal/render ./internal/truth ./internal/qa`
+
+## 2026-04-05 启动 `TASK-SOLVER-MIG-008`，落地 group2 ONNX 导出与原生桥接合同
+
+- 已新增：
+  - `core/release/solver_export.py`
+  - `tests/python/test_solver_asset_export_group2.py`
+  - `tests/python/test_release_cli.py`
+  - `solver_package/tests/test_group2_service.py`
+- 已更新：
+  - `core/release/__init__.py`
+  - `core/release/cli.py`
+  - `core/release/service.py`
+  - `solver_package/src/sinanz/native_bridge.py`
+  - `solver_package/src/sinanz/group2/service.py`
+  - `solver_package/native/sinanz_ext/Cargo.toml`
+  - `solver_package/native/sinanz_ext/src/bridge.rs`
+  - `solver_package/native/sinanz_ext/src/lib.rs`
+  - `solver_package/tests/test_native_bridge.py`
+  - `solver_package/tests/test_native_project_layout.py`
+  - `solver_package/tests/test_public_api.py`
+  - `docs/04-project-development/04-design/solver-asset-export-contract.md`
+  - `docs/04-project-development/04-design/api-design.md`
+  - `docs/04-project-development/04-design/module-structure-and-delivery.md`
+  - `solver_package/README.md`
+  - `.factory/memory/current-state.md`
+  - `.factory/memory/change-summary.md`
+- 当前已完成的目标：
+  - 训练仓库已具备 `group2` 专项的 `export-solver-assets` 命令和导出服务
+  - `manifest / metadata / export_report` 已能围绕 `slider_gap_locator.onnx` 真正落盘
+  - `sinanz` 的滑块求解面已从 `.pt + PyTorch runtime` 切到 `.onnx + native_bridge` 契约
+  - Rust crate 的阶段元数据已升级为 `group2-onnx-bridge`
+- 当前仍未完成的实现：
+  - `sinanz_ext` 还没有真正接入 `pyo3 + ONNX Runtime`
+  - `group1` 资产仍未导出，相关 metadata 目前是占位文件
+  - 平台相关 wheel 与原生扩展打包仍在 `TASK-SOLVER-MIG-011`
+- 已运行验证：
+  - `./.venv/bin/python -m unittest tests.python.test_release_service tests.python.test_release_cli tests.python.test_solver_asset_contract tests.python.test_solver_asset_export_group2`
+  - `PYTHONPATH=solver_package/src ./.venv/bin/python -m unittest discover -s solver_package/tests -p 'test_*.py'`
+  - `cargo test --manifest-path solver_package/native/sinanz_ext/Cargo.toml`
+  - `git diff --check`
+
+## 2026-04-05 完成 `TASK-SOLVER-MIG-007`，固定 Rust 原生扩展工程边界
+
+- 已新增：
+  - `solver_package/src/sinanz/native_bridge.py`
+  - `solver_package/tests/test_native_bridge.py`
+  - `solver_package/tests/test_native_project_layout.py`
+  - `solver_package/native/sinanz_ext/src/bridge.rs`
+  - `solver_package/native/sinanz_ext/src/runtime.rs`
+  - `solver_package/native/sinanz_ext/src/error.rs`
+- 已更新：
+  - `solver_package/src/sinanz/__init__.py`
+  - `solver_package/src/sinanz/group2/service.py`
+  - `solver_package/pyproject.toml`
+  - `solver_package/Cargo.toml`
+  - `solver_package/README.md`
+  - `solver_package/native/README.md`
+  - `solver_package/native/sinanz_ext/Cargo.toml`
+  - `solver_package/native/sinanz_ext/README.md`
+  - `solver_package/native/sinanz_ext/src/lib.rs`
+  - `solver_package/src/sinanz/resources/models/README.md`
+  - `solver_package/src/sinanz/resources/metadata/README.md`
+  - `docs/04-project-development/04-design/module-structure-and-delivery.md`
+  - `.factory/memory/current-state.md`
+  - `.factory/memory/change-summary.md`
+- 当前已完成的目标：
+  - Python 侧已有稳定的 `native_bridge` 占位和运行时元数据读取面
+  - Cargo workspace 与 crate metadata 已固定 `native_module`、`bridge_module`、`runtime_target` 和 future feature 名称
+  - Rust crate 内部模块边界已拆开，为后续 `pyo3 + ort` 接线预留明确位置
+- 当前仍未完成的实现：
+  - Rust 扩展仍未接入 `pyo3`
+  - ONNX Runtime 仍未接入 Rust crate
+  - Python 构建后端仍未把原生扩展打进 wheel
+- 已运行验证：
+  - `PYTHONPATH=solver_package/src ./.venv/bin/python -m unittest discover -s solver_package/tests -p 'test_*.py'`
+  - `cargo test --manifest-path solver_package/native/sinanz_ext/Cargo.toml`
+  - `uv build --directory solver_package`
+  - `uvx --from docs-stratego docs-stratego source validate --repo-path .`
+  - `git diff --check`
+
+## 2026-04-05 完成 `TASK-SOLVER-MIG-006`，冻结 `PT -> ONNX` 导出合同
+
+- 已新增：
+  - `docs/04-project-development/04-design/solver-asset-export-contract.md`
+  - `core/release/solver_asset_contract.py`
+  - `tests/python/test_solver_asset_contract.py`
+- 已更新：
+  - `core/release/__init__.py`
+  - `docs/index.md`
+  - `docs/04-project-development/04-design/index.md`
+  - `docs/04-project-development/04-design/api-design.md`
+  - `docs/04-project-development/05-development-process/standalone-solver-migration-task-breakdown.md`
+  - `docs/03-developer-guide/solver-bundle-and-integration.md`
+  - `.factory/memory/current-state.md`
+  - `.factory/memory/project-index.md`
+  - `.factory/memory/design-assets.summary.md`
+  - `.factory/memory/tech-stack.summary.md`
+  - `.factory/memory/change-summary.md`
+- 当前已完成的目标：
+  - ONNX 文件名与相对路径规则已冻结
+  - `manifest.json` 顶层字段、模型字段和 `metadata_files` 已冻结
+  - per-model metadata 与 `export_report.json` 字段已冻结
+  - 仓库内已有可执行的 Python 契约事实源，后续导出实现可直接复用
+- 当前仍未完成的实现：
+  - `export-solver-assets` 命令仍未落地
+  - 真实 `PT -> ONNX` 导出还没接到训练链路
+  - Rust 扩展还没开始消费这套导出资产
+- 已运行验证：
+  - `./.venv/bin/python -m unittest tests.python.test_solver_asset_contract tests.python.test_release_service`
+  - `uvx --from docs-stratego docs-stratego source validate --repo-path .`
+  - `git diff --check`
+
+## 2026-04-05 冻结 `sinanz` 的 ONNX + Rust 路线，并收口公开方法名
+
+- 已新增：
+  - `solver_package/Cargo.toml`
+  - `solver_package/native/README.md`
+  - `solver_package/native/sinanz_ext/Cargo.toml`
+  - `solver_package/native/sinanz_ext/README.md`
+  - `solver_package/native/sinanz_ext/src/lib.rs`
+- 已更新：
+  - `solver_package/pyproject.toml`
+  - `solver_package/README.md`
+  - `solver_package/src/sinanz/api.py`
+  - `solver_package/src/sinanz/__init__.py`
+  - `solver_package/tests/test_public_api.py`
+  - `docs/04-project-development/04-design/api-design.md`
+  - `docs/04-project-development/04-design/technical-selection.md`
+  - `docs/04-project-development/04-design/system-architecture.md`
+  - `docs/04-project-development/04-design/module-boundaries.md`
+  - `docs/04-project-development/04-design/module-structure-and-delivery.md`
+  - `docs/04-project-development/05-development-process/standalone-solver-migration-task-breakdown.md`
+  - `docs/03-developer-guide/solver-bundle-and-integration.md`
+  - `.factory/project.json`
+  - `.factory/memory/project-index.md`
+  - `.factory/memory/current-state.md`
+  - `.factory/memory/change-summary.md`
+- 当前已完成的目标：
+  - 独立 solver 的公开函数名已收口为 `sn_match_slider(...)` 和 `sn_match_targets(...)`
+  - 设计基线已从“Python 包 + 外置 bundle”切到“平台 wheel + embedded ONNX assets + Rust native extension”
+  - 独立 solver 迁移任务已重排为 `TASK-SOLVER-MIG-001` 到 `TASK-SOLVER-MIG-012`
+  - 已在 `solver_package/` 下新增可被 Cargo 识别的 Rust 原生扩展骨架
+- 当前仍未完成的实现：
+  - `pyo3 + ONNX Runtime` 尚未接入 Rust 扩展
+  - `sn_match_targets(...)` 仍处于占位阶段
+  - `group2` 当前运行时仍是 Python/PyTorch 过渡实现，不是最终 ONNX 路线
+  - `uv build --directory solver_package` 当前仍输出 `py3-none-any` wheel，Rust 扩展尚未接入打包后端
+- 已运行验证：
+  - `PYTHONPATH=solver_package/src ./.venv/bin/python -m unittest solver_package.tests.test_public_api solver_package.tests.test_group2_runtime`
+  - `cargo test --manifest-path solver_package/native/sinanz_ext/Cargo.toml`
+  - `uv build --directory solver_package`
+  - `uvx --from docs-stratego docs-stratego source validate --repo-path .`
+  - `git diff --check`
+
+## 2026-04-05 完成 `TASK-SOLVER-MIG-005` 并将独立包名改为 `sinanz`
+
+- 已新增：
+  - `core/solve/group2_runtime.py`
+  - `solver_package/src/sinanz/group2/runtime.py`
+  - `solver_package/src/sinanz/group2/service.py`
+  - `tests/python/test_solve_group2_runtime.py`
+  - `solver_package/tests/test_group2_runtime.py`
+- 已更新：
+  - `solver_package/pyproject.toml`
+  - `solver_package/README.md`
+  - `solver_package/uv.lock`
+  - `solver_package/tests/test_public_api.py`
+  - `core/solve/service.py`
+  - `tests/python/test_solve_service.py`
+  - `docs/03-developer-guide/solver-bundle-and-integration.md`
+  - `docs/04-project-development/04-design/api-design.md`
+  - `docs/04-project-development/04-design/module-structure-and-delivery.md`
+  - `docs/04-project-development/05-development-process/standalone-solver-migration-task-breakdown.md`
+  - `.factory/project.json`
+  - `.factory/memory/project-index.md`
+  - `.factory/memory/current-state.md`
+  - `.factory/memory/change-summary.md`
+- 当前已完成的目标：
+  - 独立 solver 的公开包名与导入名统一收口为 `sinanz`
+  - 训练仓库 solver 的 group2 运行时已从训练 runner 私有函数中抽离
+  - `sinanz` 的滑块入口已接入真实 runtime 与资产解析层
+- 当前 `sinanz` 的 group2 行为：
+  - 默认查找内嵌 `slider_gap_locator.pt`
+  - 若内嵌资产缺失，则显式抛出 `SolverAssetError`
+  - 支持通过 `asset_root` 覆盖模型资产目录
+- 已运行验证：
+  - `PYTHONPATH=solver_package/src ./.venv/bin/python -m unittest discover -s solver_package/tests -p 'test_*.py'`
+  - `./.venv/bin/python -m unittest tests.python.test_solve_service tests.python.test_solve_group2_runtime`
+  - `uv build --directory solver_package`
+
+## 2026-04-05 完成 `TASK-SOLVER-MIG-004` 独立子项目骨架
+
+- 已新增：
+  - `solver_package/pyproject.toml`
+  - `solver_package/README.md`
+  - `solver_package/src/sinanz/__init__.py`
+  - `solver_package/src/sinanz/api.py`
+  - `solver_package/src/sinanz/errors.py`
+  - `solver_package/src/sinanz/types.py`
+  - `solver_package/src/sinanz/image_io.py`
+  - `solver_package/src/sinanz/resources/__init__.py`
+  - `solver_package/src/sinanz/resources/models/README.md`
+  - `solver_package/src/sinanz/resources/metadata/README.md`
+  - `solver_package/src/sinanz/group1/__init__.py`
+  - `solver_package/src/sinanz/group2/__init__.py`
+  - `solver_package/src/sinanz/py.typed`
+  - `solver_package/tests/test_public_api.py`
+- 已更新：
+  - `.factory/memory/current-state.md`
+  - `.factory/memory/change-summary.md`
+- 当前已完成的任务目标：
+  - 在当前仓库内建立 `solver_package/` 独立 Python 子项目
+  - 固定独立 `pyproject.toml`、`src/` 布局、测试入口和资源目录规则
+  - 暴露业务语义导向的最小公开 API 名称
+- 当前公开 API 仍是占位运行时：
+  - 会显式抛出 `SolverRuntimeError`
+  - 提示继续完成 `TASK-SOLVER-MIG-005/006/007`
+- 已运行验证：
+  - `uv build --directory solver_package`
+  - `PYTHONPATH=solver_package/src ./.venv/bin/python -m unittest discover -s solver_package/tests -p 'test_*.py'`
+
+## 2026-04-05 冻结独立 solver 迁移任务与设计边界
+
+- 已新增：
+  - `docs/04-project-development/05-development-process/standalone-solver-migration-task-breakdown.md`
+- 已更新：
+  - `docs/04-project-development/04-design/api-design.md`
+  - `docs/04-project-development/04-design/module-structure-and-delivery.md`
+  - `docs/03-developer-guide/solver-bundle-and-integration.md`
+  - `docs/04-project-development/05-development-process/index.md`
+  - `docs/index.md`
+  - `.factory/memory/current-state.md`
+  - `.factory/memory/project-index.md`
+  - `.factory/project.json`
+  - `.factory/memory/change-summary.md`
+- 当前已把 solver 的最终交付目标从“训练仓库里的 CLI + 外置 bundle”重新冻结为：
+  - 独立 PyPI 项目 `sinanz`
+  - 见名知义的业务函数 API
+  - 默认内嵌推理资产
+- 当前已把现有 `core/solve`、`bundle` 和 `sinan solve` 重新定义为迁移期参考实现与内部交接能力
+- 当前已把独立 solver 迁移拆成 `TASK-SOLVER-MIG-001` 到 `TASK-SOLVER-MIG-009`
+- 本轮没有修改业务代码；下一步应按任务拆解先从边界冻结、子项目骨架和推理资产导出链路开始实施
+
+## 2026-04-05 落地 auto-train 第二阶段最小数据控制面
+
+- 已新增：
+  - `generator/internal/config/override.go`
+- 已更新：
+  - `core/auto_train/contracts.py`
+  - `core/auto_train/controller.py`
+  - `core/auto_train/dataset_plan.py`
+  - `core/auto_train/layout.py`
+  - `core/auto_train/runners/dataset.py`
+  - `generator/cmd/sinan-generator/main.go`
+  - `generator/internal/app/make_dataset.go`
+  - `tests/python/test_auto_train_contracts.py`
+  - `tests/python/test_auto_train_runners.py`
+  - `tests/python/test_auto_train_controller.py`
+  - `generator/cmd/sinan-generator/main_test.go`
+  - `generator/internal/app/make_dataset_test.go`
+  - `.opencode/commands/plan-dataset.md`
+  - `.opencode/skills/dataset-planner/SKILL.md`
+  - `docs/03-developer-guide/solver-bundle-and-integration.md`
+  - `docs/04-project-development/04-design/system-architecture.md`
+  - `docs/04-project-development/04-design/autonomous-training-and-opencode-design.md`
+  - `docs/04-project-development/05-development-process/autonomous-training-implementation-readiness.md`
+  - `.factory/memory/current-state.md`
+  - `.factory/memory/change-summary.md`
+- 当前已把 `REGENERATE_DATA` 从“只会出计划”补到“会把最小数据控制参数真正传给生成器”：
+  - `dataset_plan.json` 可携带 `generator_preset` 与 `generator_overrides`
+  - 下一轮 `input.json` 会写入 `dataset_preset` 与 `dataset_override`
+  - `BUILD_DATASET` 会物化 `generator_override.json`
+  - `sinan-generator make-dataset` 会通过 `--preset` 和 `--override-file` 消费这些参数
+- 当前最小打通范围仅覆盖：
+  - `project.sample_count`
+  - `sampling.target_count_*`
+  - `sampling.distractor_count_*`
+  - `effects.common.*`
+  - `effects.click.*`
+  - `effects.slide.*`
+- 当前仍未覆盖的更高阶数据控制包括：
+  - 素材集切换
+  - 类目定向采样
+  - 失败模式定向素材策略
+- 已运行验证：
+  - `uv run python -m unittest tests.python.test_auto_train_contracts tests.python.test_auto_train_runners tests.python.test_auto_train_controller`
+  - `GOCACHE=/tmp/go-build go test ./cmd/sinan-generator ./internal/app`
+
+## 2026-04-05 落地 solver 第一阶段交付主线
+
+- 已新增：
+  - `tests/python/test_solve_service.py`
+- 已更新：
+  - `core/cli.py`
+  - `core/release/cli.py`
+  - `core/release/service.py`
+  - `core/solve/contracts.py`
+  - `core/solve/service.py`
+  - `tests/python/test_root_cli.py`
+  - `tests/python/test_release_service.py`
+  - `docs/02-user-guide/index.md`
+  - `docs/02-user-guide/use-solver-bundle.md`
+  - `docs/03-developer-guide/solver-bundle-and-integration.md`
+  - `docs/03-developer-guide/release-and-delivery-workflow.md`
+  - `docs/04-project-development/04-design/technical-selection.md`
+  - `docs/04-project-development/04-design/system-architecture.md`
+  - `docs/04-project-development/07-release-delivery/release-notes.md`
+  - `docs/04-project-development/08-operations-maintenance/deployment-guide.md`
+  - `.factory/memory/current-state.md`
+  - `.factory/memory/change-summary.md`
+- 当前已完成 4 个第一阶段任务：
+  - 根 `sinan` CLI 接入 `solve`
+  - `package-windows` 支持打入 solver bundle
+  - `group2` 合同改为 `tile_start_bbox` 可选
+  - solver 回归测试补齐到正式测试面
+- 已运行验证：
+  - `uv run python -m unittest tests.python.test_root_cli tests.python.test_release_service tests.python.test_solve_service`
+  - `uv run python -m unittest discover -s tests/python -p 'test_*.py'`
+  - 当前 `125` 个 Python 测试通过
+
+## 2026-04-05 补齐 solver 使用与集成文档
+
+- 已新增：
+  - `docs/02-user-guide/use-solver-bundle.md`
+  - `docs/03-developer-guide/solver-bundle-and-integration.md`
+- 已更新：
+  - `README.md`
+  - `docs/index.md`
+  - `docs/01-getting-started/index.md`
+  - `docs/02-user-guide/index.md`
+  - `docs/02-user-guide/user-guide.md`
+  - `docs/02-user-guide/use-build-artifacts.md`
+  - `docs/03-developer-guide/index.md`
+  - `docs/03-developer-guide/maintainer-quickstart.md`
+  - `docs/03-developer-guide/repository-structure-and-boundaries.md`
+  - `docs/03-developer-guide/local-development-workflow.md`
+  - `docs/04-project-development/10-traceability/requirements-matrix.md`
+  - `.factory/memory/current-state.md`
+  - `.factory/memory/change-summary.md`
+  - `.factory/memory/traceability.summary.md`
+- 当前已把 solver 的“最终调用方说明”和“维护者集成边界”从零散总览提升为两张正式页面
+- 当前 README、入门页、用户指南、开发者指南和全站导航都已接入 solver 专属入口
+- 当前文档基线已经可以直接支撑下一步代码偏差评估，不再需要先去内部设计文档里拼装产品目标
+- 本轮没有修改业务代码，也没有新增代码测试执行
+
+## 2026-04-05 重构发布与部署文档（solver-first）
+
+- 已新增：
+  - `docs/04-project-development/07-release-delivery/release-notes.md`
+  - `docs/04-project-development/07-release-delivery/delivery-package.md`
+  - `docs/04-project-development/07-release-delivery/release-checklist.md`
+  - `docs/04-project-development/08-operations-maintenance/deployment-guide.md`
+- 已更新：
+  - `docs/04-project-development/07-release-delivery/index.md`
+  - `docs/04-project-development/08-operations-maintenance/index.md`
+  - `docs/04-project-development/08-operations-maintenance/operations-runbook.md`
+  - `docs/03-developer-guide/release-and-delivery-workflow.md`
+  - `docs/02-user-guide/windows-bundle-install.md`
+  - `docs/02-user-guide/use-build-artifacts.md`
+  - `docs/index.md`
+  - `docs/04-project-development/10-traceability/requirements-matrix.md`
+  - `.factory/memory/current-state.md`
+  - `.factory/memory/change-summary.md`
+- 当前已把发布与部署文档明确拆成两条口径：
+  - 当前稳定的训练机交付包
+  - 目标 solver 交付包及其尚未接通的发布差距
+- 当前已补齐内部发布页、交付包页、检查清单、部署说明和运维手册
+- 当前没有修改业务代码，也没有新增测试执行
+
+## 2026-04-05 落地实现真实 `Optuna` RETUNE runtime
+
+- 已新增：
+  - `core/auto_train/optuna_runtime.py`
+  - `tests/python/test_auto_train_optuna_runtime.py`
+- 已更新：
+  - `core/auto_train/controller.py`
+  - `core/auto_train/layout.py`
+  - `core/auto_train/__init__.py`
+  - `tests/python/test_auto_train_controller.py`
+  - `pyproject.toml`
+  - `docs/04-project-development/04-design/technical-selection.md`
+  - `docs/04-project-development/04-design/autonomous-training-and-opencode-design.md`
+  - `docs/04-project-development/05-development-process/autonomous-training-implementation-readiness.md`
+  - `.factory/memory/current-state.md`
+  - `.factory/memory/change-summary.md`
+- 当前已把 `RETUNE` 正式切到真实 `Optuna` runtime：
+  - `controller` 在 `RETUNE` 时会先构建 `OptimizationPlan`
+  - `OptunaRuntimeAdapter` 会把当前完成 trial 注册到 `optuna.sqlite3`
+  - 然后为下一轮生成真实 suggestion，并把最小元数据写回 `input.json`
+- 当前已固定 `Optuna` runtime 的恢复与回退边界：
+  - 若下一轮 trial 已有挂起的 `Optuna` trial，则直接复用已有 suggestion
+  - 若当前 trial 本身带有 `_optuna_trial_number`，则优先 `tell(...)`
+  - 若 `Optuna` 缺失或 runtime 失败，则稳定回退到 deterministic fallback 参数
+- 当前已把 `optuna` 纳入 `sinan-captcha[train]` 训练依赖
+- 已新增回归覆盖：
+  - `Optuna` runtime completed-trial import
+  - 复用已有 pending suggestion
+  - tell existing Optuna trial
+  - controller `RETUNE` 成功注入 suggestion
+  - controller `RETUNE` runtime error fallback
+- 已运行验证：
+  - `uv run python -m unittest tests.python.test_auto_train_optuna_runtime tests.python.test_auto_train_controller`
+  - `uv run python -m unittest discover -s tests/python -p 'test_*.py'`
+  - 当前 `119` 个 Python 测试通过
+
+## 2026-04-05 重构设计文档口径（solver-first）
+
+- 已更新：
+  - `docs/04-project-development/04-design/technical-selection.md`
+  - `docs/04-project-development/04-design/system-architecture.md`
+  - `docs/04-project-development/04-design/module-boundaries.md`
+  - `docs/04-project-development/04-design/api-design.md`
+  - `docs/04-project-development/04-design/module-structure-and-delivery.md`
+  - `docs/04-project-development/10-traceability/requirements-matrix.md`
+  - `.factory/memory/current-state.md`
+  - `.factory/memory/project-index.md`
+  - `.factory/memory/design-assets.summary.md`
+  - `.factory/memory/tech-stack.summary.md`
+  - `.factory/memory/change-summary.md`
+- 当前已把设计层正式切换为 solver-first：
+  - 最终交付为 `solver package/library + bundle`
+  - generator / training / auto-train 为模型生产平面
+- 当前已在设计文档里显式标注实现差距：
+  - 根 `sinan` CLI 未注册 `solve`
+  - `package-windows` 未纳入 solver bundle
+  - `group2` 仍把 `tile_start_bbox` 视为必填
+- 当前 `requirements-matrix` 已同步把已修订的设计文档行状态改为有效
+- 本轮为设计文档与记忆层收口，没有修改业务代码，也没有新增测试执行
+
+## 2026-04-05 重构需求与公开文档口径（solver-first）
+
+- 已更新：
+  - `docs/04-project-development/01-governance/project-charter.md`
+  - `docs/04-project-development/02-discovery/input.md`
+  - `docs/04-project-development/02-discovery/brainstorm-record.md`
+  - `docs/04-project-development/03-requirements/prd.md`
+  - `docs/04-project-development/03-requirements/requirements-analysis.md`
+  - `docs/04-project-development/03-requirements/requirements-verification.md`
+  - `docs/04-project-development/10-traceability/requirements-matrix.md`
+  - `README.md`
+  - `docs/01-getting-started/index.md`
+  - `docs/02-user-guide/index.md`
+  - `docs/02-user-guide/user-guide.md`
+  - `docs/03-developer-guide/index.md`
+  - `.factory/project.json`
+  - `.factory/memory/current-state.md`
+  - `.factory/memory/project-index.md`
+  - `.factory/memory/motivation-state.md`
+  - `.factory/memory/prd.summary.md`
+  - `.factory/memory/requirements-verification.summary.md`
+  - `.factory/memory/traceability.summary.md`
+- 当前已把项目正式定位从“训练工程优先”改为“统一验证码求解包/库优先”
+- 当前已把 Go 生成器、Windows 训练 CLI 和自主训练 CLI 明确降为模型生产工具链
+- 当前已把公开入口文档改成同时说明：
+  - 最终业务交付物是什么
+  - 当前最完整的稳定实现仍是哪条主线
+- 当前仍待后续继续同步：
+  - `docs/04-project-development/04-design/`
+  - `docs/04-project-development/07-release-delivery/`
+  - `docs/04-project-development/08-operations-maintenance/`
+- 本轮为正式文档与记忆层重构，没有修改业务代码，也没有新增测试执行
+
+## 2026-04-05 落地实现 `plan-dataset` 的真实 OpenCode 接入
+
+- 已新增：
+  - `core/auto_train/dataset_plan.py`
+- 已更新：
+  - `core/auto_train/contracts.py`
+  - `core/auto_train/layout.py`
+  - `core/auto_train/storage.py`
+  - `core/auto_train/opencode_runtime.py`
+  - `core/auto_train/controller.py`
+  - `core/auto_train/__init__.py`
+  - `tests/python/test_auto_train_contracts.py`
+  - `tests/python/test_auto_train_opencode_runtime.py`
+  - `tests/python/test_auto_train_controller.py`
+  - `docs/04-project-development/04-design/autonomous-training-and-opencode-design.md`
+  - `docs/04-project-development/05-development-process/autonomous-training-implementation-readiness.md`
+- 当前已新增正式数据规划工件：
+  - `dataset_plan.json`
+  - `DatasetPlanRecord`
+- 当前 `REGENERATE_DATA` 路径会优先调用真实 `opencode plan-dataset`：
+  - 成功时直接落盘 `dataset_plan.json`
+  - 失败或非法 JSON 时回退到本地 `dataset_plan.build_dataset_plan(...)`
+- 当前 `dataset_plan.json` 会直接参与下一轮准备：
+  - `dataset_action = new_version` 时，下一轮自动生成新的 `dataset_version`
+  - `dataset_action = reuse` 时，继续复用当前数据版本
+- 当前至此已经补齐 4 个 OpenCode command 的真实运行时接入：
+  - `result-read`
+  - `judge-trial`
+  - `plan-dataset`
+  - `study-status`
+- 已新增回归覆盖：
+  - `dataset_plan.json` / `study_status.json` round-trip
+  - `plan-dataset` 命令构造
+  - planner 成功时写入真实 `dataset_plan.json`
+  - planner 失败时回退到本地 dataset plan
+- 已运行验证：
+  - `uv run python -m unittest tests.python.test_auto_train_contracts tests.python.test_auto_train_opencode_runtime tests.python.test_auto_train_controller tests.python.test_auto_train_summary tests.python.test_auto_train_decision_protocol tests.python.test_root_cli`
+  - `uv run python -m unittest discover -s tests/python -p 'test_*.py'`
+  - 当前 `114` 个 Python 测试通过
+
+## 2026-04-05 落地实现 `result-read` 与 `study-status` 的真实 OpenCode 接入
+
+- 已新增：
+  - `core/auto_train/study_status.py`
+- 已更新：
+  - `core/auto_train/contracts.py`
+  - `core/auto_train/layout.py`
+  - `core/auto_train/storage.py`
+  - `core/auto_train/opencode_runtime.py`
+  - `core/auto_train/controller.py`
+  - `core/auto_train/__init__.py`
+  - `tests/python/test_auto_train_opencode_runtime.py`
+  - `tests/python/test_auto_train_controller.py`
+  - `docs/04-project-development/04-design/autonomous-training-and-opencode-design.md`
+  - `docs/04-project-development/05-development-process/autonomous-training-implementation-readiness.md`
+- 当前已新增 `study_status.json` 契约与本地 fallback builder：
+  - `StudyStatusRecord`
+  - `build_study_status(...)`
+  - `markdown_from_study_status(...)`
+- 当前真实 OpenCode 接入范围已扩展为：
+  - `result-read` -> `result_summary.json`
+  - `judge-trial` -> `decision.json`
+  - `study-status` -> `study_status.json`
+- 当前 `SUMMARIZE` 阶段会优先调用真实 `opencode result-read`：
+  - 成功时直接落盘 `result_summary.json`
+  - 失败或非法 JSON 时回退到本地 `summary.build_result_summary(...)`
+- 当前 `NEXT_ACTION` 阶段会优先调用真实 `opencode study-status`：
+  - 成功时落盘 `study_status.json` 并据此生成 `summary.md`
+  - 失败或非法 JSON 时回退到本地 `study_status.build_study_status(...)`
+- 当前仍未接入真实 runtime 的 OpenCode command 只剩：
+  - `plan-dataset`
+- 已新增回归覆盖：
+  - `result-read` 命令构造
+  - `study-status` 命令构造
+  - 控制器成功使用真实 `result_summary.json`
+  - 控制器成功使用真实 `study_status.json`
+  - `result-read` 失败时回退到本地 summary
+- 已运行验证：
+  - `uv run python -m unittest tests.python.test_auto_train_opencode_runtime tests.python.test_auto_train_controller tests.python.test_auto_train_summary tests.python.test_auto_train_decision_protocol tests.python.test_root_cli`
+  - `uv run python -m unittest discover -s tests/python -p 'test_*.py'`
+  - 当前 `110` 个 Python 测试通过
+
+## 2026-04-05 落地实现 `opencode` runtime adapter（JUDGE 阶段）
+
+- 已新增：
+  - `core/auto_train/opencode_runtime.py`
+  - `tests/python/test_auto_train_opencode_runtime.py`
+- 已更新：
+  - `core/auto_train/__init__.py`
+  - `core/auto_train/controller.py`
+  - `core/auto_train/cli.py`
+  - `core/auto_train/decision_protocol.py`
+  - `tests/python/test_auto_train_controller.py`
+  - `docs/04-project-development/04-design/autonomous-training-and-opencode-design.md`
+  - `docs/04-project-development/05-development-process/autonomous-training-implementation-readiness.md`
+- 当前已把真实 OpenCode 调用正式接入到 `JUDGE` 阶段：
+  - `judge_provider = opencode` 时，控制器会调用 `opencode run --command judge-trial --format json`
+  - 支持可选 `--attach <url>`、`--model <model>`、自定义 `opencode` binary 和超时
+- 当前 CLI 已新增 OpenCode 运行时参数：
+  - `--opencode-attach-url`
+  - `--opencode-binary`
+  - `--opencode-timeout-seconds`
+- 当前真实 OpenCode 接入范围先只覆盖 `judge-trial`：
+  - `SUMMARIZE` 仍由 Python 直接生成 `result_summary.json`
+  - `study-status` 仍未接入真实 runtime
+- 当前 runtime 失败不会卡死 study：
+  - 进程失败 -> `fallback_runtime_error`
+  - 超时 -> `fallback_runtime_error`
+  - 空 stdout -> `fallback_runtime_error`
+  - 非法 JSON / 非法 payload -> 继续走既有 fallback
+- 已新增回归覆盖：
+  - `judge-trial` 命令构造、cwd、timeout、attach/model 传递
+  - OpenCode 成功返回时，控制器使用真实 `decision.json`
+  - OpenCode 运行失败时，控制器回退到 rules fallback 并继续下一轮
+- 已运行验证：
+  - `uv run python -m unittest tests.python.test_auto_train_opencode_runtime tests.python.test_auto_train_controller tests.python.test_auto_train_decision_protocol tests.python.test_root_cli`
+  - `uv run python -m unittest discover -s tests/python -p 'test_*.py'`
+  - 当前 `107` 个 Python 测试通过
+
+## 2026-04-04 落地实现 `auto-train` 控制器骨架
+
+- 已新增：
+  - `core/auto_train/controller.py`
+  - `core/auto_train/cli.py`
+  - `tests/python/test_auto_train_controller.py`
+- 已更新：
+  - `core/auto_train/__init__.py`
+  - `core/cli.py`
+  - `tests/python/test_root_cli.py`
+  - `docs/04-project-development/04-design/autonomous-training-and-opencode-design.md`
+  - `docs/04-project-development/05-development-process/autonomous-training-implementation-readiness.md`
+- 当前已新增正式入口：
+  - `uv run sinan auto-train run <task> ...`
+  - `uv run sinan auto-train stage <stage> <task> ...`
+- 当前已把控制循环先收口为阶段胶囊：
+  - `PLAN`
+  - `BUILD_DATASET`
+  - `TRAIN`
+  - `TEST`
+  - `EVALUATE`
+  - `SUMMARIZE`
+  - `JUDGE`
+  - `NEXT_ACTION`
+- 当前已把阶段边界固定为文件接力，而不是上下文接力：
+  - 读 `study.json` / `trial/*.json`
+  - 写本阶段工件
+  - 阶段完成后立即退出
+- 当前已实现的骨架能力：
+  - 自动创建或恢复 study
+  - 自动分配 `trial_0001` / `trial_0002`
+  - 复用现成数据集或调用 dataset runner
+  - 调用 train/test/evaluate runner
+  - 生成 `result_summary.json`
+  - 用 task policy 直接生成 `decision.json`
+  - 更新 `leaderboard.json`、`best_trial.json`、`decisions.jsonl`
+  - 继续下一轮或进入 `STOP`
+- 当前 `JUDGE` 仍是 rules-only：
+  - `provider = rules`
+  - `model = policy-v1`
+  - 尚未接真实 `opencode run --attach ...`
+- 当前 `RETUNE` 仍是 fallback-only：
+  - 通过 `optimize.build_optimization_plan(..., optuna_available=False)` 生成下一轮参数
+  - 尚未接真实 `Optuna` driver
+- 已新增回归覆盖：
+  - 单轮达标后完成 study
+  - `RETUNE` 后为下一轮写入新的 `input.json`
+  - 根 CLI `auto-train` 分发
+- 已运行验证：
+  - `uv run python -m unittest tests.python.test_auto_train_controller tests.python.test_root_cli`
+  - `uv run python -m unittest discover -s tests/python -p 'test_*.py'`
+  - 当前 `103` 个 Python 测试通过
+
+## 2026-04-04 落地完成 `TASK-AT-010` 自主训练实施准入验收
+
+- 已新增：
+  - `docs/04-project-development/05-development-process/autonomous-training-implementation-readiness.md`
+- 已更新：
+  - `docs/index.md`
+  - `docs/04-project-development/05-development-process/index.md`
+  - `docs/04-project-development/10-traceability/requirements-matrix.md`
+- 当前已把 `TASK-AT-001` 到 `TASK-AT-009` 的验收结论、开放风险和补项清单收口为正式文档，不再只保留在口头说明或 `.factory` 记忆里
+- 当前准入结论已明确为：
+  - 允许进入自主训练控制器整合实现阶段
+  - 这不等于功能已端到端完成或已通过训练机长流程验证
+- 当前文档已把“允许进入实现”和“仍待实现”拆开：
+  - 已冻结的契约、状态机、runner、summary、command/skill、policy、optimize 边界
+  - 尚未完成的 `auto-train` 控制器整合、真实 `opencode` 联调、真实 `Optuna` driver 和训练机演练
+- 当前已把剩余开放风险显式列出：
+  - 主控制循环尚未整合
+  - `opencode` 运行时未做端到端联调
+  - `Optuna` 仍处于边界冻结阶段
+  - 缺少 Windows + NVIDIA 长流程演练
+- 当前已把后续补项清单显式列出：
+  - `auto-train` CLI
+  - 控制器整合
+  - `opencode` runtime adapter
+  - `Optuna` driver
+  - E2E study 演练
+  - 训练机恢复/停止/fallback 演练
+- 本轮为文档和追踪矩阵同步，没有新增代码实现，也没有额外重跑测试；准入文档引用的最近全量回归结论仍为 `100` 个 Python 测试通过
+
+## 2026-04-04 落地实现 `TASK-AT-009` Optuna 接入边界、pruning 与规则 fallback
+
+- 已新增：
+  - `core/auto_train/optimize.py`
+  - `tests/python/test_auto_train_optimize.py`
+- 已更新：
+  - `core/auto_train/__init__.py`
+  - `docs/04-project-development/04-design/autonomous-training-and-opencode-design.md`
+- 当前已把 `Optuna` 接入边界正式收口为代码契约：
+  - `build_optimization_plan(...)`
+  - `deterministic_fallback_parameters(...)`
+  - `assess_pruning(...)`
+  - `SearchSpace`
+  - `OptimizationPlan`
+  - `PruningRequest`
+  - `PruningDecision`
+- 当前已固定 `Optuna` 只在 `RETUNE` 决策下介入：
+  - 非 `RETUNE` 决策直接返回 `engine=disabled`
+  - `Optuna` 不允许覆盖 `PROMOTE_BRANCH`、`REGENERATE_DATA`、`ABANDON_BRANCH`
+- 当前已固定允许搜索的参数空间：
+  - `group1`
+    - `model`: `yolo26n.pt`, `yolo26s.pt`
+    - `epochs`: `100`, `120`, `140`, `160`
+    - `batch`: `8`, `16`
+    - `imgsz`: `512`, `640`
+  - `group2`
+    - `model`: `paired_cnn_v1`
+    - `epochs`: `80`, `100`, `120`, `140`
+    - `batch`: `8`, `16`
+    - `imgsz`: `160`, `192`, `224`
+- 当前已固定 pruning 与 no-improve 交互规则：
+  - plateau 但未到 no-improve 上限：只 prune 当前候选，搜索继续
+  - 达到 no-improve 上限：停止 `Optuna`，切回规则 fallback
+  - 若规则层已判定 `PROMOTE_BRANCH` / `REGENERATE_DATA` / `ABANDON_BRANCH`：立即停止 `Optuna`
+- 当前已固定 `Optuna` 不可用时的纯规则回退：
+  - 若规则动作不是 `RETUNE`：直接执行规则动作
+  - 若规则动作仍是 `RETUNE`：使用 deterministic fallback 参数继续下一轮
+- 当前实现仍未把 `optuna` 加入运行时依赖；本轮先冻结边界与回退契约，避免在未接 driver 前把依赖和行为绑死
+- 已新增回归覆盖：
+  - `RETUNE` 才能进搜索
+  - 两组搜索空间冻结
+  - `Optuna` 缺失时回退到确定性参数
+  - plateau pruning
+  - no-improve 封顶后的规则 fallback
+  - 规则边界覆盖 `RETUNE`
+- 已运行验证：
+  - `uv run python -m unittest tests.python.test_auto_train_optimize tests.python.test_auto_train_decision_protocol tests.python.test_auto_train_policies`
+  - `uv run python -m unittest discover -s tests/python -p 'test_*.py'`
+  - 当前 100 个 Python 测试通过
+
+## 2026-04-04 落地实现 `TASK-AT-008` 自主训练 group1/group2 策略模块
+
+- 已新增：
+  - `core/auto_train/policies.py`
+  - `tests/python/test_auto_train_policies.py`
+- 已更新：
+  - `core/auto_train/__init__.py`
+  - `core/auto_train/decision_protocol.py`
+  - `docs/04-project-development/04-design/autonomous-training-and-opencode-design.md`
+- 当前已把两组自主训练策略正式收口为代码契约：
+  - `group1`
+    - 主指标：`map50_95`
+    - 次指标：`recall`
+    - 业务指标：`full_sequence_hit_rate`
+    - plateau：最近 `3` 轮提升不足 `0.005`
+  - `group2`
+    - 主指标：`point_hit_rate`
+    - 次指标：`mean_iou`
+    - 惩罚项：`mean_center_error_px`
+    - plateau：最近 `3` 轮提升不足 `0.01`
+- 当前已固定首轮晋级/放弃规则：
+  - `group1`
+    - `PROMOTE_BRANCH`：`map50_95 >= 0.82`、`recall >= 0.88`、`full_sequence_hit_rate >= 0.85`
+    - `REGENERATE_DATA`：弱类或顺序/序列失败持续存在
+    - `ABANDON_BRANCH`：明显退化且 `map50_95 < 0.75`
+  - `group2`
+    - `PROMOTE_BRANCH`：`point_hit_rate >= 0.93`、`mean_iou >= 0.85`、`mean_center_error_px <= 8.0`
+    - `REGENERATE_DATA`：命中率过低或 `low_iou`/`point_hits` 暗示数据契约问题
+    - `ABANDON_BRANCH`：明显退化且 `point_hit_rate < 0.75`
+- 当前 `decision_protocol` 的 fallback 已切到 task-specific policy：
+  - 非法 JSON/非法 payload 不再使用粗粒度通用规则
+  - 会根据 `group1/group2` 独立阈值返回 `PROMOTE_BRANCH / REGENERATE_DATA / ABANDON_BRANCH / RETUNE`
+  - fallback evidence 中会保留 `policy_reason`
+- 已新增回归覆盖：
+  - 两组主/次/惩罚指标冻结
+  - `group1` promote / regenerate / abandon
+  - `group2` promote / regenerate / retune
+  - decision fallback 与策略模块联动
+- 已运行验证：
+  - `uv run python -m unittest tests.python.test_auto_train_policies tests.python.test_auto_train_decision_protocol`
+  - `uv run python -m unittest discover -s tests/python -p 'test_*.py'`
+  - 当前 94 个 Python 测试通过
+
 ## 2026-04-04 落地实现 `TASK-AT-007` 自主训练 skills、`decision.json` schema 与 fallback
 
 - 已新增：
@@ -79,7 +1190,7 @@
   - `core/cli.py`
 - 当前 `uv run sinan train group2`、`predict group2`、`test group2` 已全部切到 paired-input runner，入口统一为 `dataset.json`
 - 已同步更新正式需求/设计与用户入口文档，明确：
-  - `group1` 保留 YOLO 数据集合同
+  - `group1` 正式合同为 `dataset.json + scene-yolo/query-yolo/splits` pipeline dataset
   - `group2` 正式合同为 paired dataset
 - 已运行验证：
   - `go test ./internal/slide ./internal/dataset ./internal/app`
@@ -462,14 +1573,15 @@
 
 - 已删除 Python 侧旧数据集迁移命令与对应转换模块
 - 当前正式口径已收口为：
-  - `dataset.yaml`、`images/`、`labels/`、`.sinan/` 只由 `sinan-generator make-dataset` 产出
-  - Python `sinan` CLI 只消费现成 `dataset.yaml` 并负责训练、评估、环境初始化与发布
-- 已同步修正 Go 生成器 `dataset.yaml` 导出：
-  - 不再写 `path: .`
-  - `train/val/test` 直接相对 `dataset.yaml` 所在目录组织
+  - `group1`：`dataset.json`、`scene-yolo/`、`query-yolo/`、`splits/`、`.sinan/` 只由 `sinan-generator make-dataset` 产出
+  - `group2`：`dataset.json`、`master/`、`tile/`、`splits/`、`.sinan/` 只由 `sinan-generator make-dataset` 产出
+  - Python `sinan` CLI 只消费现成 `dataset.json` 并负责训练、评估、环境初始化与发布
+- 已同步修正 Go 生成器数据集导出：
+  - `group1` 写出 `dataset.json + scene-yolo/query-yolo/splits`
+  - `group2` 写出 `dataset.json + master/tile/splits`
 - 已补充回归：
   - Python 根 CLI 不再接受旧数据集迁移命令
-  - Go `make-dataset` 测试会校验 `dataset.yaml` 不含 `path:` 字段
+  - Go `make-dataset` 测试会校验 `group1 dataset.json` 及其子组件路径
 - 已同步更新：
   - `core/cli.py`
   - `generator/internal/dataset/build.go`
@@ -480,15 +1592,16 @@
 
 ## 2026-04-04 训练数据集路径解析兼容修复
 
-- 已修正 YOLO 数据集导出契约：
-  - 新生成的 `dataset.yaml` 不再写 `path: .`
-  - `train/val/test` 直接相对 `dataset.yaml` 所在目录组织
-- 已为训练 CLI 增加旧数据集兼容层：
-  - 如果旧版 `dataset.yaml` 仍包含相对 `path:`，训练前会自动生成兼容 Ultralytics 的规范化 YAML
-  - 旧数据集无需先整批重导即可继续训练
+- 已修正训练数据集导出契约：
+  - `group1` 正式主入口改为 `dataset.json`
+  - `group1` 的 `scene-yolo/query-yolo` 子数据集继续保留内部 `dataset.yaml`
+  - `group2` 继续以 `dataset.json + master/tile/splits` 交接
+- 已为训练 CLI 保留旧 YOLO YAML 兼容层：
+  - 仅在内部调用 Ultralytics 时，为 `scene-yolo/query-yolo` 规范化生成兼容 YAML
+  - 旧版 `group1 yolo/` 数据集不再是正式合同，但旧修复逻辑仍可作为迁移缓冲
 - 已补充单测覆盖：
-  - 新数据集不再生成 `path:` 字段
-  - 旧版 `path: .` 数据集会在训练前被自动改写为绝对数据集根
+  - 新 `group1` 数据集会产出 `dataset.json + scene-yolo/query-yolo/splits`
+  - 旧版 `path: .` 子 YAML 在训练前仍会被自动改写为可用的绝对数据集根
 - 已同步更新：
   - `core/train/base.py`
   - `tests/python/test_training_jobs.py`
@@ -618,8 +1731,9 @@
 - 已新增生成器产品化规范文档：
   - `docs/04-project-development/04-design/generator-productization.md`
 - 已把生成器与训练 CLI 的正式交界面收口为：
-  - 生成器输出 `dataset.yaml`、`images/`、`labels/` 与 `.sinan/`
-  - 训练 CLI 只消费 `--dataset-yaml <dataset-dir>/dataset.yaml`
+  - `group1` 生成器输出 `dataset.json`、`scene-yolo/`、`query-yolo/`、`splits/` 与 `.sinan/`
+  - `group2` 生成器输出 `dataset.json`、`master/`、`tile/`、`splits/` 与 `.sinan/`
+  - 训练 CLI 统一消费 `--dataset-config <dataset-dir>/dataset.json`
 - 已重写 Go 侧生成器入口：
   - `workspace init|show`
   - `materials import|fetch`
@@ -734,9 +1848,10 @@
   - click：`query=200`、`scene=200`、`labels=200`
   - slide：`master=200`、`tile=200`、`labels=200`
 - 已完成正式训练数据导出：
-  - `datasets/group1/firstpass/yolo`
+  - `datasets/group1/firstpass`
   - `datasets/group2/firstpass`
   - 两批均为 `train=160`、`val=20`、`test=20`
+  - 其中 `group1` 当前正式合同已升级为 `dataset.json + scene-yolo/query-yolo/splits` pipeline dataset
 - 当前仍未进入正式训练，原因是本机 Python 环境缺少 `torch` 与 `ultralytics`
 
 ## 2026-04-03 PyPI/CLI 收口
