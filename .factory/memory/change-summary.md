@@ -1,5 +1,60 @@
 # 变更摘要
 
+## 2026-04-06 修复训练机上 OpenCode attach 偶发空 stdout 导致的 auto-train 空错误
+
+- 已更新：
+  - `core/auto_train/opencode_runtime.py`
+  - `core/auto_train/opencode_commands.py`
+  - `tests/python/test_auto_train_opencode_runtime.py`
+  - `tests/python/test_auto_train_opencode_commands.py`
+  - `docs/02-user-guide/auto-train-on-training-machine.md`
+  - `.factory/memory/current-state.md`
+  - `.factory/memory/change-summary.md`
+- 当前已完成的目标：
+  - 已用用户提供的 `0003_plan-dataset.json` / `0005_plan-dataset.json` trace 完成问题归因
+  - 已确认旧 `--command + --file + agent: plan/subtask` 路径会把请求送入 Plan Mode，而不是返回最终 JSON
+  - 已确认当前 `message + inline files + agent: build` prompt 在本机 `opencode==1.3.13 + ollama/gemma4:26b` 下可以成功重放，不是 prompt 本身必现失败
+  - `OpenCodeRuntimeAdapter` 当前在 `--attach` 成功退出但 stdout 为空时，会自动降级为不带 `--attach` 的本地直连重试一次
+  - trace 当前会正确区分 attach 首次尝试与本地重试，不再把两次调用都记成同一个 `attach_url`
+  - prompt 渲染当前已移除“允许调用 skill”与“不要调用 skill tools”之间的矛盾提示
+  - 训练机排障文档当前已改为：
+    - 先做最小 `{"ok":true}` 连通性测试
+    - 再直接重放 trace 里的 `command[-1]`
+    - 不再建议手工走旧 `--command` / `--file` 路线
+- 已运行验证：
+  - `uv run python -m unittest tests.python.test_auto_train_opencode_commands tests.python.test_auto_train_opencode_runtime`
+  - `uv run python -m unittest tests.python.test_auto_train_opencode_commands tests.python.test_auto_train_opencode_runtime tests.python.test_auto_train_json_extract tests.python.test_auto_train_controller`
+  - 本机实测 `opencode serve --port 4096`
+  - 本机实测重放 `0003_plan-dataset.json` 的原始 prompt，成功返回 `dataset_plan.json` JSON event
+  - `git diff --check`
+
+## 2026-04-06 将自主训练设计升级为 harness-first 无人值守训练工厂口径
+
+- 已更新：
+  - `docs/04-project-development/03-requirements/prd.md`
+  - `docs/04-project-development/03-requirements/requirements-analysis.md`
+  - `docs/04-project-development/04-design/api-design.md`
+  - `docs/04-project-development/04-design/autonomous-training-and-opencode-design.md`
+  - `docs/04-project-development/05-development-process/autonomous-training-task-breakdown.md`
+  - `.factory/memory/current-state.md`
+  - `.factory/memory/change-summary.md`
+- 当前已完成的目标：
+  - 已把 harness 方法论正式写入自主训练设计，而不是只停留在口头说明
+  - 已明确“大模型主观能动性”的正式承载面：
+    - 一句话目标编译
+    - typed tool adapters
+    - `ObservationPacket` / `TrialEvidencePack`
+    - `Judge` / `Verifier` / `Reducer` verdict 链
+    - watchdog、promotion gate、solver smoke gate
+  - 已明确为什么不能把生成器和训练 CLI 直接作为对模型裸露的自由工具
+  - 已把需求层同步补齐：
+    - `REQ-011` 一句话目标编译与 Harness 合同
+    - `REQ-012` 严格 Schema I/O、角色分工与多 agent 交叉核查
+    - `REQ-013` 无人值守看门狗、自动验收与晋级门
+  - 已把 API-006 和自主训练任务拆解同步扩展到 harness-first 口径
+- 已运行验证：
+  - 待执行 `git diff --check`
+
 ## 2026-04-05 准备 `sinan-captcha==0.1.16`，移除 OpenCode `--file` 依赖并将文件内容内联进 prompt
 
 - 已更新：

@@ -54,6 +54,8 @@ class AutoTrainOpenCodeCommandsTests(unittest.TestCase):
             self.assertIn("Judge study_001 group1 trial_0004 and return only JSON.", command[-1])
             self.assertIn("Tool usage constraints:", command[-1])
             self.assertIn("call the `skill` tool with exact name `training-judge`", command[-1])
+            self.assertIn("do not call any file, search, or glob tools", command[-1])
+            self.assertNotIn("or skill tools", command[-1])
             self.assertIn("--- Begin file:", command[-1])
             self.assertIn(str(first), command[-1])
             self.assertIn(str(second), command[-1])

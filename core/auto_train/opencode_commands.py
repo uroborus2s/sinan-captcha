@@ -123,7 +123,7 @@ def render_prompt(
         )
     if files:
         file_sections: list[str] = [
-            "Inline file contents (already loaded below; do not call any file, search, glob, or skill tools):"
+            "Inline file contents (already loaded below; do not call any file, search, or glob tools):"
         ]
         for file in files:
             file_sections.append(_render_file_section(file))

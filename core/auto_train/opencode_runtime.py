@@ -7,6 +7,7 @@ from dataclasses import dataclass
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Callable
+from urllib.parse import urlparse
 
 from core.auto_train import opencode_commands, opencode_skills
 
@@ -18,6 +19,13 @@ TRACE_TEXT_PREVIEW_LIMIT = 40_000
 
 def _utc_now_iso() -> str:
     return datetime.now(timezone.utc).isoformat()
+
+
+def _is_local_attach_url(url: str | None) -> bool:
+    if not url:
+        return False
+    parsed = urlparse(url)
+    return parsed.hostname in {"127.0.0.1", "localhost", "::1"}
 
 
 def _read_text_preview(path: Path, *, limit: int = TRACE_TEXT_PREVIEW_LIMIT) -> tuple[str | None, bool, str | None]:
@@ -234,16 +242,74 @@ class OpenCodeRuntimeAdapter:
         files: list[Path],
     ) -> OpenCodeInvocationResult:
         spec = opencode_commands.get_command_spec(name)
+        command = self._build_command(name, arguments=arguments, files=files, attach_url=self.config.attach_url)
+        command_markdown_path = spec.markdown_path(self.config.project_root)
+        try:
+            return self._invoke_once(
+                spec=spec,
+                name=name,
+                arguments=arguments,
+                files=files,
+                command=command,
+                command_markdown_path=command_markdown_path,
+                attach_url=self.config.attach_url,
+                empty_stdout_error_message="opencode_empty_stdout",
+            )
+        except OpenCodeRuntimeError as exc:
+            if not _is_local_attach_url(self.config.attach_url) or str(exc) != "opencode_empty_stdout":
+                raise
+
+        retry_command = self._build_command(name, arguments=arguments, files=files, attach_url=None)
+        try:
+            return self._invoke_once(
+                spec=spec,
+                name=name,
+                arguments=arguments,
+                files=files,
+                command=retry_command,
+                command_markdown_path=command_markdown_path,
+                attach_url=None,
+                empty_stdout_error_message="opencode_empty_stdout_after_local_retry",
+            )
+        except OpenCodeRuntimeError as retry_exc:
+            raise OpenCodeRuntimeError(
+                command_name=name,
+                message=f"opencode_empty_stdout; local_retry_failed: {retry_exc}",
+                command=list(retry_exc.command),
+                returncode=retry_exc.returncode,
+            ) from retry_exc
+
+    def _build_command(
+        self,
+        name: str,
+        *,
+        arguments: list[str],
+        files: list[Path],
+        attach_url: str | None,
+    ) -> list[str]:
         command = opencode_commands.build_headless_invocation(
             name,
             arguments=arguments,
             files=files,
             project_root=self.config.project_root,
-            attach_url=self.config.attach_url,
+            attach_url=attach_url,
             model=self.config.model,
         )
         command[0] = self.config.binary
-        command_markdown_path = spec.markdown_path(self.config.project_root)
+        return command
+
+    def _invoke_once(
+        self,
+        *,
+        spec: opencode_commands.OpenCodeCommandSpec,
+        name: str,
+        arguments: list[str],
+        files: list[Path],
+        command: list[str],
+        command_markdown_path: Path,
+        attach_url: str | None,
+        empty_stdout_error_message: str,
+    ) -> OpenCodeInvocationResult:
         try:
             result = self.runner(
                 command,
@@ -258,6 +324,7 @@ class OpenCodeRuntimeAdapter:
                 files=files,
                 command=command,
                 command_markdown_path=command_markdown_path,
+                attach_url=attach_url,
                 stdout="",
                 stderr="",
                 returncode=None,
@@ -277,6 +344,7 @@ class OpenCodeRuntimeAdapter:
                 files=files,
                 command=command,
                 command_markdown_path=command_markdown_path,
+                attach_url=attach_url,
                 stdout="",
                 stderr="",
                 returncode=None,
@@ -304,6 +372,7 @@ class OpenCodeRuntimeAdapter:
                 files=files,
                 command=command,
                 command_markdown_path=command_markdown_path,
+                attach_url=attach_url,
                 stdout=result.stdout,
                 stderr=result.stderr,
                 returncode=result.returncode,
@@ -325,15 +394,16 @@ class OpenCodeRuntimeAdapter:
                 files=files,
                 command=command,
                 command_markdown_path=command_markdown_path,
+                attach_url=attach_url,
                 stdout=result.stdout,
                 stderr=result.stderr,
                 returncode=result.returncode,
                 success=False,
-                error_message="opencode_empty_stdout",
+                error_message=empty_stdout_error_message,
             )
             raise OpenCodeRuntimeError(
                 command_name=name,
-                message="opencode_empty_stdout",
+                message=empty_stdout_error_message,
                 command=list(result.command),
                 returncode=result.returncode,
             )
@@ -344,6 +414,7 @@ class OpenCodeRuntimeAdapter:
             files=files,
             command=command,
             command_markdown_path=command_markdown_path,
+            attach_url=attach_url,
             stdout=result.stdout,
             stderr=result.stderr,
             returncode=result.returncode,
@@ -361,6 +432,7 @@ class OpenCodeRuntimeAdapter:
         files: list[Path],
         command: list[str],
         command_markdown_path: Path,
+        attach_url: str | None,
         stdout: str,
         stderr: str,
         returncode: int | None,
@@ -383,7 +455,7 @@ class OpenCodeRuntimeAdapter:
             command_name=name,
             arguments=tuple(arguments),
             project_root=str(self.config.project_root),
-            attach_url=self.config.attach_url,
+            attach_url=attach_url,
             model=self.config.model,
             command=tuple(command),
             command_markdown_path=str(command_markdown_path),

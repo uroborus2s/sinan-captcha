@@ -353,22 +353,34 @@ uv run sinan evaluate --task group1 --gold-dir <gold-dir> --prediction-dir <pred
 - 调用方：项目维护者、训练机操作者
 - 输入：
   - `task`
+  - `goal_text` 或 `goal_file`
   - `study_name`
   - `train_root`
   - `generator_workspace`
   - 预算和停止规则
+  - `allowed_actions`
+  - `watchdog_policy`
 - 输出：
+  - `goal.json`
   - `study.json`
   - `trial_history.jsonl`
   - 各 trial 工件
   - `decision.json`
   - `result_summary.json`
+  - `promotion_report.json`
 
 ### 正式命令形态
 
 ```bash
+uv run sinan auto-train compile-goal group2 --goal-text "在 12 小时内把 group2 验证集 P95 中心点误差压到 4px 以内，并导出可供 sinanz 调用的候选资产"
 uv run sinan auto-train run group1 --study-name study_001 --train-root D:\sinan-captcha-work --generator-workspace D:\sinan-generator\workspace
 ```
+
+说明：
+
+- `compile-goal` 负责把一句自然语言目标编译成 `GoalContract` / `StudyContract`，冻结指标、预算、gate 和允许动作集。
+- `run` 负责消费已冻结合同并推进 stage capsules，不直接接受 agent 原始 shell 命令。
+- agent 侧所有 verdict 都必须通过 schema 校验，并带 `input_hash` 与 `evidence_refs`。
 
 ## API-007 发布与交付打包合同
 

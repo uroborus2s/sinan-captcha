@@ -249,7 +249,7 @@ Test-Path .opencode\skills\training-judge\SKILL.md
 
 这 4 条都应该返回 `True`。
 
-再用和控制器同路径的命令做一次手工连通性测试。先测 `study-status`：
+再用和当前控制器一致的调用方式做一次最小连通性测试。先不要再手写旧的 `--command` / `--file` 路线，当前控制器走的是 `message + inline files` 模式。
 
 ```powershell
 Set-Location D:\sinan-captcha-work
@@ -257,47 +257,47 @@ Set-Location D:\sinan-captcha-work
 opencode run `
   --attach http://127.0.0.1:4096 `
   --model gemma4 `
-  --command study-status `
-  --file studies\group1\study_group1_llm\study.json `
-  --file studies\group1\study_group1_llm\leaderboard.json `
+  --format json `
+  --agent build `
   -- `
-  study_group1_llm group1
+  'Return exactly this JSON object and nothing else: {"ok":true}'
 ```
 
-如果这条命令能返回一个 JSON，说明下面几层都已经通了：
+如果这条命令最终能返回包含 `{"ok":true}` 的 JSON event，说明下面几层都已经通了：
 
 - `opencode` 命令本身可执行
 - `--attach` 能连上 `opencode serve --port 4096`
 - `gemma4` 对应的模型后端可响应
-- 训练目录内 `.opencode/commands` 和 `.opencode/skills` 能正常加载
+- `--format json` 事件流可被正常输出到标准输出
 
-然后再测最关键的 `judge-trial`，这条命令最接近控制器实际判断：
+如果最小连通性测试通过，再做一次和控制器完全一致的真实重放。不要自己改写 prompt，直接重放 trace 里记录下来的最终 message：
 
 ```powershell
 Set-Location D:\sinan-captcha-work
 
+$trace = Get-Content .\studies\group1\study_group1_llm\trials\trial_0001\opencode\0003_plan-dataset.json -Raw | ConvertFrom-Json
+
 opencode run `
   --attach http://127.0.0.1:4096 `
   --model gemma4 `
-  --command judge-trial `
-  --file studies\group1\study_group1_llm\study.json `
-  --file studies\group1\study_group1_llm\trials\trial_0001\result_summary.json `
-  --file studies\group1\study_group1_llm\leaderboard.json `
-  --file studies\group1\study_group1_llm\decisions.jsonl `
+  --format json `
+  --agent build `
   -- `
-  study_group1_llm group1 trial_0001
+  $trace.command[-1]
 ```
 
-如果你当前 study 名和 trial id 不一样，把上面这两个值换成你自己的目录名。
+如果你当前 study 名、trial id 或 trace 文件名不一样，把上面路径换成你自己的目录。
 
 判断标准：
 
-- 能返回合法 JSON：
+- 能返回合法 JSON event，并且 `text` part 里包含最终对象：
   - 说明 OpenCode 和模型后端大概率已经连通，后续问题更可能在 `auto-train` 传参、文件路径或工件状态上
 - 返回连接错误、超时或空输出：
   - 优先排查 `opencode serve` 是否还在运行、`--attach` 地址是否正确、模型后端是否可用
 - 返回 “File not found”：
-  - 优先排查 `study-name`、`trial_id` 和附带文件路径是否真实存在
+  - 优先排查 trace 里引用的 study 目录、trial 目录和训练根目录是否一致
+
+当前版本的控制器在 `--attach` 成功退出但 `stdout` 为空时，会自动再走一次不带 `--attach` 的本地直连重试，避免这类空输出直接让整轮 `auto-train` 退回本地 fallback。
 
 如果你已经启用最新版本的 `auto-train`，控制器也会把每次发给 OpenCode 的内容和 OpenCode 返回的原始内容写到：
 

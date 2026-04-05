@@ -17,6 +17,23 @@
 
 ## 当前事实
 
+- 2026-04-06 已针对训练机上 `auto-train` 的 OpenCode“空错误”补充防线并完成本机端到端复现：
+  - 用户提供的 `0005_plan-dataset.json` 当前确认属于旧 `--command + --file + agent: plan/subtask` 路径，stdout 里只返回了 Plan Mode 的 `task` 工具结果，没有最终 JSON
+  - 用户提供的 `0003_plan-dataset.json` 当前确认属于新 `message + inline files + agent: build` 路径，但训练机上仍出现 `returncode=0` 且 `stdout/stderr` 为空的 `opencode_empty_stdout`
+  - 当前已在本机用 `opencode==1.3.13`、`opencode serve --port 4096`、`ollama/gemma4:26b` 成功重放 `0003_plan-dataset.json` 里的原始 prompt，并拿到合法 `dataset_plan.json` JSON event
+  - 这表明 `plan-dataset` prompt、skill 和业务数据本身当前不是必现故障点，训练机问题更接近 `--attach` 路径偶发丢失 stdout
+  - `core/auto_train/opencode_runtime.py` 当前在 `--attach` 成功退出但 stdout 为空时，会自动再走一次不带 `--attach` 的本地直连重试
+  - `core/auto_train/opencode_commands.py` 当前已移除“允许调用 skill”与“不要调用 skill tools”之间的自相矛盾提示
+  - `docs/02-user-guide/auto-train-on-training-machine.md` 当前已把手工排障入口改为：
+    - 先跑最小 `{"ok":true}` 连通性测试
+    - 再直接重放 trace 里的 `command[-1]`，不再建议走旧 `--command` / `--file` 路线
+  - 当前相关回归已通过 `38` 个测试
+- 2026-04-06 已把自主训练正式升级为 harness-first 设计口径：
+  - 一句话业务目标当前被定义为应先编译成 `GoalContract` / `StudyContract`
+  - 自主训练当前已不再以“受限 agent 协作”作为最高设计目标，而是以“封闭动作空间内的无人值守搜索”作为目标
+  - 生成器与训练 CLI 当前被重新定义为控制器拥有的 typed stage tools，而不是对模型裸露的自由工具
+  - 设计层当前已新增 `Judge` / `Verifier` / `Reducer` verdict 链、watchdog、promotion gate 和 solver smoke gate
+  - 需求、API、设计和自主训练任务拆解当前已同步到这套 harness-first 口径
 - 2026-04-05 已准备并验证 Python 训练 CLI 包 `sinan-captcha==0.1.16`：
   - OpenCode runtime 当前不再通过 `--file` 向 `opencode run` 暴露 study/trial 文件
   - `render_prompt(...)` 当前会把文件内容直接内联到 prompt 中，并明确禁止调用 file/search/skill 工具
