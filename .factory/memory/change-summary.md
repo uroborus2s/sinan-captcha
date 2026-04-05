@@ -1,5 +1,29 @@
 # 变更摘要
 
+## 2026-04-06 发布 `sinan-captcha==0.1.17`，补上 OpenCode attach 空 stdout 的本地重试防线
+
+- 已更新：
+  - `core/_version.py`
+  - `core/auto_train/opencode_runtime.py`
+  - `core/auto_train/opencode_commands.py`
+  - `tests/python/test_auto_train_opencode_runtime.py`
+  - `tests/python/test_auto_train_opencode_commands.py`
+  - `docs/02-user-guide/auto-train-on-training-machine.md`
+  - `.factory/memory/current-state.md`
+  - `.factory/memory/change-summary.md`
+- 当前已完成的目标：
+  - Python 包版本当前已提升到 `0.1.17`
+  - `OpenCodeRuntimeAdapter` 当前会在本机 attach 成功退出但 stdout 为空时，自动做一次无 `--attach` 的本地直连重试
+  - 这条降级重试当前只对 `127.0.0.1` / `localhost` attach 地址生效，避免误伤远程 attach
+  - prompt 当前已移除“可以调用 skill”与“不要调用 skill tools”的矛盾约束
+  - 训练机排障文档当前已改为重放 trace 里的最终 message，而不是旧 `--command` / `--file` 路线
+- 已运行验证：
+  - `uv run python -m unittest tests.python.test_auto_train_opencode_commands tests.python.test_auto_train_opencode_runtime tests.python.test_auto_train_json_extract tests.python.test_auto_train_controller`
+  - `uv build`
+  - `uv publish --publish-url https://upload.pypi.org/legacy/ --check-url https://pypi.org/simple dist/sinan_captcha-0.1.17-py3-none-any.whl dist/sinan_captcha-0.1.17.tar.gz`
+  - `uvx --no-config --refresh --default-index https://pypi.org/simple --python 3.12 --from sinan-captcha==0.1.17 sinan --help`
+  - `git diff --check`
+
 ## 2026-04-06 修复训练机上 OpenCode attach 偶发空 stdout 导致的 auto-train 空错误
 
 - 已更新：
