@@ -14,10 +14,16 @@ from core.train.group2.service import build_group2_training_job
 
 class TrainingJobTests(unittest.TestCase):
     def test_group1_uses_expected_defaults(self) -> None:
-        job = build_group1_training_job(Path("datasets/group1/v1/yolo/dataset.yaml"), Path("runs/group1"))
+        job = build_group1_training_job(Path("datasets/group1/v1/dataset.json"), Path("runs/group1"))
         command = job.command()
-        self.assertIn("model=yolo26n.pt", command)
-        self.assertIn("epochs=120", command)
+        self.assertEqual(command[:5], ["uv", "run", "python", "-m", "core.train.group1.runner"])
+        self.assertIn("--dataset-config", command)
+        self.assertIn("datasets/group1/v1/dataset.json", command)
+        self.assertIn("--scene-model", command)
+        self.assertIn("yolo26n.pt", command)
+        self.assertIn("--query-model", command)
+        self.assertIn("--epochs", command)
+        self.assertIn("120", command)
 
     def test_group2_uses_expected_defaults(self) -> None:
         job = build_group2_training_job(Path("datasets/group2/v1/dataset.json"), Path("runs/group2"))
@@ -32,7 +38,7 @@ class TrainingJobTests(unittest.TestCase):
 
     def test_group1_allows_runtime_overrides(self) -> None:
         job = build_group1_training_job(
-            Path("datasets/group1/v1/yolo/dataset.yaml"),
+            Path("datasets/group1/v1/dataset.json"),
             Path("runs/group1"),
             model="yolo26s.pt",
             run_name="firstpass",
@@ -42,19 +48,25 @@ class TrainingJobTests(unittest.TestCase):
             device="cpu",
         )
         command = job.command()
-        self.assertIn("model=yolo26s.pt", command)
-        self.assertIn("epochs=12", command)
-        self.assertIn("batch=8", command)
-        self.assertIn("imgsz=512", command)
-        self.assertIn("device=cpu", command)
+        self.assertIn("--scene-model", command)
+        self.assertIn("yolo26s.pt", command)
+        self.assertIn("--query-model", command)
+        self.assertIn("--epochs", command)
+        self.assertIn("12", command)
+        self.assertIn("--batch", command)
+        self.assertIn("8", command)
+        self.assertIn("--imgsz", command)
+        self.assertIn("512", command)
+        self.assertIn("--device", command)
+        self.assertIn("cpu", command)
 
     def test_group1_cli_dry_run_prints_command(self) -> None:
         buffer = io.StringIO()
         with redirect_stdout(buffer):
             code = group1_cli.main(
                 [
-                    "--dataset-yaml",
-                    "datasets/group1/v1/yolo/dataset.yaml",
+                    "--dataset-config",
+                    "datasets/group1/v1/dataset.json",
                     "--project",
                     "runs/group1",
                     "--dry-run",
@@ -64,9 +76,9 @@ class TrainingJobTests(unittest.TestCase):
             )
         self.assertEqual(code, 0)
         output = buffer.getvalue()
-        self.assertIn("uv run yolo detect train", output)
-        self.assertIn("batch=8", output)
-        self.assertIn("data=datasets/group1/v1/yolo/dataset.yaml", output)
+        self.assertIn("uv run python -m core.train.group1.runner train", output)
+        self.assertIn("--batch 8", output)
+        self.assertIn("--dataset-config datasets/group1/v1/dataset.json", output)
 
     def test_group1_cli_uses_default_paths_from_training_root(self) -> None:
         buffer = io.StringIO()
@@ -83,9 +95,9 @@ class TrainingJobTests(unittest.TestCase):
                 )
         self.assertEqual(code, 0)
         output = buffer.getvalue()
-        self.assertIn("data=D:/sinan-captcha-work/datasets/group1/firstpass/yolo/dataset.yaml", output)
-        self.assertIn("project=D:/sinan-captcha-work/runs/group1", output)
-        self.assertIn("name=smoke", output)
+        self.assertIn("--dataset-config D:/sinan-captcha-work/datasets/group1/firstpass/dataset.json", output)
+        self.assertIn("--project D:/sinan-captcha-work/runs/group1", output)
+        self.assertIn("--name smoke", output)
 
     def test_group1_cli_uses_previous_best_checkpoint_from_training_root(self) -> None:
         buffer = io.StringIO()
@@ -104,9 +116,10 @@ class TrainingJobTests(unittest.TestCase):
                 )
         self.assertEqual(code, 0)
         output = buffer.getvalue()
-        self.assertIn("data=D:/sinan-captcha-work/datasets/group1/firstpass_v2/yolo/dataset.yaml", output)
-        self.assertIn("model=D:/sinan-captcha-work/runs/group1/firstpass/weights/best.pt", output)
-        self.assertIn("name=round2", output)
+        self.assertIn("--dataset-config D:/sinan-captcha-work/datasets/group1/firstpass_v2/dataset.json", output)
+        self.assertIn("--scene-model D:/sinan-captcha-work/runs/group1/firstpass/scene-detector/weights/best.pt", output)
+        self.assertIn("--query-model D:/sinan-captcha-work/runs/group1/firstpass/query-parser/weights/best.pt", output)
+        self.assertIn("--name round2", output)
 
     def test_group1_cli_resumes_same_run_from_last_checkpoint(self) -> None:
         buffer = io.StringIO()
@@ -122,8 +135,10 @@ class TrainingJobTests(unittest.TestCase):
                 )
         self.assertEqual(code, 0)
         output = buffer.getvalue()
-        self.assertIn("uv run yolo detect train resume", output)
-        self.assertIn("model=D:/sinan-captcha-work/runs/group1/firstpass/weights/last.pt", output)
+        self.assertIn("uv run python -m core.train.group1.runner train", output)
+        self.assertIn("--scene-model D:/sinan-captcha-work/runs/group1/firstpass/scene-detector/weights/last.pt", output)
+        self.assertIn("--query-model D:/sinan-captcha-work/runs/group1/firstpass/query-parser/weights/last.pt", output)
+        self.assertIn("--resume", output)
 
     def test_group2_cli_executes_training_command(self) -> None:
         with tempfile.TemporaryDirectory() as tmpdir:

@@ -13,35 +13,47 @@ mkdocs:
         - title: 概览
           path: 02-user-guide/index.md
           access: public
-        - title: 使用指南总览
+        - title: 角色与审核结论
           path: 02-user-guide/user-guide.md
           access: public
-        - title: Windows 快速开始
-          path: 02-user-guide/windows-quickstart.md
+        - title: 使用者角色：安装与使用最终求解包
+          path: 02-user-guide/use-solver-bundle.md
           access: public
-        - title: 使用交付包在 Windows 训练机上安装
+        - title: 使用者角色：在自己的应用中接入并做业务测试
+          path: 02-user-guide/application-integration.md
+          access: public
+        - title: 训练者角色：训练机安装
           path: 02-user-guide/windows-bundle-install.md
           access: public
-        - title: 使用交付物与正式 CLI
-          path: 02-user-guide/use-build-artifacts.md
+        - title: 训练者角色：快速开始
+          path: 02-user-guide/windows-quickstart.md
           access: public
-        - title: Windows 训练机安装与模型训练
-          path: 02-user-guide/from-base-model-to-training-guide.md
-          access: public
-        - title: 用生成器准备训练数据
+        - title: 训练者角色：使用生成器准备训练数据
           path: 02-user-guide/prepare-training-data-with-generator.md
           access: public
-        - title: 训练完成后的模型使用与测试
+        - title: 训练者角色：使用训练器完成训练、测试与评估
+          path: 02-user-guide/from-base-model-to-training-guide.md
+          access: public
+        - title: 训练者角色：使用自动化训练
+          path: 02-user-guide/auto-train-on-training-machine.md
+          access: public
+        - title: 训练者角色：训练后结果验收
           path: 02-user-guide/use-and-test-trained-models.md
           access: public
-        - title: 如何确认 Windows 电脑上的 CUDA 版本
+        - title: 训练者角色：CUDA 版本检查
           path: 02-user-guide/how-to-check-cuda-version.md
+          access: public
+        - title: 附录：交付物与目录边界
+          path: 02-user-guide/use-build-artifacts.md
           access: public
     - title: 开发者指南
       children:
         - title: 概览
           path: 03-developer-guide/index.md
           access: public
+        - title: 独立 solver 包迁移与集成边界
+          path: 03-developer-guide/solver-bundle-and-integration.md
+          access: private
         - title: 维护者快速使用说明
           path: 03-developer-guide/maintainer-quickstart.md
           access: private
@@ -112,6 +124,9 @@ mkdocs:
             - title: 接口与入口基线
               path: 04-project-development/04-design/api-design.md
               access: private
+            - title: Solver 资产导出合同
+              path: 04-project-development/04-design/solver-asset-export-contract.md
+              access: private
             - title: 多模式验证码样本生成器设计
               path: 04-project-development/04-design/graphic-click-generator-design.md
               access: private
@@ -141,6 +156,12 @@ mkdocs:
             - title: 自主训练任务拆解
               path: 04-project-development/05-development-process/autonomous-training-task-breakdown.md
               access: private
+            - title: 独立 solver 迁移任务拆解
+              path: 04-project-development/05-development-process/standalone-solver-migration-task-breakdown.md
+              access: private
+            - title: 自主训练实施准入结论
+              path: 04-project-development/05-development-process/autonomous-training-implementation-readiness.md
+              access: private
         - title: 测试与验证
           children:
             - title: 概览
@@ -151,10 +172,22 @@ mkdocs:
             - title: 概览
               path: 04-project-development/07-release-delivery/index.md
               access: private
+            - title: 发布说明
+              path: 04-project-development/07-release-delivery/release-notes.md
+              access: private
+            - title: 交付包说明
+              path: 04-project-development/07-release-delivery/delivery-package.md
+              access: private
+            - title: 发布检查清单
+              path: 04-project-development/07-release-delivery/release-checklist.md
+              access: private
         - title: 运维与维护
           children:
             - title: 概览
               path: 04-project-development/08-operations-maintenance/index.md
+              access: private
+            - title: 部署说明
+              path: 04-project-development/08-operations-maintenance/deployment-guide.md
               access: private
             - title: 维护运行手册
               path: 04-project-development/08-operations-maintenance/operations-runbook.md

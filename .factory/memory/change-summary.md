@@ -1,6 +1,62 @@
 # 变更摘要
 
-## 2026-04-05 已发布 `sinan-captcha==0.1.13`，修复 OpenCode `--command` 调用回归并支持 JSON 事件流解析
+## 2026-04-05 准备 `sinan-captcha==0.1.16`，移除 OpenCode `--file` 依赖并将文件内容内联进 prompt
+
+- 已更新：
+  - `core/auto_train/opencode_commands.py`
+  - `tests/python/test_auto_train_opencode_commands.py`
+  - `tests/python/test_auto_train_opencode_runtime.py`
+  - `core/_version.py`
+  - `.factory/memory/current-state.md`
+  - `.factory/memory/change-summary.md`
+- 当前已完成的目标：
+  - 已移除 OpenCode headless 调用对 `--file` 的依赖
+  - 当前会把 study/trial 输入文件的内容直接内联到 prompt 中
+  - prompt 当前会明确要求模型不要调用任何 file/search/glob/skill 工具
+  - 这绕开了训练机上 `glob_search` 这类不存在工具名被模型误调用的问题
+- 已运行验证：
+  - `./.venv/bin/python -m unittest tests.python.test_auto_train_opencode_commands tests.python.test_auto_train_opencode_runtime tests.python.test_auto_train_controller tests.python.test_setup_train tests.python.test_release_service`
+  - `git diff --check`
+
+## 2026-04-05 发布 `sinan-captcha==0.1.15`，修复 OpenCode 将内联 skill 误当成工具调用，并收口版本单一事实源
+
+- 已更新：
+  - `core/auto_train/opencode_commands.py`
+  - `.opencode/commands/result-read.md`
+  - `.opencode/commands/judge-trial.md`
+  - `.opencode/commands/plan-dataset.md`
+  - `.opencode/commands/study-status.md`
+  - `core/auto_train/resources/opencode/commands/result-read.md`
+  - `core/auto_train/resources/opencode/commands/judge-trial.md`
+  - `core/auto_train/resources/opencode/commands/plan-dataset.md`
+  - `core/auto_train/resources/opencode/commands/study-status.md`
+  - `core/_version.py`
+  - `core/__init__.py`
+  - `pyproject.toml`
+  - `core/ops/setup_train.py`
+  - `tests/python/test_auto_train_opencode_commands.py`
+  - `tests/python/test_setup_train.py`
+  - `tests/python/test_release_service.py`
+  - `.factory/memory/current-state.md`
+  - `.factory/memory/change-summary.md`
+- 当前已完成的目标：
+  - 已修复训练机上 `0.1.14` 使用普通 message 模式时，模型因为提示词中存在“Load and follow the local ... skill”而尝试调用 `skill:skill` 无效工具的问题
+  - OpenCode commands 当前不再要求模型加载本地 skill，而是要求直接遵循“inline guidance”
+  - `render_prompt(...)` 当前会直接内联 skill 正文，并明确声明“do not call any skill tool”
+  - 已把版本号收口到 `core/_version.py` 单一事实源
+  - `pyproject.toml` 当前使用 setuptools dynamic version 读取 `core._version.VERSION`
+  - `setup-train` 与相关测试当前已从版本常量派生，不再多处写死 `0.1.15`
+  - 已完成 `python3 -m build`
+  - 已完成 `uv publish dist/sinan_captcha-0.1.15-py3-none-any.whl dist/sinan_captcha-0.1.15.tar.gz`
+  - 已完成 `uvx --no-config --refresh --default-index https://pypi.org/simple --from sinan-captcha==0.1.15 sinan --help`
+- 已运行验证：
+  - `./.venv/bin/python -m unittest tests.python.test_setup_train tests.python.test_release_service tests.python.test_auto_train_opencode_commands tests.python.test_auto_train_controller`
+  - `git diff --check`
+  - `python3 -m build`
+  - `uv publish dist/sinan_captcha-0.1.15-py3-none-any.whl dist/sinan_captcha-0.1.15.tar.gz`
+  - `uvx --no-config --refresh --default-index https://pypi.org/simple --python 3.12 --from sinan-captcha==0.1.15 sinan --help`
+
+## 2026-04-05 准备 `sinan-captcha==0.1.14`，绕开 OpenCode attach 模式下 `--command` 强制进入 Plan Mode 的问题
 
 - 已更新：
   - `core/auto_train/opencode_runtime.py`
@@ -1943,6 +1999,11 @@
   - 典型命令改为用户视角
   - 开发者信息后置
   - 移除首页上的维护者工作流干扰
+- 2026-04-05：修复 `auto-train` 的 OpenCode JSON 输出稳定性，`result-read / judge-trial / plan-dataset / study-status` 命令模板补充明确 JSON 字符串示例，并恢复通过 prompt 点名本地 skill 的方式。
+- 2026-04-05：新增 `core/auto_train/json_extract.py` 的轻量 JSON 修复逻辑，可容错模型输出中的键名引号缺失和尾逗号。
+- 2026-04-05：`result-read` 命令补充 `dataset_version/train_name` 参数；控制器新增对 `ResultSummaryRecord` 缺失字段的 deterministic hydration，避免模型遗漏嵌套快照元数据时直接 fallback。
+- 2026-04-05：已在本机真实 `opencode + ollama/gemma4:26b` 环境下完成 `study-status / judge-trial / plan-dataset / result-read` 端到端验证。
+
 - 已继续收口 `docs/02-user-guide/index.md`：
   - 结构与 README 首页对齐
   - 先按起点选入口

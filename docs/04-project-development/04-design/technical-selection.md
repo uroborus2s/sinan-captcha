@@ -1,178 +1,195 @@
 # 技术选型与工程规则
 
 - 项目名称：sinan-captcha
-- 当前阶段：DESIGN
-- 最近更新：2026-04-04
+- 当前阶段：IMPLEMENTATION（设计基线维护）
+- 最近更新：2026-04-05
 - 负责人：Codex
 
 ## 1. 设计目标
 
-本阶段要固定的是“第一版如何稳妥落地”，不是追求最复杂的模型组合。设计目标有六个：
+本阶段的技术选型不再围绕“怎么搭一个训练工程”展开，而是围绕“怎么稳定交付统一验证码求解包/库”展开。设计目标固定为：
 
-1. 让零基础用户在 Windows + NVIDIA 单机上可复现地跑通训练闭环。
-2. 把两类验证码任务清晰拆开，不混成一个大杂烩模型。
-3. 让样本获取和自动标注尽量依赖生成端真值，而不是大量人工标注。
-4. 把生成器收口成“受控集成 + 可插拔 backend”，不让第三方库反向定义训练契约。
-5. 让后续实现仍可在 Python 工程规范内维护，而不是变成一次性训练脚本。
-6. 让后续自主训练控制器可以在不依赖长对话上下文的前提下持续运行，并先与 `opencode` 接轨。
+1. 最终交付 1 个本地可调用的统一求解 wheel，内嵌模型与 Rust 扩展；外置 bundle 只保留为训练仓库到 solver 项目之间的内部交接资产。
+2. 让 Windows + NVIDIA 单机继续承担样本生成、训练、测试、评估和自主训练闭环。
+3. 让 `group1` 与 `group2` 保持独立训练与独立验收，但对外统一到单一求解合同。
+4. 让生成器继续拥有 `gold` 真值定义权，不让 backend 或训练框架反向定义训练事实。
+5. 让自主训练维持“确定性控制器 + 受限 agent”边界，不依赖长上下文记忆。
+6. 让设计文档明确区分：
+   - 最终目标交付
+   - 当前已存在实现
+   - 后续仍需补齐的正式发布主线
 
 ## 2. 核心技术决策
 
-### 2.1 训练框架
+### 2.1 一级产品与交付形态
 
-- 第一专项训练框架：Ultralytics YOLO
-- 第二专项训练框架：基于 PyTorch 的自定义 paired-input runner
-- 决策原因：
-  - 第一专项本质是标准单图目标检测，直接沿用 Ultralytics CLI 成本最低。
-  - 第二专项真实业务输入是 `master_image + tile_image` 双输入，不适合继续伪装成单图 YOLO detect。
-  - PyTorch 自定义 runner 能把第二专项的双输入契约、训练、预测和评估完整收口到仓库内部。
-
-### 2.2 基础模型策略
-
-- 首版不把两组强行塞进同一种模型接口。
-- 第一专项基础权重：`yolo26n.pt`
-- 第一专项资源允许且精度不足时，第二选择：`yolo26s.pt`
-- 第二专项默认初始化：`paired_cnn_v1`
-- 第二专项继续训练入口：上一轮 `best.pt`
-- 不采用“验证码专用底模”作为首版依赖。
+- 一级产品：
+  - 本地统一验证码求解包/库
+  - 平台相关 wheel
+  - 单一业务语义和函数调用合同
+- 二级支撑能力：
+  - Go 生成器 CLI
+  - Python 训练 / 测试 / 评估 / 发布 CLI
+  - Python 自主训练 CLI
+- V1 不先做公网 HTTP 平台。
+- V1 优先固化本地 `PyPI wheel + Rust native extension + embedded ONNX assets` 的交付模型。
 
 设计判断：
 
-- 当前没有一个公开、成熟、明显优于通用检测预训练权重的“图形验证码专项基础模型”被确认为首选。
-- 对这个项目，标签质量和样本分布远比“寻找特殊基础模型”更重要。
+- 当前仓库最完整的实现仍在模型生产线，但技术选型必须先对齐最终 solver 交付面，否则 release、部署和用户文档会继续漂移。
 
-### 2.3 第一专项模型路线
+### 2.2 训练框架
 
-- 任务定义：多类别检测
-- 输出：目标框 + 中心点 + 查询顺序映射后的点击点列表
-- 首版不引入相似度匹配模型
-- 只有当图标类别无法稳定维护时，才在后续变更中评估“检测 + 匹配”路线
+- `group1` 训练框架：
+  - Ultralytics YOLO
+  - 分别训练 `scene detector` 与 `query parser`
+- `group2` 训练框架：
+  - 仓库内 PyTorch 自定义 paired-input runner
 
-### 2.4 第二专项模型路线
+设计判断：
 
-- 任务定义：滑块缺口定位
+- `group1` 的真实业务是 `query_image + scene_image -> ordered_clicks`，首版拆成 `scene detector + query parser + matcher` 最稳。
+- `group2` 的真实业务是 `master_image + tile_image -> target_center`，继续伪装成单图 detect 只会让合同和实现都失真。
+
+### 2.2.1 推理运行时路线
+
+- 训练侧保留：
+  - PyTorch
+  - Ultralytics YOLO
+- solver 侧迁移为：
+  - ONNX
+  - ONNX Runtime
+  - Rust 原生扩展
+
+设计判断：
+
+- 训练期继续保留现有 PyTorch / Ultralytics 栈，避免过早重写训练主线。
+- 最终调用方不应承担 PyTorch 级运行时复杂度，solver 侧应收口到更轻的 ONNX Runtime。
+- Rust 原生扩展是 solver 侧的长期运行时边界，不再把 Python 当作最终重计算层。
+
+### 2.3 `group1` 正式技术路线
+
+- 子模型 1：`scene detector`
+- 子模型 2：`query parser`
+- 非模型组件：`matcher`
+- 正式业务输出：按查询顺序排列的中心点序列
+- 调试或解释字段：检测框、候选框、匹配状态、歧义状态
+
+设计判断：
+
+- 首版不引入额外相似度匹配模型。
+- 只有当类别体系无法稳定维护、重复类别场景无法靠规则消歧时，才重新评估“检测 + 匹配模型”路线。
+
+### 2.4 `group2` 正式技术路线
+
 - 输入：`master_image + tile_image`
-- 输出：缺口目标框 + 中心点 + 偏移量
-- 首版模型形态：仓库内自定义 paired-input 相关性定位器
-- 规则法在首版中的角色：
-  - 预标注
-  - 可行性验证
-  - 与模型结果对照
-- 规则法不是正式交付物的唯一主线，正式模型仍为双输入滑块缺口定位模型
-
-### 2.5 自主训练控制器与 agent 运行时
-
-- 首版控制器：仓库内 Python 控制器
-- 首版 agent 运行时：`opencode`
-- 首版接入方式：
-  - 项目内本地 commands：`.opencode/commands/`
-  - 项目内本地 skills：`.opencode/skills/`
-  - 控制器通过 `opencode run` 触发命令式判断与结果摘要
+- 正式业务输出：背景图坐标系中的目标中心点
+- 辅助输出：目标框、偏移量、调试信息
+- `tile_start_bbox`：
+  - 只服务于偏移量等辅助字段
+  - 不应继续成为“能否返回中心点主结果”的强依赖
 
 设计判断：
 
-- `opencode` 已提供 CLI、custom commands、agent skills 与权限控制能力，适合承载“结果解读与结构化判断”这类受限动作。
-- 首版不把 `opencode` 当成自由 shell 代理，而是只把它当成 agent 容器与 skill 分发层。
-- 确定性执行、状态持久化和停止规则仍由 Python 控制器掌握，避免长时间训练过程退化为不可审计的会话。
+- 当前实现已支持把 `tile_start_bbox` 作为可选输入。
+- 设计基线以中心点为主结果，偏移量退到辅助结果层。
 
-### 2.6 自主训练优化与状态持久化
+### 2.5 生成器与 backend 策略
 
-- 超参数优化器：`Optuna`
-- HTTP 客户端：`httpx`
-- 结构化 schema：`pydantic`
-- 状态存储：SQLite + study 目录中的 JSON/JSONL 工件
+- 生成器控制层：Go
+- backend 形态：
+  - 自有 native backend
+  - 可选 `go-captcha` adapter backend
+- 生成器职责：
+  - 工作区与 preset 管理
+  - 素材索引与校验
+  - 真值生成与重放
+  - 批次 QA
+  - 直接导出任务专属训练数据集目录
 
 设计判断：
 
-- `Optuna` 负责数值搜索与 pruning，不负责业务判断。
-- AI agent 负责判断“该调参还是该补数据”，但不直接自由生成 shell 动作。
-- 所有 study 与 trial 结论都必须落盘，避免上下文成为唯一记忆源。
+- backend 只能提供生成能力，不得成为训练标签的主事实源。
+- 视觉难度增强第一版只允许 truth-preserving 的像素级扰动，不允许改变几何语义。
+
+### 2.6 自主训练控制器与 agent 运行时
+
+- 控制器：仓库内 Python 控制器
+- agent 运行时：`opencode`
+- study/trial 主持久化：
+  - study 目录
+  - JSON / JSONL 工件
+- 优化器：
+  - `Optuna` 作为可插拔搜索器
+  - 未接 driver 或未满足前置条件时回退到规则模式
+- 结构化校验：
+  - 当前基线为标准库 dataclass + 显式校验
+  - `pydantic` 不是当前必须前置
+
+设计判断：
+
+- 本项目当前最稳定的持久化主线是文件账本，而不是数据库。
+- 若后续为 `Optuna` 或统计分析引入额外本地存储，只能建立在文件账本已经完整可信的前提上。
+
+### 2.7 统一求解与发布策略
+
+- 统一求解实现语言：
+  - Python API 外壳
+  - Rust 原生扩展运行时
+- 正式运行目标：
+  - package/library 直接调用
+  - `pip install sinanz`
+- 内部交接资产规则：
+  - ONNX 模型与 metadata 自描述
+  - 不允许直接引用 `runs/` 的绝对路径
+- 最终 wheel 目标内容：
+  - Python 包
+  - Rust native extension
+  - embedded ONNX assets
+- Windows 训练交付包目标内容：
+  - Go 生成器可执行文件
+  - 训练仓库 wheel
+  - 内部导出资产说明
+  - 使用说明
+
+设计判断：
+
+- 当前 `core/solve` 已经存在，说明统一求解主线不应再被视为“未来想法”。
+- 当前 `sinanz` 仍处于 Python/PyTorch 迁移过渡期；正式对外交付仍需补齐 ONNX 导出、Rust bridge 和平台 wheel 发布链路。
 
 ## 3. 生成与数据策略
 
 ### 3.1 是否必须先部署完整验证码服务
 
 - 不必须。
-- 首版只需要一个“能稳定生成图片和标签的内部生成器”。
-- 这个生成器可以是：
-  - 现有业务验证码服务中的导出模式
+- 首版只需要稳定生成图片和真值的内部生成器。
+- 生成器可以来自：
+  - 自有业务生成逻辑的导出模式
   - 内部离线脚本
   - 内部 API
 
-设计结论：
+### 3.2 标签主事实源
 
-- 对训练来说，最关键的是“图片 + 真值标签”能直接输出。
-- 不要求先部署面向真实业务流量的完整对外验证码平台。
+- 主事实源：JSONL
+- 派生产物：
+  - `group1`：`dataset.json`、`scene-yolo/`、`query-yolo/`、`splits/`
+  - `group2`：`dataset.json`、`master/`、`tile/`、`splits/`
+- 禁止把任何派生产物当作唯一事实源。
 
-### 3.2 生成端优先级
+### 3.3 标签状态
 
-优先级固定如下：
+- `gold`：生成器内部真值直出且通过校验
+- `auto`：自动预标注生成
+- `reviewed`：抽检或修正后确认
 
-1. 现有自有验证码生成逻辑上加导出功能
-2. 内部自建离线生成器，并由控制层统一维护 JSONL 契约、真值校验和批次导出
-3. 采用开源验证码生成项目作为内部 backend 候选，并通过适配层接入
+### 3.4 `gold` 硬门禁
 
-设计结论：
+- `gold` 必须来自生成器内部几何真值。
+- 同一份真值必须同时驱动渲染和标签导出。
+- 每批样本必须支持按 `seed + backend + 素材版本 + 配置版本` 重放。
+- 任一一致性校验失败样本直接阻断，不写入正式数据集。
 
-- 生成器必须由自有控制层统一维护模式选择、批次元数据、真值校验和导出契约。
-- backend 只负责提供验证码生成能力，不得直接定义训练标签主事实源。
-
-### 3.3 开源生成底座选择
-
-#### 首选：`go-captcha`
-
-- 推荐仓库：<https://github.com/wenlng/go-captcha>
-- 适用原因：
-  - 同时支持 Click、Slide、Drag-Drop、Rotate 四类行为验证码
-  - Click 模式支持 text 和 graphic 两种模式
-  - Slide 模式可直接拿到主图、滑块图和验证数据
-  - 可自定义背景、图形资源和图块资源
-  - 还有单独的 `go-captcha-service` 供内部部署
-
-设计判断：
-
-- 这是目前最适合“滑块 + 图形点选”训练样本生成的开源 backend 候选。
-- 它适合作为内部生成器的可插拔底座，而不是直接充当训练数据主事实源。
-
-#### 备选：`tianai-captcha`
-
-- 推荐仓库：<https://github.com/dromara/tianai-captcha>
-- 适用原因：
-  - Java / Spring Boot 集成友好
-  - 明确支持滑块、旋转、滑动还原、文字点选
-- 不足：
-  - 对你当前最关心的“图形点选”支持表达没有 `go-captcha` 那么直接
-
-设计判断：
-
-- 如果团队强依赖 Java / Spring Boot，可作为备选。
-- 如果主要目标是快速生成训练样本，不优先于 `go-captcha`。
-
-### 3.4 视觉难度增强策略
-
-- 第一版只支持像素级视觉增强：
-  - `scene veil`
-  - 背景轻模糊
-  - 图标/缺口阴影
-  - 边缘软化
-- 第一版不支持会改变标签几何语义的普通用户参数：
-  - 透视扭曲
-  - 遮挡
-  - 裁边
-  - 改变 bbox/center 语义的形变
-- 参数入口分层：
-  - 内置 preset：`smoke`、`firstpass`、`hard`
-  - 可选 workspace 覆盖：固定读取 `workspace/presets/*.yaml`
-  - 不支持 `exe` 同级配置覆盖
-
-设计判断：
-
-- 这类参数能提升样本难度，但仍能保持 `gold` 真值由采样与布局链路稳定给出。
-- 一旦参数开始改变几何语义，就不应再作为普通 preset 调整项，而应回到需求与设计阶段重评。
-
-## 4. Python 工程规则
-
-本项目后续实现统一遵循 `python-uv-project` 规范。
+## 4. Python 与 CLI 工程规则
 
 ### 4.1 环境管理
 
@@ -180,44 +197,21 @@
 - 统一使用 `uv`
 - 统一使用 `pyproject.toml`
 - 统一提交 `uv.lock`
-- 不以 `requirements.txt` 作为主事实源
+- 不把 `requirements.txt` 当主事实源
 
-### 4.2 目录约定
+### 4.2 正式入口边界
 
-默认实现目录：
+- Go 侧正式入口：`sinan-generator`
+- Python 侧正式入口：`sinan`
+- solver 侧正式能力归属：
+  - 当前迁移参考实现在 `core/solve`
+  - 正式公开入口应在 `solver_package/src/sinanz/`
+  - 正式运行时扩展应在 `solver_package/native/sinanz_ext/`
+- 不再允许 `scripts/*` 成为正式对外入口。
 
-```text
-sinan-captcha/
-  .opencode/
-    commands/
-    skills/
-  pyproject.toml
-  uv.lock
-  generator/
-  core/
-    auto_train/
-  tests/
-  datasets/
-  reports/
-```
+### 4.3 默认质量门槛
 
-说明：
-
-- `generator/` 放 Go 生成器工程和正式生成器 CLI
-- `core/` 放 Python 训练与数据工程核心包
-- `.opencode/` 放项目级 agent commands 与 reusable skills
-- `core/auto_train/` 放自主训练控制器、状态管理、judge 适配和优化器
-- `tests/` 放测试
-- `datasets/` 是数据资产目录，不混入核心 Python 包
-
-### 4.3 质量门槛
-
-后续进入实现阶段前，默认要准备：
-
-- `ruff`
-- `mypy`
-
-后续默认命令：
+默认验证命令：
 
 ```bash
 uv run ruff check .
@@ -226,86 +220,66 @@ uv run mypy core tests
 uv run python -m unittest discover -s tests/python -p 'test_*.py'
 ```
 
-自主训练新增默认依赖与验证重点：
+Go 验证：
 
-- `optuna`
-- `httpx`
-- `pydantic`
-- `opencode`
+```bash
+go test ./...
+```
 
-自主训练新增默认验证重点：
+自主训练新增验证重点：
 
 - study 状态恢复
 - JSON 决策解析与 fallback
-- group1/group2 双 study 隔离
+- `group1/group2` 双 study 隔离
 - 停止规则与 resume 行为
+- `plan-dataset` / `judge-trial` / `result-read` / `study-status` 运行时接入
 
-## 5. 数据与标注标准
+## 5. 推理资产与部署规则
 
-### 5.1 标签主事实源
+- 内部导出资产必须可整体复制，不依赖训练目录绝对路径。
+- 导出资产校验必须在打包 wheel 前完成。
+- 最终用户交付优先是平台相关 wheel，而不是外置 bundle。
+- wheel 内必须同时包含：
+  - `sinanz` Python API
+  - Rust 原生扩展
+  - `resources/models/*.onnx`
+  - `resources/metadata/*.json`
+- 调用方不应直接读取 `runs/`、`datasets/`、`studies/` 或模型文件路径。
 
-- 主事实源：JSONL
-- 派生产物：
-  - `group1`：YOLO 格式文本标签
-  - `group2`：paired dataset split JSONL 与 `dataset.json`
-- 禁止把任何派生产物当作唯一事实源
+## 6. 当前实现对齐状态
 
-### 5.2 标签状态
+### 已存在的稳定实现
 
-- `gold`：生成器内部真值直出，且已通过一致性校验与重放校验
-- `auto`：自动预标注生成
-- `reviewed`：抽检或纠正后确认
+- Go 生成器工作区、素材、QA 与数据导出主线
+- Python 训练、测试、评估与发布主线
+- 自主训练控制器骨架与 `opencode` JUDGE/PLAN/READ/STATUS + `Optuna` RETUNE 运行时接入
+- `core/solve` 的合同和统一求解骨架
 
-### 5.3 `gold` 硬门禁
+### 仍待继续补齐的正式主线
 
-- `gold` 标签必须来自生成器内部几何真值，不允许渲染后反推
-- 同一份真值必须同时驱动渲染和答案导出
-- 每批样本必须支持按 `seed + backend + 素材版本 + 配置版本` 重放
-- 任一一致性校验失败样本直接阻断，不写入 `raw`
+- `PT -> ONNX` 推理资产导出
+- Rust 扩展与 ONNX Runtime bridge
+- 平台相关 wheel 构建与安装冒烟
+- 旧 bundle 交付口径向内部交接资产降级
 
-### 5.4 测试集规则
+## 7. 首版明确不做的事
 
-- 测试集必须冻结
-- 未抽检的 `auto` 标签禁止进入测试集
-- 第一组测试集必须覆盖：
-  - 多目标
-  - 干扰项
-  - 重复类别
-- 第二组测试集必须覆盖：
-  - 高亮目标
-  - 弱对比目标
-  - 复杂背景
-
-## 6. 首版明确不做的事
-
-- 不从零训练检测模型
-- 不引入多模型检索系统作为第一专项首版主线
-- 不要求先上线完整验证码平台
-- 不直接抓第三方未授权验证码作为训练数据
-- 不做分布式训练或多机训练
+- 不先做公网 HTTP 服务、多租户鉴权和在线扩缩容
 - 不把 AI agent 放开为不受约束的命令执行者
-
-## 7. 后续需要触发变更评估的条件
-
-- 第一组类别表无法稳定维护
-- 第二组目标不再是单缺口滑块
-- 生成端无法提供足够真值，且预标注质量长期低于门槛
-- 单机显存无法支撑首版训练节奏
-- 需要把内部生成器升级为真实对外服务
-- 需要把 agent 权限和状态账本统一冻结，否则自主训练无法审计
+- 不把 `group1` 与 `group2` 强行合并成一个万能模型
+- 不直接抓第三方未授权验证码作为训练数据
+- 不在正式文档里把尚未接入发布主线的功能写成“已经交付”
 
 ## 8. 参考来源
 
 - PyTorch Get Started: <https://pytorch.org/get-started/locally/>
 - Ultralytics Train: <https://docs.ultralytics.com/modes/train/>
 - Ultralytics Detect Datasets: <https://docs.ultralytics.com/datasets/detect/>
+- ONNX Runtime Docs: <https://onnxruntime.ai/docs/>
+- Rust Cargo Book: <https://doc.rust-lang.org/cargo/>
 - uv Getting Started: <https://docs.astral.sh/uv/getting-started/features/>
 - go-captcha: <https://github.com/wenlng/go-captcha>
-- tianai-captcha: <https://github.com/dromara/tianai-captcha>
 - OpenCode Intro: <https://opencode.ai/docs/>
-- OpenCode CLI: <https://opencode.ai/docs/cli/>
 - OpenCode Commands: <https://opencode.ai/docs/commands/>
-- OpenCode Agents: <https://opencode.ai/docs/agents/>
 - OpenCode Skills: <https://opencode.ai/docs/skills/>
 - Optuna Installation: <https://optuna.readthedocs.io/en/stable/installation.html>
-- Optuna Study: <https://optuna.readthedocs.io/en/latest/reference/study.html>

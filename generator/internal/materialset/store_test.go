@@ -23,7 +23,7 @@ func TestFetchArchiveImportsZipIntoOfficialMaterials(t *testing.T) {
 	materialsRoot := createMaterialsPack(t)
 	archivePath := createMaterialsArchive(t, materialsRoot)
 
-	result, err := FetchArchive(state, archivePath, "official-pack-v1")
+	result, err := FetchArchive(state, archivePath, "official-pack-v1", "")
 	if err != nil {
 		t.Fatalf("fetch archive: %v", err)
 	}
@@ -33,21 +33,61 @@ func TestFetchArchiveImportsZipIntoOfficialMaterials(t *testing.T) {
 	if result.Ref.Name != "official-pack-v1" {
 		t.Fatalf("unexpected name: %s", result.Ref.Name)
 	}
-	if result.Validation.ClassCount != 2 {
-		t.Fatalf("unexpected class count: %d", result.Validation.ClassCount)
+	if result.Validation.Group1ClassCount != 2 {
+		t.Fatalf("unexpected group1 class count: %d", result.Validation.Group1ClassCount)
 	}
-	if _, err := os.Stat(filepath.Join(result.Root, "manifests", "classes.yaml")); err != nil {
-		t.Fatalf("expected fetched manifest: %v", err)
+	if _, err := os.Stat(filepath.Join(result.Root, "manifests", "group1.classes.yaml")); err != nil {
+		t.Fatalf("expected fetched group1 manifest: %v", err)
+	}
+	if _, err := os.Stat(filepath.Join(result.Root, "manifests", "group2.shapes.yaml")); err != nil {
+		t.Fatalf("expected fetched group2 manifest: %v", err)
+	}
+}
+
+func TestFetchArchiveAcceptsTaskScopedMaterialsPack(t *testing.T) {
+	workspaceRoot := filepath.Join(t.TempDir(), "workspace")
+	state, err := workspace.Ensure(workspaceRoot)
+	if err != nil {
+		t.Fatalf("ensure workspace: %v", err)
+	}
+
+	materialsRoot := createGroup1OnlyMaterialsPack(t)
+	archivePath := createMaterialsArchive(t, materialsRoot)
+
+	result, err := FetchArchive(state, archivePath, "group1-pack-v1", "group1")
+	if err != nil {
+		t.Fatalf("fetch task-scoped archive: %v", err)
+	}
+	if result.Validation.Group1ClassCount != 2 {
+		t.Fatalf("unexpected group1 class count: %d", result.Validation.Group1ClassCount)
+	}
+	if result.Validation.Group2ShapeCount != 0 {
+		t.Fatalf("expected group2 count to remain 0, got %d", result.Validation.Group2ShapeCount)
 	}
 }
 
 func createMaterialsPack(t *testing.T) string {
 	t.Helper()
 	root := filepath.Join(t.TempDir(), "materials")
-	writeClassesManifest(t, filepath.Join(root, "manifests", "classes.yaml"))
+	writeMaterialsManifest(t, filepath.Join(root, "manifests", "materials.yaml"))
+	writeGroup1Manifest(t, filepath.Join(root, "manifests", "group1.classes.yaml"))
+	writeGroup2Manifest(t, filepath.Join(root, "manifests", "group2.shapes.yaml"))
 	writePNG(t, filepath.Join(root, "backgrounds", "bg_001.png"), 320, 180)
-	writePNG(t, filepath.Join(root, "icons", "icon_house", "001.png"), 48, 48)
-	writePNG(t, filepath.Join(root, "icons", "icon_leaf", "001.png"), 48, 48)
+	writePNG(t, filepath.Join(root, "group1", "icons", "icon_house", "001.png"), 48, 48)
+	writePNG(t, filepath.Join(root, "group1", "icons", "icon_leaf", "001.png"), 48, 48)
+	writePNG(t, filepath.Join(root, "group2", "shapes", "shape_ticket", "001.png"), 48, 48)
+	writePNG(t, filepath.Join(root, "group2", "shapes", "shape_cloud", "001.png"), 48, 48)
+	return root
+}
+
+func createGroup1OnlyMaterialsPack(t *testing.T) string {
+	t.Helper()
+	root := filepath.Join(t.TempDir(), "materials-group1")
+	writeMaterialsManifest(t, filepath.Join(root, "manifests", "materials.yaml"))
+	writeGroup1Manifest(t, filepath.Join(root, "manifests", "group1.classes.yaml"))
+	writePNG(t, filepath.Join(root, "backgrounds", "bg_001.png"), 320, 180)
+	writePNG(t, filepath.Join(root, "group1", "icons", "icon_house", "001.png"), 48, 48)
+	writePNG(t, filepath.Join(root, "group1", "icons", "icon_leaf", "001.png"), 48, 48)
 	return root
 }
 
@@ -91,7 +131,18 @@ func createMaterialsArchive(t *testing.T, materialsRoot string) string {
 	return archivePath
 }
 
-func writeClassesManifest(t *testing.T, path string) {
+func writeMaterialsManifest(t *testing.T, path string) {
+	t.Helper()
+	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+		t.Fatalf("mkdir manifest dir: %v", err)
+	}
+	content := "schema_version: 2\n"
+	if err := os.WriteFile(path, []byte(content), 0o644); err != nil {
+		t.Fatalf("write manifest: %v", err)
+	}
+}
+
+func writeGroup1Manifest(t *testing.T, path string) {
 	t.Helper()
 	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
 		t.Fatalf("mkdir manifest dir: %v", err)
@@ -104,6 +155,26 @@ func writeClassesManifest(t *testing.T, path string) {
 		"  - id: 1",
 		"    name: icon_leaf",
 		"    zh_name: 叶子",
+		"",
+	}, "\n")
+	if err := os.WriteFile(path, []byte(content), 0o644); err != nil {
+		t.Fatalf("write manifest: %v", err)
+	}
+}
+
+func writeGroup2Manifest(t *testing.T, path string) {
+	t.Helper()
+	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+		t.Fatalf("mkdir manifest dir: %v", err)
+	}
+	content := strings.Join([]string{
+		"shapes:",
+		"  - id: 0",
+		"    name: shape_ticket",
+		"    zh_name: 票形缺口",
+		"  - id: 1",
+		"    name: shape_cloud",
+		"    zh_name: 云形缺口",
 		"",
 	}, "\n")
 	if err := os.WriteFile(path, []byte(content), 0o644); err != nil {

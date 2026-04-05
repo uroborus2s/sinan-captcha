@@ -17,7 +17,13 @@ from core.train.base import (
     default_run_dir,
     execute_training_job,
 )
-from core.train.group1.service import build_group1_training_job
+from core.train.group1.service import Group1TrainingJob, build_group1_training_job, execute_group1_training_job
+from core.train.group1.service import (
+    QUERY_COMPONENT,
+    SCENE_COMPONENT,
+    group1_component_best_weights,
+    group1_component_last_weights,
+)
 from core.train.group2.service import Group2TrainingJob, build_group2_training_job, execute_group2_training_job
 
 TrainingExecutor = Callable[[object], int]
@@ -60,7 +66,20 @@ def run_training_request(
         require_existing_path(dataset_config, stage="TRAIN", label="训练数据集配置文件")
 
     if request.train_mode in {"resume", "from_run"}:
-        require_existing_path(Path(model), stage="TRAIN", label="训练检查点")
+        if request.task == "group1":
+            component_resolver = group1_component_last_weights if request.train_mode == "resume" else group1_component_best_weights
+            require_existing_path(
+                component_resolver(request.train_root, request.train_name if request.train_mode == "resume" else request.base_run or "", SCENE_COMPONENT),
+                stage="TRAIN",
+                label="group1 scene detector 检查点",
+            )
+            require_existing_path(
+                component_resolver(request.train_root, request.train_name if request.train_mode == "resume" else request.base_run or "", QUERY_COMPONENT),
+                stage="TRAIN",
+                label="group1 query parser 检查点",
+            )
+        else:
+            require_existing_path(Path(model), stage="TRAIN", label="训练检查点")
 
     job = _build_training_job(
         request,
@@ -76,6 +95,9 @@ def run_training_request(
         elif request.task == "group2":
             assert isinstance(job, Group2TrainingJob)
             return_code = execute_group2_training_job(job)
+        elif request.task == "group1":
+            assert isinstance(job, Group1TrainingJob)
+            return_code = execute_group1_training_job(job)
         else:
             return_code = execute_training_job(job)
     except subprocess.CalledProcessError as exc:
@@ -98,24 +120,32 @@ def run_training_request(
             command=command_text,
         )
 
-    dataset_key = "dataset_config" if request.task == "group2" else "dataset_yaml"
+    dataset_key = "dataset_config" if request.task in {"group1", "group2"} else "dataset_yaml"
+    params = {
+        "dataset_version": request.dataset_version,
+        dataset_key: str(dataset_config),
+        "train_mode": request.train_mode,
+        "model": model,
+        "epochs": job.epochs,
+        "batch": job.batch,
+        "imgsz": job.imgsz,
+        "device": job.device,
+    }
+    best_weights = default_best_weights(request.train_root, request.task, request.train_name)
+    last_weights = default_last_weights(request.train_root, request.task, request.train_name)
+    if request.task == "group1":
+        best_weights = group1_component_best_weights(request.train_root, request.train_name, SCENE_COMPONENT)
+        last_weights = group1_component_last_weights(request.train_root, request.train_name, SCENE_COMPONENT)
+        params["query_model_best"] = str(group1_component_best_weights(request.train_root, request.train_name, QUERY_COMPONENT))
+        params["query_model_last"] = str(group1_component_last_weights(request.train_root, request.train_name, QUERY_COMPONENT))
     return TrainRunnerResult(
         record=contracts.TrainRecord(
             task=request.task,
             train_name=request.train_name,
             run_dir=str(default_run_dir(request.train_root, request.task, request.train_name)),
-            params={
-                "dataset_version": request.dataset_version,
-                dataset_key: str(dataset_config),
-                "train_mode": request.train_mode,
-                "model": model,
-                "epochs": job.epochs,
-                "batch": job.batch,
-                "imgsz": job.imgsz,
-                "device": job.device,
-            },
-            best_weights=str(default_best_weights(request.train_root, request.task, request.train_name)),
-            last_weights=str(default_last_weights(request.train_root, request.task, request.train_name)),
+            params=params,
+            best_weights=str(best_weights),
+            last_weights=str(last_weights),
             resumed_from=request.base_run if request.train_mode == "from_run" else request.train_name if request.train_mode == "resume" else None,
         ),
         command=command_text,
@@ -132,6 +162,8 @@ def _resolve_model(request: TrainRunnerRequest) -> str:
         )
 
     if request.train_mode == "resume":
+        if request.task == "group1":
+            return str(group1_component_last_weights(request.train_root, request.train_name, SCENE_COMPONENT))
         return request.model or str(default_last_weights(request.train_root, request.task, request.train_name))
 
     if request.train_mode == "from_run":
@@ -149,6 +181,8 @@ def _resolve_model(request: TrainRunnerRequest) -> str:
                 message="train_mode=from_run 时不要再显式传入 model。",
                 retryable=False,
             )
+        if request.task == "group1":
+            return str(group1_component_best_weights(request.train_root, request.base_run, SCENE_COMPONENT))
         return str(default_best_weights(request.train_root, request.task, request.base_run))
 
     return request.model or "yolo26n.pt"
@@ -162,10 +196,20 @@ def _build_training_job(
     model: str,
 ) -> object:
     if request.task == "group1":
+        scene_model = None
+        query_model = None
+        if request.train_mode == "resume":
+            scene_model = str(group1_component_last_weights(request.train_root, request.train_name, SCENE_COMPONENT))
+            query_model = str(group1_component_last_weights(request.train_root, request.train_name, QUERY_COMPONENT))
+        elif request.train_mode == "from_run" and request.base_run is not None:
+            scene_model = str(group1_component_best_weights(request.train_root, request.base_run, SCENE_COMPONENT))
+            query_model = str(group1_component_best_weights(request.train_root, request.base_run, QUERY_COMPONENT))
         return build_group1_training_job(
-            dataset_yaml=dataset_config,
+            dataset_config=dataset_config,
             project_dir=project_dir,
             model=model,
+            scene_model=scene_model,
+            query_model=query_model,
             run_name=request.train_name,
             epochs=request.epochs,
             batch=request.batch,

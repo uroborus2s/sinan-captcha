@@ -43,6 +43,27 @@ class AutoTrainContractsTests(unittest.TestCase):
                 trial_id="trial_0001",
                 task="group2",
                 dataset_version="firstpass_v2",
+                dataset_preset="firstpass",
+                dataset_override={
+                    "project": {"sample_count": 240},
+                    "effects": {
+                        "common": {
+                            "scene_veil_strength": 1.25,
+                            "background_blur_radius_min": 1,
+                            "background_blur_radius_max": 2,
+                        },
+                        "slide": {
+                            "gap_shadow_alpha_min": 0.16,
+                            "gap_shadow_alpha_max": 0.24,
+                            "gap_shadow_offset_x_min": 1,
+                            "gap_shadow_offset_x_max": 2,
+                            "gap_shadow_offset_y_min": 1,
+                            "gap_shadow_offset_y_max": 2,
+                            "tile_edge_blur_radius_min": 1,
+                            "tile_edge_blur_radius_max": 2,
+                        },
+                    },
+                },
                 train_name="trial_0001",
                 train_mode="from_run",
                 base_run="trial_0000",
@@ -81,6 +102,66 @@ class AutoTrainContractsTests(unittest.TestCase):
             self.assertEqual(loaded_decision, decision)
             self.assertEqual(history[0]["trial_id"], "trial_0001")
             self.assertEqual(decisions[0]["decision"], "RETUNE")
+
+    def test_dataset_plan_and_study_status_round_trip(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            root = Path(tmpdir)
+            dataset_plan_record = contracts.DatasetPlanRecord(
+                study_name="study_001",
+                task="group1",
+                trial_id="trial_0003",
+                dataset_action="new_version",
+                generator_preset="hard",
+                generator_overrides={
+                    "project": {"sample_count": 320},
+                    "sampling": {
+                        "target_count_min": 3,
+                        "target_count_max": 5,
+                        "distractor_count_min": 5,
+                        "distractor_count_max": 8,
+                    },
+                    "effects": {
+                        "common": {
+                            "scene_veil_strength": 1.45,
+                            "background_blur_radius_min": 1,
+                            "background_blur_radius_max": 2,
+                        },
+                        "click": {
+                            "icon_shadow_alpha_min": 0.28,
+                            "icon_shadow_alpha_max": 0.36,
+                            "icon_shadow_offset_x_min": 2,
+                            "icon_shadow_offset_x_max": 3,
+                            "icon_shadow_offset_y_min": 3,
+                            "icon_shadow_offset_y_max": 4,
+                            "icon_edge_blur_radius_min": 1,
+                            "icon_edge_blur_radius_max": 2,
+                        },
+                    },
+                },
+                boost_classes=["icon_camera", "icon_leaf"],
+                focus_failure_patterns=["sequence_consistency"],
+                rationale_cn="建议围绕弱类和顺序错误扩充样本。",
+                evidence=["decision=REGENERATE_DATA"],
+            )
+            study_status_record = contracts.StudyStatusRecord(
+                study_name="study_001",
+                task="group1",
+                status="running",
+                current_trial_id="trial_0003",
+                best_trial_id="trial_0002",
+                latest_decision="REGENERATE_DATA",
+                best_primary_score=0.84,
+                budget_pressure="medium",
+                summary_cn="当前应补数据再继续训练。",
+                next_actions_cn=["先生成新数据版本。"],
+                evidence=["budget_pressure=medium"],
+            )
+
+            storage.write_dataset_plan_record(root / "dataset_plan.json", dataset_plan_record)
+            storage.write_study_status_record(root / "study_status.json", study_status_record)
+
+            self.assertEqual(storage.read_dataset_plan_record(root / "dataset_plan.json"), dataset_plan_record)
+            self.assertEqual(storage.read_study_status_record(root / "study_status.json"), study_status_record)
 
     def test_invalid_decision_is_rejected(self) -> None:
         with self.assertRaises(ValueError):

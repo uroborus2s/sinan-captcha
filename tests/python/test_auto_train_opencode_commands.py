@@ -20,9 +20,19 @@ class AutoTrainOpenCodeCommandsTests(unittest.TestCase):
         self.assertEqual(registry["plan-dataset"].output_artifact, "dataset_plan.json")
         self.assertEqual(registry["study-status"].output_artifact, "study_status.json")
 
-    def test_headless_invocation_uses_command_flag_and_attached_files(self) -> None:
+    def test_headless_invocation_inlines_files_into_prompt(self) -> None:
         with tempfile.TemporaryDirectory() as tmpdir:
             root = Path(tmpdir)
+            command_dir = root / ".opencode" / "commands"
+            skill_dir = root / ".opencode" / "skills" / "training-judge"
+            command_dir.mkdir(parents=True, exist_ok=True)
+            skill_dir.mkdir(parents=True, exist_ok=True)
+            (command_dir / "judge-trial.md").write_text(
+                "---\ndescription: Judge one summarized trial and return decision.json\nagent: build\n---\n\n"
+                "Judge $1 $2 $3 and return only JSON.",
+                encoding="utf-8",
+            )
+            (skill_dir / "SKILL.md").write_text("Use training judge skill.", encoding="utf-8")
             first = root / "one.json"
             second = root / "two.json"
             first.write_text("{}", encoding="utf-8")
@@ -32,14 +42,21 @@ class AutoTrainOpenCodeCommandsTests(unittest.TestCase):
                 "judge-trial",
                 arguments=["study_001", "group1", "trial_0004"],
                 files=[first, second],
+                project_root=root,
                 attach_url="http://127.0.0.1:4096",
             )
 
-            self.assertEqual(command[0:6], ["opencode", "run", "--format", "json", "--command", "judge-trial"])
+            self.assertEqual(command[0:6], ["opencode", "run", "--format", "json", "--agent", "build"])
             self.assertIn("--attach", command)
             self.assertIn("http://127.0.0.1:4096", command)
-            self.assertEqual(command.count("--file"), 2)
-            self.assertEqual(command[-4:], ["--", "study_001", "group1", "trial_0004"])
+            self.assertNotIn("--file", command)
+            self.assertEqual(command[-2], "--")
+            self.assertIn("Judge study_001 group1 trial_0004 and return only JSON.", command[-1])
+            self.assertIn("Tool usage constraints:", command[-1])
+            self.assertIn("call the `skill` tool with exact name `training-judge`", command[-1])
+            self.assertIn("--- Begin file:", command[-1])
+            self.assertIn(str(first), command[-1])
+            self.assertIn(str(second), command[-1])
 
     def test_markdown_command_files_match_registered_specs(self) -> None:
         project_root = Path("/Users/uroborus/AiProject/sinan-captcha")

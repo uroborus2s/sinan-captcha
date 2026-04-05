@@ -21,14 +21,14 @@ type SyncResult struct {
 	Validation material.ValidationSummary `json:"validation"`
 }
 
-func ResolveOrAcquire(state workspace.State, selector string, source string) (SyncResult, error) {
+func ResolveOrAcquire(state workspace.State, selector string, source string, task string) (SyncResult, error) {
 	if selector != "" {
-		return Resolve(state, selector)
+		return Resolve(state, selector, task)
 	}
 	if state.Metadata.ActiveMaterialSet != nil {
 		path, err := workspace.MaterialSetPath(state.Layout, *state.Metadata.ActiveMaterialSet)
 		if err == nil {
-			summary, validateErr := material.Validate(path)
+			summary, validateErr := validateMaterials(path, task)
 			if validateErr == nil {
 				return SyncResult{Ref: *state.Metadata.ActiveMaterialSet, Root: path, Validation: summary}, nil
 			}
@@ -40,10 +40,10 @@ func ResolveOrAcquire(state workspace.State, selector string, source string) (Sy
 	if source == "" {
 		return SyncResult{}, fmt.Errorf("no materials available in workspace %s; import local materials or provide --materials-source", state.Layout.Root)
 	}
-	return Sync(state, source, "")
+	return Sync(state, source, "", task)
 }
 
-func Resolve(state workspace.State, selector string) (SyncResult, error) {
+func Resolve(state workspace.State, selector string, task string) (SyncResult, error) {
 	ref, err := parseSelector(selector)
 	if err != nil {
 		return SyncResult{}, err
@@ -52,22 +52,22 @@ func Resolve(state workspace.State, selector string) (SyncResult, error) {
 	if err != nil {
 		return SyncResult{}, err
 	}
-	summary, err := material.Validate(root)
+	summary, err := validateMaterials(root, task)
 	if err != nil {
 		return SyncResult{}, err
 	}
 	return SyncResult{Ref: ref, Root: root, Validation: summary}, nil
 }
 
-func Sync(state workspace.State, source string, name string) (SyncResult, error) {
+func Sync(state workspace.State, source string, name string, task string) (SyncResult, error) {
 	info, err := os.Stat(source)
 	if err == nil && info.IsDir() {
-		return ImportLocal(state, source, name)
+		return ImportLocal(state, source, name, task)
 	}
-	return FetchArchive(state, source, name)
+	return FetchArchive(state, source, name, task)
 }
 
-func ImportLocal(state workspace.State, source string, name string) (SyncResult, error) {
+func ImportLocal(state workspace.State, source string, name string, task string) (SyncResult, error) {
 	source = filepath.Clean(source)
 	if name == "" {
 		name = filepath.Base(source)
@@ -87,7 +87,7 @@ func ImportLocal(state workspace.State, source string, name string) (SyncResult,
 	if err := copyDir(source, destination); err != nil {
 		return SyncResult{}, err
 	}
-	summary, err := material.Validate(destination)
+	summary, err := validateMaterials(destination, task)
 	if err != nil {
 		return SyncResult{}, err
 	}
@@ -98,7 +98,7 @@ func ImportLocal(state workspace.State, source string, name string) (SyncResult,
 	return SyncResult{Ref: *updated.Metadata.ActiveMaterialSet, Root: destination, Validation: summary}, nil
 }
 
-func FetchArchive(state workspace.State, source string, name string) (SyncResult, error) {
+func FetchArchive(state workspace.State, source string, name string, task string) (SyncResult, error) {
 	archivePath, resolvedName, err := acquireArchive(state, source, name)
 	if err != nil {
 		return SyncResult{}, err
@@ -126,14 +126,14 @@ func FetchArchive(state workspace.State, source string, name string) (SyncResult
 	if err := unzipArchive(archivePath, tempDir); err != nil {
 		return SyncResult{}, err
 	}
-	packRoot, err := detectMaterialRoot(tempDir)
+	packRoot, err := detectMaterialRoot(tempDir, task)
 	if err != nil {
 		return SyncResult{}, err
 	}
 	if err := copyDir(packRoot, destination); err != nil {
 		return SyncResult{}, err
 	}
-	summary, err := material.Validate(destination)
+	summary, err := validateMaterials(destination, task)
 	if err != nil {
 		return SyncResult{}, err
 	}
@@ -142,6 +142,13 @@ func FetchArchive(state workspace.State, source string, name string) (SyncResult
 		return SyncResult{}, err
 	}
 	return SyncResult{Ref: *updated.Metadata.ActiveMaterialSet, Root: destination, Validation: summary}, nil
+}
+
+func validateMaterials(root string, task string) (material.ValidationSummary, error) {
+	if strings.TrimSpace(task) == "" {
+		return material.Validate(root)
+	}
+	return material.ValidateForTask(root, task)
 }
 
 func parseSelector(selector string) (workspace.MaterialSetRef, error) {
@@ -263,8 +270,8 @@ func unzipArchive(path string, destination string) error {
 	return nil
 }
 
-func detectMaterialRoot(root string) (string, error) {
-	if isMaterialRoot(root) {
+func detectMaterialRoot(root string, task string) (string, error) {
+	if isMaterialRoot(root, task) {
 		return root, nil
 	}
 	entries, err := os.ReadDir(root)
@@ -276,18 +283,41 @@ func detectMaterialRoot(root string) (string, error) {
 			continue
 		}
 		candidate := filepath.Join(root, entry.Name())
-		if isMaterialRoot(candidate) {
+		if isMaterialRoot(candidate, task) {
 			return candidate, nil
 		}
 	}
 	return "", fmt.Errorf("could not detect materials root in %s", root)
 }
 
-func isMaterialRoot(root string) bool {
+func isMaterialRoot(root string, task string) bool {
 	required := []string{
 		filepath.Join(root, "backgrounds"),
-		filepath.Join(root, "icons"),
-		filepath.Join(root, "manifests", "classes.yaml"),
+		filepath.Join(root, "manifests", "materials.yaml"),
+	}
+	switch strings.TrimSpace(task) {
+	case "", "all":
+		required = append(
+			required,
+			filepath.Join(root, "group1", "icons"),
+			filepath.Join(root, "group2", "shapes"),
+			filepath.Join(root, "manifests", "group1.classes.yaml"),
+			filepath.Join(root, "manifests", "group2.shapes.yaml"),
+		)
+	case "group1":
+		required = append(
+			required,
+			filepath.Join(root, "group1", "icons"),
+			filepath.Join(root, "manifests", "group1.classes.yaml"),
+		)
+	case "group2":
+		required = append(
+			required,
+			filepath.Join(root, "group2", "shapes"),
+			filepath.Join(root, "manifests", "group2.shapes.yaml"),
+		)
+	default:
+		return false
 	}
 	for _, path := range required {
 		if _, err := os.Stat(path); err != nil {

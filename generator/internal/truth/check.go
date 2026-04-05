@@ -57,19 +57,34 @@ func CheckConsistency(record export.SampleRecord, spec backend.Spec, canvas conf
 		if record.QueryImage == "" || record.SceneImage == "" {
 			return fmt.Errorf("click mode requires query_image and scene_image")
 		}
-		if len(record.Targets) == 0 {
-			return fmt.Errorf("click mode requires at least one target")
+		if len(record.SceneTargets) == 0 {
+			return fmt.Errorf("click mode requires at least one scene target")
 		}
-		for index, target := range record.Targets {
+		if len(record.QueryTargets) != len(record.SceneTargets) {
+			return fmt.Errorf("query_targets and scene_targets must have the same length")
+		}
+		for index, target := range record.QueryTargets {
 			if target.Order != index+1 {
-				return fmt.Errorf("target order must be continuous starting at 1")
+				return fmt.Errorf("query target order must be continuous starting at 1")
 			}
-			if err := validateObject(target, canvas); err != nil {
-				return fmt.Errorf("target %d: %w", index, err)
+			if err := validateObject(target, canvas.QueryWidth, canvas.QueryHeight); err != nil {
+				return fmt.Errorf("query target %d: %w", index, err)
+			}
+			sceneTarget := record.SceneTargets[index]
+			if target.Class != sceneTarget.Class || target.ClassID != sceneTarget.ClassID || target.Order != sceneTarget.Order {
+				return fmt.Errorf("query target %d does not align with scene target definition", index)
+			}
+		}
+		for index, target := range record.SceneTargets {
+			if target.Order != index+1 {
+				return fmt.Errorf("scene target order must be continuous starting at 1")
+			}
+			if err := validateObject(target, canvas.SceneWidth, canvas.SceneHeight); err != nil {
+				return fmt.Errorf("scene target %d: %w", index, err)
 			}
 		}
 		for index, distractor := range record.Distractors {
-			if err := validateObject(distractor, canvas); err != nil {
+			if err := validateObject(distractor, canvas.SceneWidth, canvas.SceneHeight); err != nil {
 				return fmt.Errorf("distractor %d: %w", index, err)
 			}
 		}
@@ -80,7 +95,7 @@ func CheckConsistency(record export.SampleRecord, spec backend.Spec, canvas conf
 		if record.TargetGap == nil || record.TileBBox == nil || record.OffsetX == nil || record.OffsetY == nil {
 			return fmt.Errorf("slide mode requires target_gap, tile_bbox, offset_x and offset_y")
 		}
-		if err := validateObject(*record.TargetGap, canvas); err != nil {
+		if err := validateObject(*record.TargetGap, canvas.SceneWidth, canvas.SceneHeight); err != nil {
 			return fmt.Errorf("target_gap: %w", err)
 		}
 		if err := validateBBox(*record.TileBBox, canvas.SceneWidth, canvas.SceneHeight); err != nil {
@@ -106,7 +121,7 @@ func CheckNegative(record export.SampleRecord, spec backend.Spec, canvas config.
 			return fmt.Errorf("positive click verification did not pass")
 		}
 		negative := clickAnswers(record)
-		target := record.Targets[0]
+		target := record.SceneTargets[0]
 		switch {
 		case target.BBox[2]+1 < canvas.SceneWidth:
 			negative[0][0] = target.BBox[2] + 1
@@ -131,11 +146,11 @@ func CheckNegative(record export.SampleRecord, spec backend.Spec, canvas config.
 	return nil
 }
 
-func validateObject(object export.ObjectRecord, canvas config.CanvasConfig) error {
+func validateObject(object export.ObjectRecord, width int, height int) error {
 	if object.Class == "" {
 		return fmt.Errorf("class is required")
 	}
-	if err := validateBBox(object.BBox, canvas.SceneWidth, canvas.SceneHeight); err != nil {
+	if err := validateBBox(object.BBox, width, height); err != nil {
 		return err
 	}
 	centerX := object.Center[0]
@@ -161,19 +176,19 @@ func validateBBox(bbox [4]int, sceneWidth int, sceneHeight int) error {
 }
 
 func clickAnswers(record export.SampleRecord) [][2]int {
-	answers := make([][2]int, 0, len(record.Targets))
-	for _, target := range record.Targets {
+	answers := make([][2]int, 0, len(record.SceneTargets))
+	for _, target := range record.SceneTargets {
 		answers = append(answers, target.Center)
 	}
 	return answers
 }
 
 func verifyClick(record export.SampleRecord, answers [][2]int) bool {
-	if len(answers) != len(record.Targets) {
+	if len(answers) != len(record.SceneTargets) {
 		return false
 	}
 	for index, answer := range answers {
-		target := record.Targets[index]
+		target := record.SceneTargets[index]
 		if answer[0] < target.BBox[0] || answer[0] >= target.BBox[2] || answer[1] < target.BBox[1] || answer[1] >= target.BBox[3] {
 			return false
 		}

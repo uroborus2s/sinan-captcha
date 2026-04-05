@@ -60,25 +60,61 @@
 ```mermaid
 flowchart LR
     A["Study Config"] --> B["Python Auto-Train Controller"]
-    B --> C["sinan-generator / sinan CLI runners"]
-    B --> D["Study Artifact Store"]
-    D --> E["OpenCode Command: result-read"]
-    D --> F["OpenCode Command: judge-trial"]
-    D --> G["OpenCode Command: plan-dataset"]
-    E --> H["Result Summary JSON"]
-    H --> F
-    F --> I["Decision JSON"]
-    I --> B
-    B --> J["Optuna Driver"]
+    B --> C["Stage Capsules"]
+    C --> D["sinan-generator / sinan CLI runners"]
+    B --> E["Study Artifact Store"]
+    E --> F["OpenCode Command: result-read"]
+    E --> G["OpenCode Command: judge-trial"]
+    E --> H["OpenCode Command: plan-dataset"]
+    F --> I["Result Summary JSON"]
+    I --> G
+    G --> J["Decision JSON"]
     J --> B
+    B --> K["Optuna Driver"]
+    K --> B
 ```
 
 核心边界：
 
-- Python 控制器负责执行。
+- Python 控制器负责阶段推进和持久化恢复。
+- 每个阶段都应收敛为单次执行、单次产出的 stage capsule。
 - OpenCode 负责解释和判断。
 - `Optuna` 负责搜索数值参数。
 - 所有长期事实都先写盘再流转。
+
+### 4.1 当前骨架落地形态
+
+当前仓库已经落地第一版控制器骨架：
+
+- `uv run sinan auto-train run <task> --study-name ... --train-root ... --generator-workspace ...`
+- `uv run sinan auto-train stage <stage> <task> --study-name ... --train-root ... --generator-workspace ...`
+
+当前骨架的固定原则：
+
+- `run` 负责根据已落盘工件自动推断当前阶段，并顺序执行多个 stage。
+- `stage` 负责只运行一个阶段胶囊，便于手工调试、重放和训练机脚本编排。
+- 阶段之间只通过 `study.json`、`trial/*.json`、`leaderboard.json` 等工件接力，不继承聊天上下文。
+- 当前 `SUMMARIZE` 已支持切到真实 `opencode run --command result-read ...`，并通过 `--attach` 连接 headless server。
+- 当前 `JUDGE` 已支持切到真实 `opencode run --command judge-trial ...`。
+- 当前 `REGENERATE_DATA` 分流已支持切到真实 `opencode run --command plan-dataset ...`。
+- 当前 `REGENERATE_DATA` 产出的 `dataset_plan.json` 已会进入下一轮 `BUILD_DATASET`：
+  - 控制器会把 `generator_preset` 写入下一轮 `input.json`
+  - 控制器会把 `generator_overrides` 物化为 trial 级 `generator_override.json`
+  - `sinan-generator make-dataset` 会通过 `--preset` 和 `--override-file` 消费这些数据控制参数
+- 当前 study 级归档摘要已支持切到真实 `opencode run --command study-status ...`。
+- 当前 `JUDGE` 在 `opencode` 运行失败、超时或返回非法 JSON 时，会稳定回退到 rules + policy fallback。
+- 当前 `SUMMARIZE` / `plan-dataset` / `study-status` 在 `opencode` 运行失败、超时或返回非法 JSON 时，也会稳定回退到本地确定性实现。
+- 当前 `RETUNE` 已支持切到真实 `Optuna` runtime：
+  - 先把当前完成 trial 注册到 `optuna.sqlite3`
+  - 再为下一轮生成建议参数并写回 `input.json`
+  - 若 `Optuna` 缺失或 runtime 失败，则稳定回退到 deterministic fallback 参数
+
+当前推荐启动方式：
+
+1. `opencode serve --port 4096`
+2. `uv run sinan auto-train run group1 --study-name study_001 --train-root <train-root> --generator-workspace <workspace> --judge-provider opencode --judge-model gemma4 --opencode-attach-url http://127.0.0.1:4096`
+
+这意味着 V1 现在已经具备“Python 控制器 -> OpenCode CLI/server -> `result_summary.json` / `decision.json` / `dataset_plan.json` / `study_status.json` -> 控制器继续下一阶段”的真实调用链。
 
 ## 5. Study 与 Trial 目录契约
 
@@ -102,6 +138,8 @@ studies/
           train.json
           test.json
           evaluate.json
+          dataset_plan.json
+          generator_override.json
           decision.json
           summary.md
   group2/
@@ -169,7 +207,7 @@ studies/
   - 输出：`decision.json`
 - `plan-dataset`
   - 输入：弱类统计、失败样本模式
-  - 输出：下一轮数据策略 JSON
+  - 输出：下一轮数据策略 JSON，包含 `dataset_action`、`generator_preset` 和最小 `generator_overrides`
 - `study-status`
   - 输入：`study.json`、`leaderboard.json`
   - 输出：当前 study 中文摘要
@@ -181,7 +219,7 @@ studies/
 - `training-judge`
   - 只做动作判断，不直接跑命令
 - `dataset-planner`
-  - 只做数据策略建议
+  - 只做数据策略建议与 generator 数据控制建议
 - `study-archivist`
   - 只做总结与归档建议
 
@@ -199,7 +237,30 @@ V1 推荐权限：
 设计结论：
 
 - 自主训练循环里不应让 agent 自由执行训练 shell。
-- 所有 runner 命令均由 Python 控制器发起。
+- 所有 runner 命令均由 Python 控制器或受限 stage capsule 发起。
+
+### 7.5 Stage Capsule 约束
+
+V1 的实际执行形态不是“长上下文 agent 会话”，而是“阶段胶囊”：
+
+- `PLAN`
+- `BUILD_DATASET`
+- `TRAIN`
+- `TEST`
+- `EVALUATE`
+- `SUMMARIZE`
+- `JUDGE`
+- `NEXT_ACTION`
+
+每个阶段胶囊都必须满足：
+
+- 只读取固定输入工件
+- 最多触发一次受限包装 CLI 或 runner
+- 只写入本阶段约定的输出工件
+- 执行完成后立即退出
+- 下一阶段只能读取输出工件，不继承前一阶段上下文
+
+这也是 V1 保持“更内聚 skill/command 单元”但又不把长期状态放进 agent 会话的核心办法。
 
 ## 8. 决策 JSON 契约
 
@@ -248,6 +309,20 @@ Judge 只允许输出结构化 JSON：
 - 主目标：`map50_95`
 - 次目标：`recall`
 - 业务指标：`full_sequence_hit_rate`
+- plateau 规则：最近 `3` 轮主指标提升不足 `0.005`
+- `PROMOTE_BRANCH` 条件：
+  - `map50_95 >= 0.82`
+  - `recall >= 0.88`
+  - `full_sequence_hit_rate >= 0.85`
+  - 不存在 `weak_classes`
+  - 不存在 `sequence_consistency` / `order_errors`
+- `REGENERATE_DATA` 条件：
+  - 出现 `weak_classes`
+  - 或出现 `sequence_consistency` / `order_errors`
+- `ABANDON_BRANCH` 条件：
+  - `trend = declining`
+  - 且 `delta_vs_best <= -0.06`
+  - 且 `map50_95 < 0.75`
 - 常见动作：
   - 召回瓶颈：`RETUNE`
   - 弱类持续不稳：`REGENERATE_DATA`
@@ -255,9 +330,23 @@ Judge 只允许输出结构化 JSON：
 
 ### 9.2 Group2
 
-- 主目标：`point_hit_rate` 或 `mean_iou`
-- 次目标：`map50_95`
+- 主目标：`point_hit_rate`
+- 次目标：`mean_iou`
 - 惩罚项：`mean_center_error_px`
+- plateau 规则：最近 `3` 轮主指标提升不足 `0.01`
+- `PROMOTE_BRANCH` 条件：
+  - `point_hit_rate >= 0.93`
+  - `mean_iou >= 0.85`
+  - `mean_center_error_px <= 8.0`
+  - 不存在 `point_hits` / `low_iou` / `center_offset`
+- `REGENERATE_DATA` 条件：
+  - `point_hit_rate < 0.80`
+  - 或出现 `low_iou`
+  - 或 `point_hits` 持续出现且失败样本偏多
+- `ABANDON_BRANCH` 条件：
+  - `trend = declining`
+  - 且 `delta_vs_best <= -0.08`
+  - 且 `point_hit_rate < 0.75`
 - 常见动作：
   - 定位误差居高不下：`RETUNE`
   - 复杂背景/低对比失败：`REGENERATE_DATA`
@@ -283,6 +372,60 @@ Judge 只允许输出结构化 JSON：
 - AI 负责“要不要调参”
 - `Optuna` 负责“怎么调”
 
+### 10.1 允许搜索的固定参数空间
+
+`Optuna` 只能在固定白名单空间中搜索，不能自由扩张参数维度。
+
+- `group1`
+  - `model`: `yolo26n.pt`, `yolo26s.pt`
+  - `epochs`: `100`, `120`, `140`, `160`
+  - `batch`: `8`, `16`
+  - `imgsz`: `512`, `640`
+- `group2`
+  - `model`: `paired_cnn_v1`
+  - `epochs`: `80`, `100`, `120`, `140`
+  - `batch`: `8`, `16`
+  - `imgsz`: `160`, `192`, `224`
+
+硬规则：
+
+- `Optuna` 只在 `decision = RETUNE` 时介入。
+- `REGENERATE_DATA`、`PROMOTE_BRANCH`、`ABANDON_BRANCH`、`RESUME` 均不得进入参数搜索。
+- `Optuna` 不得引入 CLI 当前未支持的训练参数。
+
+### 10.2 pruning 与 no-improve 交互
+
+- 若当前 decision 不是 `RETUNE`：
+  - 不进入 pruning
+  - 不启动 `Optuna`
+- 若命中 plateau，但 `no_improve_trials` 尚未达到上限：
+  - 当前候选 trial 可被 pruning
+  - 搜索仍可继续
+- 若 `no_improve_trials` 达到上限：
+  - 停止当前 `Optuna` 搜索
+  - 切回规则 fallback
+- 若规则层已经判定当前 trial 应 `PROMOTE_BRANCH` / `REGENERATE_DATA` / `ABANDON_BRANCH`：
+  - 直接停止 `Optuna`
+  - 不允许搜索器覆盖业务边界
+
+### 10.3 纯规则 fallback
+
+当出现下面任一情况时，控制器不得因为 `Optuna` 缺失或 AI 输出异常而卡死：
+
+- `Optuna` 运行时不可用
+- `judge` 输出非法 JSON
+- `judge` 输出与规则边界冲突
+- 搜索已达到 no-improve 上限
+
+此时回退规则固定为：
+
+- 先按 `group1/group2` policy 计算动作边界
+- 若动作不是 `RETUNE`：
+  - 直接执行规则动作
+- 若动作仍是 `RETUNE` 但 `Optuna` 不可用或 runtime 失败：
+  - 使用固定 deterministic fallback 参数继续下一轮
+  - `group1` 与 `group2` 分别使用各自默认 fallback 参数模板
+
 ## 11. 失败与恢复策略
 
 ### 11.1 失败策略
@@ -298,14 +441,20 @@ Judge 只允许输出结构化 JSON：
 - 以 `current_trial_id` 判定恢复点
 - 以最近完整 trial 工件判定是否需要重跑当前阶段
 
-## 12. 实施顺序
+## 12. 实施顺序与当前进度
 
-V1 建议拆为四段：
+当前已完成：
 
-1. 先做 study 契约与控制器骨架
-2. 再做 OpenCode commands 与 skills
-3. 再做 `Optuna` 接入
-4. 最后做 group1/group2 策略和恢复/停止回归
+1. `study/trial` 契约、状态机、layout/recovery、runners、summary
+2. OpenCode commands 与 skills 契约
+3. `group1/group2` policy 和 `Optuna` 边界冻结
+4. `auto-train` 控制器骨架与 `run/stage` CLI 入口
+
+当前仍待完成：
+
+1. Windows + NVIDIA 训练机上的 `optuna.sqlite3` / 恢复 / 停止 / fallback 演练
+2. 至少一条从 `PLAN` 到 `STOP` 的端到端 study 演练
+3. 真实训练预算下的 `Optuna` 搜索效果与性能开销复核
 
 详细任务见：
 

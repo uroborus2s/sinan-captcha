@@ -1,149 +1,400 @@
 # 接口与入口基线
 
 - 项目名称：sinan-captcha
-- 当前阶段：DESIGN
+- 当前阶段：IMPLEMENTATION（设计基线维护）
 
 ## 设计结论
 
-当前阶段不要求先实现公开 HTTP API。首版优先定义“内部入口合同”，包括：
+V1 不先实现公网 HTTP API。新的正式交付目标也不再是“训练仓库里的 `solve` 子命令 + 外置 bundle”。
 
-- 数据导出入口
-- 自动标注入口
-- 数据集目录入口
-- 训练入口
-- 评估入口
+首版需要固定两层合同：
 
-其中数据导出入口必须由生成器控制层统一接管，确保 `mode`、`backend`、`seed` 和真值校验结果一起进入批次记录。
+1. 独立 solver 项目合同：
+   - `sinanz` PyPI 包
+   - 业务函数入口
+   - 默认内嵌 ONNX 推理资产加载
+   - Python 外壳 + Rust 扩展运行时
+2. 生产面合同：
+   - 生成器导出
+   - 训练
+   - 评估
+   - 自主训练
+   - `PT -> ONNX` 推理资产导出
+   - solver 项目发布交接
 
-如果未来需要把内部生成器升级成服务，再把这些入口映射成正式 HTTP 或 RPC API。
+设计重点不是“把一切都挂成 API”，而是先把：
 
-## API-001 数据导出合同
+- 调用方最终面对的 Python 函数合同
+- 训练产线内部各入口的责任边界
 
-- 类型：内部函数 / 脚本入口
-- 调用方：生成器适配层、数据工程脚本
-- 输入：
-  - 验证码类型
-  - 生成模式：`click` / `slide`
-  - backend：`native` / `gocaptcha`
-  - 生成数量
-  - 输出目录
-  - 资源配置
-- 输出：
-  - 图片文件
-  - JSONL 标签
-  - 批次元数据
-  - 真值校验结果
+同时固定下来。
 
-### 正式命令形态
+## API-001 独立 solver Python API 合同
 
-```bash
-sinan-generator make-dataset --workspace D:\sinan-captcha-generator\workspace --task group1 --dataset-dir D:\sinan-captcha-work\datasets\group1\firstpass\yolo
+- 类型：独立 PyPI 库函数合同
+- 调用方：最终业务使用者、维护者、后续 HTTP 映射层
+- 包名：
+  - 发布名：`sinanz`
+  - 导入名：`sinanz`
+- 设计原则：
+  - 调用方默认只安装 wheel，不再准备 `request.json`
+  - 调用方默认不传 `bundle_dir`
+  - 调用方默认不关心权重路径
+  - solver 默认从包内资源加载推理资产
+
+### 业务函数
+
+```python
+ImageInput = str | Path | bytes | PIL.Image.Image | numpy.ndarray
+BBox = tuple[int, int, int, int]
+
+sn_match_slider(
+    background_image: ImageInput,
+    puzzle_piece_image: ImageInput,
+    *,
+    puzzle_piece_start_bbox: BBox | None = None,
+    device: str = "auto",
+    return_debug: bool = False,
+) -> SliderGapCenterResult
+
+sn_match_targets(
+    query_icons_image: ImageInput,
+    background_image: ImageInput,
+    *,
+    device: str = "auto",
+    return_debug: bool = False,
+) -> OrderedClickTargetsResult
 ```
 
-## API-002 自动标注合同
+### 可选面向对象封装
 
-- 类型：内部函数 / 脚本入口
-- 调用方：自动标注流水线
-- 输入：
-  - 原始样本目录
-  - 标签主事实源
-  - 模式：`rule` / `warmup-model`
-- 输出：
-  - `interim` 标签
-  - 预标注统计
+```python
+class CaptchaSolver:
+    def __init__(
+        self,
+        *,
+        device: str = "auto",
+        asset_root: str | Path | None = None,
+    ) -> None: ...
 
-### 正式命令形态
-
-```bash
-uv run sinan autolabel --task group2 --mode rule --input-dir datasets/group2/v1/raw --output-dir datasets/group2/v1/interim
-```
-
-## API-003 数据集目录合同
-
-- 类型：内部函数 / 脚本入口
-- 调用方：生成器导出层、训练执行者
-- 输入：
-  - 目标任务
-  - 生成器批次输出
-  - 数据集目录
-- 输出：
-  - `group1`：YOLO 图片目录、YOLO 标签目录、`dataset.yaml`
-  - `group2`：`master/`、`tile/`、`splits/*.jsonl`、`dataset.json`
-
-### 正式命令形态
-
-```bash
-sinan-generator make-dataset --workspace D:\sinan-captcha-generator\workspace --task group1 --dataset-dir D:\sinan-captcha-work\datasets\group1\firstpass\yolo
+    def sn_match_slider(...) -> SliderGapCenterResult: ...
+    def sn_match_targets(...) -> OrderedClickTargetsResult: ...
 ```
 
 说明：
 
-- 当前正式产品化生成器直接输出训练 CLI 可消费的数据集目录
-- `group1` 仍为 YOLO 目录
-- `group2` 已切为 paired dataset，由 `dataset.json + master/tile/splits` 直接交接给训练 CLI
+- `asset_root` 只用于维护者调试、自定义模型或回归测试。
+- 公开使用路径默认不需要 `asset_root`，会自动加载内嵌模型。
+- 顶层函数可复用默认单例 `CaptchaSolver`，避免调用方先理解对象生命周期。
+- `device` 当前仍保留在 Python 层，但最终调度目标是路由到 Rust 扩展里的 ONNX Runtime provider 选择。
 
-## API-004 训练入口合同
+### `group2` 业务参数与结果
+
+- 输入：
+  - `background_image`
+  - `puzzle_piece_image`
+  - 可选 `puzzle_piece_start_bbox`
+  - 可选 `device`
+  - 可选 `return_debug`
+- 输出：
+  - `target_center`
+  - `target_bbox`
+  - 可选 `puzzle_piece_offset`
+  - 可选 `debug`
+
+推荐结果类型：
+
+```python
+@dataclass(slots=True)
+class SliderGapCenterResult:
+    target_center: tuple[int, int]
+    target_bbox: tuple[int, int, int, int]
+    puzzle_piece_offset: tuple[int, int] | None = None
+    debug: SliderGapDebugInfo | None = None
+```
+
+### `group1` 业务参数与结果
+
+- 输入：
+  - `query_icons_image`
+  - `background_image`
+  - 可选 `device`
+  - 可选 `return_debug`
+- 输出：
+  - `ordered_target_centers`
+  - `ordered_targets`
+  - `missing_query_orders`
+  - `ambiguous_query_orders`
+  - 可选 `debug`
+
+推荐结果类型：
+
+```python
+@dataclass(slots=True)
+class OrderedClickTarget:
+    query_order: int
+    center: tuple[int, int]
+    class_id: int
+    class_name: str
+    score: float
+
+
+@dataclass(slots=True)
+class OrderedClickTargetsResult:
+    ordered_target_centers: list[tuple[int, int]]
+    ordered_targets: list[OrderedClickTarget]
+    missing_query_orders: list[int]
+    ambiguous_query_orders: list[int]
+    debug: ClickCaptchaDebugInfo | None = None
+```
+
+### 示例
+
+```python
+from sinanz import (
+    sn_match_slider,
+    sn_match_targets,
+)
+
+slider_result = sn_match_slider(
+    background_image="master.png",
+    puzzle_piece_image="tile.png",
+)
+
+click_result = sn_match_targets(
+    query_icons_image="query.png",
+    background_image="scene.png",
+)
+```
+
+### 异常合同
+
+独立 solver 包不再以结构化错误对象作为主合同，而是采用 Python 异常：
+
+- `SolverInputError`
+  - 输入图片无法解析、尺寸不合法、参数冲突
+- `SolverAssetError`
+  - 内嵌模型缺失、版本不兼容、模型元数据非法
+- `SolverRuntimeError`
+  - 模型加载失败、推理运行失败、结果后处理失败
+
+设计约束：
+
+- 顶层业务函数成功时只返回结果对象，不混入错误包装层。
+- 调用方看到函数名就应知道业务含义，不需要理解 `group1` / `group2` 内部编排。
+- 训练仓库内现有 `core/solve` CLI 只保留迁移期调试价值，不再视为最终用户主入口。
+
+## API-002 推理资产导出合同
+
+- 类型：训练仓库 CLI 入口 + 目录合同
+- 调用方：项目维护者、发布流程、独立 solver 项目构建流程
+- 输入：
+  - `group1` 训练运行名
+  - `group2` 训练运行名
+  - 输出目录
+- 输出：
+  - `manifest.json`
+  - `models/click_scene_detector.onnx`
+  - `models/click_query_parser.onnx`
+  - `models/slider_gap_locator.onnx`
+  - `metadata/click_scene_detector.json`
+  - `metadata/click_query_parser.json`
+  - `metadata/slider_gap_locator.json`
+  - `metadata/click_matcher.json`
+  - `metadata/class_names.json`
+  - `metadata/export_report.json`
+
+### 设计目标入口
+
+```bash
+uv run sinan release export-solver-assets \
+  --project-dir . \
+  --group2-checkpoint runs/group2/firstpass/weights/best.pt \
+  --group2-run firstpass \
+  --output-dir dist/solver-assets/20260405 \
+  --asset-version 20260405
+```
+
+说明：
+
+- 当前 `TASK-SOLVER-MIG-008` 只落地 `group2` 导出。
+- `group1` 的两份 ONNX 资产会在 `TASK-SOLVER-MIG-009` 接入同一命令。
+
+### 导出目录基线
+
+```text
+dist/
+  solver-assets/
+    20260405/
+      manifest.json
+      models/
+        click_scene_detector.onnx
+        click_query_parser.onnx
+        slider_gap_locator.onnx
+      metadata/
+        click_scene_detector.json
+        click_query_parser.json
+        slider_gap_locator.json
+        click_matcher.json
+        class_names.json
+        export_report.json
+```
+
+说明：
+
+- 这是训练仓库与独立 solver 项目之间的内部交接物，不是最终调用方安装目录。
+- 导出物必须是推理专用 ONNX 资产，不得继续携带训练态 `optimizer_state`、绝对路径和运行目录引用。
+- 独立 solver 项目构建时，会把这批资产复制到 wheel 资源目录中，由 Rust 扩展通过 ONNX Runtime 加载。
+- 字段级合同、命名规则和 provider 顺序以 [solver-asset-export-contract.md](/Users/uroborus/AiProject/sinan-captcha/docs/04-project-development/04-design/solver-asset-export-contract.md) 和 [solver_asset_contract.py](/Users/uroborus/AiProject/sinan-captcha/core/release/solver_asset_contract.py) 为准。
+
+## API-003 独立 solver 构建产物合同
+
+- 类型：独立 solver 项目发布合同
+- 调用方：维护者、发布链路、最终业务使用者
+- 最终对外产物：
+  - 平台相关 PyPI wheel
+  - 包含 Python API
+  - 包含 Rust 原生扩展
+  - 包含内嵌 ONNX 模型与 metadata
+- 最终用户不再接触：
+  - 外置 `bundle_dir`
+  - 模型路径
+  - 训练运行目录
+
+### 设计基线
+
+```text
+sinanz-0.1.0-cp312-cp312-win_amd64.whl
+  sinanz/
+    __init__.py
+    api.py
+    resources/
+      models/
+        click_scene_detector.onnx
+        click_query_parser.onnx
+        slider_gap_locator.onnx
+      metadata/
+        click_matcher.json
+        class_names.json
+  sinanz_native*.pyd|.so|.dylib
+```
+
+说明：
+
+- 这是平台相关 wheel，不再是纯 `py3-none-any` wheel。
+- Python 层只负责参数规范化、图片输入解码和异常语义统一。
+- Rust 扩展负责 ONNX Runtime 会话建立、推理调用和关键后处理桥接。
+
+## API-004 生成器数据导出合同
 
 - 类型：CLI 入口
-- 调用方：训练执行脚本、维护者
+- 调用方：训练机操作者、项目维护者、自主训练控制器
 - 输入：
-  - `group1`：`dataset.yaml`、预训练权重、训练超参数
-  - `group2`：`dataset.json`、paired model 初始化方式/检查点、训练超参数
+  - `task`
+  - `workspace`
+  - `dataset_dir`
+  - 可选 preset / 覆盖参数
 - 输出：
-  - 权重
-  - 日志
-  - 训练摘要
-
-### 第二专项训练
-
-```bash
-uv run sinan train group2 --dataset-config datasets/group2/v1/dataset.json --project runs/group2
-```
-
-### 第一专项训练
-
-```bash
-uv run sinan train group1 --dataset-yaml datasets/group1/v1/yolo/dataset.yaml --project runs/group1
-```
-
-## API-005 评估入口合同
-
-- 类型：内部函数 / 脚本入口
-- 调用方：评估与报告模块
-- 输入：
-  - 模型权重
-  - 测试集
-  - 任务类型
-- 输出：
-  - 指标报告
-  - 失败样本清单
-  - 版本摘要
+  - `group1`：pipeline dataset 目录
+  - `group2`：paired dataset 目录
+  - QA 结果与批次元数据
 
 ### 正式命令形态
 
 ```bash
-uv run sinan evaluate --task group1 --gold-dir datasets/group1/v1/reviewed/batch_0001 --prediction-dir reports/group1/pred_jsonl_v1 --report-dir reports/group1/eval_jsonl_v1
+sinan-generator make-dataset --workspace D:\sinan-captcha-generator\workspace --task group1 --dataset-dir D:\sinan-captcha-work\datasets\group1\firstpass
 ```
 
-## 未来 HTTP 服务的边界
+## API-005 训练入口合同
 
-如果未来需要把生成器升级成内部服务，建议只开放：
+- 类型：CLI 入口
+- 调用方：训练机操作者、自主训练控制器
+- 输入：
+  - `group1` / `group2`
+  - `dataset.json`
+  - 初始化权重或检查点
+  - 训练超参数
+- 输出：
+  - 模型权重
+  - 训练摘要
+  - 日志与运行目录
 
-- `POST /generator/group1/generate`
-- `POST /generator/group2/generate`
-- `POST /generator/export-batch`
+### 正式命令形态
 
-当前不设计：
+```bash
+uv run sinan train group1 --dataset-version firstpass --name firstpass
+uv run sinan train group2 --dataset-version firstpass --name firstpass
+```
 
-- 对外公网服务契约
-- 多租户鉴权
-- 高可用部署拓扑
+## API-005 测试与评估入口合同
 
-## 契约规则
+- 类型：CLI 入口
+- 调用方：训练机操作者、自主训练控制器
+- 输入：
+  - 任务类型
+  - 数据集版本
+  - 训练运行名
+  - 或显式 gold / prediction / report 目录
+- 输出：
+  - 中文测试报告
+  - JSONL 评估报告
+  - 失败样本清单
 
-- Go 侧正式入口统一通过 `sinan-generator`
-- Python 侧正式入口统一通过 `uv run sinan`
-- 图片和标签写盘后才视为成功
-- 标签主事实源始终是 JSONL
-- 任何入口的输出都要带批次标识
-- `gold` 只有在真值一致性校验通过后才允许写盘
+### 正式命令形态
+
+```bash
+uv run sinan test group1 --dataset-version firstpass --train-name firstpass
+uv run sinan evaluate --task group1 --gold-dir <gold-dir> --prediction-dir <pred-dir> --report-dir <report-dir>
+```
+
+## API-006 自主训练入口合同
+
+- 类型：CLI 入口
+- 调用方：项目维护者、训练机操作者
+- 输入：
+  - `task`
+  - `study_name`
+  - `train_root`
+  - `generator_workspace`
+  - 预算和停止规则
+- 输出：
+  - `study.json`
+  - `trial_history.jsonl`
+  - 各 trial 工件
+  - `decision.json`
+  - `result_summary.json`
+
+### 正式命令形态
+
+```bash
+uv run sinan auto-train run group1 --study-name study_001 --train-root D:\sinan-captcha-work --generator-workspace D:\sinan-generator\workspace
+```
+
+## API-007 发布与交付打包合同
+
+- 类型：CLI 入口
+- 调用方：项目维护者、发布流程
+- 输入：
+  - `project_dir`
+  - `generator_exe`
+  - 输出目录
+- 输出：
+  - Python wheel / sdist
+  - Windows 训练交付包
+  - solver 资产导出目录
+  - 交付说明
+
+### 设计目标入口
+
+```bash
+uv run sinan release build --project-dir .
+uv run sinan release package-windows --project-dir . --generator-exe dist/generator/windows-amd64/sinan-generator.exe --output-dir release/windows/v1
+uv run sinan release export-solver-assets --project-dir . --group2-checkpoint runs/group2/firstpass/weights/best.pt --group2-run firstpass --output-dir dist/solver-assets/20260405 --asset-version 20260405
+```
+
+说明：
+
+- `package-windows` 继续服务训练机与维护者交付，不再冒充最终 solver 产品发布物。
+- 最终给业务调用方的发布物应由独立 solver 项目构建并上传到 PyPI。
+- 训练仓库负责产出推理资产，独立 solver 项目负责嵌入资产、构建 wheel 和发布。
+- 当前导出资产目录里的 `group1` metadata 仍是占位文件，直到 `TASK-SOLVER-MIG-009` 完成。

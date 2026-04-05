@@ -3,8 +3,8 @@
   "project_name": "sinan-captcha",
   "project_root": ".",
   "owner": "Codex",
-  "idea": "司南：面向行为验证码训练两个专项模型。第一专项为多类别检测模型，用于图形点选验证码；第二专项为滑块缺口定位模型，用于滑块验证码。当前设计结论：生成器采用受控集成 + 可插拔 backend，优先从自有生成端或内部生成器直接导出并校验 gold 标签，不要求先上线完整验证码平台。",
-  "stack": "Go, Python, Ultralytics YOLO, Windows, CUDA, X-AnyLabeling/CVAT, optional go-captcha backend adapter",
+  "idea": "司南：交付一个本地可调用的验证码求解能力，覆盖图形点选与滑块缺口两类业务语义。当前仓库提供 Go 生成器、Windows 训练 CLI、自主训练 CLI 和推理资产导出；最终业务交付目标已经冻结为独立 PyPI solver 包 `sinanz`，以平台相关 wheel、内嵌 ONNX 资产和 Rust 原生扩展向调用方提供函数级入口。",
+  "stack": "Go, Python, PyTorch, Ultralytics YOLO, ONNX, ONNX Runtime, Rust, Windows, CUDA, X-AnyLabeling/CVAT, optional go-captcha backend adapter",
   "created_at": "2026-04-01T08:51:13.932354+00:00",
   "active_mode": "cli_direct",
   "supported_modes": [
@@ -56,9 +56,9 @@
     "surfaces": {
       "end_user_usage": true,
       "public_api": false,
-      "sdk": false,
+      "sdk": true,
       "plugin_extensibility": false,
-      "secondary_development": false,
+      "secondary_development": true,
       "self_hosted": false
     },
     "modules": {
@@ -70,7 +70,7 @@
     "reasons": {
       "01-getting-started": "任何项目都需要根入口、阅读路径和文档地图。",
       "02-user-guide": "检测到最终用户、CLI 使用路径或文档站点阅读场景，需要保留用户指南。",
-      "03-developer-guide": "检测到公共 API、SDK、插件扩展点或稳定二次开发面，需要保留开发者指南。",
+      "03-developer-guide": "检测到统一求解包、bundle 合同和稳定集成面，需要保留开发者指南。",
       "04-project-development": "软件项目的需求、设计、测试、发布和追踪过程文档统一落在内部模块中。"
     },
     "detected_at": "2026-04-01T08:51:13.930130Z",

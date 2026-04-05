@@ -12,6 +12,7 @@ import shutil
 import subprocess
 import textwrap
 
+from core._version import VERSION as PACKAGE_VERSION
 from core.auto_train import opencode_assets
 
 
@@ -208,7 +209,7 @@ def render_train_pyproject(plan: TrainingSetupPlan) -> str:
         f"""
         [project]
         name = "sinan-captcha-train"
-        version = "0.1.13"
+        version = "{PACKAGE_VERSION}"
         requires-python = ">={plan.python_version},<{int(plan.python_version.split('.')[0])}.{int(plan.python_version.split('.')[1]) + 1}"
         dependencies = [
           "{plan.package_spec}",
@@ -273,7 +274,7 @@ def _default_package_spec() -> str:
     try:
         version = importlib.metadata.version("sinan-captcha")
     except importlib.metadata.PackageNotFoundError:
-        version = "0.1.13"
+        version = PACKAGE_VERSION
     return f"sinan-captcha[train]=={version}"
 
 

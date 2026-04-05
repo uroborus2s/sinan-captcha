@@ -16,7 +16,16 @@ func TestValidateClickTruth(t *testing.T) {
 		Backend:     "native",
 		QueryImage:  "query/g1_000001.png",
 		SceneImage:  "scene/g1_000001.png",
-		Targets: []export.ObjectRecord{
+		QueryTargets: []export.ObjectRecord{
+			{
+				Order:   1,
+				Class:   "icon_house",
+				ClassID: 0,
+				BBox:    [4]int{6, 6, 24, 24},
+				Center:  [2]int{15, 15},
+			},
+		},
+		SceneTargets: []export.ObjectRecord{
 			{
 				Order:   1,
 				Class:   "icon_house",
@@ -41,7 +50,7 @@ func TestValidateClickTruth(t *testing.T) {
 	checks, err := Validate(
 		record,
 		backend.Spec{Mode: backend.ModeClick, Backend: backend.KindNative},
-		config.CanvasConfig{SceneWidth: 100, SceneHeight: 50},
+		config.CanvasConfig{SceneWidth: 100, SceneHeight: 50, QueryWidth: 36, QueryHeight: 36},
 		func() (export.SampleRecord, error) { return record, nil },
 	)
 	if err != nil {

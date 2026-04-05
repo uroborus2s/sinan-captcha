@@ -11,6 +11,7 @@ import (
 	"os"
 
 	"sinan-captcha/generator/internal/config"
+	"sinan-captcha/generator/internal/export"
 	"sinan-captcha/generator/internal/imagefx"
 	"sinan-captcha/generator/internal/sampler"
 )
@@ -23,16 +24,16 @@ var (
 	iconTint             = color.RGBA{26, 40, 58, 255}
 )
 
-func Build(plan sampler.SamplePlan, cfg config.Config) (image.Image, image.Image, error) {
+func Build(plan sampler.SamplePlan, cfg config.Config) (image.Image, image.Image, []export.ObjectRecord, error) {
 	scene, err := buildScene(plan, cfg)
 	if err != nil {
-		return nil, nil, err
+		return nil, nil, nil, err
 	}
-	query, err := buildQuery(plan, cfg.Canvas)
+	query, queryTargets, err := buildQuery(plan, cfg.Canvas)
 	if err != nil {
-		return nil, nil, err
+		return nil, nil, nil, err
 	}
-	return query, scene, nil
+	return query, scene, queryTargets, nil
 }
 
 func buildScene(plan sampler.SamplePlan, cfg config.Config) (image.Image, error) {
@@ -78,24 +79,25 @@ func buildScene(plan sampler.SamplePlan, cfg config.Config) (image.Image, error)
 	return scene, nil
 }
 
-func buildQuery(plan sampler.SamplePlan, canvas config.CanvasConfig) (image.Image, error) {
+func buildQuery(plan sampler.SamplePlan, canvas config.CanvasConfig) (image.Image, []export.ObjectRecord, error) {
 	query := image.NewRGBA(image.Rect(0, 0, canvas.QueryWidth, canvas.QueryHeight))
 	draw.Draw(query, query.Bounds(), &image.Uniform{C: queryOuterBackground}, image.Point{}, draw.Src)
 	drawPanel(query)
 
 	if len(plan.Targets) == 0 {
-		return query, nil
+		return query, nil, nil
 	}
 
 	padding := 8
 	availableWidth := canvas.QueryWidth - padding*(len(plan.Targets)+1)
 	cellWidth := max(16, availableWidth/len(plan.Targets))
 	cellHeight := canvas.QueryHeight - padding*2 - 2
+	queryTargets := make([]export.ObjectRecord, 0, len(plan.Targets))
 
 	for index, object := range plan.Targets {
 		icon, err := loadImage(object.IconPath)
 		if err != nil {
-			return nil, err
+			return nil, nil, err
 		}
 		srcBounds := icon.Bounds()
 		scale := math.Min(float64(cellWidth)/float64(srcBounds.Dx()), float64(cellHeight)/float64(srcBounds.Dy()))
@@ -108,6 +110,20 @@ func buildQuery(plan sampler.SamplePlan, canvas config.CanvasConfig) (image.Imag
 		y1 := padding + 1 + (cellHeight-iconHeight)/2
 		rect := image.Rect(x1, y1, x1+iconWidth, y1+iconHeight)
 		draw.Draw(query, rect, sprite, image.Point{}, draw.Over)
+		order := object.Order
+		if order == 0 {
+			order = index + 1
+		}
+		queryTargets = append(queryTargets, export.ObjectRecord{
+			Order:       order,
+			Class:       object.Class,
+			ClassID:     object.ClassID,
+			BBox:        [4]int{rect.Min.X, rect.Min.Y, rect.Max.X, rect.Max.Y},
+			Center:      [2]int{rect.Min.X + rect.Dx()/2, rect.Min.Y + rect.Dy()/2},
+			RotationDeg: 0,
+			Alpha:       1,
+			Scale:       math.Round(scale*100) / 100,
+		})
 		if index < len(plan.Targets)-1 {
 			dividerX := cellX1 + cellWidth + padding/2
 			for y := 8; y < canvas.QueryHeight-8; y++ {
@@ -115,7 +131,7 @@ func buildQuery(plan sampler.SamplePlan, canvas config.CanvasConfig) (image.Imag
 			}
 		}
 	}
-	return query, nil
+	return query, queryTargets, nil
 }
 
 func drawPanel(img *image.RGBA) {

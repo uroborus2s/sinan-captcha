@@ -1,156 +1,189 @@
 # 系统架构基线
 
 - 项目名称：sinan-captcha
-- 当前阶段：DESIGN
-- 当前技术栈：Python, Ultralytics YOLO, Windows, CUDA, X-AnyLabeling/CVAT, OpenCode, Optuna, SQLite
+- 当前阶段：IMPLEMENTATION（设计基线维护）
+- 当前技术栈：Python, PyTorch, Ultralytics YOLO, ONNX, ONNX Runtime, Rust, Windows, CUDA, X-AnyLabeling/CVAT, OpenCode, Optuna
 
 ## 架构结论
 
-本项目的首版架构是“内部离线训练系统 + 自主训练控制平面”，不是线上验证码服务。生成器按“受控集成 + 可插拔 backend”实现，核心链路围绕训练数据闭环和 study 账本展开：
+本项目首版架构应被理解为：
 
-1. Python 控制器维护 study、trial、停止规则和恢复逻辑
-2. `opencode` commands/skills 负责结果压缩、判断和归档建议
-3. 生成器控制层选择模式与 backend
-4. backend 生成候选样本和内部真值
-5. 真值一致性校验与重放校验阻断坏样本
-6. 合格样本以 `raw + JSONL gold` 形式落盘
-7. 自动标注、抽检、转换、训练、评估继续复用现有训练主线
+- 一个本地统一验证码求解产品面
+- 加上一套为它持续生产模型的本地模型生产系统
+
+也就是说，架构主线不再是“离线训练系统本身”，而是：
+
+1. 右侧最终交付：
+   - solver wheel
+   - embedded ONNX assets
+   - Rust native extension
+   - 单一业务合同
+2. 左侧生产平面：
+   - 生成器
+   - 数据治理
+   - 训练 / 测试 / 评估
+   - 自主训练控制平面
 
 ## 架构图
 
 ```mermaid
 flowchart LR
-    A["Study 配置 + 停止规则"] --> B["Python auto-train 控制器"]
-    B --> C["OpenCode commands / skills"]
-    B --> D["生成器控制层"]
-    C --> E["结构化判断 JSON"]
-    D --> F["backend 适配层"]
-    F --> G["自有 native backend"]
-    F --> H["go-captcha adapter backend"]
-    G --> I["候选样本 + 内部真值"]
-    H --> I
-    I --> J["一致性校验 + 重放校验 + 负样本校验"]
-    J --> K["raw + JSONL gold"]
-    K --> L["自动标注流水线"]
-    L --> M["interim auto 标签"]
-    K --> N["人工复核 / 抽检"]
-    M --> N
-    N --> O["reviewed 标签"]
-    O --> P["YOLO 数据转换"]
-    P --> Q["第一专项训练"]
-    P --> R["第二专项训练"]
-    Q --> S["第一专项后处理"]
-    R --> T["第二专项后处理"]
-    S --> U["统一评估与报告"]
-    T --> U
-    U --> V["study 账本 + leaderboard + decisions"]
-    V --> B
-    U --> W["失败样本回灌池"]
+    A["素材包 / preset / workspace"] --> B["Go 生成器控制层"]
+    B --> C["truth 校验 + batch QA"]
+    C --> D["任务专属数据集目录"]
+    D --> E["Python 训练 / 测试 / 评估"]
+    E --> F["runs / reports / failure cases"]
+    F --> G["export solver assets (.onnx + metadata)"]
+    G --> H["sinanz build (Python + Rust extension)"]
+    H --> I["platform wheel"]
+    I --> J["调用方"]
+
+    K["study 配置 + 停止规则"] --> L["Python auto-train 控制器"]
+    L --> B
+    L --> E
+    E --> M["result summary / leaderboard / decisions"]
+    M --> N["OpenCode commands / skills"]
+    N --> L
+    M --> G
 ```
+
+## 架构分层
+
+### 1. 交付面
+
+- `sinanz` platform wheel
+- embedded ONNX assets
+- Rust native extension
+- 单一函数调用合同
+
+这一层的目标是让调用方只看到：
+
+- `sn_match_targets(...)` 的有序中心点序列
+- `sn_match_slider(...)` 的目标中心点
+
+而不是看到训练目录、模型训练名、子模型路径或 study 账本。
+
+### 2. 生产面
+
+- Go 生成器控制层
+- 数据契约与版本治理
+- 标注复核与训练数据转换
+- `group1` / `group2` 训练模块
+- 推理后处理与评估
+- 自主训练控制平面
+
+这一层负责不断生产更好的导出资产与 wheel，但不直接对调用方暴露内部复杂度。
+
+### 3. 资产面
+
+- `materials/`
+- `datasets/`
+- `runs/`
+- `reports/`
+- `studies/`
+- `bundles/`
+- `dist/solver-assets/`
+
+这一层的规则是：
+
+- 训练资产与交付资产分开
+- 交付资产不能依赖训练资产的绝对路径
 
 ## 主要组成
 
-### 1. 生成器控制层
+### 1. 统一求解层
 
-- 作用：统一模式选择、batch 管理、真值导出和阻断规则
-- 控制模式：
-  - 第一专项：图形点选
-  - 第二专项：滑块缺口定位
-- 控制职责补充：
-  - 先解析内置 preset 与 workspace 固定命名覆盖
-  - 先确定样本布局与 `gold` 真值
-  - 再在渲染阶段施加 truth-preserving 的像素级视觉增强
-- backend 候选：
-  - 自有 native backend
-  - `go-captcha` 适配 backend
+- Python API 负责参数归一化、图片解码和异常语义
+- Rust 扩展负责 ONNX Runtime provider 选择、会话建立和推理桥接
+- `group1` 执行：
+  - `query parser ONNX -> scene detector ONNX -> matcher`
+- `group2` 执行：
+  - `slider gap locator ONNX`
+- 统一输出：
+  - 业务结果对象
+  - 可选调试信息
 
-### 2. 数据层
+### 2. 导出资产与发布层
 
-- `raw`：仅保存通过真值校验的原始图片与 `gold`
-- `interim`：自动预标注结果
-- `reviewed`：抽检通过数据
-- `yolo`：训练派生产物
-- `reports`：统计和质检报告
+- 负责把 `group1` 两子模型、matcher 配置和 `group2` 模型导出为 ONNX + metadata
+- 负责导出资产校验、相对路径解析和 wheel 组装
+- 负责把训练运行产物变成可复制、可部署、可回滚的交付实体
 
-### 3. 算法层
+### 3. 生成器控制层
 
-- 第一专项：多类别检测
-- 第二专项：滑块缺口定位
-- 第二组规则法：预标注和对照，不是最终主交付
+- 统一模式选择、批次管理、真值导出和阻断规则
+- 控制 workspace preset、素材索引和 truth-preserving 视觉增强
+- backend 只提供生成能力，不得定义训练事实
 
-### 4. 评估层
+### 4. 数据治理层
 
-- 第一专项指标：
-  - 单目标点命中率
-  - 整组顺序全部命中率
-  - 平均点误差
-  - 错序率
-- 第二专项指标：
-  - 点命中率
-  - 平均点误差
-  - IoU
-  - 偏移误差
-  - 推理时间
+- 维护 `gold / auto / reviewed` 状态流转
+- 冻结 train / val / test 切分
+- 维护 `group1` pipeline dataset 与 `group2` paired dataset 契约
+- 维护失败样本回灌和版本追加
 
-### 5. 自主训练控制平面
+### 5. 训练与评估层
 
-- Python 控制器：
-  - 推进状态机
-  - 调用 `sinan-generator` / `sinan` CLI
-  - 落盘 study 与 trial 工件
-  - 处理停止、恢复和 fallback
-- `opencode`：
-  - 通过 project-local commands 与 skills 承担结果查看、摘要压缩、下一轮判断和 study 归档建议
-  - 不直接替代 Python 控制器
-- `Optuna`：
-  - 仅负责允许范围内的数值搜索与 pruning
-  - 不负责业务规则判断
+- `group1`：
+  - 训练 `scene detector`
+  - 训练 `query parser`
+  - 经 `matcher` 形成任务结果
+- `group2`：
+  - 训练 paired locator
+  - 输出中心点、目标框和可选偏移量
+- 评估层统一生成任务级指标和失败样本清单
 
-## 数据流说明
+### 6. 自主训练控制平面
 
-### 第一组
+- Python 控制器维护 study 生命周期
+- OpenCode commands / skills 负责受限解读和结构化判断
+- `Optuna` 只在允许范围内承担参数搜索
+- 任何 agent 失效都必须回退到规则模式
 
-1. 生成器输出查询图、场景图、目标顺序、目标框、干扰项框
-2. 同一份内部真值同时驱动渲染和标签导出
-3. 若启用 `firstpass` / `hard` 或 workspace preset 覆盖，则只允许在渲染末端增加阴影、背景模糊、边缘软化等像素级扰动
-4. 标签字段和几何语义不得因视觉难度 preset 而漂移
-5. 通过一致性校验后写入 `gold`
-6. 转换为多类别 YOLO 检测数据
-7. 训练多类别检测模型
-8. 用查询顺序将检测结果映射成点击点
+## 任务数据流
 
-### 第二组
+### `group1`
 
-1. 生成器输出主图、滑块图、缺口目标框、中心点和偏移量
-2. 同一份内部真值同时驱动渲染和标签导出
-3. 若启用 `firstpass` / `hard` 或 workspace preset 覆盖，则只允许在渲染末端增加缺口阴影、背景模糊、tile 边缘软化等像素级扰动
-4. 标签字段和几何语义不得因视觉难度 preset 而漂移
-5. 通过一致性校验后写入 `gold`
-6. 转换为滑块定位训练数据
-7. 训练滑块缺口定位模型
-8. 输出目标框、中心点和偏移量
+1. 生成器输出查询图、场景图、目标顺序和 `gold`
+2. 数据层导出 `dataset.json + scene-yolo/query-yolo/splits`
+3. 训练 `scene detector` 和 `query parser`
+4. Rust 扩展加载 ONNX 模型，统一求解层调用 `matcher`
+5. 输出有序中心点序列
 
-## 为什么不先做线上服务
+### `group2`
 
-- 当前目标是训练闭环，不是业务接入
-- 先做线上服务会放大部署、鉴权、接口和运维复杂度
-- 训练阶段需要的是“高质量标签”，而不是“对外稳定 SLA”
+1. 生成器输出主图、缺口图、目标框和中心点真值
+2. 数据层导出 `dataset.json + master/tile/splits`
+3. 训练 paired locator
+4. Rust 扩展执行 ONNX 推理并返回中心点主结果
+5. 如调用方提供附加定位上下文，再返回偏移量等辅助字段
 
-## 主要风险
+## 当前实现对齐状态
 
-- backend 无法稳定提供训练所需真值
-- 第一组类别表不稳定
-- 第二组滑块语义扩张为多缺口或轨迹任务
-- 视觉难度增强若越过像素级边界，会直接破坏 `gold` 真值可信度
-- Windows GPU 环境兼容问题
-- 自动标注污染训练集
-- agent 输出 JSON 失效、状态文件缺失或权限边界漂移会导致自主训练失控
+### 已对齐部分
+
+- 生成器控制层和数据导出主链路已存在
+- 训练 / 测试 / 评估主链路已存在
+- 自主训练控制器与 study 账本已存在
+- `core/solve` 与统一求解合同骨架已存在
+
+### 当前仍需继续提升的部分
+
+- `sinanz` 当前仍是 Python 子项目骨架，尚未切到正式平台 wheel
+- `auto-train` 目前已经能把 `dataset_plan` 中的 `preset`、`sample_count`、`sampling` 和 `effects.*` 下发到生成器，但还没有进入素材选择、类目定向采样和更细粒度的数据策略
+- solver 运行时当前仍处在 Python/PyTorch 过渡态，尚未完成 ONNX + Rust 迁移
+- `group1` 同类多实例场景仍主要依赖规则匹配
+
+## 为什么不先做公网服务
+
+- 当前最需要稳定的是 solver 交付物和训练事实源，不是公网 SLA
+- 如果过早转向公网服务，会把部署、鉴权、接口治理复杂度提前放大
+- 本地统一求解入口已经足以表达最终业务语义，并为未来 HTTP 映射保留空间
 
 ## 架构守则
 
-- 生成器控制层拥有训练契约与 gold 真值定义权
-- backend 只能提供生成能力，不能反向定义 JSONL 主事实源
-- 两专项模型独立训练与独立验收
-- JSONL 是标签主事实源
-- 测试集冻结，不随训练批次频繁变化
-- AI 判断只消费摘要工件，不直接把长日志和整段历史上下文当成唯一事实源
+- 统一求解层不得绕过导出资产直接从 `runs/` 目录取模型
+- 生成器控制层拥有 `gold` 真值定义权
+- backend 只能提供生成能力，不能反向定义训练契约
+- 两专项模型独立训练、独立验收、统一交付
+- AI 判断只消费摘要工件，不把聊天上下文当唯一事实源

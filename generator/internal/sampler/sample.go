@@ -28,16 +28,16 @@ type SamplePlan struct {
 
 func BuildPlan(index int, cfg config.Config, catalog material.Catalog) (SamplePlan, error) {
 	plan := SamplePlan{}
-	if len(catalog.Classes) == 0 {
-		return plan, fmt.Errorf("material catalog has no classes")
+	if len(catalog.Group1Classes) == 0 {
+		return plan, fmt.Errorf("material catalog has no group1 classes")
 	}
 	if len(catalog.Backgrounds) == 0 {
 		return plan, fmt.Errorf("material catalog has no backgrounds")
 	}
 
-	maxTargets := min(cfg.Sampling.TargetCountMax, len(catalog.Classes))
+	maxTargets := min(cfg.Sampling.TargetCountMax, len(catalog.Group1Classes))
 	if maxTargets < cfg.Sampling.TargetCountMin {
-		return plan, fmt.Errorf("not enough classes for target count: have %d need at least %d", len(catalog.Classes), cfg.Sampling.TargetCountMin)
+		return plan, fmt.Errorf("not enough classes for target count: have %d need at least %d", len(catalog.Group1Classes), cfg.Sampling.TargetCountMin)
 	}
 
 	sampleSeed := cfg.Project.Seed + int64(index)
@@ -47,7 +47,7 @@ func BuildPlan(index int, cfg config.Config, catalog material.Catalog) (SamplePl
 	distractorCount := between(rng, cfg.Sampling.DistractorCountMin, cfg.Sampling.DistractorCountMax)
 	background := catalog.Backgrounds[rng.Intn(len(catalog.Backgrounds))]
 
-	targetClasses := selectUniqueClasses(rng, catalog.Classes, targetCount)
+	targetClasses := selectUniqueClasses(rng, catalog.Group1Classes, targetCount)
 	targets := make([]PlacedObject, 0, len(targetClasses))
 	sizes := make([]layout.Size, 0, targetCount+distractorCount)
 
@@ -75,7 +75,11 @@ func BuildPlan(index int, cfg config.Config, catalog material.Catalog) (SamplePl
 	}
 
 	distractors := make([]PlacedObject, 0, distractorCount)
-	distractorPool := buildDistractorPool(catalog.Classes, targetClasses)
+	distractorPool := buildDistractorPool(catalog.Group1Classes, targetClasses)
+	if len(distractorPool) < distractorCount {
+		distractorCount = len(distractorPool)
+		distractors = make([]PlacedObject, 0, distractorCount)
+	}
 	for index := 0; index < distractorCount; index++ {
 		classAssets := distractorPool[rng.Intn(len(distractorPool))]
 		icon := classAssets.Icons[rng.Intn(len(classAssets.Icons))]
@@ -99,7 +103,7 @@ func BuildPlan(index int, cfg config.Config, catalog material.Catalog) (SamplePl
 		sizes = append(sizes, size)
 	}
 
-	rects, err := placeObjects(cfg, sizes, rng)
+	rects, finalSizes, err := placeObjects(cfg, sizes, rng)
 	if err != nil {
 		return plan, err
 	}
@@ -112,6 +116,7 @@ func BuildPlan(index int, cfg config.Config, catalog material.Catalog) (SamplePl
 		allObjects = append(allObjects, &distractors[index])
 	}
 	for index, object := range allObjects {
+		rescalePlacedObject(object, sizes[index], finalSizes[index])
 		assignRect(object, rects[index])
 	}
 
@@ -121,7 +126,7 @@ func BuildPlan(index int, cfg config.Config, catalog material.Catalog) (SamplePl
 			CaptchaType:  "group1_multi_icon_match",
 			QueryImage:   filepath.ToSlash(filepath.Join("query", sampleID+".png")),
 			SceneImage:   filepath.ToSlash(filepath.Join("scene", sampleID+".png")),
-			Targets:      recordsFromPlaced(targets),
+			SceneTargets: recordsFromPlaced(targets),
 			Distractors:  recordsFromPlaced(distractors),
 			BackgroundID: background.ID,
 			StyleID:      "default",
@@ -150,9 +155,6 @@ func buildDistractorPool(classes []material.ClassAssets, targets []material.Clas
 		}
 		pool = append(pool, classAssets)
 	}
-	if len(pool) == 0 {
-		return classes
-	}
 	return pool
 }
 
@@ -165,7 +167,7 @@ func selectUniqueClasses(rng *rand.Rand, classes []material.ClassAssets, count i
 	return selected
 }
 
-func iconSize(icon material.IconAsset, sceneHeight int, scale float64, rng *rand.Rand) layout.Size {
+func iconSize(icon material.ImageAsset, sceneHeight int, scale float64, rng *rand.Rand) layout.Size {
 	baseHeight := float64(sceneHeight) * (0.16 + rng.Float64()*0.08)
 	height := max(18, int(math.Round(baseHeight*scale)))
 	width := max(18, int(math.Round(float64(icon.Width)*float64(height)/float64(icon.Height))))
@@ -189,24 +191,39 @@ func rotatedBounds(width int, height int, rotationDeg float64) layout.Size {
 	}
 }
 
-func placeObjects(cfg config.Config, sizes []layout.Size, rng *rand.Rand) ([]layout.Rect, error) {
+func placeObjects(cfg config.Config, sizes []layout.Size, rng *rand.Rand) ([]layout.Rect, []layout.Size, error) {
 	current := append([]layout.Size(nil), sizes...)
 	for attempt := 0; attempt < 4; attempt++ {
 		rects, err := layout.Place(cfg.Canvas.SceneWidth, cfg.Canvas.SceneHeight, current, rng)
 		if err == nil {
-			return rects, nil
+			return rects, current, nil
 		}
 		for index := range current {
 			current[index].Width = max(14, int(math.Round(float64(current[index].Width)*0.9)))
 			current[index].Height = max(14, int(math.Round(float64(current[index].Height)*0.9)))
 		}
 	}
-	return nil, fmt.Errorf("could not place sampled objects on the scene canvas")
+	return nil, nil, fmt.Errorf("could not place sampled objects on the scene canvas")
 }
 
 func assignRect(object *PlacedObject, rect layout.Rect) {
 	object.BBox = [4]int{rect.X1, rect.Y1, rect.X2, rect.Y2}
 	object.Center = [2]int{rect.X1 + rect.Width()/2, rect.Y1 + rect.Height()/2}
+}
+
+func rescalePlacedObject(object *PlacedObject, original layout.Size, placed layout.Size) {
+	if original.Width <= 0 || original.Height <= 0 {
+		return
+	}
+	scaleX := float64(placed.Width) / float64(original.Width)
+	scaleY := float64(placed.Height) / float64(original.Height)
+	scale := math.Min(scaleX, scaleY)
+	if scale >= 0.999 {
+		return
+	}
+	object.BaseWidth = max(12, int(math.Round(float64(object.BaseWidth)*scale)))
+	object.BaseHeight = max(12, int(math.Round(float64(object.BaseHeight)*scale)))
+	object.Scale = round2(object.Scale * scale)
 }
 
 func recordsFromPlaced(objects []PlacedObject) []export.ObjectRecord {

@@ -11,3 +11,5 @@
 - [样本导出与自动标注 Checklist](./data-export-auto-labeling-checklist.md)
 - [多模式验证码生成器任务拆解](./generator-task-breakdown.md)
 - [自主训练任务拆解](./autonomous-training-task-breakdown.md)
+- [独立 solver 迁移任务拆解](./standalone-solver-migration-task-breakdown.md)
+- [自主训练实施准入结论](./autonomous-training-implementation-readiness.md)

@@ -1,0 +1,503 @@
+# 训练者角色：使用自动化训练
+
+这页只讲怎样在训练机上把 `uv run sinan auto-train ...` 搭起来并真正跑起来。
+
+## 1. 先选一种运行路线
+
+当前有两条路线：
+
+| 路线 | 是否需要大模型 | 是否需要 `opencode` | 当前推荐程度 | 适用场景 |
+| --- | --- | --- | --- | --- |
+| `rules` 路线 | 不需要 | 不需要 | 推荐先用 | 第一次在训练机上跑 `auto-train` |
+| `opencode` 路线 | 需要一个可供 OpenCode 调用的模型后端 | 需要 | 第二步再用 | 你已经跑通 `rules`，想让控制器自动生成摘要、判定和数据计划 |
+
+最重要的判断：
+
+- 如果你现在只是想在训练机上开始自动训练，先走 `rules`。
+- 如果你想让控制器自动和大模型交互，再切到 `opencode`。
+
+## 2. `auto-train run` 会做什么
+
+一条命令会串起下面这条流水线：
+
+- `PLAN`
+- `BUILD_DATASET`
+- `TRAIN`
+- `TEST`
+- `EVALUATE`
+- `SUMMARIZE`
+- `JUDGE`
+- `NEXT_ACTION`
+
+也就是说，控制器会创建或恢复一个 study，把生成器、训练、测试、评估和下一轮决策接到一起。
+
+当前已经具备的闭环：
+
+- 能把 `dataset_plan` 传给生成器 `--preset / --override-file`
+- 能在 `TEST` 后自动接上 `EVALUATE`
+- 能按 `max_hours`、`max_trials`、`max_new_datasets`、`max_no_improve_trials` 停止
+
+当前还没有完成的边界：
+
+- 还没有完成 Windows + NVIDIA 训练机上的长流程稳定性验收
+- 还不能宣称为“长期无人值守正式入口”
+
+## 3. 开始前你必须已经有
+
+- 已创建训练目录
+- 已创建生成器工作区
+- 已准备素材
+- 至少跑通过一次手动训练、测试和评估主线
+
+这里的“已准备素材”有一个新边界：
+
+- 如果你的生成器工作区里激活的是完整素材包，`group1` / `group2` study 都可以直接复用
+- 如果你只准备了 `group1` 或只准备了 `group2` 的单任务素材包，也可以启动自动训练
+- 但单任务素材包第一次导入工作区时，要通过 `sinan-generator materials import --task <task>`、`materials fetch --task <task>`，或让 `make-dataset --materials-source` 按当前 task 自动导入
+
+推荐先完成：
+
+1. [训练者角色：训练机安装](./windows-bundle-install.md)
+2. [训练者角色：使用生成器准备训练数据](./prepare-training-data-with-generator.md)
+3. [训练者角色：使用训练器完成训练、测试与评估](./from-base-model-to-training-guide.md)
+
+## 4. 训练机目录建议
+
+推荐至少固定下面 3 个目录：
+
+```text
+D:\
+  sinan-captcha-work\
+  sinan-captcha-generator\
+    workspace\
+```
+
+其中：
+
+- `sinan-captcha-work`
+  - 训练目录
+  - 存放 `.opencode/`、`datasets/`、`runs/`、`reports/`、`studies/`
+- `sinan-captcha-generator\workspace`
+  - 生成器工作区
+  - 存放素材、preset、cache
+
+## 5. `rules` 路线怎么搭
+
+这是当前最稳的训练机启动方式。
+
+### 5.1 你需要什么
+
+- `uv`
+- 训练目录已经通过 `uvx --from sinan-captcha sinan env setup-train ...` 初始化
+- `sinan-generator` 可执行
+- 生成器工作区已初始化并已有素材
+- 如果你未来要切到 `opencode`，训练目录中已经自动包含 `.opencode/commands` 和 `.opencode/skills`
+- 如果当前工作区只激活了单任务素材包，study 的 `task` 必须和素材包任务一致
+
+如果训练机上 `sinan-generator.exe` 不在 `PATH`，现在建议显式传：
+
+- `--generator-executable C:\你的目录\sinan-generator.exe`
+
+### 5.2 最小启动命令
+
+#### `group1`
+
+```powershell
+Set-Location D:\sinan-captcha-work
+
+uv run sinan auto-train run group1 `
+  --study-name study_group1_firstpass `
+  --train-root D:\sinan-captcha-work `
+  --generator-workspace D:\sinan-captcha-generator\workspace `
+  --generator-executable D:\sinan-captcha-generator\sinan-generator.exe `
+  --dataset-version firstpass `
+  --judge-provider rules `
+  --max-steps 8 `
+  --max-hours 2 `
+  --max-new-datasets 1
+```
+
+#### `group2`
+
+```powershell
+Set-Location D:\sinan-captcha-work
+
+uv run sinan auto-train run group2 `
+  --study-name study_group2_firstpass `
+  --train-root D:\sinan-captcha-work `
+  --generator-workspace D:\sinan-captcha-generator\workspace `
+  --generator-executable D:\sinan-captcha-generator\sinan-generator.exe `
+  --dataset-version firstpass `
+  --judge-provider rules `
+  --max-steps 8 `
+  --max-hours 2 `
+  --max-new-datasets 1
+```
+
+第一次建议保守一点：
+
+- `--judge-provider rules`
+- `--max-steps 8`
+- `--max-hours 2`
+- `--max-new-datasets 1`
+
+## 6. `opencode` 路线怎么搭
+
+这条路线会让控制器自动和大模型交互，但前提是你先把 `rules` 路线跑通。
+
+### 6.1 你额外需要什么
+
+- 训练机上有 `opencode` 命令
+- 有一个可供 OpenCode 使用的模型后端
+- 训练目录已经通过 `env setup-train` 自动铺好 `.opencode/commands/` 和 `.opencode/skills/`
+
+这里要分清楚：
+
+- 如果 OpenCode 连远端模型服务，训练机不一定要本地安装大模型
+- 如果 OpenCode 连本地模型服务，训练机就要本地准备模型后端
+
+### 6.2 `skills` 怎么安装到训练机
+
+当前项目里的 skills 不是单独的 pip 包。
+
+它们当前会随着训练目录初始化一起落到本地文件：
+
+- `D:\sinan-captcha-work\.opencode\commands\`
+- `D:\sinan-captcha-work\.opencode\skills\`
+
+因此当前不需要“单独安装 skill”。
+
+确认下面两个目录存在即可：
+
+- `D:\sinan-captcha-work\.opencode\commands`
+- `D:\sinan-captcha-work\.opencode\skills`
+
+然后直接从训练目录启动 `opencode serve`。
+
+### 6.3 推荐部署方式
+
+在训练机上：
+
+```text
+D:\
+  sinan-captcha-work\
+    .opencode\
+    studies\
+    datasets\
+    runs\
+    reports\
+  sinan-captcha-generator\
+    workspace\
+```
+
+然后：
+
+1. 在 `D:\sinan-captcha-work` 里启动 OpenCode 服务
+2. 在 `D:\sinan-captcha-work` 里启动 `auto-train`
+
+### 6.4 启动 OpenCode 服务
+
+在训练目录里：
+
+```powershell
+Set-Location D:\sinan-captcha-work
+opencode serve --port 4096
+```
+
+### 6.5 启动 `auto-train`
+
+```powershell
+Set-Location D:\sinan-captcha-work
+
+uv run sinan auto-train run group1 `
+  --study-name study_group1_llm `
+  --train-root D:\sinan-captcha-work `
+  --generator-workspace D:\sinan-captcha-generator\workspace `
+  --generator-executable D:\sinan-captcha-generator\sinan-generator.exe `
+  --dataset-version firstpass `
+  --judge-provider opencode `
+  --judge-model gemma4 `
+  --opencode-attach-url http://127.0.0.1:4096 `
+  --opencode-timeout-seconds 300 `
+  --max-steps 8 `
+  --max-hours 2 `
+  --max-new-datasets 1
+```
+
+### 6.6 `opencode` 连通性自检与排错
+
+如果你怀疑问题不是训练器本身，而是 OpenCode 或大模型后端没有连通，先不要直接重跑 `auto-train`，先在训练目录里做下面几步。
+
+先确认命令本身存在：
+
+```powershell
+Set-Location D:\sinan-captcha-work
+Get-Command opencode
+```
+
+如果这里报“找不到命令”，先解决 OpenCode 安装或 `PATH` 问题。
+
+再确认训练目录已经铺好本地 commands 和 skills：
+
+```powershell
+Set-Location D:\sinan-captcha-work
+Test-Path .opencode\commands\study-status.md
+Test-Path .opencode\commands\judge-trial.md
+Test-Path .opencode\skills\study-archivist\SKILL.md
+Test-Path .opencode\skills\training-judge\SKILL.md
+```
+
+这 4 条都应该返回 `True`。
+
+再用和控制器同路径的命令做一次手工连通性测试。先测 `study-status`：
+
+```powershell
+Set-Location D:\sinan-captcha-work
+
+opencode run `
+  --attach http://127.0.0.1:4096 `
+  --model gemma4 `
+  --command study-status `
+  --file studies\group1\study_group1_llm\study.json `
+  --file studies\group1\study_group1_llm\leaderboard.json `
+  -- `
+  study_group1_llm group1
+```
+
+如果这条命令能返回一个 JSON，说明下面几层都已经通了：
+
+- `opencode` 命令本身可执行
+- `--attach` 能连上 `opencode serve --port 4096`
+- `gemma4` 对应的模型后端可响应
+- 训练目录内 `.opencode/commands` 和 `.opencode/skills` 能正常加载
+
+然后再测最关键的 `judge-trial`，这条命令最接近控制器实际判断：
+
+```powershell
+Set-Location D:\sinan-captcha-work
+
+opencode run `
+  --attach http://127.0.0.1:4096 `
+  --model gemma4 `
+  --command judge-trial `
+  --file studies\group1\study_group1_llm\study.json `
+  --file studies\group1\study_group1_llm\trials\trial_0001\result_summary.json `
+  --file studies\group1\study_group1_llm\leaderboard.json `
+  --file studies\group1\study_group1_llm\decisions.jsonl `
+  -- `
+  study_group1_llm group1 trial_0001
+```
+
+如果你当前 study 名和 trial id 不一样，把上面这两个值换成你自己的目录名。
+
+判断标准：
+
+- 能返回合法 JSON：
+  - 说明 OpenCode 和模型后端大概率已经连通，后续问题更可能在 `auto-train` 传参、文件路径或工件状态上
+- 返回连接错误、超时或空输出：
+  - 优先排查 `opencode serve` 是否还在运行、`--attach` 地址是否正确、模型后端是否可用
+- 返回 “File not found”：
+  - 优先排查 `study-name`、`trial_id` 和附带文件路径是否真实存在
+
+如果你已经启用最新版本的 `auto-train`，控制器也会把每次发给 OpenCode 的内容和 OpenCode 返回的原始内容写到：
+
+- `studies\<task>\<study-name>\opencode.log`
+- `studies\<task>\<study-name>\trials\<trial_id>\opencode\*.json`
+
+这两处是定位 “到底是没连上，还是连上了但判断不符合预期” 的第一现场。
+
+## 7. 启动后控制器和大模型会怎么交互
+
+只有在 `--judge-provider opencode` 时才会发生这部分交互。
+
+当前控制器会调用 4 个 project-local command：
+
+- `result-read`
+  - 读取 `test.json` / `evaluate.json`
+  - 输出 `result_summary.json`
+- `judge-trial`
+  - 读取当前 trial 摘要
+  - 输出 `decision.json`
+- `plan-dataset`
+  - 读取当前失败模式和弱类
+  - 输出 `dataset_plan.json`
+- `study-status`
+  - 读取 `study.json` / `leaderboard.json`
+  - 输出 `study_status.json`
+
+这意味着启动后：
+
+- 控制器会自动和 OpenCode 交互
+- OpenCode 会基于这些工件返回结构化 JSON
+- 控制器再继续推进下一阶段
+- 控制器会把“发给 OpenCode 的内容”和“OpenCode 返回的原始内容”同时打印到终端并写入日志
+
+你最终能看到的“分析报告/判断结果”主要是：
+
+- `trials/<trial_id>/result_summary.json`
+- `trials/<trial_id>/decision.json`
+- `trials/<trial_id>/dataset_plan.json`
+- `study_status.json`
+- `summary.md`
+
+其中：
+
+- `result_summary.json` 是 trial 级压缩分析
+- `decision.json` 是下一步动作判断
+- `dataset_plan.json` 是下一轮数据策略
+- `summary.md` 是 study 级摘要，第一眼先看这里
+
+如果你要排查 “OpenCode 到底看了什么、怎么判断的、怎么生成数据计划的”，再额外看：
+
+- `opencode.log`
+- `trials/<trial_id>/opencode/*.json`
+- `opencode/*.json`
+
+其中：
+
+- `opencode.log` 是 study 级串行文本日志，适合直接在终端或编辑器里追
+- `trials/<trial_id>/opencode/*.json` 是 trial 级结构化 trace，重点看 `judge-trial`、`result-read`、`plan-dataset`
+- `opencode/*.json` 是 study 级结构化 trace，重点看 `study-status`
+- 每份 trace 都会包含：
+  - 实际调用的 OpenCode command 名称
+  - 命令模板 `.opencode/commands/*.md` 的文本
+  - 对应 skill `.opencode/skills/*/SKILL.md` 的文本
+  - 附带给 OpenCode 的文件路径和文件内容预览
+  - 原始 `stdout`
+  - 原始 `stderr`
+  - 是否成功和错误信息
+
+## 8. 必填参数和常用参数
+
+### 8.1 必填参数
+
+| 参数 | 说明 |
+| --- | --- |
+| `group1` / `group2` | 位置参数，指定专项。 |
+| `--study-name` | study 名称。目录会落在 `studies/<task>/<study-name>/`。 |
+| `--train-root` | 训练目录根，例如 `D:\sinan-captcha-work`。 |
+| `--generator-executable` | 可选但在 Windows 上强烈建议显式传。填 `sinan-generator.exe` 的完整路径，避免找不到生成器命令。 |
+| `--generator-workspace` | 生成器工作区目录。 |
+
+### 8.2 预算与停止参数
+
+| 参数 | 默认值 | 说明 |
+| --- | --- | --- |
+| `--max-steps` | `1` | 本次命令最多执行多少个阶段胶囊，不是 trial 数。 |
+| `--max-trials` | `20` | 整个 study 最多完成多少个 trial。 |
+| `--max-hours` | `24` | 整个 study 的总小时预算。 |
+| `--max-new-datasets` | 无 | 最多允许新建多少个新数据版本，不含最初的 `dataset-version`。 |
+| `--max-no-improve-trials` | `4` | 连续多少个 trial 没有明显提升就停。 |
+
+### 8.3 判定与 OpenCode 参数
+
+| 参数 | 默认值 | 说明 |
+| --- | --- | --- |
+| `--judge-provider` | `rules` | 判定器。常用值是 `rules` 或 `opencode`。 |
+| `--judge-model` | `policy-v1` | `rules` 路线下它更像策略名；`opencode` 路线下它会传给 OpenCode 的 `--model`。 |
+| `--opencode-attach-url` | 无 | `judge-provider=opencode` 时，连接已有 OpenCode 服务。 |
+| `--opencode-binary` | `opencode` | `judge-provider=opencode` 时使用的本地命令。 |
+| `--opencode-timeout-seconds` | `300` | 单次 OpenCode 调用超时。本地 `ollama/*` 大模型建议至少 `300`，慢机型可调到 `600`。 |
+
+### 8.4 训练与评估参数
+
+| 参数 | 默认值 | 说明 |
+| --- | --- | --- |
+| `--dataset-version` | `v1` | 第一轮 trial 使用的数据版本。 |
+| `--train-name` | 当前 `trial_id` | 第一轮训练运行名。 |
+| `--train-mode` | `fresh` | `fresh`、`resume`、`from_run`。 |
+| `--base-run` | 无 | `from_run` 时的来源 run。 |
+| `--model` | 无 | 显式覆盖训练模型。 |
+| `--epochs` | 无 | 显式覆盖训练轮数。 |
+| `--batch` | 无 | 显式覆盖 batch size。 |
+| `--imgsz` | `group1=640`、`group2=192` | 显式覆盖训练尺寸。 |
+| `--device` | `0` | 训练设备。 |
+| `--gold-dir` | 无 | 如果你要用自定义 gold 标签目录评估，就显式传入。 |
+| `--prediction-dir` | 无 | 如果你要用自定义预测目录评估，就显式传入。 |
+
+## 9. 恢复、暂停和单步调试
+
+### 9.1 恢复已有 study
+
+用同一个 `--study-name`、`--train-root` 和 `--generator-workspace` 重新执行原命令即可。控制器会根据已有工件推断下一阶段。
+
+### 9.2 请求停止
+
+如果你想让 study 在下一次停止检查时停下来，在 study 根目录放一个 `STOP` 文件：
+
+```text
+studies\
+  group1\
+    study_group1_firstpass\
+      STOP
+```
+
+### 9.3 只跑一个阶段
+
+```powershell
+uv run sinan auto-train stage BUILD_DATASET group1 `
+  --study-name study_group1_firstpass `
+  --train-root D:\sinan-captcha-work `
+  --generator-workspace D:\sinan-captcha-generator\workspace
+```
+
+## 10. Study 目录里会看到什么
+
+你至少会看到：
+
+- `study.json`
+- `leaderboard.json`
+- `summary.md`
+- `trials/trial_0001/...`
+
+常见文件含义：
+
+| 文件 | 作用 |
+| --- | --- |
+| `study.json` | study 级元数据、预算和当前 trial 指针。 |
+| `leaderboard.json` | 当前 study 的试验排行榜。 |
+| `summary.md` | study 级中文摘要，第一眼先看这里。 |
+| `opencode.log` | 按时间顺序记录每次发送给 OpenCode 的输入和返回内容。 |
+| `trials/trial_0001/input.json` | 这一轮 trial 的输入参数。 |
+| `trials/trial_0001/dataset_plan.json` | 如果控制器决定重生数据，这里会记录新数据计划。 |
+| `trials/trial_0001/generator_override.json` | 真正传给生成器的覆盖 JSON。 |
+| `trials/trial_0001/train.json` | 训练命令与训练结果摘要。 |
+| `trials/trial_0001/test.json` | 测试命令与测试结果摘要。 |
+| `trials/trial_0001/evaluate.json` | 评估结果摘要。 |
+| `trials/trial_0001/result_summary.json` | 给判定器消费的压缩摘要。 |
+| `trials/trial_0001/decision.json` | 这一轮的决策结果。 |
+| `trials/trial_0001/opencode/*.json` | `result-read` / `judge-trial` / `plan-dataset` 的原始 trace。 |
+| `opencode/*.json` | `study-status` 这类 study 级 OpenCode trace。 |
+
+## 11. 推荐的观察顺序
+
+每轮至少看这 4 个位置：
+
+1. `studies/<task>/<study-name>/summary.md`
+2. `studies/<task>/<study-name>/leaderboard.json`
+3. `studies/<task>/<study-name>/trials/<trial_id>/input.json`
+4. `studies/<task>/<study-name>/trials/<trial_id>/decision.json`
+
+如果控制器开始重生数据，再额外看：
+
+- `dataset_plan.json`
+- `generator_override.json`
+
+如果你在确认大模型到底是怎么判断的，再额外看：
+
+- `opencode.log`
+- `trials/<trial_id>/opencode/0001_judge-trial.json`
+- `trials/<trial_id>/opencode/0001_plan-dataset.json`
+
+## 12. 当前最重要的现实边界
+
+- `rules` 路线现在已经适合训练机开始受控自动训练
+- `opencode` 路线需要额外准备 `opencode` 和可用的大模型后端
+- 当前 `.opencode/commands + .opencode/skills` 会在 `env setup-train` 时自动落到训练目录
+- 当前还没有完成 Windows + NVIDIA 训练机上的长流程验收，因此不要直接长时间无人看守运行
+
+## 13. 下一步
+
+如果你想先手工确认训练结果，再决定是否继续自动化，回到：
+
+- [训练者角色：使用训练器完成训练、测试与评估](./from-base-model-to-training-guide.md)

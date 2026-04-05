@@ -5,6 +5,7 @@ import unittest
 from pathlib import Path
 from unittest.mock import patch
 
+from core._version import VERSION as PACKAGE_VERSION
 from core.ops import setup_train
 
 
@@ -28,7 +29,7 @@ class SetupTrainTests(unittest.TestCase):
             train_root = Path(tmpdir) / "sinan-captcha-work"
             plan = setup_train.TrainingSetupPlan(
                 train_root=train_root,
-                package_spec="sinan-captcha[train]==0.1.13",
+                package_spec=f"sinan-captcha[train]=={PACKAGE_VERSION}",
                 torch_backend=setup_train.resolve_torch_backend("12.6", override="auto"),
                 cuda_version="12.6",
                 python_version="3.12",
@@ -38,7 +39,7 @@ class SetupTrainTests(unittest.TestCase):
 
             self.assertTrue((train_root / ".python-version").exists())
             pyproject = (train_root / "pyproject.toml").read_text(encoding="utf-8")
-            self.assertIn('sinan-captcha[train]==0.1.13', pyproject)
+            self.assertIn(f'sinan-captcha[train]=={PACKAGE_VERSION}', pyproject)
             self.assertIn('torch', pyproject)
             self.assertIn('name = "pytorch-cu126"', pyproject)
             self.assertTrue((train_root / "datasets" / "group1").exists())
@@ -73,7 +74,7 @@ class SetupTrainTests(unittest.TestCase):
                         "--torch-backend",
                         "cpu",
                         "--package-spec",
-                        "sinan-captcha[train]==0.1.13",
+                        f"sinan-captcha[train]=={PACKAGE_VERSION}",
                     ]
                 )
 

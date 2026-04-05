@@ -65,12 +65,15 @@ func usage() string {
 		"Notes:\n" +
 		"  Presets: firstpass=200 samples, hard=200 samples, smoke=20 samples.\n" +
 		"  make-dataset --preset accepts firstpass, hard, or smoke.\n" +
+		"  make-dataset also accepts --override-file with JSON overrides for sample_count, sampling, and effects.\n" +
 		"  Optional preset overrides are loaded from workspace\\presets\\smoke.yaml, group1.<preset>.yaml, or group2.<preset>.yaml.\n" +
 		"  Materials can come from a local directory, a local zip, or an http(s) zip URL.\n" +
+		"  materials import/fetch also accept --task group1|group2 when the materials pack only contains one task.\n" +
 		"  Re-running make-dataset with --force overwrites the same dataset directory.\n\n" +
 		"Examples:\n" +
 		"  sinan-generator workspace init --workspace D:\\sinan-captcha-generator\\workspace\n" +
 		"  sinan-generator materials import --workspace D:\\sinan-captcha-generator\\workspace --from D:\\materials-pack\n" +
+		"  sinan-generator materials import --workspace D:\\sinan-captcha-generator\\workspace --from D:\\materials-pack-group1 --task group1\n" +
 		"  sinan-generator materials fetch --workspace D:\\sinan-captcha-generator\\workspace --source https://example.com/materials-pack.zip\n" +
 		"  sinan-generator make-dataset --workspace D:\\sinan-captcha-generator\\workspace --task group1 --dataset-dir D:\\sinan-captcha-work\\datasets\\group1\\firstpass\\yolo\n"
 }
@@ -123,6 +126,7 @@ func runMaterials(args []string) error {
 		workspaceRoot := fs.String("workspace", "", "override workspace root")
 		sourceDir := fs.String("from", "", "path to a local materials directory")
 		name := fs.String("name", "", "optional materials set name")
+		task := fs.String("task", "", "optional task-scoped validation: group1 or group2")
 		if err := fs.Parse(args[1:]); err != nil {
 			return err
 		}
@@ -133,7 +137,7 @@ func runMaterials(args []string) error {
 		if err != nil {
 			return err
 		}
-		result, err := materialset.ImportLocal(state, *sourceDir, *name)
+		result, err := materialset.ImportLocal(state, *sourceDir, *name, *task)
 		if err != nil {
 			return err
 		}
@@ -143,6 +147,7 @@ func runMaterials(args []string) error {
 		workspaceRoot := fs.String("workspace", "", "override workspace root")
 		source := fs.String("source", "", "http(s) URL, file URL, or local zip path")
 		name := fs.String("name", "", "optional materials set name")
+		task := fs.String("task", "", "optional task-scoped validation: group1 or group2")
 		if err := fs.Parse(args[1:]); err != nil {
 			return err
 		}
@@ -153,7 +158,7 @@ func runMaterials(args []string) error {
 		if err != nil {
 			return err
 		}
-		result, err := materialset.FetchArchive(state, *source, *name)
+		result, err := materialset.FetchArchive(state, *source, *name, *task)
 		if err != nil {
 			return err
 		}
@@ -171,6 +176,7 @@ func runMakeDataset(args []string) error {
 	workspaceRoot := fs.String("workspace", "", "override workspace root")
 	materialsSelector := fs.String("materials", "", "materials selector in the form official/name or local/name")
 	materialSource := fs.String("materials-source", "", "optional local dir, local zip, file URL, or http(s) URL")
+	overrideFile := fs.String("override-file", "", "optional JSON override file for sample_count, sampling, and effects")
 	force := fs.Bool("force", false, "overwrite generated files in the training directory")
 	if err := fs.Parse(args); err != nil {
 		return err
@@ -183,6 +189,7 @@ func runMakeDataset(args []string) error {
 		DatasetDir:     *datasetDir,
 		Materials:      *materialsSelector,
 		MaterialSource: *materialSource,
+		OverrideFile:   *overrideFile,
 		Force:          *force,
 		Writer:         os.Stdout,
 	})

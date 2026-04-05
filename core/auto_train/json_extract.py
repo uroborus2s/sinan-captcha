@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import re
 
 
 def extract_json_object(raw_output: str, *, required_keys: set[str]) -> dict[str, object]:
@@ -38,6 +39,16 @@ def extract_json_object(raw_output: str, *, required_keys: set[str]) -> dict[str
             continue
         try:
             candidate, _ = decoder.raw_decode(raw_output[index:])
+        except json.JSONDecodeError:
+            continue
+        matched = _matches(candidate)
+        if matched is not None:
+            return matched
+
+    for candidate_text in _repairable_json_candidates(raw_output):
+        try:
+            repaired = _repair_json_candidate(candidate_text)
+            candidate = json.loads(repaired)
         except json.JSONDecodeError:
             continue
         matched = _matches(candidate)
@@ -86,6 +97,40 @@ def _extract_opencode_event_text(raw_output: str) -> list[str]:
         if text not in unique:
             unique.append(text)
     return unique
+
+
+def _repairable_json_candidates(raw_output: str) -> list[str]:
+    candidates: list[str] = []
+    stripped = raw_output.strip()
+    if stripped:
+        candidates.append(stripped)
+
+    for match in re.finditer(r"```(?:json)?\s*(.*?)```", raw_output, flags=re.IGNORECASE | re.DOTALL):
+        block = match.group(1).strip()
+        if block:
+            candidates.append(block)
+
+    first_brace = raw_output.find("{")
+    last_brace = raw_output.rfind("}")
+    if first_brace != -1 and last_brace != -1 and last_brace > first_brace:
+        candidates.append(raw_output[first_brace : last_brace + 1].strip())
+
+    unique: list[str] = []
+    for candidate in candidates:
+        if candidate and candidate not in unique:
+            unique.append(candidate)
+    return unique
+
+
+def _repair_json_candidate(candidate_text: str) -> str:
+    repaired = candidate_text.strip()
+    previous = None
+    while repaired != previous:
+        previous = repaired
+        repaired = re.sub(r"([,{]\s*)\"([A-Za-z_][A-Za-z0-9_-]*)\s*:", r'\1"\2":', repaired)
+        repaired = re.sub(r"([,{]\s*)([A-Za-z_][A-Za-z0-9_-]*)(\s*:)", r'\1"\2"\3', repaired)
+        repaired = re.sub(r",(\s*[}\]])", r"\1", repaired)
+    return repaired
 
 
 def _collect_candidate_strings(node: object, *, path: tuple[str, ...], sink: list[str]) -> None:

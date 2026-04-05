@@ -1,36 +1,37 @@
 # 模块结构与构建交付设计
 
-- 文档状态：草稿
-- 当前阶段：DESIGN
-- 目标读者：架构/开发、项目维护者、训练实施者
+- 文档状态：已重构
+- 当前阶段：IMPLEMENTATION（设计基线维护）
+- 目标读者：架构/开发、项目维护者、训练实施者、交付维护者
 - 负责人：Codex
-- 上游输入：
-  - `docs/04-project-development/04-design/technical-selection.md`
-  - `docs/04-project-development/04-design/module-boundaries.md`
-  - `docs/04-project-development/04-design/api-design.md`
-  - `docs/04-project-development/04-design/graphic-click-generator-design.md`
-- 关联需求：`REQ-001`、`REQ-004`、`REQ-007`、`REQ-008`
 
 ## 1. 设计结论
 
-当前项目应长期保持两条正式实现主线：
+当前项目应长期保持三类正式产品面：
 
-1. Go 生成器主线
-2. Python 训练与数据工程主线
+1. Go 生成器可执行文件
+2. Python 训练 / 自动化 / 发布包
+3. 独立 Python + Rust solver 包
 
-它们通过文件契约对接，而不是互相嵌套调用。
+从“正式入口”的视角看：
 
-收口后的正式入口只保留两个：
-
-1. `sinan-generator`
-2. `sinan`
+- 当前稳定 CLI 入口仍然只有两个：
+  - `sinan-generator`
+  - `sinan`
+- 但从最终交付视角看，最终业务调用方不应继续面对训练仓库里的 `solve` 子命令或外置 bundle。
+- 最终业务调用方应面对：
+  - `pip install sinanz`
+  - `sn_match_slider(...)` / `sn_match_targets(...)`
+  - 默认内嵌 ONNX 推理资产
+  - wheel 内随包交付的 Rust 原生扩展
 
 设计约束：
 
-- Go 负责素材目录初始化、素材校验、样本生成、批次 QA
-- Python 负责素材包构建、数据转换、自动标注、训练、评估
-- 不再保留 `scripts/*` 作为正式对外入口
-- 如需后续批处理脚本，也只能调用这两个正式 CLI，不能承载业务逻辑
+- Go 负责素材、工作区、样本生成和 QA
+- 训练仓库里的 Python 负责训练、评估、自主训练、release 和 `PT -> ONNX` 推理资产导出
+- 独立 solver 项目负责公共 API、内嵌模型加载和 Rust 扩展桥接
+- 训练仓库导出的推理资产不得继续依赖训练目录
+- 如需批处理脚本，也只能调用正式 CLI，不能承载核心业务逻辑
 
 ## 2. 顶层目录划分
 
@@ -45,45 +46,54 @@ sinan-captcha/
   docs/
   generator/
   core/
+  solver_package/
   tests/
   configs/
   materials/
   datasets/
   reports/
+  bundles/
   dist/
 ```
 
 说明：
 
 - `generator/`：Go 生成器工程
-- `core/`：Python 训练与数据工程核心包，以及统一总 CLI
+- `core/`：Python 训练、评估、发布、自主训练与迁移期 solver 参考实现
+- `solver_package/`：独立 solver Python 项目过渡目录，后续可抽离为单独仓库
+- `solver_package/native/`：独立 solver 的 Rust 原生扩展工程
 - `tests/`：Go 和 Python 测试
 - `configs/`：运行配置
-- `materials/`：背景图、图标图、类别表等素材
-- `datasets/`：运行时数据目录，不作为代码包一部分
+- `materials/`：素材或素材包构建结果
+- `datasets/`：运行时数据目录
 - `reports/`：评估与 QA 报告
+- `bundles/`：训练仓库导出的推理资产或迁移期 bundle
 - `dist/`：构建产物目录
 
-## 3. 需要开发的模块
+## 3. 正式代码模块
 
-真正需要开发的代码模块分为 10 类：
+真正需要长期维护的代码模块分为 14 类：
 
 1. Go 生成器 CLI
 2. Go 生成器内部模块
 3. Python 总 CLI
 4. Python 数据契约模块
 5. Python 素材包构建模块
-6. Python 自动标注模块
-7. Python 数据转换模块
-8. Python 训练模块
-9. Python 推理后处理模块
-10. Python 评估与报告模块
+6. Python 自动标注与数据转换模块
+7. Python `group1` 训练模块
+8. Python `group2` 训练模块
+9. Python 推理后处理与评估模块
+10. Python 自主训练模块
+11. 训练仓库内的 solver 迁移参考模块
+12. 独立 solver Python 包
+13. 独立 solver Rust 扩展
+14. Python release 与交付模块
 
-其中：
+优先级解释：
 
-- 必须先做：1 到 7
-- 可以后续迭代：8 到 10
-- 本地发布与训练目录初始化已纳入 Python CLI 的正式职责
+- 当前已较完整：1 到 10
+- 当前已存在骨架但需重构边界：11、13
+- 当前待新增并最终成为正式交付主线：12、13
 
 ## 4. Go 主线目录
 
@@ -103,69 +113,28 @@ generator/
     render/
     sampler/
     truth/
-  configs/
-    default.yaml
-    group1.firstpass.yaml
-    group2.firstpass.yaml
 ```
 
 ### 4.1 `generator/cmd/sinan-generator`
 
-- 语言：Go
-- 模块职责：
-  - 提供生成器总 CLI
-  - 暴露 `workspace init|show`、`materials import|fetch`、`make-dataset`
-  - 固定工作区初始化与默认预设展开
-  - 直接输出可交给训练 CLI 的任务专属训练数据集目录
-- 构建方式：
+- 职责：
+  - 生成器总 CLI
+  - `workspace init|show`
+  - `materials import|fetch`
+  - `make-dataset`
+- 构建：
   - `go build -o ../dist/generator/windows-amd64/sinan-generator.exe ./cmd/sinan-generator`
-- 打包产物：
-  - Windows 下是单独 `.exe`
-  - Linux 下是单独 ELF 二进制
-- 部署方式：
-  - 首版直接复制二进制到训练机
-  - 运行时自动创建固定工作区，不依赖 EXE 同级目录
+- 交付：
+  - Windows 下单独 `.exe`
+  - Linux 下单独二进制
 
-### 4.2 `generator/internal/material`
+### 4.2 `generator/internal/*`
 
-- 语言：Go
-- 模块职责：
-  - 初始化 `materials/` 目录骨架
-  - 加载背景图、图标图、类别表
-  - 在生成前执行完整解码校验
-- 部署方式：
-  - 随生成器主程序部署
-  - 运行时依赖 `materials/`
-
-### 4.3 `generator/internal/backend`
-
-- 语言：Go
-- 模块职责：
-  - 定义 backend 接口
-  - 封装 `native` 与未来的 `gocaptcha` adapter
-  - 统一返回候选样本与内部真值对象
-
-### 4.4 `generator/internal/export`
-
-- 语言：Go
-- 模块职责：
-  - 导出多模式图片、`labels.jsonl`、`manifest.json`
-  - 记录 `mode`、`backend`、`seed`、素材版本和真值校验结果
-
-### 4.5 `generator/internal/qa`
-
-- 语言：Go
-- 模块职责：
-  - 批次级质量检查
-  - 执行真值一致性校验、重放校验和负样本校验
-
-### 4.6 其他内部模块
-
-- `generator/internal/config`：读取生成配置
-- `generator/internal/sampler`：目标类与干扰项抽样、随机种子复现
-- `generator/internal/layout`：对象摆放与碰撞处理
-- `generator/internal/render`：click/slide 图像渲染
-- `generator/internal/truth`：`gold` 门禁和重放逻辑
+- `material`：素材骨架与完整解码校验
+- `backend`：`native` 与未来 adapter 接口
+- `export`：图片、标签、batch 元数据导出
+- `qa`：一致性校验、重放校验、负样本校验
+- `config / sampler / layout / render / truth`：生成器内部基础能力
 
 ## 5. Python 主线目录
 
@@ -180,6 +149,8 @@ core/
   convert/
   ops/
   release/
+  solve/
+  auto_train/
   train/
     group1/
     group2/
@@ -189,149 +160,185 @@ core/
 
 ### 5.1 `core/cli.py`
 
-- 语言：Python
-- 模块职责：
-  - 作为 Python 侧唯一正式对外入口
-  - 将训练目录初始化、环境检查、素材包构建、数据转换、训练、评估、发布等能力收口为 `sinan`
-- 构建方式：
-  - 打包进 Python wheel
-- 打包产物：
-  - `sinan-captcha` wheel 中的 console script
+- 职责：
+  - Python 侧总入口
+  - 统一分发 env / materials / dataset / autolabel / auto-train / evaluate / predict / test / train / release
+- 设计边界：
+  - 不承担最终 solver 公开入口
+  - 训练仓库里的 `solve` 只保留迁移期调试和资产验收价值
 
 ### 5.2 `core/dataset`
 
-- 语言：Python
-- 模块职责：
+- 职责：
   - JSONL schema 校验
+  - 数据集元信息
   - 类别表加载
-  - 数据版本元信息
 
 ### 5.3 `core/materials`
 
-- 语言：Python
-- 模块职责：
-  - 从远端 provider 或本地目录构建离线 `materials/` 包
-  - 生成 `classes.yaml`、`backgrounds.csv`、`icons.csv`
-  - 为 Go 生成器准备已索引的素材目录
-- 正式入口：
-  - `uv run sinan materials build`
-- 使用边界：
-  - 这是维护者或历史批次迁移入口，不是普通用户生成器主链路
+- 职责：
+  - 构建离线 `materials/` 包
+  - 生成 `materials.yaml`、`group1.classes.yaml`、`group2.shapes.yaml`
+  - 生成 `backgrounds.csv`、`group1.icons.csv`、`group2.shapes.csv`
 
-### 5.4 `core/autolabel`
+### 5.4 `core/autolabel` 与 `core/convert`
 
-- 语言：Python
-- 模块职责：
-  - 第二专项规则法预标注
-  - 第一专项暖启动模型预标注
+- 职责：
+  - 预标注
+  - 审核结果转训练数据
+  - 输出 `group1` pipeline dataset 和 `group2` paired dataset
 
 ### 5.5 `core/train/group1`
 
-- 语言：Python
-- 模块职责：
-  - 第一专项训练参数组织
-  - 训练前校验
-  - 训练摘要归档
-- 正式入口：
-  - `uv run sinan train group1`
+- 职责：
+  - `group1` 双模型训练
+  - 训练参数组织、校验与摘要
 
 ### 5.6 `core/train/group2`
 
-- 语言：Python
-- 模块职责：
-  - 第二专项训练参数组织
-  - 训练前校验
-  - 训练摘要归档
-- 正式入口：
-  - `uv run sinan train group2`
+- 职责：
+  - `group2` paired-input 训练
+  - 检查点、超参数和训练摘要
 
-### 5.7 `core/ops`
+### 5.7 `core/inference` 与 `core/evaluate`
 
-- 语言：Python
-- 模块职责：
-  - 训练机环境自检
-  - 对 PyTorch、YOLO、GPU 能力做最小探测
-  - 创建训练目录自己的运行时 `pyproject.toml`、`.python-version` 和标准目录结构
-- 正式入口：
-  - `uv run sinan env check`
-  - `uvx --from sinan-captcha sinan env setup-train`
+- `core/inference`：
+  - 推理结果到业务语义的映射
+- `core/evaluate`：
+  - 任务级指标、失败样本和报告
 
-### 5.8 `core/release`
+### 5.8 `core/auto_train`
 
-- 语言：Python
-- 模块职责：
-  - 本地构建 wheel / sdist
-  - 本地上传 PyPI / TestPyPI
-  - 组装 Windows 交付包
-- 正式入口：
-  - `uv run sinan release build`
-  - `uv run sinan release publish`
-  - `uv run sinan release package-windows`
+- 职责：
+  - study / trial 账本
+  - 生成 / 训练 / 测试 / 评估编排
+  - `opencode` runtime 接入
+  - fallback 和策略控制
 
-### 5.9 `core/inference` 与 `core/evaluate`
+### 5.9 `core/solve`
 
-- `core/inference`：推理结果到业务语义的后处理
-- `core/evaluate`：指标计算、失败样本导出、报告生成
+- 职责：
+  - 迁移期参考实现
+  - 推理资产合同验证
+  - `group1/group2` 运行时抽离前的代码来源
+  - 内部调试 CLI
+- 当前状态：
+  - 代码已存在
+  - 不应继续被定义为最终公开产品边界
 
-## 6. 测试目录
+### 5.10 `solver_package/`
 
-推荐目录：
+- 目标目录：
 
 ```text
-tests/
-  python/
-  go/
+solver_package/
+  Cargo.toml
+  pyproject.toml
+  native/
+    sinanz_ext/
+      Cargo.toml
+      src/
+        lib.rs
+  src/
+    sinanz/
+      __init__.py
+      api.py
+      native_bridge.py
+      types.py
+      errors.py
+      image_io.py
+      group1/
+      group2/
+      resources/
+        models/
+        metadata/
+  tests/
 ```
 
-运行约束：
+- 职责：
+  - 独立 PyPI 包
+  - `sn_match_slider` / `sn_match_targets` 公开 API
+  - 默认内嵌 ONNX 推理资产加载
+  - Python 外壳、资源加载与异常映射
+  - Python 侧 native bridge 占位与运行时元数据
+- 迁移策略：
+  - 第一阶段允许作为当前仓库内的独立 Python 子项目存在
+  - 第二阶段可整体抽离为独立仓库，不改变包名和函数名
 
-- Python：`uv run python -m unittest discover -s tests/python -p 'test_*.py'`
-- Go：`go test ./...`
+### 5.11 `solver_package/native/sinanz_ext`
 
-## 7. 配置和资产目录
+- 职责：
+  - Rust 原生扩展工程
+  - 对接 ONNX Runtime
+  - 暴露 Python bridge 所需的最小 ABI
+  - 承担推理会话构建、provider 选择和性能敏感后处理
+- 当前阶段边界：
+  - 先落可编译工程骨架与 workspace
+  - 先落 Python bridge 占位和 Cargo 元数据一致性
+  - `pyo3 + ort` 接线和正式 wheel 构建集成在后续迁移任务完成
+- 设计判断：
+  - Python 继续承担可读性更好的输入解码和异常语义层
+  - Rust 负责缩小最终用户对 PyTorch 运行时的依赖面
 
-### 7.1 `configs/`
+### 5.12 `core/release`
 
-- 内容：
-  - Python 侧任务配置
-  - 训练参数配置
-  - 路径配置
+- 职责：
+  - 本地构建 wheel / sdist
+  - 本地上传 PyPI / TestPyPI
+  - 组装 Windows 训练交付包
+  - 导出 solver 推理资产
+- 当前状态：
+  - 当前主要服务训练仓库自身发布
+  - 后续需要新增“导出推理专用资产”的正式入口
 
-### 7.2 `materials/`
+## 6. 资产目录
+
+### 6.1 `materials/`
 
 - 内容：
   - 背景图
-  - 图标图
-  - `classes.yaml`
+  - `group1` 点选图标池
+  - `group2` 缺口形状池
+  - `materials.yaml`
+  - `group1.classes.yaml`
+  - `group2.shapes.yaml`
   - `backgrounds.csv`
-  - `icons.csv`
+  - `group1.icons.csv`
+  - `group2.shapes.csv`
 - 规则：
   - 不打进 wheel
   - 不打进 Go 二进制
   - 作为独立运行资产管理
 
-### 7.3 `datasets/`
+### 6.2 `datasets/`
 
 - 内容：
-  - `raw/`
-  - `interim/`
-  - `reviewed/`
-  - `group1/yolo/`
-  - `group2/master/`
-  - `group2/tile/`
-  - `group2/splits/`
-  - `group2/dataset.json`
+  - 原始样本
+  - `gold / auto / reviewed`
+  - `group1` pipeline dataset
+  - `group2` paired dataset
 
-### 7.4 `reports/`
+### 6.3 `reports/`
 
 - 内容：
   - QA 报告
   - 评估报告
   - 失败样本清单
 
-## 8. 构建与打包策略
+### 6.4 `bundles/`
 
-### 8.1 Go 生成器
+- 内容：
+  - `solver/<bundle-name>/manifest.json`
+  - `solver/<bundle-name>/models/group1/...`
+  - `solver/<bundle-name>/models/group2/...`
+- 规则：
+  - 作为训练仓库到独立 solver 项目的内部交接物
+  - 只依赖相对路径
+  - 不允许直接引用 `runs/` 的绝对路径
+
+## 7. 构建与交付策略
+
+### 7.1 Go 生成器
 
 - 开发期运行：
   - `go run ./cmd/sinan-generator --help`
@@ -339,10 +346,9 @@ tests/
   - `go build -o ../dist/generator/windows-amd64/sinan-generator.exe ./cmd/sinan-generator`
 - 交付形态：
   - `sinan-generator.exe`
-  - 可选预构建素材目录或压缩包
-  - 工作区会在首次运行时自动创建并展开 `presets/`
+  - 可选素材包
 
-### 8.2 Python 训练链路
+### 7.2 Python 包
 
 - 开发期运行：
   - `uv sync`
@@ -353,46 +359,74 @@ tests/
   - `dist/*.whl`
   - `dist/*.tar.gz`
 
-### 8.3 多交付物原则
+### 7.3 内部 solver 资产包
 
-- Go 二进制和 Python 运行时天然不同
-- 素材和数据体积大，不适合进入代码包
-- 训练过程依赖本地目录、权重和数据集
+- 设计目标入口：
+  - `uv run sinan release export-solver-assets --project-dir . --group2-checkpoint runs/group2/<train-name>/weights/best.pt --group2-run <train-name> --output-dir dist/solver-assets/<version> --asset-version <version>`
+- 交接形态：
+  - `bundles/solver/<bundle-name>/`
+  - 或 `dist/solver-assets/<version>/`
+- 说明：
+  - 这批资产用于喂给独立 solver 项目构建 wheel
+  - 不再视为最终调用方主安装面
+  - `TASK-SOLVER-MIG-008` 当前先导出 `group2`；`group1` ONNX 资产会在 `TASK-SOLVER-MIG-009` 补齐
 
-结论：
+### 7.4 Windows 交付包
 
-- 应采用“Go 二进制 + Python wheel + 运行资产目录”的交付方式
+- 目标内容：
+  - `python/`
+  - `generator/`
+  - `README-交付包说明.txt`
+- 目标角色：
+  - 训练机操作者
+  - 发布维护者
+- 说明：
+  - 它继续服务训练与维护，不代表最终 solver 安装方式
 
-## 9. 子模块与交付物对照表
+### 7.5 独立 solver 包
 
-| 子模块 | 语言 | 是否编译 | 打包产物 | 部署位置 |
-|---|---|---|---|---|
-| `generator/cmd/sinan-generator` | Go | 是 | `.exe` / Linux binary | 训练机本地 |
-| `generator/internal/*` | Go | 跟随主程序 | 无独立产物 | 随生成器部署 |
-| `core/cli.py` | Python | 否 | wheel console script | Python 环境 |
-| `core/dataset` | Python | 否 | wheel 内部模块 | Python 环境 |
-| `core/materials` | Python | 否 | wheel 内部模块 | Python 环境 |
-| `core/autolabel` | Python | 否 | wheel 内部模块 | Python 环境 |
-| `core/train/group1` | Python | 否 | wheel 内部模块 | Python 环境 |
-| `core/train/group2` | Python | 否 | wheel 内部模块 | Python 环境 |
-| `core/inference` | Python | 否 | wheel 内部模块 | Python 环境 |
-| `core/evaluate` | Python | 否 | wheel 内部模块 | Python 环境 |
-| `materials/*` | 图片 / YAML | 否 | 素材包 | 训练机本地 |
-| `datasets/*` | 图片 / JSONL / YAML | 否 | 数据目录 | 训练机本地 |
-| `reports/*` | Markdown / JSON / CSV | 否 | 报告目录 | 训练机本地 / 归档目录 |
+- 目标目录：
+  - `solver_package/`
+- 正式打包：
+  - `cd solver_package && uv build`
+- 正式交付形态：
+  - `sinanz-<version>-cp312-<platform>.whl`
+- 安装形态：
+  - `pip install sinanz`
+- 运行形态：
+  - 直接导入函数
+  - 默认加载包内 ONNX 推理资产
+  - 通过 Rust 原生扩展执行最终推理路径
 
-## 10. 推荐实现顺序
+## 8. 子模块与交付物对照表
+
+| 子模块 | 语言 | 打包产物 | 部署位置 |
+|---|---|---|---|
+| `generator/cmd/sinan-generator` | Go | `.exe` / 二进制 | 训练机本地 |
+| `core/cli.py` | Python | wheel console script | Python 环境 |
+| `core/train/*` | Python | wheel 内部模块 | Python 环境 |
+| `core/auto_train/*` | Python | wheel 内部模块 | Python 环境 |
+| `core/solve/*` | Python | 迁移参考实现 / 内部调试能力 | 训练仓库内部 |
+| `solver_package/src/sinanz/*` | Python | 独立 solver wheel（含内嵌推理资产） | 调用方 Python 环境 |
+| `core/release/*` | Python | wheel 内部模块 | Python 环境 |
+| `materials/*` | 图片 / YAML | 素材包 | 训练机本地 |
+| `datasets/*` | 图片 / JSONL | 数据目录 | 训练机本地 |
+| `bundles/solver/*` | PT / JSON | 推理资产交接目录 | 训练仓库 / 构建流程 |
+| `reports/*` | Markdown / JSON / CSV | 报告目录 | 训练机本地 / 归档目录 |
+
+## 9. 推荐实现顺序
 
 1. `generator/`
-2. `materials/`
-3. `core/cli.py`
-4. `core/dataset`
-5. `core/materials`
-6. `core/autolabel`
-7. `core/train/group2`
-8. `core/train/group1`
-9. `core/inference`
-10. `core/evaluate`
+2. `core/dataset`
+3. `core/train/group2`
+4. `core/train/group1`
+5. `core/inference`
+6. `core/evaluate`
+7. `core/auto_train`
+8. 训练仓库导出推理资产
+9. `solver_package/` 独立项目
+10. `core/solve` 运行时抽离 / 内部调试降级
+11. solver 发布链路与 PyPI 收口
 
 不要先做：
 
@@ -400,22 +434,20 @@ tests/
 - 公网部署层
 - 多平台 GUI
 
-## 11. 最终结论
+## 10. 最终结论
 
-从开发视角看，这个项目最合理的结构是：
+从结构上看，这个项目最合理的长期形态是：
 
 - 一套 Go 生成器工程
-- 一个拥有可插拔 backend 的生成器控制层
-- 一套 Python 训练工程
-- 一个统一的 Python 总 CLI
-- 三类非代码资产目录：素材、数据、报告
+- 一套 Python 训练与自动化工程
+- 一套独立 Python solver 项目
+- 四类非代码资产目录：素材、数据、报告、推理资产交接目录
 
-从交付视角看，最合理的交付形态是：
+从交付上看，最合理的正式产物是：
 
-- Go 二进制包
-- Python wheel 包
-- 配置包
-- 素材包
-- 数据目录和报告目录
+- Go 二进制
+- 训练仓库 Python wheel
+- 独立 solver PyPI wheel
+- Windows 训练交付包
 
-不要再回到“脚本入口散落、一个功能一个脚本”的结构。对训练型项目，这种设计只会放大维护成本和口径漂移。
+不要再回到“训练仓库同时冒充最终 solver SDK”的结构。那种结构会继续把公开 API、发布形态和训练内部实现绑死在一起。

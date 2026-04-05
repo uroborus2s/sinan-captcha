@@ -1,0 +1,25 @@
+[package]
+name = "sinanz_ext"
+version = "0.1.0"
+edition = "2021"
+description = "Staged native extension scaffold for sinanz."
+license = "UNLICENSED"
+publish = false
+
+[lib]
+crate-type = ["cdylib", "rlib"]
+
+[features]
+default = []
+python-extension = []
+onnx-runtime = []
+
+[package.metadata.sinanz.bridge]
+python_module = "sinanz_ext"
+python_bridge = "sinanz.native_bridge"
+runtime_target = "rust-onnxruntime"
+
+[package.metadata.sinanz]
+stage = "group2-onnx-bridge"
+target = "python-native-extension"
+next_steps = "Wire pyo3 + ONNX Runtime implementation behind the group2 bridge in TASK-SOLVER-MIG-009/011."

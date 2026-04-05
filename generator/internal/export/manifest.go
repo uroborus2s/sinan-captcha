@@ -39,7 +39,8 @@ type SampleRecord struct {
 	SceneImage   string         `json:"scene_image,omitempty"`
 	MasterImage  string         `json:"master_image,omitempty"`
 	TileImage    string         `json:"tile_image,omitempty"`
-	Targets      []ObjectRecord `json:"targets,omitempty"`
+	QueryTargets []ObjectRecord `json:"query_targets,omitempty"`
+	SceneTargets []ObjectRecord `json:"scene_targets,omitempty"`
 	Distractors  []ObjectRecord `json:"distractors,omitempty"`
 	TargetGap    *ObjectRecord  `json:"target_gap,omitempty"`
 	TileBBox     *[4]int        `json:"tile_bbox,omitempty"`

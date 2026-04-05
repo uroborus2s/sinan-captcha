@@ -8,16 +8,16 @@
   <circle cx="102" cy="54" r="7" fill="#22c55e"/>
   <text x="128" y="60" fill="#cbd5e1" font-family="Menlo, Consolas, monospace" font-size="22">PowerShell - smoke training example</text>
   <g fill="#e2e8f0" font-family="Menlo, Consolas, monospace" font-size="21">
-    <text x="48" y="108">&gt; uv run sinan train group1 --dataset-yaml datasets/group1/firstpass/yolo/dataset.yaml</text>
-    <text x="48" y="140">  --project runs/group1 --name smoke --epochs 1 --batch 8</text>
-    <text x="48" y="188">Ultralytics 8.x  Python-3.12  torch-2.x  CUDA:0</text>
-    <text x="48" y="224">engine/trainer: task=detect, mode=train, model=yolo26n.pt, imgsz=640</text>
-    <text x="48" y="260">train: scanning datasets/group1/firstpass/yolo/labels/train... 160 images</text>
-    <text x="48" y="296">val: scanning datasets/group1/firstpass/yolo/labels/val... 20 images</text>
-    <text x="48" y="332">Epoch    GPU_mem   box_loss   cls_loss   dfl_loss   Instances   Size</text>
-    <text x="48" y="368">1/1      2.1G      0.92       0.35       1.11       43          640</text>
-    <text x="48" y="416">Results saved to runs/group1/smoke</text>
-    <text x="48" y="452">weights/best.pt</text>
-    <text x="48" y="488">weights/last.pt</text>
+    <text x="48" y="108">&gt; uv run sinan train group1 --dataset-version firstpass --name smoke --epochs 1 --batch 8</text>
+    <text x="48" y="140">group1 runner: dataset=datasets/group1/firstpass/dataset.json</text>
+    <text x="48" y="188">[scene-detector] Ultralytics 8.x  Python-3.12  torch-2.x  CUDA:0</text>
+    <text x="48" y="224">train: scanning datasets/group1/firstpass/scene-yolo/labels/train... 160 images</text>
+    <text x="48" y="260">val: scanning datasets/group1/firstpass/scene-yolo/labels/val... 20 images</text>
+    <text x="48" y="296">[query-parser] train: scanning datasets/group1/firstpass/query-yolo/labels/train...</text>
+    <text x="48" y="332">[query-parser] val: scanning datasets/group1/firstpass/query-yolo/labels/val...</text>
+    <text x="48" y="380">Results saved to runs/group1/smoke/scene-detector</text>
+    <text x="48" y="416">Results saved to runs/group1/smoke/query-parser</text>
+    <text x="48" y="452">scene-detector/weights/best.pt</text>
+    <text x="48" y="488">query-parser/weights/best.pt</text>
   </g>
 </svg>

@@ -103,7 +103,7 @@
 
 ```text
 <dataset-dir>\
-  group1: dataset.yaml + images/ + labels/
+  group1: dataset.json + scene-yolo/ + query-yolo/ + splits/
   group2: dataset.json + master/ + tile/ + splits/
   .sinan\
     raw\
@@ -113,8 +113,10 @@
 
 约束如下：
 
-- `group1` 的主入口仍是 `dataset.yaml`
+- `group1` 的主入口改为 `dataset.json`
 - `group2` 的主入口改为 `dataset.json`
+- `group1` 的 `scene-yolo/` 与 `query-yolo/` 都必须保留独立的 `dataset.yaml`
+- `group1` 的 `splits/*.jsonl` 中每条样本都必须同时引用 `query_image` 和 `scene_image`
 - `group2` 的 `splits/*.jsonl` 中每条样本都必须同时引用 `master_image` 和 `tile_image`
 - `.sinan/raw/` 保留生成器原始批次与审计线索
 - 数据集目录不得依赖 EXE 所在目录

@@ -48,7 +48,8 @@ class AutolabelServiceTests(unittest.TestCase):
             (input_dir / "labels.jsonl").write_text(
                 (
                     '{"sample_id":"g1_000001","query_image":"query/g1_000001.png",'
-                    '"scene_image":"scene/g1_000001.png","targets":[{"order":1,"class":"icon_house",'
+                    '"scene_image":"scene/g1_000001.png","query_targets":[{"order":1,"class":"icon_house",'
+                    '"class_id":0,"bbox":[8,8,26,26],"center":[17,17]}],"scene_targets":[{"order":1,"class":"icon_house",'
                     '"class_id":0,"bbox":[10,20,40,50],"center":[25,35]}],"distractors":[{"class":"icon_leaf",'
                     '"class_id":1,"bbox":[70,40,100,70],"center":[85,55]}],"label_source":"gold",'
                     '"source_batch":"batch_0001","seed":100}\n'
@@ -74,8 +75,8 @@ class AutolabelServiceTests(unittest.TestCase):
             rows = read_jsonl(output_dir / "labels.jsonl")
             self.assertEqual(rows[0]["label_source"], "auto")
             self.assertEqual(rows[0]["sample_id"], "g1_000001")
-            self.assertEqual(rows[0]["targets"][0]["order"], 1)
-            self.assertNotEqual(rows[0]["targets"][0]["bbox"], [10, 20, 40, 50])
+            self.assertEqual(rows[0]["scene_targets"][0]["order"], 1)
+            self.assertNotEqual(rows[0]["scene_targets"][0]["bbox"], [10, 20, 40, 50])
 
     def test_group2_rule_auto_marks_auto_and_clamps_bbox(self) -> None:
         with tempfile.TemporaryDirectory() as tmpdir:

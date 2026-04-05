@@ -3,22 +3,29 @@
 ## 最新校验
 
 - 校验结果：通过
-- 校验时间：2026-04-04 14:30:00
+- 校验时间：2026-04-05 11:30:00
 - 校验人：Codex
-- 备注：按最新收口结果复核：两专项模型、零基础训练方案、受控集成生成器、自动标注优先、gold 真值硬门禁、像素级视觉难度增强边界，以及“自主训练控制器 + opencode 先行接入”要求
-- PRD REQ 数：9
-- 分析 REQ 数：9
-- NFR 数：6
+- 备注：已按最新业务澄清复核：项目一级产品改为统一验证码求解包/库；Go 生成器、Windows 训练 CLI 和自主训练 CLI 统一降为模型生产工具链；部署文档范围已扩展到训练机、素材、生成器、自主训练和最终 bundle 使用
+- PRD REQ 数：10
+- 分析 REQ 数：10
+- NFR 数：8
 
 ## 覆盖情况
 
-- PRD 中的需求：REQ-001、REQ-002、REQ-003、REQ-004、REQ-005、REQ-006、REQ-007、REQ-008、REQ-009
-- 需求分析中的需求：REQ-001、REQ-002、REQ-003、REQ-004、REQ-005、REQ-006、REQ-007、REQ-008、REQ-009
+- PRD 中的需求：REQ-001、REQ-002、REQ-003、REQ-004、REQ-005、REQ-006、REQ-007、REQ-008、REQ-009、REQ-010
+- 需求分析中的需求：REQ-001、REQ-002、REQ-003、REQ-004、REQ-005、REQ-006、REQ-007、REQ-008、REQ-009、REQ-010
 
 ## 问题清单
 
-- 当前未发现需求遗漏或字段缺口；第二专项已统一收口为滑块缺口定位，生成器 gold 真值正确性约束、视觉难度增强的 truth-preserving 边界，以及自主训练的状态文件/agent 边界约束已纳入需求。
+- 当前未发现 PRD 与需求分析之间的编号遗漏或语义冲突。
+- 当前已消除“训练工程优先”与“最终求解包优先”之间的需求层冲突。
+- 仍需在后续设计阶段继续同步：
+  - `docs/04-project-development/04-design/system-architecture.md`
+  - `docs/04-project-development/04-design/module-boundaries.md`
+  - `docs/04-project-development/04-design/api-design.md`
+  - `docs/04-project-development/07-release-delivery/` 与 `08-operations-maintenance/` 下的细节文档
 
 ## 建议动作
 
-- 需求覆盖校验通过，可继续设计或 Gate 评审；当前需求、设计、过程文档与记忆层应继续围绕“受控集成 + 可插拔 backend + truth-preserving effects + Python 控制器 + opencode 先行接入”同步推进。
+- 需求层已经可以作为后续设计修订的稳定基线继续使用。
+- 下一轮应优先修订 solver、bundle、release 和 deployment 相关设计文档，避免需求层和设计层再次脱节。

@@ -784,6 +784,8 @@ class AutoTrainController:
                 study_name=self.request.study_name,
                 task=self.request.task,
                 trial_id=trial_id,
+                dataset_version=fallback_record.dataset_version,
+                train_name=fallback_record.train_name,
                 primary_metric=primary_metric,
                 files=files,
             )
@@ -798,7 +800,8 @@ class AutoTrainController:
                 result.stdout,
                 required_keys={"study_name", "task", "trial_id"},
             )
-            return contracts.ResultSummaryRecord.from_dict(payload)
+            hydrated_payload = _hydrate_result_summary_payload(payload, fallback_record=fallback_record)
+            return contracts.ResultSummaryRecord.from_dict(hydrated_payload)
         except ValueError as exc:
             return _summary_with_extra_evidence(
                 fallback_record,
@@ -1121,6 +1124,100 @@ def _dataset_plan_with_extra_evidence(
         generator_preset=record.generator_preset,
         generator_overrides=record.generator_overrides,
     )
+
+
+def _hydrate_result_summary_payload(
+    payload: dict[str, contracts.JsonValue],
+    *,
+    fallback_record: contracts.ResultSummaryRecord,
+) -> dict[str, contracts.JsonValue]:
+    hydrated = dict(payload)
+    fallback_payload = fallback_record.to_dict()
+    for key in (
+        "study_name",
+        "task",
+        "trial_id",
+        "dataset_version",
+        "train_name",
+        "primary_metric",
+        "primary_score",
+        "test_metrics",
+        "evaluation_available",
+        "evaluation_metrics",
+        "failure_count",
+        "trend",
+        "delta_vs_previous",
+        "delta_vs_best",
+        "weak_classes",
+        "failure_patterns",
+        "evidence",
+    ):
+        hydrated.setdefault(key, fallback_payload[key])
+
+    hydrated["recent_trials"] = _hydrate_result_summary_snapshots(
+        _as_mapping_list(hydrated.get("recent_trials")),
+        fallback_record.recent_trials,
+    )
+    hydrated["best_trial"] = _hydrate_result_summary_snapshot(
+        _as_optional_mapping(hydrated.get("best_trial")),
+        fallback_record.best_trial,
+    )
+    return hydrated
+
+
+def _hydrate_result_summary_snapshots(
+    payload_items: list[dict[str, contracts.JsonValue]] | None,
+    fallback_items: list[contracts.ResultSummarySnapshot],
+) -> list[dict[str, contracts.JsonValue]]:
+    if payload_items is None:
+        return [item.to_dict() for item in fallback_items]
+    fallback_by_trial = {item.trial_id: item for item in fallback_items}
+    hydrated: list[dict[str, contracts.JsonValue]] = []
+    for index, item in enumerate(payload_items):
+        trial_id_value = item.get("trial_id")
+        fallback_snapshot = None
+        if isinstance(trial_id_value, str):
+            fallback_snapshot = fallback_by_trial.get(trial_id_value)
+        if fallback_snapshot is None and index < len(fallback_items):
+            fallback_snapshot = fallback_items[index]
+        hydrated.append(_hydrate_result_summary_snapshot(item, fallback_snapshot))
+    return hydrated
+
+
+def _hydrate_result_summary_snapshot(
+    payload: dict[str, contracts.JsonValue] | None,
+    fallback_snapshot: contracts.ResultSummarySnapshot | None,
+) -> dict[str, contracts.JsonValue] | None:
+    if payload is None:
+        return None if fallback_snapshot is None else fallback_snapshot.to_dict()
+    hydrated = dict(payload)
+    if fallback_snapshot is None:
+        return hydrated
+    fallback_payload = fallback_snapshot.to_dict()
+    for key in ("trial_id", "dataset_version", "train_name", "primary_score", "metrics", "decision"):
+        hydrated.setdefault(key, fallback_payload[key])
+    return hydrated
+
+
+def _as_mapping_list(value: object) -> list[dict[str, contracts.JsonValue]] | None:
+    if value is None:
+        return None
+    if not isinstance(value, list):
+        return None
+    mappings: list[dict[str, contracts.JsonValue]] = []
+    for item in value:
+        if not isinstance(item, dict):
+            return None
+        mappings.append(item)
+    return mappings
+
+
+def _as_optional_mapping(value: object) -> dict[str, contracts.JsonValue] | None:
+    if value is None:
+        return None
+    if not isinstance(value, dict):
+        return None
+    return value
 
 
 def _trace_trial_id(trace: opencode_runtime.OpenCodeTraceRecord) -> str | None:

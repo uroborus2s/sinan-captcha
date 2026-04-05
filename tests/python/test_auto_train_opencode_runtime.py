@@ -80,6 +80,16 @@ class AutoTrainOpenCodeRuntimeTests(unittest.TestCase):
     def test_judge_trial_builds_command_and_uses_project_root(self) -> None:
         with tempfile.TemporaryDirectory() as tmpdir:
             root = Path(tmpdir)
+            command_dir = root / ".opencode" / "commands"
+            skill_dir = root / ".opencode" / "skills" / "training-judge"
+            command_dir.mkdir(parents=True, exist_ok=True)
+            skill_dir.mkdir(parents=True, exist_ok=True)
+            (command_dir / "judge-trial.md").write_text(
+                "---\ndescription: Judge one summarized trial and return decision.json\nagent: build\n---\n\n"
+                "Judge $1 $2 $3 and return only JSON.",
+                encoding="utf-8",
+            )
+            (skill_dir / "SKILL.md").write_text("Use training judge skill.", encoding="utf-8")
             captured: dict[str, object] = {}
             attached = root / "result_summary.json"
             attached.write_text("{}", encoding="utf-8")
@@ -116,15 +126,27 @@ class AutoTrainOpenCodeRuntimeTests(unittest.TestCase):
             self.assertEqual(captured["cwd"], root)
             self.assertEqual(captured["timeout_seconds"], 30.0)
             command = captured["command"]
-            self.assertEqual(command[0:6], ["opencode", "run", "--format", "json", "--command", "judge-trial"])
+            self.assertEqual(command[0:6], ["opencode", "run", "--format", "json", "--agent", "build"])
             self.assertIn("--attach", command)
             self.assertIn("--model", command)
-            self.assertIn(str(attached), command)
-            self.assertEqual(command[-4:], ["--", "study_001", "group1", "trial_0004"])
+            self.assertNotIn("--file", command)
+            self.assertEqual(command[-2], "--")
+            self.assertIn("Judge study_001 group1 trial_0004 and return only JSON.", command[-1])
+            self.assertIn(str(attached), command[-1])
 
     def test_result_read_builds_expected_arguments(self) -> None:
         with tempfile.TemporaryDirectory() as tmpdir:
             root = Path(tmpdir)
+            command_dir = root / ".opencode" / "commands"
+            skill_dir = root / ".opencode" / "skills" / "result-reader"
+            command_dir.mkdir(parents=True, exist_ok=True)
+            skill_dir.mkdir(parents=True, exist_ok=True)
+            (command_dir / "result-read.md").write_text(
+                "---\ndescription: Read trial artifacts and return result_summary.json\nagent: build\n---\n\n"
+                "Summarize $1 $2 $3 $4 $5 $6 and return only JSON.",
+                encoding="utf-8",
+            )
+            (skill_dir / "SKILL.md").write_text("Use result reader skill.", encoding="utf-8")
             captured: dict[str, object] = {}
             test_file = root / "test.json"
             test_file.write_text("{}", encoding="utf-8")
@@ -146,17 +168,30 @@ class AutoTrainOpenCodeRuntimeTests(unittest.TestCase):
                 study_name="study_001",
                 task="group1",
                 trial_id="trial_0004",
+                dataset_version="firstpass_r0004",
+                train_name="trial_0004",
                 primary_metric="map50_95",
                 files=[test_file],
             )
 
             command = captured["command"]
-            self.assertEqual(command[0:6], ["opencode", "run", "--format", "json", "--command", "result-read"])
-            self.assertEqual(command[-5:], ["--", "study_001", "group1", "trial_0004", "map50_95"])
+            self.assertEqual(command[0:6], ["opencode", "run", "--format", "json", "--agent", "build"])
+            self.assertEqual(command[-2], "--")
+            self.assertIn("Summarize study_001 group1 trial_0004 firstpass_r0004 trial_0004 map50_95 and return only JSON.", command[-1])
 
     def test_study_status_builds_expected_arguments(self) -> None:
         with tempfile.TemporaryDirectory() as tmpdir:
             root = Path(tmpdir)
+            command_dir = root / ".opencode" / "commands"
+            skill_dir = root / ".opencode" / "skills" / "study-archivist"
+            command_dir.mkdir(parents=True, exist_ok=True)
+            skill_dir.mkdir(parents=True, exist_ok=True)
+            (command_dir / "study-status.md").write_text(
+                "---\ndescription: Summarize the current study and return study_status.json\nagent: build\n---\n\n"
+                "Summarize study $1 task $2 and return only JSON.",
+                encoding="utf-8",
+            )
+            (skill_dir / "SKILL.md").write_text("Use study archivist skill.", encoding="utf-8")
             captured: dict[str, object] = {}
             study_file = root / "study.json"
             leaderboard_file = root / "leaderboard.json"
@@ -183,12 +218,23 @@ class AutoTrainOpenCodeRuntimeTests(unittest.TestCase):
             )
 
             command = captured["command"]
-            self.assertEqual(command[0:6], ["opencode", "run", "--format", "json", "--command", "study-status"])
-            self.assertEqual(command[-3:], ["--", "study_001", "group1"])
+            self.assertEqual(command[0:6], ["opencode", "run", "--format", "json", "--agent", "build"])
+            self.assertEqual(command[-2], "--")
+            self.assertIn("Summarize study study_001 task group1 and return only JSON.", command[-1])
 
     def test_plan_dataset_builds_expected_arguments(self) -> None:
         with tempfile.TemporaryDirectory() as tmpdir:
             root = Path(tmpdir)
+            command_dir = root / ".opencode" / "commands"
+            skill_dir = root / ".opencode" / "skills" / "dataset-planner"
+            command_dir.mkdir(parents=True, exist_ok=True)
+            skill_dir.mkdir(parents=True, exist_ok=True)
+            (command_dir / "plan-dataset.md").write_text(
+                "---\ndescription: Plan the next dataset action and return dataset_plan.json\nagent: build\n---\n\n"
+                "Plan dataset for $1 $2 $3 and return only JSON.",
+                encoding="utf-8",
+            )
+            (skill_dir / "SKILL.md").write_text("Use dataset planner skill.", encoding="utf-8")
             captured: dict[str, object] = {}
             summary_file = root / "result_summary.json"
             summary_file.write_text("{}", encoding="utf-8")
@@ -214,8 +260,9 @@ class AutoTrainOpenCodeRuntimeTests(unittest.TestCase):
             )
 
             command = captured["command"]
-            self.assertEqual(command[0:6], ["opencode", "run", "--format", "json", "--command", "plan-dataset"])
-            self.assertEqual(command[-4:], ["--", "study_001", "group1", "trial_0004"])
+            self.assertEqual(command[0:6], ["opencode", "run", "--format", "json", "--agent", "build"])
+            self.assertEqual(command[-2], "--")
+            self.assertIn("Plan dataset for study_001 group1 trial_0004 and return only JSON.", command[-1])
 
     def test_runtime_raises_when_opencode_process_fails(self) -> None:
         with tempfile.TemporaryDirectory() as tmpdir:
@@ -262,6 +309,16 @@ class AutoTrainOpenCodeRuntimeTests(unittest.TestCase):
     def test_runtime_raises_on_timeout(self) -> None:
         with tempfile.TemporaryDirectory() as tmpdir:
             root = Path(tmpdir)
+            command_dir = root / ".opencode" / "commands"
+            skill_dir = root / ".opencode" / "skills" / "training-judge"
+            command_dir.mkdir(parents=True, exist_ok=True)
+            skill_dir.mkdir(parents=True, exist_ok=True)
+            (command_dir / "judge-trial.md").write_text(
+                "---\ndescription: Judge one summarized trial and return decision.json\nagent: build\n---\n\n"
+                "Judge $1 $2 $3 and return only JSON.",
+                encoding="utf-8",
+            )
+            (skill_dir / "SKILL.md").write_text("Use training judge skill.", encoding="utf-8")
             attached = root / "result_summary.json"
             attached.write_text("{}", encoding="utf-8")
 

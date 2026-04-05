@@ -1,115 +1,106 @@
 # sinan-captcha
 
-`sinan-captcha` 是一个本地 CLI 工程，用来生成和训练两类行为验证码模型：
+`sinan-captcha` 的最终目标是交付一个本地可调用的统一验证码求解包/库。仓库当前同时包含为这个最终产物生产模型的 Go 生成器、Python 训练 CLI 和自主训练控制器。
 
-- `group1`：图形点选
-- `group2`：滑块缺口定位
+## 最终业务语义
 
-如果你是第一次上手，先按你的起点选入口：
+- `group2`
+  - 输入背景图和缺口图
+  - 输出缺口图在背景图上的目标中心点
+- `group1`
+  - 输入查询图和背景图
+  - 按查询图中的图标顺序输出对应图标的中心点序列
+- 最终对外交付
+  - 1 个统一求解包/库
+  - 1 个可复制的 bundle 目录
+  - 1 套统一业务语义和请求/响应合同
 
-- 已经有现成训练数据集，只想尽快开训：
-  - [Windows 快速开始](docs/02-user-guide/windows-quickstart.md)
-- 还没有训练数据，想先生成训练数据：
-  - [用生成器准备训练数据](docs/02-user-guide/prepare-training-data-with-generator.md)
-- 想看完整 Windows 安装和训练过程：
-  - [Windows 训练机安装与模型训练完整指南](docs/02-user-guide/from-base-model-to-training-guide.md)
-- 训练完成后想看效果和验收：
-  - [训练完成后的模型使用与测试](docs/02-user-guide/use-and-test-trained-models.md)
+## 当前稳定入口
+
+仓库当前最完整、最稳定的实现主线仍然是模型生产工具链：
+
+- `sinan-generator`
+  - Go CLI
+  - 负责工作区、素材、样本生成、真值校验、批次 QA 和训练数据集导出
+- `sinan`
+  - Python CLI
+  - 负责训练目录初始化、环境检查、训练、测试、评估、发布和 `auto-train`
+
+统一求解与 bundle 合同已经进入正式需求和代码骨架，但它还需要继续提升为正式发布主线。当前请不要把仓库理解成公网 HTTP 服务，也不要把它理解成“只有一个可执行文件就能解决全部问题”的成品。
 
 ## 最短心智模型
 
-项目对外只保留两个正式入口：
+- 一级产品：
+  - 统一验证码求解包/库 + bundle
+- 二级产线：
+  - `sinan-generator`
+  - `sinan train/test/evaluate/release`
+  - `sinan auto-train`
+- 当前稳定数据交接面：
+  - `group1`
+    - pipeline dataset 目录
+    - `dataset.json`
+    - `scene-yolo/`
+    - `query-yolo/`
+    - `splits/`
+  - `group2`
+    - paired dataset 目录
+    - `dataset.json`
+    - `master/`
+    - `tile/`
+    - `splits/`
+- 运行目录建议始终分开：
+  - 生成器安装目录
+  - 生成器工作区
+  - 训练目录
 
-- `sinan-generator`
-  - 负责素材导入/抓取、样本生成、批次 QA、训练数据集导出
-- `sinan`
-  - 负责训练目录初始化、训练环境检查、训练、评估
+## 当前最短流程
 
-两者通过一个稳定交接面配合：
-
-- `group1`
-  - YOLO 数据集目录
-  - `dataset.yaml`
-  - `images/`
-  - `labels/`
-- `group2`
-  - paired dataset 目录
-  - `dataset.json`
-  - `master/`
-  - `tile/`
-  - `splits/*.jsonl`
-- `.sinan/`
-
-运行时目录建议始终分开：
-
-- 生成器安装目录：保存 `sinan-generator(.exe)`
-- 生成器工作区：保存 `workspace.json`、`presets/`、`materials/`、`cache/`、`jobs/`、`logs/`
-- 训练目录：保存 `pyproject.toml`、`.venv/`、`datasets/`、`runs/`、`reports/`
-
-普通用户不需要手工拷贝 `configs/*.yaml`。生成器预设会在首次运行时自动写入工作区 `presets/`。
-
-如果你在 Windows PowerShell 里从当前目录执行生成器，命令要写成：
-
-```powershell
-.\sinan-generator.exe ...
-```
-
-## 最短流程
+如果你现在的目标是生成样本和训练模型，最短流程仍然是：
 
 1. 用 `uvx --from sinan-captcha sinan env setup-train` 创建独立训练目录
-2. 用 `sinan-generator workspace init --workspace <generator-workspace>` 初始化生成器固定工作区
+2. 用 `sinan-generator workspace init --workspace <generator-workspace>` 初始化生成器工作区
 3. 用 `sinan-generator materials import|fetch --workspace <generator-workspace>` 准备素材
-4. 用 `sinan-generator make-dataset --workspace <generator-workspace>` 直接产出可交给训练 CLI 的正式数据集目录
+4. 用 `sinan-generator make-dataset --workspace <generator-workspace>` 生成正式训练数据集
 5. 用 `uv run sinan train group1` 或 `uv run sinan train group2` 启动训练
-6. 用 `uv run sinan test group1|group2` 做一键预测 + 验证，并生成中文报告
-7. 如果已有 JSONL 预测结果，再用 `uv run sinan evaluate` 做任务契约级评估
+6. 用 `uv run sinan test group1|group2` 做一键预测 + 评估
+7. 用 `uv run sinan auto-train ...` 启动自主训练 study
 
-## 典型命令
+典型命令：
 
 ```powershell
 uvx --from sinan-captcha sinan env setup-train --train-root D:\sinan-captcha-work
 Set-Location D:\sinan-captcha-generator
 .\sinan-generator.exe workspace init --workspace D:\sinan-captcha-generator\workspace
 .\sinan-generator.exe materials import --workspace D:\sinan-captcha-generator\workspace --from D:\materials-pack
-.\sinan-generator.exe make-dataset --workspace D:\sinan-captcha-generator\workspace --task group1 --dataset-dir D:\sinan-captcha-work\datasets\group1\firstpass\yolo
+.\sinan-generator.exe make-dataset --workspace D:\sinan-captcha-generator\workspace --task group1 --dataset-dir D:\sinan-captcha-work\datasets\group1\firstpass
 .\sinan-generator.exe make-dataset --workspace D:\sinan-captcha-generator\workspace --task group2 --dataset-dir D:\sinan-captcha-work\datasets\group2\firstpass
 Set-Location D:\sinan-captcha-work
+opencode serve --port 4096
 uv run sinan train group1 --dataset-version firstpass --name firstpass
 uv run sinan train group2 --dataset-version firstpass --name firstpass
 uv run sinan test group1 --dataset-version firstpass --train-name firstpass
 uv run sinan test group2 --dataset-version firstpass --train-name firstpass
 ```
 
-默认样本规模：
+## 当前状态
 
-- `smoke`：20 条
-- `firstpass`：200 条
-- `hard`：200 条，使用更强的阴影、背景模糊和边缘软化
-
-如果你对同一个 `dataset-dir` 重跑 `make-dataset` 并加 `--force`，会覆盖原目录；如果要保留旧数据，请换一个新的版本目录。
-
-高级用户如果想覆盖默认难度参数，不要在 `exe` 同级放配置文件。生成器会自动优先读取工作区里的固定命名 preset：
-
-- `workspace\presets\smoke.yaml`
-- `workspace\presets\group1.firstpass.yaml`
-- `workspace\presets\group1.hard.yaml`
-- `workspace\presets\group2.firstpass.yaml`
-- `workspace\presets\group2.hard.yaml`
-
-继续训练的两个正式入口：
-
-- 训练中断后继续当前版本：
-  - `uv run sinan train group1 --name firstpass --resume`
-- 在上一轮最佳模型基础上开新一轮：
-  - `uv run sinan train group1 --dataset-version firstpass_v2 --name round2 --from-run firstpass`
+- 训练、测试、评估主链路已经可用
+- 自主训练已经具备控制器骨架和 `opencode` JUDGE runtime 接入
+- `env setup-train` 当前会自动把 `.opencode/commands` 与 `.opencode/skills` 铺到训练目录
+- 统一求解与 bundle 已经是正式需求和代码方向，但仍需继续收口为正式对外交付主线
 
 ## 文档入口
 
-- [用户指南总览](docs/02-user-guide/user-guide.md)
-- [使用交付物与正式 CLI](docs/02-user-guide/use-build-artifacts.md)
-- [用生成器准备训练数据](docs/02-user-guide/prepare-training-data-with-generator.md)
-- [Windows 训练机安装与模型训练完整指南](docs/02-user-guide/from-base-model-to-training-guide.md)
-- [训练完成后的模型使用与测试](docs/02-user-guide/use-and-test-trained-models.md)
+- [入门说明概览](docs/01-getting-started/index.md)
+- [角色与审核结论](docs/02-user-guide/user-guide.md)
+- [使用者角色：安装与使用最终求解包](docs/02-user-guide/use-solver-bundle.md)
+- [使用者角色：在自己的应用中接入并做业务测试](docs/02-user-guide/application-integration.md)
+- [训练者角色：训练机安装](docs/02-user-guide/windows-bundle-install.md)
+- [训练者角色：快速开始](docs/02-user-guide/windows-quickstart.md)
+- [训练者角色：使用生成器准备训练数据](docs/02-user-guide/prepare-training-data-with-generator.md)
+- [训练者角色：使用训练器完成训练、测试与评估](docs/02-user-guide/from-base-model-to-training-guide.md)
+- [训练者角色：使用自动化训练](docs/02-user-guide/auto-train-on-training-machine.md)
 
 ## 开发者入口
 
@@ -120,21 +111,10 @@ uv run sinan test group2 --dataset-version firstpass --train-name firstpass
 ```text
 sinan-captcha/
   generator/   # Go 生成器工程
-  core/        # Python 训练与数据工程 CLI
+  core/        # Python 训练、评估、发布与自主训练 CLI
   configs/     # 配置与素材规格
   materials/   # 本地素材目录或构建产物
   datasets/    # 原始样本、reviewed 数据和任务专属训练数据集
   reports/     # QA 与评估输出
   docs/        # 正式文档
 ```
-
-## 当前事实
-
-- 生成器模式：`group1 -> click/native`、`group2 -> slide/native`
-- 训练标签：`gold` 真值必须通过一致性校验、重放校验和负样本校验
-- 生成器交付给训练 CLI 的正式接口：
-  - `group1`：YOLO 数据集目录 + `dataset.yaml`
-  - `group2`：paired dataset 目录 + `dataset.json`
-- 如果生成器命令不显式传 `--workspace`，Windows 默认工作区会落在 `%LOCALAPPDATA%\\SinanGenerator`
-
-这个项目不是 HTTP 服务，也不是单一可执行程序。它是一个围绕本地 CLI、训练数据和模型训练流程组织的工程。

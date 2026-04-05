@@ -18,8 +18,11 @@ from core.common.images import get_image_size
 from core.materials.service import (
     BackgroundSourceConfig,
     ClassSpec,
+    Group1Spec,
+    Group2Spec,
     IconSourceConfig,
     MaterialsPackSpec,
+    ShapeSpec,
     _download_binary,
     _ensure_google_icons_archive,
     _load_google_icons_json,
@@ -420,9 +423,13 @@ class MaterialsServiceTests(unittest.TestCase):
                 low_res_phone = root / "phone-1x.png"
                 high_res_phone = root / "phone-4x.png"
                 satellite = root / "satellite-2x.png"
+                badge = root / "badge-4x.png"
+                shield = root / "shield-4x.png"
                 _write_png(low_res_phone, 24, 24, (20, 20, 20))
                 _write_png(high_res_phone, 96, 96, (30, 30, 30))
                 _write_png(satellite, 48, 48, (40, 40, 40))
+                _write_png(badge, 96, 96, (60, 60, 60))
+                _write_png(shield, 96, 96, (90, 90, 90))
                 archive.write(
                     low_res_phone,
                     "material-design-icons-main/png/communication/call/materialicons/1x_web/ic_call_black_24dp.png",
@@ -435,25 +442,55 @@ class MaterialsServiceTests(unittest.TestCase):
                     satellite,
                     "material-design-icons-main/png/maps/satellite_alt/materialicons/2x_web/ic_satellite_alt_black_24dp.png",
                 )
+                archive.write(
+                    badge,
+                    "material-design-icons-main/png/social/award_star/materialicons/4x_web/ic_award_star_black_24dp.png",
+                )
+                archive.write(
+                    shield,
+                    "material-design-icons-main/png/social/shield/materialicons/4x_web/ic_shield_black_24dp.png",
+                )
 
             spec = MaterialsPackSpec(
                 backgrounds=BackgroundSourceConfig(provider="local", source_dir=background_source),
-                icons=IconSourceConfig(
-                    provider="google_material_design_icons",
-                    archive_path=archive_path,
-                ),
-                classes=(
-                    ClassSpec(
-                        id=0,
-                        name="icon_phone",
-                        zh_name="电话",
-                        source_icons=("call",),
+                group1=Group1Spec(
+                    source=IconSourceConfig(
+                        provider="google_material_design_icons",
+                        archive_path=archive_path,
                     ),
-                    ClassSpec(
-                        id=1,
-                        name="icon_satellite",
-                        zh_name="卫星",
-                        source_icons=("satellite_alt",),
+                    classes=(
+                        ClassSpec(
+                            id=0,
+                            name="icon_phone",
+                            zh_name="电话",
+                            source_icons=("call",),
+                        ),
+                        ClassSpec(
+                            id=1,
+                            name="icon_satellite",
+                            zh_name="卫星",
+                            source_icons=("satellite_alt",),
+                        ),
+                    ),
+                ),
+                group2=Group2Spec(
+                    source=IconSourceConfig(
+                        provider="google_material_design_icons",
+                        archive_path=archive_path,
+                    ),
+                    shapes=(
+                        ShapeSpec(
+                            id=0,
+                            name="shape_badge",
+                            zh_name="徽章缺口",
+                            source_icons=("award_star",),
+                        ),
+                        ShapeSpec(
+                            id=1,
+                            name="shape_shield",
+                            zh_name="盾牌缺口",
+                            source_icons=("shield",),
+                        ),
                     ),
                 ),
             )
@@ -462,27 +499,41 @@ class MaterialsServiceTests(unittest.TestCase):
             result = build_offline_pack(spec, output_root=output_root, cache_dir=root / "cache")
 
             self.assertEqual(result.background_count, 2)
-            self.assertEqual(result.class_count, 2)
-            self.assertEqual(result.icon_file_count, 2)
+            self.assertEqual(result.group1_class_count, 2)
+            self.assertEqual(result.group2_shape_count, 2)
+            self.assertEqual(result.group1_icon_file_count, 2)
+            self.assertEqual(result.group2_shape_file_count, 2)
 
-            class_manifest = (output_root / "manifests" / "classes.yaml").read_text(encoding="utf-8")
-            self.assertIn("icon_phone", class_manifest)
-            self.assertIn("icon_satellite", class_manifest)
+            materials_manifest = (output_root / "manifests" / "materials.yaml").read_text(encoding="utf-8")
+            group1_manifest = (output_root / "manifests" / "group1.classes.yaml").read_text(encoding="utf-8")
+            group2_manifest = (output_root / "manifests" / "group2.shapes.yaml").read_text(encoding="utf-8")
+            self.assertIn("schema_version: 2", materials_manifest)
+            self.assertIn("icon_phone", group1_manifest)
+            self.assertIn("shape_badge", group2_manifest)
 
-            phone_icon = output_root / "icons" / "icon_phone" / "001.png"
-            satellite_icon = output_root / "icons" / "icon_satellite" / "001.png"
+            phone_icon = output_root / "group1" / "icons" / "icon_phone" / "001.png"
+            satellite_icon = output_root / "group1" / "icons" / "icon_satellite" / "001.png"
+            badge_shape = output_root / "group2" / "shapes" / "shape_badge" / "001.png"
+            shield_shape = output_root / "group2" / "shapes" / "shape_shield" / "001.png"
             self.assertEqual(get_image_size(phone_icon), (96, 96))
             self.assertEqual(get_image_size(satellite_icon), (48, 48))
+            self.assertEqual(get_image_size(badge_shape), (96, 96))
+            self.assertEqual(get_image_size(shield_shape), (96, 96))
 
             with (output_root / "manifests" / "backgrounds.csv").open("r", encoding="utf-8", newline="") as handle:
                 rows = list(csv.DictReader(handle))
             self.assertEqual(len(rows), 2)
             self.assertEqual(rows[0]["provider"], "local")
 
-            with (output_root / "manifests" / "icons.csv").open("r", encoding="utf-8", newline="") as handle:
-                icon_rows = list(csv.DictReader(handle))
-            self.assertEqual(len(icon_rows), 2)
-            self.assertEqual(icon_rows[0]["provider"], "google_material_design_icons")
+            with (output_root / "manifests" / "group1.icons.csv").open("r", encoding="utf-8", newline="") as handle:
+                group1_rows = list(csv.DictReader(handle))
+            self.assertEqual(len(group1_rows), 2)
+            self.assertEqual(group1_rows[0]["provider"], "google_material_design_icons")
+
+            with (output_root / "manifests" / "group2.shapes.csv").open("r", encoding="utf-8", newline="") as handle:
+                group2_rows = list(csv.DictReader(handle))
+            self.assertEqual(len(group2_rows), 2)
+            self.assertEqual(group2_rows[0]["provider"], "google_material_design_icons")
 
     def test_build_offline_pack_reuses_existing_local_background_dir(self) -> None:
         with tempfile.TemporaryDirectory() as tmpdir:
@@ -496,24 +547,46 @@ class MaterialsServiceTests(unittest.TestCase):
             archive_path = root / "material-design-icons.zip"
             with zipfile.ZipFile(archive_path, "w") as archive:
                 phone = root / "phone-4x.png"
+                badge = root / "badge-4x.png"
                 _write_png(phone, 96, 96, (30, 30, 30))
+                _write_png(badge, 96, 96, (50, 50, 50))
                 archive.write(
                     phone,
                     "material-design-icons-main/png/communication/call/materialicons/4x_web/ic_call_black_24dp.png",
                 )
+                archive.write(
+                    badge,
+                    "material-design-icons-main/png/social/award_star/materialicons/4x_web/ic_award_star_black_24dp.png",
+                )
 
             spec = MaterialsPackSpec(
                 backgrounds=BackgroundSourceConfig(provider="local", source_dir=backgrounds_dir),
-                icons=IconSourceConfig(
-                    provider="google_material_design_icons",
-                    archive_path=archive_path,
+                group1=Group1Spec(
+                    source=IconSourceConfig(
+                        provider="google_material_design_icons",
+                        archive_path=archive_path,
+                    ),
+                    classes=(
+                        ClassSpec(
+                            id=0,
+                            name="icon_phone",
+                            zh_name="电话",
+                            source_icons=("call",),
+                        ),
+                    ),
                 ),
-                classes=(
-                    ClassSpec(
-                        id=0,
-                        name="icon_phone",
-                        zh_name="电话",
-                        source_icons=("call",),
+                group2=Group2Spec(
+                    source=IconSourceConfig(
+                        provider="google_material_design_icons",
+                        archive_path=archive_path,
+                    ),
+                    shapes=(
+                        ShapeSpec(
+                            id=0,
+                            name="shape_badge",
+                            zh_name="徽章缺口",
+                            source_icons=("award_star",),
+                        ),
                     ),
                 ),
             )
@@ -532,24 +605,46 @@ class MaterialsServiceTests(unittest.TestCase):
             archive_path = root / "material-design-icons.zip"
             with zipfile.ZipFile(archive_path, "w") as archive:
                 phone = root / "phone-4x.png"
+                badge = root / "badge-4x.png"
                 _write_png(phone, 96, 96, (30, 30, 30))
+                _write_png(badge, 96, 96, (50, 50, 50))
                 archive.write(
                     phone,
                     "material-design-icons-main/png/communication/call/materialicons/4x_web/ic_call_black_24dp.png",
                 )
+                archive.write(
+                    badge,
+                    "material-design-icons-main/png/social/award_star/materialicons/4x_web/ic_award_star_black_24dp.png",
+                )
 
             spec = MaterialsPackSpec(
                 backgrounds=BackgroundSourceConfig(provider="local", source_dir=background_source),
-                icons=IconSourceConfig(
-                    provider="google_material_design_icons",
-                    archive_path=archive_path,
+                group1=Group1Spec(
+                    source=IconSourceConfig(
+                        provider="google_material_design_icons",
+                        archive_path=archive_path,
+                    ),
+                    classes=(
+                        ClassSpec(
+                            id=0,
+                            name="icon_phone",
+                            zh_name="电话",
+                            source_icons=("call", "missing_icon"),
+                        ),
+                    ),
                 ),
-                classes=(
-                    ClassSpec(
-                        id=0,
-                        name="icon_phone",
-                        zh_name="电话",
-                        source_icons=("call", "missing_icon"),
+                group2=Group2Spec(
+                    source=IconSourceConfig(
+                        provider="google_material_design_icons",
+                        archive_path=archive_path,
+                    ),
+                    shapes=(
+                        ShapeSpec(
+                            id=0,
+                            name="shape_badge",
+                            zh_name="徽章缺口",
+                            source_icons=("award_star", "missing_shape"),
+                        ),
                     ),
                 ),
             )
@@ -557,8 +652,10 @@ class MaterialsServiceTests(unittest.TestCase):
             output_root = root / "materials"
             result = build_offline_pack(spec, output_root=output_root, cache_dir=root / "cache")
 
-            self.assertEqual(result.icon_file_count, 1)
-            self.assertTrue((output_root / "icons" / "icon_phone" / "001.png").exists())
+            self.assertEqual(result.group1_icon_file_count, 1)
+            self.assertEqual(result.group2_shape_file_count, 1)
+            self.assertTrue((output_root / "group1" / "icons" / "icon_phone" / "001.png").exists())
+            self.assertTrue((output_root / "group2" / "shapes" / "shape_badge" / "001.png").exists())
 
     def test_build_offline_pack_with_local_backgrounds_and_remote_google_icons(self) -> None:
         with tempfile.TemporaryDirectory() as tmpdir:
@@ -568,19 +665,32 @@ class MaterialsServiceTests(unittest.TestCase):
 
             spec = MaterialsPackSpec(
                 backgrounds=BackgroundSourceConfig(provider="local", source_dir=background_source),
-                icons=IconSourceConfig(provider="google_material_design_icons"),
-                classes=(
-                    ClassSpec(
-                        id=0,
-                        name="icon_phone",
-                        zh_name="电话",
-                        source_icons=("call",),
+                group1=Group1Spec(
+                    source=IconSourceConfig(provider="google_material_design_icons"),
+                    classes=(
+                        ClassSpec(
+                            id=0,
+                            name="icon_phone",
+                            zh_name="电话",
+                            source_icons=("call",),
+                        ),
+                        ClassSpec(
+                            id=1,
+                            name="icon_satellite",
+                            zh_name="卫星",
+                            source_icons=("satellite_alt",),
+                        ),
                     ),
-                    ClassSpec(
-                        id=1,
-                        name="icon_satellite",
-                        zh_name="卫星",
-                        source_icons=("satellite_alt",),
+                ),
+                group2=Group2Spec(
+                    source=IconSourceConfig(provider="google_material_design_icons"),
+                    shapes=(
+                        ShapeSpec(
+                            id=0,
+                            name="shape_badge",
+                            zh_name="徽章缺口",
+                            source_icons=("award_star",),
+                        ),
                     ),
                 ),
             )
@@ -588,6 +698,7 @@ class MaterialsServiceTests(unittest.TestCase):
             resolved_entries = {
                 "call": "png/communication/call/materialicons/4x_web/ic_call_black_24dp.png",
                 "satellite_alt": "png/maps/satellite_alt/materialicons/2x_web/ic_satellite_alt_black_24dp.png",
+                "award_star": "png/social/award_star/materialicons/4x_web/ic_award_star_black_24dp.png",
             }
 
             def fake_download(url: str, destination: Path) -> None:
@@ -596,6 +707,9 @@ class MaterialsServiceTests(unittest.TestCase):
                     return
                 if "satellite_alt" in url:
                     _write_png(destination, 48, 48, (40, 40, 40))
+                    return
+                if "award_star" in url:
+                    _write_png(destination, 96, 96, (60, 60, 60))
                     return
                 raise AssertionError(f"unexpected icon download url: {url}")
 
@@ -608,19 +722,28 @@ class MaterialsServiceTests(unittest.TestCase):
                     result = build_offline_pack(spec, output_root=output_root, cache_dir=root / "cache")
 
             self.assertEqual(result.background_count, 1)
-            self.assertEqual(result.class_count, 2)
-            self.assertEqual(result.icon_file_count, 2)
+            self.assertEqual(result.group1_class_count, 2)
+            self.assertEqual(result.group2_shape_count, 1)
+            self.assertEqual(result.group1_icon_file_count, 2)
+            self.assertEqual(result.group2_shape_file_count, 1)
 
-            phone_icon = output_root / "icons" / "icon_phone" / "001.png"
-            satellite_icon = output_root / "icons" / "icon_satellite" / "001.png"
+            phone_icon = output_root / "group1" / "icons" / "icon_phone" / "001.png"
+            satellite_icon = output_root / "group1" / "icons" / "icon_satellite" / "001.png"
+            badge_shape = output_root / "group2" / "shapes" / "shape_badge" / "001.png"
             self.assertEqual(get_image_size(phone_icon), (96, 96))
             self.assertEqual(get_image_size(satellite_icon), (48, 48))
+            self.assertEqual(get_image_size(badge_shape), (96, 96))
 
-            with (output_root / "manifests" / "icons.csv").open("r", encoding="utf-8", newline="") as handle:
-                icon_rows = list(csv.DictReader(handle))
-            self.assertEqual(len(icon_rows), 2)
-            self.assertEqual(icon_rows[0]["provider"], "google_material_design_icons")
-            self.assertIn("source_path", icon_rows[0])
+            with (output_root / "manifests" / "group1.icons.csv").open("r", encoding="utf-8", newline="") as handle:
+                group1_rows = list(csv.DictReader(handle))
+            self.assertEqual(len(group1_rows), 2)
+            self.assertEqual(group1_rows[0]["provider"], "google_material_design_icons")
+            self.assertIn("source_path", group1_rows[0])
+
+            with (output_root / "manifests" / "group2.shapes.csv").open("r", encoding="utf-8", newline="") as handle:
+                group2_rows = list(csv.DictReader(handle))
+            self.assertEqual(len(group2_rows), 1)
+            self.assertEqual(group2_rows[0]["provider"], "google_material_design_icons")
 
     def test_load_materials_pack_spec_from_toml(self) -> None:
         with tempfile.TemporaryDirectory() as tmpdir:
@@ -631,15 +754,25 @@ class MaterialsServiceTests(unittest.TestCase):
 provider = "local"
 source_dir = "/tmp/backgrounds"
 
-[icons]
+[group1]
 provider = "google_material_design_icons"
-archive_path = "/tmp/icons.zip"
+archive_path = "/tmp/group1-icons.zip"
 
-[[classes]]
+[[group1.classes]]
 id = 0
 name = "icon_phone"
 zh_name = "电话"
 source_icons = ["call", "phone_in_talk"]
+
+[group2]
+provider = "google_material_design_icons"
+archive_path = "/tmp/group2-shapes.zip"
+
+[[group2.shapes]]
+id = 0
+name = "shape_badge"
+zh_name = "徽章缺口"
+source_icons = ["award_star"]
 """.strip()
                 + "\n",
                 encoding="utf-8",
@@ -649,8 +782,10 @@ source_icons = ["call", "phone_in_talk"]
 
             self.assertEqual(spec.backgrounds.provider, "local")
             self.assertEqual(spec.backgrounds.source_dir, Path("/tmp/backgrounds"))
-            self.assertEqual(spec.icons.archive_path, Path("/tmp/icons.zip"))
-            self.assertEqual(spec.classes[0].source_icons, ("call", "phone_in_talk"))
+            self.assertEqual(spec.group1.source.archive_path, Path("/tmp/group1-icons.zip"))
+            self.assertEqual(spec.group1.classes[0].source_icons, ("call", "phone_in_talk"))
+            self.assertEqual(spec.group2.source.archive_path, Path("/tmp/group2-shapes.zip"))
+            self.assertEqual(spec.group2.shapes[0].source_icons, ("award_star",))
 
 
 if __name__ == "__main__":

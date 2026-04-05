@@ -34,7 +34,8 @@ class Group1Sample:
     sample_id: str
     query_image: str
     scene_image: str
-    targets: list[OrderedTarget]
+    query_targets: list[OrderedTarget]
+    scene_targets: list[OrderedTarget]
     distractors: list[SceneObject]
     label_source: str
     source_batch: str
@@ -42,7 +43,8 @@ class Group1Sample:
 
     def to_dict(self) -> dict[str, object]:
         payload = asdict(self)
-        payload["targets"] = [_scene_object_to_dict(target) | {"order": target.order} for target in self.targets]
+        payload["query_targets"] = [_scene_object_to_dict(target) | {"order": target.order} for target in self.query_targets]
+        payload["scene_targets"] = [_scene_object_to_dict(target) | {"order": target.order} for target in self.scene_targets]
         payload["distractors"] = [_scene_object_to_dict(obj) for obj in self.distractors]
         return payload
 

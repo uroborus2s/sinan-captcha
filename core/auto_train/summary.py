@@ -228,9 +228,9 @@ def _build_evidence(
     evidence: list[str] = []
     if primary_score is not None:
         evidence.append(f"{primary_metric}={primary_score:.6f}")
-    if previous_primary is not None:
+    if primary_score is not None and previous_primary is not None:
         evidence.append(f"delta_vs_previous={primary_score - previous_primary:+.6f}")
-    if best_primary is not None:
+    if primary_score is not None and best_primary is not None:
         evidence.append(f"delta_vs_best={primary_score - best_primary:+.6f}")
     if recent_trials:
         evidence.append(f"recent_window={len(recent_trials)}")

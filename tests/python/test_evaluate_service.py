@@ -24,7 +24,23 @@ class EvaluateServiceTests(unittest.TestCase):
                     "sample_id": "g1_000001",
                     "query_image": "query/g1_000001.png",
                     "scene_image": "scene/g1_000001.png",
-                    "targets": [
+                    "query_targets": [
+                        {
+                            "order": 1,
+                            "class": "icon_house",
+                            "class_id": 0,
+                            "bbox": [5, 6, 23, 24],
+                            "center": [14, 15],
+                        },
+                        {
+                            "order": 2,
+                            "class": "icon_leaf",
+                            "class_id": 1,
+                            "bbox": [29, 6, 47, 24],
+                            "center": [38, 15],
+                        },
+                    ],
+                    "scene_targets": [
                         {
                             "order": 1,
                             "class": "icon_house",

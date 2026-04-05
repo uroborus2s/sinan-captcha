@@ -6,14 +6,25 @@
 - 目录树、页面路径和访问级别统一由根 `docs/index.md` 声明，这里不重复维护页面清单。
 - 本目录下的 Markdown 页面、契约文件和资源文件应随内容变更一起演进。
 
-当前发布与交付主线已经收口为：
+当前发布与交付文档围绕两条线组织：
 
-- 本地构建：`uv run sinan release build`
-- 本地上传：`uv run sinan release publish --token-env PYPI_TOKEN`
-- Windows 交付包：`uv run sinan release package-windows`
-- 训练机初始化：`uvx --from sinan-captcha sinan env setup-train`
+- 当前稳定发布线：
+  - Python wheel / sdist
+  - Go 生成器二进制
+  - 面向训练机的 Windows 交付包
+- 目标正式交付线：
+  - solver package/library
+  - solver bundle
+  - 面向调用方的可复制交付包
 
-当前交付模型明确分为两个目录：
+阅读顺序建议：
 
-- 生成器安装目录：`sinan-generator.exe`、可选显式工作区 `workspace/`
-- 训练目录：运行时 `pyproject.toml`、`.venv`、`datasets/`、`runs/`、`reports/`
+1. [发布说明](./release-notes.md)
+2. [交付包说明](./delivery-package.md)
+3. [发布检查清单](./release-checklist.md)
+
+本目录的原则是：
+
+- 可以定义目标交付物，但不能把尚未接通的代码路径写成“已经稳定可发”
+- 当前 `package-windows` 仍以训练机交付为主
+- solver bundle 已经进入正式设计和代码骨架，但仍需继续接通根 CLI 与 release 主线

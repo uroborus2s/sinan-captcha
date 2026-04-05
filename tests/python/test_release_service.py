@@ -6,6 +6,7 @@ import unittest
 from pathlib import Path
 from unittest.mock import patch
 
+from core._version import VERSION as PACKAGE_VERSION
 from core.release.service import (
     BuildReleaseRequest,
     PackageWindowsRequest,
@@ -47,7 +48,7 @@ class ReleaseServiceTests(unittest.TestCase):
             root = Path(tmpdir)
             dist_dir = root / "dist"
             dist_dir.mkdir()
-            wheel = dist_dir / "sinan_captcha-0.1.13-py3-none-any.whl"
+            wheel = dist_dir / f"sinan_captcha-{PACKAGE_VERSION}-py3-none-any.whl"
             wheel.write_text("wheel", encoding="utf-8")
 
             generator_exe = root / "generator" / "dist" / "generator" / "windows-amd64" / "sinan-generator.exe"

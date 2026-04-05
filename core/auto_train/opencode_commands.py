@@ -6,6 +6,8 @@ from collections import OrderedDict
 from dataclasses import dataclass
 from pathlib import Path
 
+INLINE_FILE_PREVIEW_LIMIT = 40_000
+
 
 @dataclass(frozen=True)
 class OpenCodeCommandSpec:
@@ -29,7 +31,7 @@ def command_registry() -> "OrderedDict[str, OpenCodeCommandSpec]":
     registry["result-read"] = OpenCodeCommandSpec(
         name="result-read",
         description="Read trial artifacts and return result_summary.json",
-        message_arguments=("study_name", "task", "trial_id", "primary_metric"),
+        message_arguments=("study_name", "task", "trial_id", "dataset_version", "train_name", "primary_metric"),
         required_files=("test.json",),
         optional_files=("evaluate.json", "best_trial.json", "recent result_summary.json"),
         output_artifact="result_summary.json",
@@ -76,11 +78,96 @@ def get_command_spec(name: str) -> OpenCodeCommandSpec:
         raise ValueError(f"unsupported OpenCode command: {name}; allowed: {allowed}") from exc
 
 
+def _strip_frontmatter(markdown_text: str) -> str:
+    stripped = markdown_text.lstrip()
+    if not stripped.startswith("---"):
+        return markdown_text.strip()
+    parts = stripped.split("---", 2)
+    if len(parts) < 3:
+        return markdown_text.strip()
+    return parts[2].strip()
+
+
+def _render_arguments(template: str, arguments: list[str]) -> str:
+    rendered = template
+    rendered = rendered.replace("$ARGUMENTS", " ".join(arguments))
+    for index, argument in enumerate(arguments, start=1):
+        rendered = rendered.replace(f"${index}", argument)
+    return rendered
+
+
+def render_prompt(
+    name: str,
+    *,
+    arguments: list[str],
+    project_root: Path,
+    files: list[Path],
+) -> str:
+    spec = get_command_spec(name)
+    command_path = spec.markdown_path(project_root)
+    command_text = command_path.read_text(encoding="utf-8")
+    command_body = _render_arguments(_strip_frontmatter(command_text), arguments)
+
+    sections = [command_body]
+    if spec.skill_name is not None:
+        sections.append(
+            "\n".join(
+                [
+                    "Tool usage constraints:",
+                    f"- If you need local guidance, call the `skill` tool with exact name `{spec.skill_name}`.",
+                    "- Do not call `glob_search`; that tool does not exist in this environment.",
+                    "- Do not call bash, read, glob, grep, edit, write, task, webfetch, or todowrite unless the prompt explicitly requires them.",
+                    "- All required input files are already inlined below, so file/search tools are unnecessary.",
+                ]
+            )
+        )
+    if files:
+        file_sections: list[str] = [
+            "Inline file contents (already loaded below; do not call any file, search, glob, or skill tools):"
+        ]
+        for file in files:
+            file_sections.append(_render_file_section(file))
+        sections.append("\n\n".join(file_sections))
+    sections.append(
+        "\n".join(
+            [
+                f"Final output contract: return exactly one JSON object for {spec.output_artifact}.",
+                "Do not emit markdown fences.",
+                "Do not emit any prose before or after the JSON object.",
+                "Prefer a single `skill` tool call only when needed, then return one final JSON object.",
+            ]
+        )
+    )
+    return "\n\n".join(section for section in sections if section.strip())
+
+
+def _render_file_section(path: Path) -> str:
+    try:
+        text = path.read_text(encoding="utf-8")
+    except UnicodeDecodeError as exc:
+        body = f"[read_error: unicode_decode_error: {exc}]"
+    except OSError as exc:
+        body = f"[read_error: os_error: {exc}]"
+    else:
+        if len(text) > INLINE_FILE_PREVIEW_LIMIT:
+            body = text[:INLINE_FILE_PREVIEW_LIMIT] + "\n[truncated]"
+        else:
+            body = text
+    return "\n".join(
+        [
+            f"--- Begin file: {path} ---",
+            body,
+            f"--- End file: {path} ---",
+        ]
+    )
+
+
 def build_headless_invocation(
     name: str,
     *,
     arguments: list[str],
     files: list[Path],
+    project_root: Path,
     attach_url: str | None = None,
     model: str | None = None,
 ) -> list[str]:
@@ -91,14 +178,12 @@ def build_headless_invocation(
         expected = ", ".join(spec.message_arguments)
         raise ValueError(f"{name} expects {len(spec.message_arguments)} arguments: {expected}")
 
-    command = ["opencode", "run", "--format", "json", "--command", spec.name]
+    prompt = render_prompt(name, arguments=arguments, project_root=project_root, files=files)
+    command = ["opencode", "run", "--format", "json", "--agent", spec.agent]
     if attach_url is not None:
         command.extend(["--attach", attach_url])
     if model is not None:
         command.extend(["--model", model])
-    for file in files:
-        command.extend(["--file", str(file)])
-    if arguments:
-        command.append("--")
-    command.extend(arguments)
+    command.append("--")
+    command.append(prompt)
     return command

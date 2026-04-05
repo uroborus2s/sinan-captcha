@@ -89,6 +89,22 @@ def read_result_summary_record(path: Path) -> contracts.ResultSummaryRecord:
     return contracts.ResultSummaryRecord.from_dict(_read_json(path))
 
 
+def write_study_status_record(path: Path, record: contracts.StudyStatusRecord) -> None:
+    _write_json(path, record.to_dict())
+
+
+def read_study_status_record(path: Path) -> contracts.StudyStatusRecord:
+    return contracts.StudyStatusRecord.from_dict(_read_json(path))
+
+
+def write_dataset_plan_record(path: Path, record: contracts.DatasetPlanRecord) -> None:
+    _write_json(path, record.to_dict())
+
+
+def read_dataset_plan_record(path: Path) -> contracts.DatasetPlanRecord:
+    return contracts.DatasetPlanRecord.from_dict(_read_json(path))
+
+
 def append_trial_history(path: Path, record: contracts.TrialInputRecord) -> None:
     _append_jsonl(path, record.to_dict())
 
@@ -99,6 +115,17 @@ def append_decision_history(path: Path, record: contracts.DecisionRecord) -> Non
 
 def read_jsonl_records(path: Path) -> list[dict[str, contracts.JsonValue]]:
     return read_jsonl(path)
+
+
+def write_json_payload(path: Path, payload: dict[str, object]) -> None:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(json.dumps(payload, ensure_ascii=False, indent=2), encoding="utf-8")
+
+
+def append_text(path: Path, text: str) -> None:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    with path.open("a", encoding="utf-8") as handle:
+        handle.write(text)
 
 
 def _write_json(path: Path, payload: dict[str, contracts.JsonValue]) -> None:

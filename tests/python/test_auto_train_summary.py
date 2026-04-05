@@ -158,6 +158,62 @@ class AutoTrainSummaryTests(unittest.TestCase):
             self.assertIn("order_errors", record.failure_patterns)
             self.assertIn("sequence_consistency", record.failure_patterns)
 
+    def test_build_result_summary_handles_missing_primary_score_when_best_trial_exists(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            paths = layout.StudyPaths(
+                studies_root=Path(tmpdir) / "studies",
+                task="group1",
+                study_name="study_001",
+            )
+            paths.ensure_layout()
+
+            storage.write_best_trial_record(
+                paths.best_trial_file,
+                contracts.BestTrialRecord(
+                    study_name="study_001",
+                    task="group1",
+                    trial_id="trial_0002",
+                    primary_metric="map50_95",
+                    primary_score=0.84,
+                    dataset_version="v2",
+                    train_name="trial_0002",
+                    metrics={"map50_95": 0.84, "recall": 0.88},
+                    decision="PROMOTE_BRANCH",
+                ),
+            )
+
+            record = summary.build_result_summary(
+                summary.ResultSummaryRequest(
+                    study_name="study_001",
+                    paths=paths,
+                    trial_id="trial_0003",
+                    dataset_version="v3",
+                    train_name="trial_0003",
+                    primary_metric="map50_95",
+                    test_record=contracts.TestRecord(
+                        task="group1",
+                        dataset_version="v3",
+                        train_name="trial_0003",
+                        metrics={"precision": 0.91, "recall": 0.89},
+                        predict_output_dir="D:/reports/group1/predict_trial_0003",
+                        val_output_dir="D:/reports/group1/val_trial_0003",
+                        report_dir="D:/reports/group1/test_trial_0003",
+                    ),
+                    evaluate_record=contracts.EvaluateRecord(
+                        available=True,
+                        task="group1",
+                        metrics={"full_sequence_hit_rate": 0.83, "order_error_rate": 0.03},
+                        failure_count=1,
+                        report_dir="D:/reports/group1/eval_trial_0003",
+                    ),
+                )
+            )
+
+            self.assertIsNone(record.primary_score)
+            self.assertIsNone(record.delta_vs_best)
+            self.assertNotIn("delta_vs_best=", "\n".join(record.evidence))
+            self.assertEqual(record.best_trial.trial_id if record.best_trial else None, "trial_0002")
+
     def test_build_result_summary_for_group2_extracts_failure_patterns_without_history(self) -> None:
         with tempfile.TemporaryDirectory() as tmpdir:
             paths = layout.StudyPaths(

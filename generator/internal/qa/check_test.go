@@ -24,7 +24,7 @@ func TestInspectBatchValidatesClickBatch(t *testing.T) {
 		Backend:         "native",
 		AssetDirs:       map[string]string{"query": "query", "scene": "scene"},
 		ConfigSnapshot:  config.Config{Canvas: config.CanvasConfig{SceneWidth: 300, SceneHeight: 150, QueryWidth: 120, QueryHeight: 36}},
-		MaterialSummary: material.ValidationSummary{ClassCount: 2},
+		MaterialSummary: material.ValidationSummary{SchemaVersion: 2, Group1ClassCount: 2, Group2ShapeCount: 2},
 	})
 	writeLabels(t, filepath.Join(batchRoot, "labels.jsonl"), []export.SampleRecord{
 		{
@@ -34,7 +34,10 @@ func TestInspectBatchValidatesClickBatch(t *testing.T) {
 			Backend:     "native",
 			QueryImage:  "query/g1_000001.png",
 			SceneImage:  "scene/g1_000001.png",
-			Targets: []export.ObjectRecord{
+			QueryTargets: []export.ObjectRecord{
+				{Order: 1, Class: "icon_house", ClassID: 0, BBox: [4]int{10, 8, 34, 30}, Center: [2]int{22, 19}},
+			},
+			SceneTargets: []export.ObjectRecord{
 				{Order: 1, Class: "icon_house", ClassID: 0, BBox: [4]int{10, 10, 40, 40}, Center: [2]int{25, 25}},
 			},
 			Distractors: []export.ObjectRecord{
@@ -132,7 +135,10 @@ func TestInspectBatchRejectsMissingTruthChecks(t *testing.T) {
 			Backend:     "native",
 			QueryImage:  "query/g1_000001.png",
 			SceneImage:  "scene/g1_000001.png",
-			Targets: []export.ObjectRecord{
+			QueryTargets: []export.ObjectRecord{
+				{Order: 1, Class: "icon_house", ClassID: 0, BBox: [4]int{10, 8, 34, 30}, Center: [2]int{22, 19}},
+			},
+			SceneTargets: []export.ObjectRecord{
 				{Order: 1, Class: "icon_house", ClassID: 0, BBox: [4]int{10, 10, 40, 40}, Center: [2]int{25, 25}},
 			},
 			LabelSource: "gold",

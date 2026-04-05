@@ -12,6 +12,42 @@ ALLOWED_STUDY_STATUS = {"draft", "running", "paused", "completed", "failed", "st
 ALLOWED_STUDY_MODES = {"full_auto", "review_auto"}
 ALLOWED_TRAIN_MODES = {"fresh", "resume", "from_run"}
 ALLOWED_SUMMARY_TRENDS = {"baseline", "improving", "declining", "plateau"}
+ALLOWED_BUDGET_PRESSURE = {"low", "medium", "high"}
+ALLOWED_DATASET_ACTIONS = {"reuse", "new_version", "freeze"}
+ALLOWED_GENERATOR_OVERRIDE_TOP_LEVEL = {"project", "sampling", "effects"}
+ALLOWED_GENERATOR_OVERRIDE_PROJECT_FIELDS = {"sample_count"}
+ALLOWED_GENERATOR_OVERRIDE_SAMPLING_FIELDS = {
+    "target_count_min",
+    "target_count_max",
+    "distractor_count_min",
+    "distractor_count_max",
+}
+ALLOWED_GENERATOR_OVERRIDE_EFFECTS_SECTIONS = {"common", "click", "slide"}
+ALLOWED_GENERATOR_OVERRIDE_COMMON_EFFECTS_FIELDS = {
+    "scene_veil_strength",
+    "background_blur_radius_min",
+    "background_blur_radius_max",
+}
+ALLOWED_GENERATOR_OVERRIDE_CLICK_EFFECTS_FIELDS = {
+    "icon_shadow_alpha_min",
+    "icon_shadow_alpha_max",
+    "icon_shadow_offset_x_min",
+    "icon_shadow_offset_x_max",
+    "icon_shadow_offset_y_min",
+    "icon_shadow_offset_y_max",
+    "icon_edge_blur_radius_min",
+    "icon_edge_blur_radius_max",
+}
+ALLOWED_GENERATOR_OVERRIDE_SLIDE_EFFECTS_FIELDS = {
+    "gap_shadow_alpha_min",
+    "gap_shadow_alpha_max",
+    "gap_shadow_offset_x_min",
+    "gap_shadow_offset_x_max",
+    "gap_shadow_offset_y_min",
+    "gap_shadow_offset_y_max",
+    "tile_edge_blur_radius_min",
+    "tile_edge_blur_radius_max",
+}
 ALLOWED_DECISIONS = {
     "RETUNE",
     "REGENERATE_DATA",
@@ -105,6 +141,7 @@ class StudyRecord:
     generator_workspace: str
     judge: JudgeConfig
     budget: StudyBudget
+    started_at: str | None = None
     current_trial_id: str | None = None
     best_trial_id: str | None = None
 
@@ -115,6 +152,8 @@ class StudyRecord:
         _require_in(self.mode, "mode", ALLOWED_STUDY_MODES)
         _require_non_empty(self.train_root, "train_root")
         _require_non_empty(self.generator_workspace, "generator_workspace")
+        if self.started_at is not None:
+            _require_non_empty(self.started_at, "started_at")
         if self.current_trial_id is not None:
             _require_non_empty(self.current_trial_id, "current_trial_id")
         if self.best_trial_id is not None:
@@ -130,6 +169,7 @@ class StudyRecord:
             "generator_workspace": self.generator_workspace,
             "judge": self.judge.to_dict(),
             "budget": self.budget.to_dict(),
+            "started_at": self.started_at,
             "current_trial_id": self.current_trial_id,
             "best_trial_id": self.best_trial_id,
         }
@@ -145,6 +185,7 @@ class StudyRecord:
             generator_workspace=_string(payload, "generator_workspace"),
             judge=JudgeConfig.from_dict(_mapping(payload, "judge")),
             budget=StudyBudget.from_dict(_mapping(payload, "budget")),
+            started_at=_optional_string(payload, "started_at"),
             current_trial_id=_optional_string(payload, "current_trial_id"),
             best_trial_id=_optional_string(payload, "best_trial_id"),
         )
@@ -159,11 +200,17 @@ class TrialInputRecord:
     train_mode: str
     base_run: str | None
     params: dict[str, JsonValue]
+    dataset_preset: str | None = None
+    dataset_override: dict[str, JsonValue] | None = None
 
     def __post_init__(self) -> None:
         _require_non_empty(self.trial_id, "trial_id")
         _require_in(self.task, "task", ALLOWED_TASKS)
         _require_non_empty(self.dataset_version, "dataset_version")
+        if self.dataset_preset is not None:
+            _require_non_empty(self.dataset_preset, "dataset_preset")
+        if self.dataset_override is not None:
+            _validate_generator_overrides(self.dataset_override, "dataset_override")
         _require_non_empty(self.train_name, "train_name")
         _require_in(self.train_mode, "train_mode", ALLOWED_TRAIN_MODES)
         if self.train_mode == "from_run" and not self.base_run:
@@ -182,6 +229,8 @@ class TrialInputRecord:
             trial_id=_string(payload, "trial_id"),
             task=_string(payload, "task"),
             dataset_version=_string(payload, "dataset_version"),
+            dataset_preset=_optional_string(payload, "dataset_preset"),
+            dataset_override=_optional_mapping(payload, "dataset_override"),
             train_name=_string(payload, "train_name"),
             train_mode=_string(payload, "train_mode"),
             base_run=_optional_string(payload, "base_run"),
@@ -701,6 +750,106 @@ class ResultSummaryRecord:
         )
 
 
+@dataclass(frozen=True)
+class StudyStatusRecord:
+    study_name: str
+    task: str
+    status: str
+    current_trial_id: str | None
+    best_trial_id: str | None
+    latest_decision: str | None
+    best_primary_score: float | None
+    budget_pressure: str
+    summary_cn: str
+    next_actions_cn: list[str]
+    evidence: list[str]
+
+    def __post_init__(self) -> None:
+        _require_non_empty(self.study_name, "study_name")
+        _require_in(self.task, "task", ALLOWED_TASKS)
+        _require_in(self.status, "status", ALLOWED_STUDY_STATUS)
+        _require_in(self.budget_pressure, "budget_pressure", ALLOWED_BUDGET_PRESSURE)
+        _require_non_empty(self.summary_cn, "summary_cn")
+        if self.current_trial_id is not None:
+            _require_non_empty(self.current_trial_id, "current_trial_id")
+        if self.best_trial_id is not None:
+            _require_non_empty(self.best_trial_id, "best_trial_id")
+        if self.latest_decision is not None:
+            _require_in(self.latest_decision, "latest_decision", ALLOWED_DECISIONS)
+        if any(not isinstance(item, str) or not item.strip() for item in self.next_actions_cn):
+            raise ValueError("next_actions_cn entries must be non-empty strings")
+        if any(not isinstance(item, str) or not item.strip() for item in self.evidence):
+            raise ValueError("evidence entries must be non-empty strings")
+
+    def to_dict(self) -> dict[str, JsonValue]:
+        return asdict(self)
+
+    @classmethod
+    def from_dict(cls, payload: dict[str, JsonValue]) -> "StudyStatusRecord":
+        return cls(
+            study_name=_string(payload, "study_name"),
+            task=_string(payload, "task"),
+            status=_string(payload, "status"),
+            current_trial_id=_optional_string(payload, "current_trial_id"),
+            best_trial_id=_optional_string(payload, "best_trial_id"),
+            latest_decision=_optional_string(payload, "latest_decision"),
+            best_primary_score=_optional_float(payload, "best_primary_score"),
+            budget_pressure=_string(payload, "budget_pressure"),
+            summary_cn=_string(payload, "summary_cn"),
+            next_actions_cn=_string_list(payload, "next_actions_cn"),
+            evidence=_string_list(payload, "evidence"),
+        )
+
+
+@dataclass(frozen=True)
+class DatasetPlanRecord:
+    study_name: str
+    task: str
+    trial_id: str
+    dataset_action: str
+    boost_classes: list[str]
+    focus_failure_patterns: list[str]
+    rationale_cn: str
+    evidence: list[str]
+    generator_preset: str | None = None
+    generator_overrides: dict[str, JsonValue] | None = None
+
+    def __post_init__(self) -> None:
+        _require_non_empty(self.study_name, "study_name")
+        _require_in(self.task, "task", ALLOWED_TASKS)
+        _require_non_empty(self.trial_id, "trial_id")
+        _require_in(self.dataset_action, "dataset_action", ALLOWED_DATASET_ACTIONS)
+        if self.generator_preset is not None:
+            _require_non_empty(self.generator_preset, "generator_preset")
+        if self.generator_overrides is not None:
+            _validate_generator_overrides(self.generator_overrides, "generator_overrides")
+        _require_non_empty(self.rationale_cn, "rationale_cn")
+        if any(not isinstance(item, str) or not item.strip() for item in self.boost_classes):
+            raise ValueError("boost_classes entries must be non-empty strings")
+        if any(not isinstance(item, str) or not item.strip() for item in self.focus_failure_patterns):
+            raise ValueError("focus_failure_patterns entries must be non-empty strings")
+        if any(not isinstance(item, str) or not item.strip() for item in self.evidence):
+            raise ValueError("evidence entries must be non-empty strings")
+
+    def to_dict(self) -> dict[str, JsonValue]:
+        return asdict(self)
+
+    @classmethod
+    def from_dict(cls, payload: dict[str, JsonValue]) -> "DatasetPlanRecord":
+        return cls(
+            study_name=_string(payload, "study_name"),
+            task=_string(payload, "task"),
+            trial_id=_string(payload, "trial_id"),
+            dataset_action=_string(payload, "dataset_action"),
+            generator_preset=_optional_string(payload, "generator_preset"),
+            generator_overrides=_optional_mapping(payload, "generator_overrides"),
+            boost_classes=_string_list(payload, "boost_classes"),
+            focus_failure_patterns=_string_list(payload, "focus_failure_patterns"),
+            rationale_cn=_string(payload, "rationale_cn"),
+            evidence=_string_list(payload, "evidence"),
+        )
+
+
 def _string(payload: dict[str, JsonValue], field_name: str) -> str:
     value = payload.get(field_name)
     if not isinstance(value, str):
@@ -789,3 +938,98 @@ def _string_list(payload: dict[str, JsonValue], field_name: str) -> list[str]:
     if not isinstance(value, list):
         raise ValueError(f"{field_name} must be a list")
     return [_coerce_string(item, field_name) for item in value]
+
+
+def _validate_generator_overrides(payload: dict[str, JsonValue], field_name: str) -> None:
+    if not payload:
+        raise ValueError(f"{field_name} must not be empty")
+    _validate_allowed_keys(payload, field_name, ALLOWED_GENERATOR_OVERRIDE_TOP_LEVEL)
+    project = payload.get("project")
+    if project is not None:
+        _validate_numeric_mapping(
+            _coerce_mapping(project, f"{field_name}.project"),
+            f"{field_name}.project",
+            integer_fields=ALLOWED_GENERATOR_OVERRIDE_PROJECT_FIELDS,
+            number_fields=set(),
+        )
+    sampling = payload.get("sampling")
+    if sampling is not None:
+        _validate_numeric_mapping(
+            _coerce_mapping(sampling, f"{field_name}.sampling"),
+            f"{field_name}.sampling",
+            integer_fields=ALLOWED_GENERATOR_OVERRIDE_SAMPLING_FIELDS,
+            number_fields=set(),
+        )
+    effects = payload.get("effects")
+    if effects is not None:
+        _validate_effects_mapping(_coerce_mapping(effects, f"{field_name}.effects"), f"{field_name}.effects")
+
+
+def _validate_effects_mapping(payload: dict[str, JsonValue], field_name: str) -> None:
+    if not payload:
+        raise ValueError(f"{field_name} must not be empty")
+    _validate_allowed_keys(payload, field_name, ALLOWED_GENERATOR_OVERRIDE_EFFECTS_SECTIONS)
+    common = payload.get("common")
+    if common is not None:
+        _validate_numeric_mapping(
+            _coerce_mapping(common, f"{field_name}.common"),
+            f"{field_name}.common",
+            integer_fields={"background_blur_radius_min", "background_blur_radius_max"},
+            number_fields={"scene_veil_strength"},
+        )
+    click = payload.get("click")
+    if click is not None:
+        _validate_numeric_mapping(
+            _coerce_mapping(click, f"{field_name}.click"),
+            f"{field_name}.click",
+            integer_fields={
+                "icon_shadow_offset_x_min",
+                "icon_shadow_offset_x_max",
+                "icon_shadow_offset_y_min",
+                "icon_shadow_offset_y_max",
+                "icon_edge_blur_radius_min",
+                "icon_edge_blur_radius_max",
+            },
+            number_fields={"icon_shadow_alpha_min", "icon_shadow_alpha_max"},
+        )
+    slide = payload.get("slide")
+    if slide is not None:
+        _validate_numeric_mapping(
+            _coerce_mapping(slide, f"{field_name}.slide"),
+            f"{field_name}.slide",
+            integer_fields={
+                "gap_shadow_offset_x_min",
+                "gap_shadow_offset_x_max",
+                "gap_shadow_offset_y_min",
+                "gap_shadow_offset_y_max",
+                "tile_edge_blur_radius_min",
+                "tile_edge_blur_radius_max",
+            },
+            number_fields={"gap_shadow_alpha_min", "gap_shadow_alpha_max"},
+        )
+
+
+def _validate_numeric_mapping(
+    payload: dict[str, JsonValue],
+    field_name: str,
+    *,
+    integer_fields: set[str],
+    number_fields: set[str],
+) -> None:
+    if not payload:
+        raise ValueError(f"{field_name} must not be empty")
+    allowed_fields = integer_fields | number_fields
+    _validate_allowed_keys(payload, field_name, allowed_fields)
+    for key, value in payload.items():
+        if key in integer_fields:
+            if not isinstance(value, int) or isinstance(value, bool):
+                raise ValueError(f"{field_name}.{key} must be an integer")
+        elif key in number_fields:
+            if isinstance(value, bool) or not isinstance(value, (int, float)):
+                raise ValueError(f"{field_name}.{key} must be a number")
+
+
+def _validate_allowed_keys(payload: dict[str, JsonValue], field_name: str, allowed: set[str]) -> None:
+    unexpected = sorted(key for key in payload if key not in allowed)
+    if unexpected:
+        raise ValueError(f"{field_name} has unsupported keys: {', '.join(unexpected)}")

@@ -59,6 +59,77 @@ def _write_dataset_config(train_root: Path, task: str, dataset_version: str) -> 
 
 
 class AutoTrainControllerTests(unittest.TestCase):
+    def test_hydrate_result_summary_payload_restores_missing_deterministic_fields(self) -> None:
+        fallback = contracts.ResultSummaryRecord(
+            study_name="study_001",
+            task="group1",
+            trial_id="trial_0002",
+            dataset_version="firstpass_r0002",
+            train_name="trial_0002",
+            primary_metric="map50_95",
+            primary_score=0.79,
+            test_metrics={"map50_95": 0.79},
+            evaluation_available=True,
+            evaluation_metrics={"map50_95": 0.79},
+            failure_count=7,
+            trend="baseline",
+            delta_vs_previous=None,
+            delta_vs_best=None,
+            weak_classes=[],
+            failure_patterns=["order_errors"],
+            recent_trials=[
+                contracts.ResultSummarySnapshot(
+                    trial_id="trial_0001",
+                    dataset_version="firstpass",
+                    train_name="trial_0001",
+                    primary_score=0.85,
+                    metrics={"map50_95": 0.85},
+                    decision="REGENERATE_DATA",
+                )
+            ],
+            best_trial=contracts.ResultSummarySnapshot(
+                trial_id="trial_0001",
+                dataset_version="firstpass",
+                train_name="trial_0001",
+                primary_score=0.85,
+                metrics={"map50_95": 0.85},
+                decision="REGENERATE_DATA",
+            ),
+            evidence=["fallback"],
+        )
+
+        payload = {
+            "study_name": "study_001",
+            "task": "group1",
+            "trial_id": "trial_0002",
+            "primary_metric": "map50_95",
+            "primary_score": 0.79,
+            "test_metrics": {"map50_95": 0.79},
+            "evaluation_available": True,
+            "evaluation_metrics": {"map50_95": 0.79},
+            "failure_count": 7,
+            "trend": "baseline",
+            "delta_vs_previous": None,
+            "delta_vs_best": None,
+            "weak_classes": [],
+            "failure_patterns": ["order_errors"],
+            "recent_trials": [{"trial_id": "trial_0001", "metrics": {"map50_95": 0.85}}],
+            "best_trial": {"trial_id": "trial_0001", "metrics": {"map50_95": 0.85}},
+            "evidence": ["model"],
+        }
+
+        hydrated = controller._hydrate_result_summary_payload(payload, fallback_record=fallback)
+        record = contracts.ResultSummaryRecord.from_dict(hydrated)
+
+        self.assertEqual(record.dataset_version, "firstpass_r0002")
+        self.assertEqual(record.train_name, "trial_0002")
+        self.assertIsNotNone(record.best_trial)
+        assert record.best_trial is not None
+        self.assertEqual(record.best_trial.dataset_version, "firstpass")
+        self.assertEqual(record.best_trial.train_name, "trial_0001")
+        self.assertEqual(record.recent_trials[0].dataset_version, "firstpass")
+        self.assertEqual(record.recent_trials[0].train_name, "trial_0001")
+
     def test_record_opencode_trace_writes_log_json_and_terminal_output(self) -> None:
         with tempfile.TemporaryDirectory() as tmpdir:
             root = Path(tmpdir)
@@ -548,6 +619,8 @@ class AutoTrainControllerTests(unittest.TestCase):
                     study_name: str,
                     task: str,
                     trial_id: str,
+                    dataset_version: str,
+                    train_name: str,
                     primary_metric: str,
                     files: list[Path],
                 ) -> controller.opencode_runtime.OpenCodeInvocationResult:
@@ -555,8 +628,8 @@ class AutoTrainControllerTests(unittest.TestCase):
                         study_name=study_name,
                         task=task,
                         trial_id=trial_id,
-                        dataset_version="firstpass",
-                        train_name="trial_0001",
+                        dataset_version=dataset_version,
+                        train_name=train_name,
                         primary_metric=primary_metric,
                         primary_score=0.84,
                         test_metrics={"precision": 0.91, "recall": 0.89, "map50_95": 0.84},
@@ -700,6 +773,8 @@ class AutoTrainControllerTests(unittest.TestCase):
                     study_name: str,
                     task: str,
                     trial_id: str,
+                    dataset_version: str,
+                    train_name: str,
                     primary_metric: str,
                     files: list[Path],
                 ) -> controller.opencode_runtime.OpenCodeInvocationResult:
@@ -707,8 +782,8 @@ class AutoTrainControllerTests(unittest.TestCase):
                         study_name=study_name,
                         task=task,
                         trial_id=trial_id,
-                        dataset_version="firstpass",
-                        train_name="trial_0001",
+                        dataset_version=dataset_version,
+                        train_name=train_name,
                         primary_metric=primary_metric,
                         primary_score=0.76,
                         test_metrics={"precision": 0.84, "recall": 0.79, "map50_95": 0.76},
@@ -834,6 +909,8 @@ class AutoTrainControllerTests(unittest.TestCase):
                     study_name: str,
                     task: str,
                     trial_id: str,
+                    dataset_version: str,
+                    train_name: str,
                     primary_metric: str,
                     files: list[Path],
                 ) -> controller.opencode_runtime.OpenCodeInvocationResult:
@@ -950,6 +1027,8 @@ class AutoTrainControllerTests(unittest.TestCase):
                     study_name: str,
                     task: str,
                     trial_id: str,
+                    dataset_version: str,
+                    train_name: str,
                     primary_metric: str,
                     files: list[Path],
                 ) -> controller.opencode_runtime.OpenCodeInvocationResult:
@@ -957,8 +1036,8 @@ class AutoTrainControllerTests(unittest.TestCase):
                         study_name=study_name,
                         task=task,
                         trial_id=trial_id,
-                        dataset_version="firstpass",
-                        train_name="trial_0001",
+                        dataset_version=dataset_version,
+                        train_name=train_name,
                         primary_metric=primary_metric,
                         primary_score=0.79,
                         test_metrics={"precision": 0.88, "recall": 0.83, "map50_95": 0.79},
@@ -1143,6 +1222,8 @@ class AutoTrainControllerTests(unittest.TestCase):
                     study_name: str,
                     task: str,
                     trial_id: str,
+                    dataset_version: str,
+                    train_name: str,
                     primary_metric: str,
                     files: list[Path],
                 ) -> controller.opencode_runtime.OpenCodeInvocationResult:
@@ -1150,8 +1231,8 @@ class AutoTrainControllerTests(unittest.TestCase):
                         study_name=study_name,
                         task=task,
                         trial_id=trial_id,
-                        dataset_version="firstpass",
-                        train_name="trial_0001",
+                        dataset_version=dataset_version,
+                        train_name=train_name,
                         primary_metric=primary_metric,
                         primary_score=0.79,
                         test_metrics={"precision": 0.88, "recall": 0.83, "map50_95": 0.79},

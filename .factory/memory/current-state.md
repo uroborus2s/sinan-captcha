@@ -17,7 +17,22 @@
 
 ## 当前事实
 
-- 2026-04-05 已发布 Python 训练 CLI 包 `sinan-captcha==0.1.13` 到 PyPI：
+- 2026-04-05 已准备并验证 Python 训练 CLI 包 `sinan-captcha==0.1.16`：
+  - OpenCode runtime 当前不再通过 `--file` 向 `opencode run` 暴露 study/trial 文件
+  - `render_prompt(...)` 当前会把文件内容直接内联到 prompt 中，并明确禁止调用 file/search/skill 工具
+  - 这进一步绕开了训练机上 `glob_search` 这类不存在的工具名被模型误调用的问题
+  - 当前相关回归已通过 `40` 个测试
+- 2026-04-05 已发布 Python 训练 CLI 包 `sinan-captcha==0.1.15` 到 PyPI，并完成版本源收口：
+  - OpenCode prompt 当前不再要求“加载本地 skill”，而是直接内联 skill 指南并明确禁止调用任何 skill tool
+  - 这修复了训练机上 `opencode` 把 `dataset-planner` / `training-judge` 误解释成 `skill:skill` 无效工具调用的问题
+  - `opencode_commands.render_prompt(...)` 当前会剥离 skill frontmatter，并以 `Inline guidance` 方式嵌入规则
+  - Python 包版本当前只保留 `core/_version.py` 这一处事实源
+  - `pyproject.toml` 当前改为 `dynamic = ["version"]`，通过 `tool.setuptools.dynamic.version = { attr = "core._version.VERSION" }` 读取版本
+  - `setup-train` 默认包规格和训练目录模板当前都会读取同一份版本常量，不再分别写死
+  - 相关测试当前已改为从版本常量派生断言，不再手写 wheel 文件名或包版本
+  - 已验证 `python3 -m build` 成功构建 `sinan_captcha-0.1.15.tar.gz` 与 `sinan_captcha-0.1.15-py3-none-any.whl`
+  - 已验证 `uvx --no-config --refresh --default-index https://pypi.org/simple --from sinan-captcha==0.1.15 sinan --help` 可成功解析安装
+- 2026-04-05 已完成 Python 训练 CLI 包 `sinan-captcha==0.1.14` 的本地修复准备，待发布：
   - 当前已修复 `auto-train` 在 `SUMMARIZE` 阶段当 `primary_score=None` 且 `best_primary_score` 存在时触发的 `NoneType - float` 崩溃
   - `summary.py` 当前只会在当前分数和基线分数都存在时写入 `delta_vs_previous` / `delta_vs_best` 证据
   - 当前已定位并修复 OpenCode headless 调用把 `study_name` 误解析为 `--file` 路径的问题
@@ -29,10 +44,11 @@
   - 当前已修复 Windows 训练机调用 OpenCode 时的子进程输出解码问题，统一使用 UTF-8 + replace 读取 stdout/stderr
   - 当前已修复 trace 渲染在 `stderr=None` / `stdout=None` 时触发的二次崩溃
   - 当前已把 OpenCode 单次调用默认超时从 `60` 秒提升到 `300` 秒
-  - 当前已回退到 OpenCode 官方 `--command + message args` 调用方式，不再把整段 prompt 误当成 `run` 的位置参数
-  - 当前已新增 OpenCode `--format json` 事件流解析，可从 raw JSON events 中提取最终 JSON 对象
+  - 当前已确认 OpenCode attach 模式下 `--command` 会把自定义命令包装成 `task/subagent_type=plan`，与 `agent: build` 模板冲突
+  - 当前已改为普通 message 模式 + `--agent build`，不再经由 `--command` 通道触发 Plan Mode
+  - 当前已保留 OpenCode `--format json` 事件流解析，可从 raw JSON events 中提取最终 JSON 对象
   - 本地 `ollama/*` 大模型当前建议显式传 `--opencode-timeout-seconds 300`
-  - 训练机下一步应升级到 `sinan-captcha==0.1.13`
+  - 训练机下一步应升级到 `sinan-captcha==0.1.14`
 - 2026-04-05 已发布 Python 训练 CLI 包 `sinan-captcha==0.1.7` 到 PyPI：
   - 当前包含 OpenCode trace 终端打印与 study/trial 级日志落盘能力
   - `docs/02-user-guide/auto-train-on-training-machine.md` 当前已补齐训练机上的 `opencode` 连通性自检命令
@@ -670,6 +686,20 @@
 - 当前 Python 回归总数已提升到 86 个，新增覆盖 skill 注册表、`.opencode/skills` 文件、合法 decision 解析、非法 JSON fallback 和非法动作 fallback
 
 ## 最近条目
+
+- 任务：修复 `auto-train` 与 OpenCode 的真实集成回归
+- 变更：
+  - `result-read / judge-trial / plan-dataset / study-status` 命令模板已补充明确的 JSON 字符串示例
+  - 重新启用通过 prompt 点名本地 skill 的方式，并在 prompt 中显式限制不可用工具
+  - `json_extract.py` 已新增轻量 JSON 修复逻辑，能容错模型输出中的常见键名引号缺失和尾逗号
+  - `result-read` 已补充 `dataset_version/train_name` 参数，控制器会用 fallback 记录回填缺失的嵌套快照字段
+- 实测：
+  - 已在本机真实 `opencode + ollama/gemma4:26b` 环境下完成端到端验证
+  - `study-status`：真实返回合法 JSON
+  - `judge-trial`：真实加载 `training-judge` skill 并返回合法 JSON
+  - `plan-dataset`：真实加载 `dataset-planner` skill；即使模型输出存在轻微 JSON 语法错误，当前解析链也可成功恢复并生成 `DatasetPlanRecord`
+  - `result-read`：真实运行成功；当前通过“显式参数 + fallback 字段回填”可稳定生成 `ResultSummaryRecord`
+- 缺陷：当前尚未重新发布到 PyPI；训练机仍需升级到下一版后才能获得这组修复
 
 - 任务：接入真实 `Optuna` RETUNE runtime
 - 变更：已新增 `core/auto_train/optuna_runtime.py`，并把 controller `RETUNE` 路径切到真实 suggestion + `optuna.sqlite3` 持久化

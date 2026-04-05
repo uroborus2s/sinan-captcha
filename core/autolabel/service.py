@@ -10,9 +10,11 @@ import shutil
 from core.common.images import get_image_size
 from core.common.jsonl import read_jsonl, write_jsonl
 from core.dataset.validation import (
+    get_group1_scene_targets,
     get_group2_query_image,
     get_group2_scene_image,
     get_group2_target,
+    set_group1_scene_targets,
     set_group2_target,
     validate_group1_row,
     validate_group2_row,
@@ -97,7 +99,9 @@ def _transform_group1_row(row: dict[str, object], request: AutolabelRequest) -> 
     scene_path = request.input_dir / str(row["scene_image"])
     image_width, image_height = get_image_size(scene_path)
     result = dict(row)
-    result["targets"] = [
+    result = set_group1_scene_targets(
+        result,
+        [
         _perturb_object(
             obj,
             sample_id=str(row["sample_id"]),
@@ -106,8 +110,9 @@ def _transform_group1_row(row: dict[str, object], request: AutolabelRequest) -> 
             jitter_pixels=request.jitter_pixels,
             salt=f"target:{index}",
         )
-        for index, obj in enumerate(row["targets"])
-    ]
+        for index, obj in enumerate(get_group1_scene_targets(row))
+        ],
+    )
     result["distractors"] = [
         _perturb_object(
             obj,

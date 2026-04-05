@@ -58,7 +58,7 @@ D:\sinan-captcha-work\datasets\
 检查项：
 
 - [ ] 第一组和第二组目录分开
-- [ ] `group1` 有 `raw`、`interim`、`reviewed`、`yolo`、`reports`
+- [ ] `group1` 有 `raw`、`interim`、`reviewed`、`scene-yolo`、`query-yolo`、`splits`、`dataset.json`、`reports`
 - [ ] `group2` 有 `raw`、`interim`、`reviewed`、`master`、`tile`、`splits`、`dataset.json`、`reports`
 - [ ] 当前版本固定为 `v1`
 
@@ -230,9 +230,12 @@ D:\sinan-captcha-work\datasets\
 
 在进入训练前确认：
 
-- [ ] `group1` 图片已复制到 `yolo/images/train|val|test`
-- [ ] `group1` 标签已转换到 `yolo/labels/train|val|test`
-- [ ] `group1` 的 `dataset.yaml` 已生成
+- [ ] `group1` 的 scene 图片已复制到 `scene-yolo/images/train|val|test`
+- [ ] `group1` 的 scene 标签已转换到 `scene-yolo/labels/train|val|test`
+- [ ] `group1` 的 query 图片已复制到 `query-yolo/images/train|val|test`
+- [ ] `group1` 的 query 标签已转换到 `query-yolo/labels/train|val|test`
+- [ ] `group1` 的 `splits/train|val|test.jsonl` 已生成
+- [ ] `group1` 的 `dataset.json` 已生成
 - [ ] `group1` 类别顺序固定
 - [ ] `group2` 的 `master/train|val|test` 已生成
 - [ ] `group2` 的 `tile/train|val|test` 已生成

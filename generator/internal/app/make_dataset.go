@@ -27,6 +27,7 @@ type MakeDatasetRequest struct {
 	DatasetDir     string
 	Materials      string
 	MaterialSource string
+	OverrideFile   string
 	Force          bool
 	Writer         io.Writer
 }
@@ -75,7 +76,7 @@ func MakeDataset(request MakeDatasetRequest) (MakeDatasetResult, error) {
 		return MakeDatasetResult{}, err
 	}
 
-	materials, err := materialset.ResolveOrAcquire(state, request.Materials, request.MaterialSource)
+	materials, err := materialset.ResolveOrAcquire(state, request.Materials, request.MaterialSource, task)
 	if err != nil {
 		return MakeDatasetResult{}, err
 	}
@@ -85,14 +86,31 @@ func MakeDataset(request MakeDatasetRequest) (MakeDatasetResult, error) {
 	if err != nil {
 		return MakeDatasetResult{}, err
 	}
-	cfg := runtimeConfig(selectedPreset.Config, task, selectedPreset.Name)
 	configPath := filepath.Join(state.Layout.PresetsDir, selectedPreset.FileName)
+	cfg := selectedPreset.Config
+	if request.OverrideFile != "" {
+		override, err := config.LoadOverride(request.OverrideFile)
+		if err != nil {
+			return MakeDatasetResult{}, err
+		}
+		cfg = config.ApplyOverride(cfg, override)
+		if err := cfg.Validate(); err != nil {
+			return MakeDatasetResult{}, err
+		}
+	}
+	cfg = runtimeConfig(cfg, task, selectedPreset.Name)
+	if request.OverrideFile != "" {
+		configPath = filepath.Join(request.DatasetDir, ".sinan", "effective-config.yaml")
+		if err := os.WriteFile(configPath, []byte(config.Format(cfg)), 0o644); err != nil {
+			return MakeDatasetResult{}, err
+		}
+	}
 
 	generatorSpec, generatorInstance, err := backend.Resolve(mode, "native")
 	if err != nil {
 		return MakeDatasetResult{}, err
 	}
-	catalog, err := material.LoadCatalog(materials.Root)
+	catalog, err := material.LoadCatalog(materials.Root, task)
 	if err != nil {
 		return MakeDatasetResult{}, err
 	}
@@ -214,13 +232,15 @@ func runtimeConfig(base config.Config, task string, presetName string) config.Co
 
 func prepareDatasetDir(datasetDir string, force bool) error {
 	managedPaths := []string{
-		filepath.Join(datasetDir, "images"),
-		filepath.Join(datasetDir, "labels"),
-		filepath.Join(datasetDir, "dataset.yaml"),
+		filepath.Join(datasetDir, "scene-yolo"),
+		filepath.Join(datasetDir, "query-yolo"),
 		filepath.Join(datasetDir, "master"),
 		filepath.Join(datasetDir, "tile"),
 		filepath.Join(datasetDir, "splits"),
 		filepath.Join(datasetDir, "dataset.json"),
+		filepath.Join(datasetDir, "dataset.yaml"),
+		filepath.Join(datasetDir, "images"),
+		filepath.Join(datasetDir, "labels"),
 		filepath.Join(datasetDir, ".sinan"),
 	}
 	if !force {

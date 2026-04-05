@@ -188,12 +188,14 @@ class OpenCodeRuntimeAdapter:
         study_name: str,
         task: str,
         trial_id: str,
+        dataset_version: str,
+        train_name: str,
         primary_metric: str,
         files: list[Path],
     ) -> OpenCodeInvocationResult:
         return self.run_command(
             "result-read",
-            arguments=[study_name, task, trial_id, primary_metric],
+            arguments=[study_name, task, trial_id, dataset_version, train_name, primary_metric],
             files=files,
         )
 
@@ -236,6 +238,7 @@ class OpenCodeRuntimeAdapter:
             name,
             arguments=arguments,
             files=files,
+            project_root=self.config.project_root,
             attach_url=self.config.attach_url,
             model=self.config.model,
         )

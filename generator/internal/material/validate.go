@@ -10,40 +10,40 @@ import (
 	"strings"
 )
 
-type ClassManifest struct {
-	Classes []Class `yaml:"classes"`
-}
-
-type Class struct {
-	ID     int    `yaml:"id"`
-	Name   string `yaml:"name"`
-	ZhName string `yaml:"zh_name"`
-}
-
 type ValidationSummary struct {
-	ManifestPath    string `json:"manifest_path"`
-	ClassCount      int    `json:"class_count"`
-	BackgroundCount int    `json:"background_count"`
-	IconDirCount    int    `json:"icon_dir_count"`
+	SchemaVersion         int    `json:"schema_version"`
+	MaterialsManifestPath string `json:"materials_manifest_path"`
+	Group1ManifestPath    string `json:"group1_manifest_path"`
+	Group2ManifestPath    string `json:"group2_manifest_path"`
+	BackgroundCount       int    `json:"background_count"`
+	Group1ClassCount      int    `json:"group1_class_count"`
+	Group1IconDirCount    int    `json:"group1_icon_dir_count"`
+	Group2ShapeCount      int    `json:"group2_shape_count"`
+	Group2ShapeDirCount   int    `json:"group2_shape_dir_count"`
 }
 
 func Validate(root string) (ValidationSummary, error) {
+	return ValidateForTask(root, "")
+}
+
+func ValidateForTask(root string, task string) (ValidationSummary, error) {
 	summary := ValidationSummary{
-		ManifestPath: filepath.Join(root, "manifests", "classes.yaml"),
+		MaterialsManifestPath: filepath.Join(root, "manifests", "materials.yaml"),
+		Group1ManifestPath:    filepath.Join(root, "manifests", "group1.classes.yaml"),
+		Group2ManifestPath:    filepath.Join(root, "manifests", "group2.shapes.yaml"),
 	}
 
-	manifest, err := LoadManifest(summary.ManifestPath)
+	materialsManifest, err := LoadMaterialsManifest(summary.MaterialsManifestPath)
 	if err != nil {
 		return summary, err
 	}
-	summary.ClassCount = len(manifest.Classes)
-	if summary.ClassCount == 0 {
-		return summary, errors.New("classes manifest is empty")
+	if materialsManifest.SchemaVersion != CurrentSchemaVersion {
+		return summary, fmt.Errorf("unsupported materials schema version: %d", materialsManifest.SchemaVersion)
 	}
+	summary.SchemaVersion = materialsManifest.SchemaVersion
 
-	backgroundDir := filepath.Join(root, "backgrounds")
-	backgroundCount, err := countValidImageFiles(backgroundDir)
-	if err != nil {
+	backgroundCount, err := countValidImageFiles(filepath.Join(root, "backgrounds"))
+	if err != nil && !os.IsNotExist(err) {
 		return summary, err
 	}
 	if backgroundCount == 0 {
@@ -51,30 +51,119 @@ func Validate(root string) (ValidationSummary, error) {
 	}
 	summary.BackgroundCount = backgroundCount
 
-	iconsRoot := filepath.Join(root, "icons")
-	iconDirCount := 0
-	for _, classItem := range manifest.Classes {
-		classDir := filepath.Join(iconsRoot, classItem.Name)
-		count, err := countValidImageFiles(classDir)
-		if err != nil {
+	switch strings.TrimSpace(task) {
+	case "", "all":
+		if err := validateGroup1(root, &summary); err != nil {
 			return summary, err
 		}
-		if count == 0 {
-			return summary, errors.New("no icon images found for class: " + classItem.Name)
+		if err := validateGroup2(root, &summary); err != nil {
+			return summary, err
 		}
-		iconDirCount++
+	case "group1":
+		if err := validateGroup1(root, &summary); err != nil {
+			return summary, err
+		}
+	case "group2":
+		if err := validateGroup2(root, &summary); err != nil {
+			return summary, err
+		}
+	default:
+		return summary, fmt.Errorf("unsupported materials task: %s", task)
 	}
-	summary.IconDirCount = iconDirCount
+
 	return summary, nil
 }
 
-func LoadManifest(path string) (ClassManifest, error) {
-	var manifest ClassManifest
+func validateGroup1(root string, summary *ValidationSummary) error {
+	group1Entries, err := LoadGroup1Manifest(summary.Group1ManifestPath)
+	if err != nil {
+		return err
+	}
+	summary.Group1ClassCount = len(group1Entries)
+	if summary.Group1ClassCount == 0 {
+		return errors.New("group1 classes manifest is empty")
+	}
+	for _, entry := range group1Entries {
+		count, err := countValidImageFiles(filepath.Join(root, "group1", "icons", entry.Name))
+		if err != nil && !os.IsNotExist(err) {
+			return err
+		}
+		if count == 0 {
+			return errors.New("no group1 icon images found for class: " + entry.Name)
+		}
+		summary.Group1IconDirCount++
+	}
+	return nil
+}
+
+func validateGroup2(root string, summary *ValidationSummary) error {
+	group2Entries, err := LoadGroup2Manifest(summary.Group2ManifestPath)
+	if err != nil {
+		return err
+	}
+	summary.Group2ShapeCount = len(group2Entries)
+	if summary.Group2ShapeCount == 0 {
+		return errors.New("group2 shapes manifest is empty")
+	}
+	for _, entry := range group2Entries {
+		count, err := countValidImageFiles(filepath.Join(root, "group2", "shapes", entry.Name))
+		if err != nil && !os.IsNotExist(err) {
+			return err
+		}
+		if count == 0 {
+			return errors.New("no group2 shape images found for shape: " + entry.Name)
+		}
+		summary.Group2ShapeDirCount++
+	}
+	return nil
+}
+
+func LoadMaterialsManifest(path string) (MaterialsManifest, error) {
+	manifest := MaterialsManifest{}
 	content, err := os.ReadFile(path)
 	if err != nil {
 		return manifest, err
 	}
-	return manifest, parseManifest(content, &manifest)
+	for lineNumber, rawLine := range strings.Split(string(content), "\n") {
+		line := strings.TrimSpace(rawLine)
+		if line == "" || strings.HasPrefix(line, "#") {
+			continue
+		}
+		key, value, err := splitManifestField(line)
+		if err != nil {
+			return manifest, fmt.Errorf("invalid materials manifest line %d: %w", lineNumber+1, err)
+		}
+		switch key {
+		case "schema_version":
+			parsed, err := strconv.Atoi(value)
+			if err != nil {
+				return manifest, fmt.Errorf("invalid materials manifest line %d: %w", lineNumber+1, err)
+			}
+			manifest.SchemaVersion = parsed
+		default:
+			return manifest, fmt.Errorf("invalid materials manifest line %d: unsupported key: %s", lineNumber+1, key)
+		}
+	}
+	if manifest.SchemaVersion == 0 {
+		return manifest, errors.New("materials schema_version is required")
+	}
+	return manifest, nil
+}
+
+func LoadGroup1Manifest(path string) ([]CatalogEntry, error) {
+	return loadCatalogEntries(path, "classes")
+}
+
+func LoadGroup2Manifest(path string) ([]CatalogEntry, error) {
+	return loadCatalogEntries(path, "shapes")
+}
+
+func loadCatalogEntries(path string, section string) ([]CatalogEntry, error) {
+	content, err := os.ReadFile(path)
+	if err != nil {
+		return nil, err
+	}
+	return parseCatalogEntries(content, section)
 }
 
 func countValidImageFiles(dir string) (int, error) {
@@ -108,43 +197,49 @@ func validateImageFile(path string) error {
 	return nil
 }
 
-func parseManifest(content []byte, manifest *ClassManifest) error {
-	inClasses := false
-	var current *Class
+func parseCatalogEntries(content []byte, section string) ([]CatalogEntry, error) {
+	entries := make([]CatalogEntry, 0)
+	inSection := false
+	var current *CatalogEntry
 
 	for lineNumber, rawLine := range strings.Split(string(content), "\n") {
 		line := strings.TrimSpace(rawLine)
 		if line == "" || strings.HasPrefix(line, "#") {
 			continue
 		}
-		if line == "classes:" {
-			inClasses = true
+		if line == section+":" {
+			inSection = true
 			continue
 		}
-		if !inClasses {
+		if !inSection {
 			continue
+		}
+		if strings.HasSuffix(line, ":") && !strings.HasPrefix(line, "- ") {
+			return nil, fmt.Errorf("invalid manifest line %d: unexpected section %s", lineNumber+1, line)
 		}
 
 		if strings.HasPrefix(line, "- ") {
-			manifest.Classes = append(manifest.Classes, Class{})
-			current = &manifest.Classes[len(manifest.Classes)-1]
+			entries = append(entries, CatalogEntry{})
+			current = &entries[len(entries)-1]
 			line = strings.TrimSpace(strings.TrimPrefix(line, "- "))
 			if line == "" {
 				continue
 			}
 		}
 		if current == nil {
-			return fmt.Errorf("invalid manifest line %d: class item not started", lineNumber+1)
+			return nil, fmt.Errorf("invalid manifest line %d: item not started", lineNumber+1)
 		}
+
 		key, value, err := splitManifestField(line)
 		if err != nil {
-			return fmt.Errorf("invalid manifest line %d: %w", lineNumber+1, err)
+			return nil, fmt.Errorf("invalid manifest line %d: %w", lineNumber+1, err)
 		}
-		if err := assignClassField(current, key, value); err != nil {
-			return fmt.Errorf("invalid manifest line %d: %w", lineNumber+1, err)
+		if err := assignCatalogEntryField(current, key, value); err != nil {
+			return nil, fmt.Errorf("invalid manifest line %d: %w", lineNumber+1, err)
 		}
 	}
-	return nil
+
+	return entries, nil
 }
 
 func splitManifestField(line string) (string, string, error) {
@@ -160,18 +255,18 @@ func splitManifestField(line string) (string, string, error) {
 	return key, value, nil
 }
 
-func assignClassField(class *Class, key string, value string) error {
+func assignCatalogEntryField(entry *CatalogEntry, key string, value string) error {
 	switch key {
 	case "id":
 		parsed, err := strconv.Atoi(value)
 		if err != nil {
 			return err
 		}
-		class.ID = parsed
+		entry.ID = parsed
 	case "name":
-		class.Name = value
+		entry.Name = value
 	case "zh_name":
-		class.ZhName = value
+		entry.ZhName = value
 	default:
 		return fmt.Errorf("unsupported key: %s", key)
 	}

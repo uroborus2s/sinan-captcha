@@ -4,7 +4,7 @@
 - 当前阶段：IMPLEMENTATION
 - 目标读者：维护仓库、调整 CLI、整理交付物的开发者
 - 负责人：Codex
-- 最近更新：2026-04-04
+- 最近更新：2026-04-05
 
 ## 0. 这页解决什么问题
 
@@ -19,7 +19,7 @@
 - 把运行时产物提交进 Git
 - 把用户指南、开发者指南和内部设计文档混写
 
-## 1. 先区分 4 个层次
+## 1. 先区分 5 个层次
 
 ### 1.1 源码仓库
 
@@ -32,6 +32,7 @@
 - `configs/`
 - `docs/`
 - `.factory/`
+- `bundles/`
 
 这是维护者改代码、改文档、跑测试、构建交付物的地方。
 
@@ -101,6 +102,29 @@ D:\sinan-captcha-work\
 - 训练输出
 - 评估报告
 
+### 1.5 solver 交付目录
+
+最终调用方使用的 solver 目录也应独立于源码仓库和训练目录。
+
+目标结构：
+
+```text
+D:\sinan-solver\
+  python\
+  bundle\
+```
+
+这里放：
+
+- 可安装的 solver package/library
+- 独立复制的 bundle manifest 和模型文件
+
+这里不应放：
+
+- 训练目录里的 `runs/`
+- 生成器工作区
+- 源码仓库副本
+
 ## 2. 双 CLI 的稳定边界
 
 ### 2.1 `sinan-generator`
@@ -128,10 +152,11 @@ D:\sinan-captcha-work\
 
 稳定交接面有两个专项合同：
 
-- `group1`：YOLO 数据集目录
-- `group1/dataset.yaml`
-- `group1/images/`
-- `group1/labels/`
+- `group1`：pipeline dataset 目录
+- `group1/dataset.json`
+- `group1/scene-yolo/`
+- `group1/query-yolo/`
+- `group1/splits/`
 - `group2`：paired dataset 目录
 - `group2/dataset.json`
 - `group2/master/`
@@ -141,7 +166,7 @@ D:\sinan-captcha-work\
 
 训练 CLI 的正式输入分别是：
 
-- `group1`：`--dataset-yaml <dataset-dir>/dataset.yaml`
+- `group1`：`--dataset-config <dataset-dir>/dataset.json`
 - `group2`：`--dataset-config <dataset-dir>/dataset.json`
 
 不要让训练 CLI 去直接读取生成器工作区，也不要让生成器承担训练环境初始化。
@@ -183,7 +208,7 @@ D:\sinan-captcha-work\
 - `generator/dist/` 下的二进制
 - 训练输出 `runs/`
 - 评估导出物
-- 运行时生成的 `backgrounds.csv`、`icons.csv`
+- 运行时生成的 `backgrounds.csv`、`group1.icons.csv`、`group2.shapes.csv`
 - 坏图隔离目录 `materials/quarantine/`
 - 本地缓存 `.cache/`
 

@@ -9,7 +9,12 @@ from pathlib import Path
 from typing import Any
 
 from core.common.jsonl import read_jsonl, write_jsonl
-from core.dataset.validation import get_group2_target, validate_group1_row, validate_group2_row
+from core.dataset.validation import (
+    get_group1_scene_targets,
+    get_group2_target,
+    validate_group1_row,
+    validate_group2_row,
+)
 
 
 @dataclass(frozen=True)
@@ -77,11 +82,11 @@ def _evaluate_group1(
         if prediction is None:
             failures.append({"sample_id": sample_id, "reason": "missing_prediction"})
             order_errors += 1
-            total_targets += len(gold["targets"])
+            total_targets += len(get_group1_scene_targets(gold))
             continue
 
-        gold_targets = list(gold["targets"])
-        predicted_targets = list(prediction["targets"])
+        gold_targets = get_group1_scene_targets(gold)
+        predicted_targets = get_group1_scene_targets(prediction)
         total_targets += len(gold_targets)
         sample_hits = 0
         sequence_ok = len(gold_targets) == len(predicted_targets)

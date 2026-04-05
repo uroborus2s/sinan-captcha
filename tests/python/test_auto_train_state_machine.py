@@ -185,6 +185,25 @@ class AutoTrainStopRulesTests(unittest.TestCase):
         self.assertFalse(result.should_stop)
         self.assertEqual(result.reason, "continue")
 
+    def test_stops_when_new_dataset_budget_is_reached_for_pending_regeneration(self) -> None:
+        policy = stop_rules.StopPolicy(
+            max_trials=10,
+            max_hours=48.0,
+            max_new_datasets=1,
+        )
+        snapshot = stop_rules.StopSnapshot(
+            completed_trials=2,
+            elapsed_hours=3.0,
+            recent_primary_scores=[0.8, 0.82],
+            new_datasets_used=1,
+            pending_new_dataset=True,
+        )
+
+        result = stop_rules.evaluate_stop(policy, snapshot)
+
+        self.assertTrue(result.should_stop)
+        self.assertEqual(result.reason, "max_new_datasets_reached")
+
 
 if __name__ == "__main__":
     unittest.main()

@@ -59,25 +59,58 @@ class ClassSpec:
 
 
 @dataclass(frozen=True)
+class ShapeSpec:
+    id: int
+    name: str
+    zh_name: str
+    source_icons: tuple[str, ...]
+
+
+@dataclass(frozen=True)
+class Group1Spec:
+    source: IconSourceConfig
+    classes: tuple[ClassSpec, ...]
+
+
+@dataclass(frozen=True)
+class Group2Spec:
+    source: IconSourceConfig
+    shapes: tuple[ShapeSpec, ...]
+
+
+@dataclass(frozen=True)
 class MaterialsPackSpec:
     backgrounds: BackgroundSourceConfig
-    icons: IconSourceConfig
-    classes: tuple[ClassSpec, ...]
+    group1: Group1Spec
+    group2: Group2Spec
 
 
 @dataclass(frozen=True)
 class BuildMaterialsPackResult:
     output_root: Path
-    class_count: int
     background_count: int
-    icon_file_count: int
+    group1_class_count: int
+    group2_shape_count: int
+    group1_icon_file_count: int
+    group2_shape_file_count: int
+    materials_manifest: Path
     backgrounds_manifest: Path
-    icons_manifest: Path
-    classes_manifest: Path
+    group1_manifest: Path
+    group1_icons_manifest: Path
+    group2_manifest: Path
+    group2_shapes_manifest: Path
 
     def to_dict(self) -> dict[str, object]:
         payload = asdict(self)
-        for key in ("output_root", "backgrounds_manifest", "icons_manifest", "classes_manifest"):
+        for key in (
+            "output_root",
+            "materials_manifest",
+            "backgrounds_manifest",
+            "group1_manifest",
+            "group1_icons_manifest",
+            "group2_manifest",
+            "group2_shapes_manifest",
+        ):
             payload[key] = str(payload[key])
         return payload
 
@@ -86,10 +119,14 @@ def load_materials_pack_spec(path: Path) -> MaterialsPackSpec:
     payload = tomllib.loads(path.read_text(encoding="utf-8"))
 
     backgrounds_payload = _require_mapping(payload, "backgrounds")
-    icons_payload = _require_mapping(payload, "icons")
-    classes_payload = payload.get("classes")
-    if not isinstance(classes_payload, list) or not classes_payload:
-        raise ValueError("spec must define at least one [[classes]] entry")
+    group1_payload = _require_mapping(payload, "group1")
+    group2_payload = _require_mapping(payload, "group2")
+    group1_classes_payload = group1_payload.get("classes")
+    if not isinstance(group1_classes_payload, list) or not group1_classes_payload:
+        raise ValueError("spec must define at least one [[group1.classes]] entry")
+    group2_shapes_payload = group2_payload.get("shapes")
+    if not isinstance(group2_shapes_payload, list) or not group2_shapes_payload:
+        raise ValueError("spec must define at least one [[group2.shapes]] entry")
 
     backgrounds = BackgroundSourceConfig(
         provider=_require_str(backgrounds_payload, "provider"),
@@ -100,17 +137,16 @@ def load_materials_pack_spec(path: Path) -> MaterialsPackSpec:
         source_dir=_optional_path(backgrounds_payload.get("source_dir")),
         limit=_optional_int_or_none(backgrounds_payload.get("limit")),
     )
-    icons = IconSourceConfig(
-        provider=_require_str(icons_payload, "provider"),
-        archive_url=_optional_str(
-            icons_payload.get("archive_url"),
-            default=DEFAULT_GOOGLE_ICONS_ARCHIVE_URL,
-        ),
-        archive_path=_optional_path(icons_payload.get("archive_path")),
+    group1 = Group1Spec(
+        source=_parse_icon_source_config(group1_payload),
+        classes=tuple(_parse_class_spec(item) for item in group1_classes_payload),
     )
-    classes = tuple(_parse_class_spec(item) for item in classes_payload)
-    _validate_pack_spec(backgrounds, icons, classes)
-    return MaterialsPackSpec(backgrounds=backgrounds, icons=icons, classes=classes)
+    group2 = Group2Spec(
+        source=_parse_icon_source_config(group2_payload),
+        shapes=tuple(_parse_shape_spec(item) for item in group2_shapes_payload),
+    )
+    _validate_pack_spec(backgrounds, group1, group2)
+    return MaterialsPackSpec(backgrounds=backgrounds, group1=group1, group2=group2)
 
 
 def build_offline_pack(
@@ -123,34 +159,64 @@ def build_offline_pack(
     cache_dir.mkdir(parents=True, exist_ok=True)
 
     backgrounds_dir = output_root / "backgrounds"
-    icons_dir = output_root / "icons"
+    group1_icons_dir = output_root / "group1" / "icons"
+    group2_shapes_dir = output_root / "group2" / "shapes"
     manifests_dir = output_root / "manifests"
     backgrounds_dir.mkdir(parents=True, exist_ok=True)
-    icons_dir.mkdir(parents=True, exist_ok=True)
+    group1_icons_dir.mkdir(parents=True, exist_ok=True)
+    group2_shapes_dir.mkdir(parents=True, exist_ok=True)
     manifests_dir.mkdir(parents=True, exist_ok=True)
 
     background_rows = _sync_backgrounds(spec.backgrounds, backgrounds_dir)
-    icon_rows = _sync_icons(spec.icons, spec.classes, icons_dir, cache_dir)
+    group1_icon_rows = _sync_catalog_assets(
+        spec.group1.source,
+        spec.group1.classes,
+        group1_icons_dir,
+        cache_dir,
+        id_key="class_id",
+        name_key="class_name",
+    )
+    group2_shape_rows = _sync_catalog_assets(
+        spec.group2.source,
+        spec.group2.shapes,
+        group2_shapes_dir,
+        cache_dir,
+        id_key="shape_id",
+        name_key="shape_name",
+    )
     if not background_rows:
         raise ValueError("materials pack build produced no background images")
-    if not icon_rows:
-        raise ValueError("materials pack build produced no icon images")
-    classes_manifest = manifests_dir / "classes.yaml"
+    if not group1_icon_rows:
+        raise ValueError("materials pack build produced no group1 icon images")
+    if not group2_shape_rows:
+        raise ValueError("materials pack build produced no group2 shape images")
+    materials_manifest = manifests_dir / "materials.yaml"
     backgrounds_manifest = manifests_dir / "backgrounds.csv"
-    icons_manifest = manifests_dir / "icons.csv"
+    group1_manifest = manifests_dir / "group1.classes.yaml"
+    group1_icons_manifest = manifests_dir / "group1.icons.csv"
+    group2_manifest = manifests_dir / "group2.shapes.yaml"
+    group2_shapes_manifest = manifests_dir / "group2.shapes.csv"
 
-    _write_classes_manifest(classes_manifest, spec.classes)
+    _write_materials_manifest(materials_manifest)
+    _write_classes_manifest(group1_manifest, spec.group1.classes)
+    _write_shapes_manifest(group2_manifest, spec.group2.shapes)
     _write_csv(backgrounds_manifest, background_rows)
-    _write_csv(icons_manifest, icon_rows)
+    _write_csv(group1_icons_manifest, group1_icon_rows)
+    _write_csv(group2_shapes_manifest, group2_shape_rows)
 
     return BuildMaterialsPackResult(
         output_root=output_root,
-        class_count=len(spec.classes),
         background_count=len(background_rows),
-        icon_file_count=len(icon_rows),
+        group1_class_count=len(spec.group1.classes),
+        group2_shape_count=len(spec.group2.shapes),
+        group1_icon_file_count=len(group1_icon_rows),
+        group2_shape_file_count=len(group2_shape_rows),
+        materials_manifest=materials_manifest,
         backgrounds_manifest=backgrounds_manifest,
-        icons_manifest=icons_manifest,
-        classes_manifest=classes_manifest,
+        group1_manifest=group1_manifest,
+        group1_icons_manifest=group1_icons_manifest,
+        group2_manifest=group2_manifest,
+        group2_shapes_manifest=group2_shapes_manifest,
     )
 
 
@@ -185,8 +251,8 @@ def choose_best_google_icon_entry(entries: Sequence[str], icon_name: str) -> str
 
 def _validate_pack_spec(
     backgrounds: BackgroundSourceConfig,
-    icons: IconSourceConfig,
-    classes: tuple[ClassSpec, ...],
+    group1: Group1Spec,
+    group2: Group2Spec,
 ) -> None:
     if backgrounds.provider not in {"pexels", "local"}:
         raise ValueError(f"unsupported backgrounds provider: {backgrounds.provider}")
@@ -195,29 +261,63 @@ def _validate_pack_spec(
     if backgrounds.provider == "local" and backgrounds.source_dir is None:
         raise ValueError("local backgrounds provider requires source_dir")
 
-    if icons.provider not in {"google_material_design_icons"}:
-        raise ValueError(f"unsupported icons provider: {icons.provider}")
+    _validate_icon_source(group1.source, scope="group1")
+    _validate_icon_source(group2.source, scope="group2")
+    _validate_catalog_specs(group1.classes, label="group1 class")
+    _validate_catalog_specs(group2.shapes, label="group2 shape")
 
+
+def _validate_icon_source(config: IconSourceConfig, *, scope: str) -> None:
+    if config.provider not in {"google_material_design_icons"}:
+        raise ValueError(f"unsupported {scope} source provider: {config.provider}")
+
+
+def _validate_catalog_specs(entries: tuple[ClassSpec | ShapeSpec, ...], *, label: str) -> None:
     seen_ids: set[int] = set()
     seen_names: set[str] = set()
-    for class_spec in classes:
-        if class_spec.id in seen_ids:
-            raise ValueError(f"duplicate class id: {class_spec.id}")
-        if class_spec.name in seen_names:
-            raise ValueError(f"duplicate class name: {class_spec.name}")
-        if not class_spec.source_icons:
-            raise ValueError(f"class must declare at least one source icon: {class_spec.name}")
-        seen_ids.add(class_spec.id)
-        seen_names.add(class_spec.name)
+    for entry in entries:
+        if entry.id in seen_ids:
+            raise ValueError(f"duplicate {label} id: {entry.id}")
+        if entry.name in seen_names:
+            raise ValueError(f"duplicate {label} name: {entry.name}")
+        if not entry.source_icons:
+            raise ValueError(f"{label} must declare at least one source icon: {entry.name}")
+        seen_ids.add(entry.id)
+        seen_names.add(entry.name)
+
+
+def _parse_icon_source_config(payload: dict[str, object]) -> IconSourceConfig:
+    return IconSourceConfig(
+        provider=_require_str(payload, "provider"),
+        archive_url=_optional_str(
+            payload.get("archive_url"),
+            default=DEFAULT_GOOGLE_ICONS_ARCHIVE_URL,
+        ),
+        archive_path=_optional_path(payload.get("archive_path")),
+    )
 
 
 def _parse_class_spec(payload: object) -> ClassSpec:
     if not isinstance(payload, dict):
-        raise ValueError("each [[classes]] item must be a table")
+        raise ValueError("each [[group1.classes]] item must be a table")
     source_icons = _optional_str_tuple(payload.get("source_icons"))
     if not source_icons:
         raise ValueError("class spec must define source_icons")
     return ClassSpec(
+        id=_require_int(payload, "id"),
+        name=_require_str(payload, "name"),
+        zh_name=_require_str(payload, "zh_name"),
+        source_icons=source_icons,
+    )
+
+
+def _parse_shape_spec(payload: object) -> ShapeSpec:
+    if not isinstance(payload, dict):
+        raise ValueError("each [[group2.shapes]] item must be a table")
+    source_icons = _optional_str_tuple(payload.get("source_icons"))
+    if not source_icons:
+        raise ValueError("shape spec must define source_icons")
+    return ShapeSpec(
         id=_require_int(payload, "id"),
         name=_require_str(payload, "name"),
         zh_name=_require_str(payload, "zh_name"),
@@ -329,88 +429,101 @@ def _download_pexels_backgrounds(config: BackgroundSourceConfig, backgrounds_dir
     return rows
 
 
-def _sync_icons(
+def _sync_catalog_assets(
     config: IconSourceConfig,
-    classes: tuple[ClassSpec, ...],
-    icons_dir: Path,
+    entries: tuple[ClassSpec | ShapeSpec, ...],
+    output_dir: Path,
     cache_dir: Path,
+    *,
+    id_key: str,
+    name_key: str,
 ) -> list[dict[str, str]]:
-    if config.provider != "google_material_design_icons":
-        raise ValueError(f"unsupported icons provider: {config.provider}")
-
     if config.archive_path is None:
-        return _sync_icons_from_repo(classes, icons_dir, cache_dir)
-    return _sync_icons_from_archive(config, classes, icons_dir, cache_dir)
+        return _sync_catalog_assets_from_repo(entries, output_dir, cache_dir, id_key=id_key, name_key=name_key)
+    return _sync_catalog_assets_from_archive(
+        config,
+        entries,
+        output_dir,
+        cache_dir,
+        id_key=id_key,
+        name_key=name_key,
+    )
 
 
-def _sync_icons_from_repo(
-    classes: tuple[ClassSpec, ...],
-    icons_dir: Path,
+def _sync_catalog_assets_from_repo(
+    entries: tuple[ClassSpec | ShapeSpec, ...],
+    output_dir: Path,
     cache_dir: Path,
+    *,
+    id_key: str,
+    name_key: str,
 ) -> list[dict[str, str]]:
     rows: list[dict[str, str]] = []
-    for class_spec in classes:
-        class_dir = icons_dir / class_spec.name
-        class_dir.mkdir(parents=True, exist_ok=True)
+    for entry_spec in entries:
+        entry_dir = output_dir / entry_spec.name
+        entry_dir.mkdir(parents=True, exist_ok=True)
         resolved_count = 0
-        for source_icon in class_spec.source_icons:
+        for source_icon in entry_spec.source_icons:
             try:
                 entry = _resolve_google_icon_entry(source_icon, cache_dir)
             except ValueError:
                 continue
             resolved_count += 1
-            destination = class_dir / f"{resolved_count:03d}.png"
+            destination = entry_dir / f"{resolved_count:03d}.png"
             _download_binary(f"{DEFAULT_GOOGLE_ICONS_RAW_URL_PREFIX}{entry}", destination)
             rows.append(
                 {
-                    "class_id": str(class_spec.id),
-                    "class_name": class_spec.name,
+                    id_key: str(entry_spec.id),
+                    name_key: entry_spec.name,
                     "provider": "google_material_design_icons",
                     "source_icon": source_icon,
                     "source_path": entry,
-                    "file_name": destination.relative_to(icons_dir).as_posix(),
+                    "file_name": destination.relative_to(output_dir).as_posix(),
                 }
             )
         if resolved_count == 0:
-            raise ValueError(f"could not resolve any Google icon assets for class '{class_spec.name}'")
+            raise ValueError(f"could not resolve any Google icon assets for '{entry_spec.name}'")
     return rows
 
 
-def _sync_icons_from_archive(
+def _sync_catalog_assets_from_archive(
     config: IconSourceConfig,
-    classes: tuple[ClassSpec, ...],
-    icons_dir: Path,
+    entries: tuple[ClassSpec | ShapeSpec, ...],
+    output_dir: Path,
     cache_dir: Path,
+    *,
+    id_key: str,
+    name_key: str,
 ) -> list[dict[str, str]]:
     archive_path = _ensure_google_icons_archive(config, cache_dir)
     rows: list[dict[str, str]] = []
     with zipfile.ZipFile(archive_path, "r") as archive:
-        entries = archive.namelist()
-        for class_spec in classes:
-            class_dir = icons_dir / class_spec.name
-            class_dir.mkdir(parents=True, exist_ok=True)
+        archive_entries = archive.namelist()
+        for entry_spec in entries:
+            entry_dir = output_dir / entry_spec.name
+            entry_dir.mkdir(parents=True, exist_ok=True)
             resolved_count = 0
-            for source_icon in class_spec.source_icons:
+            for source_icon in entry_spec.source_icons:
                 try:
-                    entry = choose_best_google_icon_entry(entries, source_icon)
+                    entry = choose_best_google_icon_entry(archive_entries, source_icon)
                 except ValueError:
                     continue
                 resolved_count += 1
-                destination = class_dir / f"{resolved_count:03d}.png"
+                destination = entry_dir / f"{resolved_count:03d}.png"
                 with archive.open(entry, "r") as source, destination.open("wb") as handle:
                     shutil.copyfileobj(source, handle)
                 rows.append(
                     {
-                        "class_id": str(class_spec.id),
-                        "class_name": class_spec.name,
+                        id_key: str(entry_spec.id),
+                        name_key: entry_spec.name,
                         "provider": "google_material_design_icons",
                         "source_icon": source_icon,
                         "source_path": entry,
-                        "file_name": destination.relative_to(icons_dir).as_posix(),
+                        "file_name": destination.relative_to(output_dir).as_posix(),
                     }
                 )
             if resolved_count == 0:
-                raise ValueError(f"could not resolve any Google icon assets for class '{class_spec.name}'")
+                raise ValueError(f"could not resolve any Google icon assets for '{entry_spec.name}'")
     return rows
 
 
@@ -738,6 +851,23 @@ def _write_classes_manifest(path: Path, classes: tuple[ClassSpec, ...]) -> None:
                 f"  - id: {class_spec.id}",
                 f"    name: {class_spec.name}",
                 f"    zh_name: {class_spec.zh_name}",
+            ]
+        )
+    path.write_text("\n".join(lines) + "\n", encoding="utf-8")
+
+
+def _write_materials_manifest(path: Path) -> None:
+    path.write_text("schema_version: 2\n", encoding="utf-8")
+
+
+def _write_shapes_manifest(path: Path, shapes: tuple[ShapeSpec, ...]) -> None:
+    lines = ["shapes:"]
+    for shape_spec in sorted(shapes, key=lambda item: item.id):
+        lines.extend(
+            [
+                f"  - id: {shape_spec.id}",
+                f"    name: {shape_spec.name}",
+                f"    zh_name: {shape_spec.zh_name}",
             ]
         )
     path.write_text("\n".join(lines) + "\n", encoding="utf-8")

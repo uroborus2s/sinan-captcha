@@ -97,6 +97,24 @@ class AutoTrainDecisionProtocolTests(unittest.TestCase):
         self.assertEqual(outcome.record.decision, "ABANDON_BRANCH")
         self.assertEqual(outcome.record.reason, "fallback_invalid_payload")
 
+    def test_markdown_wrapped_json_is_accepted(self) -> None:
+        outcome = decision_protocol.parse_or_fallback_decision(
+            raw_output=(
+                "Final answer:\n"
+                "```json\n"
+                '{"decision":"RETUNE","reason":"plateau","confidence":0.82,'
+                '"next_action":{"dataset_action":"reuse","train_action":"from_run"},'
+                '"evidence":["plateau for 3 trials"]}'
+                "\n```"
+            ),
+            trial_id="trial_0004",
+            agent=contracts.AgentRef(provider="opencode", name="judge-trial", model="ollama/gemma4:26b"),
+            summary=_summary(),
+        )
+
+        self.assertFalse(outcome.used_fallback)
+        self.assertEqual(outcome.record.decision, "RETUNE")
+
 
 if __name__ == "__main__":
     unittest.main()

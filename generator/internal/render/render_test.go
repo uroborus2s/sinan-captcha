@@ -26,7 +26,7 @@ func TestBuildAppliesEffectsWithoutChangingPlanTruth(t *testing.T) {
 			SampleID:   "g1_000001",
 			QueryImage: "query/g1_000001.png",
 			SceneImage: "scene/g1_000001.png",
-			Targets: []export.ObjectRecord{
+			SceneTargets: []export.ObjectRecord{
 				{Class: "icon_house", ClassID: 0, BBox: [4]int{40, 28, 88, 76}, Center: [2]int{64, 52}},
 			},
 			Seed: 20260404,
@@ -88,17 +88,20 @@ func TestBuildAppliesEffectsWithoutChangingPlanTruth(t *testing.T) {
 	hardCfg.Effects.Click.IconEdgeBlurRadiusMin = 1
 	hardCfg.Effects.Click.IconEdgeBlurRadiusMax = 1
 
-	_, baseScene, err := Build(plan, baseCfg)
+	_, baseScene, queryTargets, err := Build(plan, baseCfg)
 	if err != nil {
 		t.Fatalf("build base scene: %v", err)
 	}
-	_, hardScene, err := Build(plan, hardCfg)
+	_, hardScene, _, err := Build(plan, hardCfg)
 	if err != nil {
 		t.Fatalf("build hard scene: %v", err)
 	}
 
 	if got, want := imageChecksum(baseScene), imageChecksum(hardScene); got == want {
 		t.Fatalf("expected hard effects to change scene rendering")
+	}
+	if len(queryTargets) != 1 || queryTargets[0].Order != 1 || queryTargets[0].ClassID != 0 {
+		t.Fatalf("unexpected query targets: %+v", queryTargets)
 	}
 	if got, want := plan.Targets[0].BBox, [4]int{40, 28, 88, 76}; got != want {
 		t.Fatalf("render should not mutate plan truth, got %+v want %+v", got, want)

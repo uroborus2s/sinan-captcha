@@ -216,7 +216,7 @@ uv run sinan release build --project-dir .
 uv run sinan release package-windows \
   --project-dir . \
   --generator-exe generator/dist/generator/windows-amd64/sinan-generator.exe \
-  --output-dir dist/windows-bundle-0.1.13
+  --output-dir dist/windows-bundle-0.1.14
 ```
 
 ### 5.5 在训练目录中做默认路径 dry-run

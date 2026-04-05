@@ -1,7 +1,9 @@
 # Build a local offline materials pack for the Go generator.
 # Backgrounds are downloaded into <output-root>/backgrounds/.
-# Icons are extracted into <output-root>/icons/<class_name>/.
-# Classes are written to <output-root>/manifests/classes.yaml.
+# Group1 click icons are extracted into <output-root>/group1/icons/<class_name>/.
+# Group2 gap shapes are extracted into <output-root>/group2/shapes/<shape_name>/.
+# Manifests are written into <output-root>/manifests/materials.yaml,
+# <output-root>/manifests/group1.classes.yaml, and <output-root>/manifests/group2.shapes.yaml.
 
 [backgrounds]
 provider = "pexels"
@@ -10,30 +12,34 @@ queries = ["mountain lake", "bridge valley", "indoor room", "city street"]
 per_query = 8
 orientation = "landscape"
 
-[icons]
+[group1]
 provider = "google_material_design_icons"
 archive_url = "https://github.com/google/material-design-icons/archive/refs/heads/master.zip"
 
-[[classes]]
+[[group1.classes]]
 id = 0
 name = "icon_phone"
 zh_name = "电话"
 source_icons = ["call", "phone_in_talk"]
 
-[[classes]]
+[[group1.classes]]
 id = 1
 name = "icon_satellite"
 zh_name = "卫星"
 source_icons = ["satellite_alt"]
 
-[[classes]]
-id = 2
-name = "icon_plane"
-zh_name = "飞机"
-source_icons = ["flight", "airplanemode_active"]
+[group2]
+provider = "google_material_design_icons"
+archive_url = "https://github.com/google/material-design-icons/archive/refs/heads/master.zip"
 
-[[classes]]
-id = 3
-name = "icon_boat"
-zh_name = "船"
-source_icons = ["directions_boat", "sailing"]
+[[group2.shapes]]
+id = 0
+name = "shape_badge"
+zh_name = "徽章缺口"
+source_icons = ["award_star"]
+
+[[group2.shapes]]
+id = 1
+name = "shape_shield"
+zh_name = "盾牌缺口"
+source_icons = ["shield"]

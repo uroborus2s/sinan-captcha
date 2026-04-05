@@ -58,10 +58,10 @@ uvx --from sinan-captcha sinan env setup-train `
 如果你手里拿的是 wheel，也可以用 wheel 路线：
 
 ```powershell
-uvx --from D:\sinan-delivery\python\sinan_captcha-0.1.13-py3-none-any.whl sinan env setup-train `
+uvx --from D:\sinan-delivery\python\sinan_captcha-0.1.14-py3-none-any.whl sinan env setup-train `
   --train-root D:\sinan-captcha-work `
   --generator-root D:\sinan-captcha-generator `
-  --package-spec "sinan-captcha[train] @ file:///D:/sinan-delivery/python/sinan_captcha-0.1.13-py3-none-any.whl"
+  --package-spec "sinan-captcha[train] @ file:///D:/sinan-delivery/python/sinan_captcha-0.1.14-py3-none-any.whl"
 ```
 
 ## 4. 安装后立即做的检查

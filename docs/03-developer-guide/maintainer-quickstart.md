@@ -4,7 +4,7 @@
 - 当前阶段：IMPLEMENTATION
 - 目标读者：第一次接手本仓库的维护者
 - 负责人：Codex
-- 最近更新：2026-04-04
+- 最近更新：2026-04-05
 
 ## 0. 这页解决什么问题
 
@@ -22,8 +22,9 @@
 4. `.factory/memory/change-summary.md`
 5. `docs/index.md`
 6. [用户指南总览](../02-user-guide/user-guide.md)
-7. [仓库结构与边界](./repository-structure-and-boundaries.md)
-8. [本地开发与验证工作流](./local-development-workflow.md)
+7. [solver bundle 与集成边界](./solver-bundle-and-integration.md)
+8. [仓库结构与边界](./repository-structure-and-boundaries.md)
+9. [本地开发与验证工作流](./local-development-workflow.md)
 
 这样做的目的很直接：
 
@@ -76,12 +77,13 @@ git status --short
 
 ## 4. 接手后要先建立的心智模型
 
-先记住 4 句就够：
+先记住 5 句就够：
 
-1. 这个项目只有两个正式 CLI：`sinan-generator` 和 `sinan`
+1. 当前稳定运行只有两个正式 CLI：`sinan-generator` 和 `sinan`
 2. 生成器工作区不等于生成器安装目录
 3. 训练目录不等于源码仓库
-4. 生成器和训练 CLI 只通过 `group1 YOLO / group2 paired` 数据集目录交接
+4. 生成器和训练 CLI 只通过 `group1 pipeline / group2 paired` 数据集目录交接
+5. 最终交付目标是 solver package/library + bundle，不是训练目录本身
 
 ## 5. 常见维护任务怎么分
 

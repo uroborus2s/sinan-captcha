@@ -119,7 +119,7 @@ uv run sinan release package-windows \
   --project-dir . \
   --generator-exe generator/dist/generator/windows-amd64/sinan-generator.exe \
   --bundle-dir bundles/solver/current \
-  --output-dir dist/windows-bundle-0.1.13
+  --output-dir dist/windows-bundle-0.1.14
 ```
 
 如果你要顺手把数据集或素材也打进去，可以加：
@@ -128,7 +128,7 @@ uv run sinan release package-windows \
 uv run sinan release package-windows \
   --project-dir . \
   --generator-exe generator/dist/generator/windows-amd64/sinan-generator.exe \
-  --output-dir dist/windows-bundle-0.1.13 \
+  --output-dir dist/windows-bundle-0.1.14 \
   --datasets-dir datasets \
   --materials-dir materials
 ```

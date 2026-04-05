@@ -65,7 +65,7 @@ def default_dataset_yaml(train_root: Path, task: str, dataset_version: str) -> P
 
 
 def default_dataset_config(train_root: Path, task: str, dataset_version: str) -> Path:
-    if task == "group2":
+    if task in {"group1", "group2"}:
         return train_root / "datasets" / task / dataset_version / "dataset.json"
     return default_dataset_yaml(train_root, task, dataset_version)
 
@@ -95,7 +95,7 @@ def default_last_weights(train_root: Path, task: str, run_name: str) -> Path:
 
 
 def default_predict_source(train_root: Path, task: str, dataset_version: str) -> Path:
-    if task == "group2":
+    if task in {"group1", "group2"}:
         return train_root / "datasets" / task / dataset_version / "splits" / "val.jsonl"
     return train_root / "datasets" / task / dataset_version / "yolo" / "images" / "val"
 

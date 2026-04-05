@@ -41,7 +41,8 @@ def skill_registry() -> "OrderedDict[str, OpenCodeSkillSpec]":
         name="dataset-planner",
         description=(
             "Use when a command or agent needs to turn weak classes and failure patterns into "
-            "dataset_plan.json without choosing training parameters."
+            "dataset_plan.json, including generator preset and generator override hints, "
+            "without choosing training hyperparameters."
         ),
         primary_output="dataset_plan.json",
     )

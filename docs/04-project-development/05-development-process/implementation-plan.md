@@ -339,7 +339,7 @@ datasets/
       raw/
       interim/
       reviewed/
-      yolo/
+      scene-yolo/
         images/
           train/
           val/
@@ -349,6 +349,21 @@ datasets/
           val/
           test/
         dataset.yaml
+      query-yolo/
+        images/
+          train/
+          val/
+          test/
+        labels/
+          train/
+          val/
+          test/
+        dataset.yaml
+      splits/
+        train.jsonl
+        val.jsonl
+        test.jsonl
+      dataset.json
       reports/
   group2/
     v1/
@@ -377,7 +392,7 @@ datasets/
 2. 自动标注结果放 `interim/`。
 3. 审核通过后放 `reviewed/`。
 4. 给训练框架转换后的结果放任务专属训练目录：
-   - `group1` 放 `yolo/`
+   - `group1` 放 `scene-yolo/`、`query-yolo/`、`splits/` 与 `dataset.json`
    - `group2` 放 `master/`、`tile/`、`splits/` 与 `dataset.json`
 5. 每次追加样本都开新版本，如 `v2`、`v3`。
 
@@ -401,15 +416,15 @@ uv run sinan train group2 --dataset-version v1 --name v1 --epochs 100 --batch 16
 
 ### 10.2 第一专项后训练
 
-第一组的首版目标仍然是多类别检测。
+第一组的首版目标改为双模型流水线：`scene detector + query parser + matcher`。
 
 示例命令：
 
 ```powershell
-uv run yolo detect train data=D:\sinan-captcha-work\datasets\group1\v1\yolo\dataset.yaml model=yolo26n.pt imgsz=640 epochs=120 batch=16 device=0 project=D:\sinan-captcha-work\runs\group1 name=v1
+uv run sinan train group1 --dataset-config D:\sinan-captcha-work\datasets\group1\v1\dataset.json --name v1 --epochs 120 --batch 16 --imgsz 640 --device 0
 ```
 
-训练后还需要做一步顺序映射：
+训练入口内部会顺序训练 `scene-detector` 和 `query-parser`，推理阶段再做顺序映射：
 
 1. 读取查询图中的目标顺序。
 2. 把顺序对应到场景图检测结果。

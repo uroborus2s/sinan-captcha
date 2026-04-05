@@ -74,6 +74,22 @@ class StudyPaths:
         return self.study_root / "summary.md"
 
     @property
+    def study_status_file(self) -> Path:
+        return self.study_root / "study_status.json"
+
+    @property
+    def opencode_log_file(self) -> Path:
+        return self.study_root / "opencode.log"
+
+    @property
+    def study_opencode_trace_root(self) -> Path:
+        return self.study_root / "opencode"
+
+    @property
+    def optuna_storage_file(self) -> Path:
+        return self.study_root / "optuna.sqlite3"
+
+    @property
     def stop_file(self) -> Path:
         return self.study_root / "STOP"
 
@@ -116,5 +132,14 @@ class StudyPaths:
     def decision_file(self, trial_id: str) -> Path:
         return self.trial_dir(trial_id) / "decision.json"
 
+    def dataset_plan_file(self, trial_id: str) -> Path:
+        return self.trial_dir(trial_id) / "dataset_plan.json"
+
+    def generator_override_file(self, trial_id: str) -> Path:
+        return self.trial_dir(trial_id) / "generator_override.json"
+
     def trial_summary_file(self, trial_id: str) -> Path:
         return self.trial_dir(trial_id) / "summary.md"
+
+    def trial_opencode_trace_root(self, trial_id: str) -> Path:
+        return self.trial_dir(trial_id) / "opencode"

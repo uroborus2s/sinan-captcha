@@ -19,6 +19,8 @@ class DatasetRunnerRequest:
     dataset_version: str
     generator_workspace: Path
     dataset_dir: Path
+    preset: str | None = None
+    override_file: Path | None = None
     generator_executable: str = "sinan-generator"
     force: bool = False
 
@@ -33,6 +35,10 @@ class DatasetRunnerRequest:
             "--dataset-dir",
             str(self.dataset_dir),
         ]
+        if self.preset:
+            command.extend(["--preset", self.preset])
+        if self.override_file is not None:
+            command.extend(["--override-file", str(self.override_file)])
         if self.force:
             command.append("--force")
         return command
@@ -59,6 +65,13 @@ def run_dataset_request(
         label="生成器工作区",
         command=command_text,
     )
+    if request.override_file is not None:
+        require_existing_path(
+            request.override_file,
+            stage="BUILD_DATASET",
+            label="生成器覆盖配置文件",
+            command=command_text,
+        )
 
     try:
         (executor or _execute_command)(command)

@@ -29,14 +29,20 @@ func TestMakeDatasetBuildsGroup1TrainingDirectory(t *testing.T) {
 		t.Fatalf("make dataset: %v", err)
 	}
 
-	assertFileExists(t, filepath.Join(trainingDir, "dataset.yaml"))
-	assertDirHasFiles(t, filepath.Join(trainingDir, "images", "train"))
-	assertDirHasFiles(t, filepath.Join(trainingDir, "labels", "train"))
+	assertFileExists(t, filepath.Join(trainingDir, "dataset.json"))
+	assertDirHasFiles(t, filepath.Join(trainingDir, "scene-yolo", "images", "train"))
+	assertDirHasFiles(t, filepath.Join(trainingDir, "scene-yolo", "labels", "train"))
+	assertDirHasFiles(t, filepath.Join(trainingDir, "query-yolo", "images", "train"))
+	assertDirHasFiles(t, filepath.Join(trainingDir, "query-yolo", "labels", "train"))
+	assertFileExists(t, filepath.Join(trainingDir, "splits", "train.jsonl"))
+	assertFileExists(t, filepath.Join(trainingDir, "splits", "val.jsonl"))
+	assertFileExists(t, filepath.Join(trainingDir, "splits", "test.jsonl"))
 	assertFileExists(t, filepath.Join(trainingDir, ".sinan", "job.json"))
 	assertFileExists(t, filepath.Join(trainingDir, ".sinan", "manifest.json"))
 	assertDirHasFiles(t, filepath.Join(trainingDir, ".sinan", "raw", filepath.Base(result.BatchRoot), "scene"))
-	assertDatasetYAMLHasNoPathField(t, filepath.Join(trainingDir, "dataset.yaml"))
-	if !strings.Contains(result.DatasetConfig, filepath.Join(trainingDir, "dataset.yaml")) {
+	assertDirHasFiles(t, filepath.Join(trainingDir, ".sinan", "raw", filepath.Base(result.BatchRoot), "query"))
+	assertGroup1DatasetJSONReferencesPipelineArtifacts(t, filepath.Join(trainingDir, "dataset.json"))
+	if !strings.Contains(result.DatasetConfig, filepath.Join(trainingDir, "dataset.json")) {
 		t.Fatalf("unexpected dataset config path: %s", result.DatasetConfig)
 	}
 }
@@ -144,18 +150,153 @@ func TestMakeDatasetUsesWorkspacePresetOverride(t *testing.T) {
 	}
 }
 
+func TestMakeDatasetAppliesRuntimeOverrideFile(t *testing.T) {
+	workspaceRoot := filepath.Join(t.TempDir(), "workspace")
+	materialsRoot := createMaterialsPack(t)
+	trainingDir := filepath.Join(t.TempDir(), "train-group1-override")
+	overrideFile := filepath.Join(t.TempDir(), "generator-override.json")
+	overridePayload := `{
+  "project": {"sample_count": 3},
+  "sampling": {
+    "target_count_min": 2,
+    "target_count_max": 2,
+    "distractor_count_min": 0,
+    "distractor_count_max": 0
+  },
+  "effects": {
+    "common": {
+      "scene_veil_strength": 1.45,
+      "background_blur_radius_min": 1,
+      "background_blur_radius_max": 2
+    },
+    "click": {
+      "icon_shadow_alpha_min": 0.28,
+      "icon_shadow_alpha_max": 0.36,
+      "icon_shadow_offset_x_min": 2,
+      "icon_shadow_offset_x_max": 3,
+      "icon_shadow_offset_y_min": 3,
+      "icon_shadow_offset_y_max": 4,
+      "icon_edge_blur_radius_min": 1,
+      "icon_edge_blur_radius_max": 2
+    }
+  }
+}`
+	if err := os.WriteFile(overrideFile, []byte(overridePayload), 0o644); err != nil {
+		t.Fatalf("write runtime override file: %v", err)
+	}
+
+	result, err := MakeDataset(MakeDatasetRequest{
+		Task:           "group1",
+		Preset:         "smoke",
+		WorkspaceRoot:  workspaceRoot,
+		DatasetDir:     trainingDir,
+		MaterialSource: materialsRoot,
+		OverrideFile:   overrideFile,
+	})
+	if err != nil {
+		t.Fatalf("make dataset with runtime override: %v", err)
+	}
+
+	if got, want := result.Generated, 3; got != want {
+		t.Fatalf("expected runtime override sample count to apply, got %d want %d", got, want)
+	}
+}
+
+func TestMakeDatasetBuildsGroup1FromGroup1OnlyMaterials(t *testing.T) {
+	workspaceRoot := filepath.Join(t.TempDir(), "workspace")
+	materialsRoot := createGroup1OnlyMaterialsPack(t)
+	trainingDir := filepath.Join(t.TempDir(), "train-group1")
+
+	result, err := MakeDataset(MakeDatasetRequest{
+		Task:           "group1",
+		Preset:         "smoke",
+		WorkspaceRoot:  workspaceRoot,
+		DatasetDir:     trainingDir,
+		MaterialSource: materialsRoot,
+	})
+	if err != nil {
+		t.Fatalf("make dataset from group1-only materials: %v", err)
+	}
+
+	assertFileExists(t, filepath.Join(trainingDir, "dataset.json"))
+	if got, want := result.Generated, 20; got != want {
+		t.Fatalf("expected smoke preset to generate %d samples, got %d", want, got)
+	}
+}
+
+func TestMakeDatasetBuildsGroup2FromGroup2OnlyMaterials(t *testing.T) {
+	workspaceRoot := filepath.Join(t.TempDir(), "workspace")
+	materialsRoot := createGroup2OnlyMaterialsPack(t)
+	trainingDir := filepath.Join(t.TempDir(), "train-group2")
+
+	result, err := MakeDataset(MakeDatasetRequest{
+		Task:           "group2",
+		Preset:         "smoke",
+		WorkspaceRoot:  workspaceRoot,
+		DatasetDir:     trainingDir,
+		MaterialSource: materialsRoot,
+	})
+	if err != nil {
+		t.Fatalf("make dataset from group2-only materials: %v", err)
+	}
+
+	assertFileExists(t, filepath.Join(trainingDir, "dataset.json"))
+	if got, want := result.Generated, 20; got != want {
+		t.Fatalf("expected smoke preset to generate %d samples, got %d", want, got)
+	}
+}
+
 func createMaterialsPack(t *testing.T) string {
 	t.Helper()
 	root := filepath.Join(t.TempDir(), "materials")
-	writeClassesManifest(t, filepath.Join(root, "manifests", "classes.yaml"))
+	writeMaterialsManifest(t, filepath.Join(root, "manifests", "materials.yaml"))
+	writeGroup1Manifest(t, filepath.Join(root, "manifests", "group1.classes.yaml"))
+	writeGroup2Manifest(t, filepath.Join(root, "manifests", "group2.shapes.yaml"))
 	writePNG(t, filepath.Join(root, "backgrounds", "bg_001.png"), 320, 180)
 	writePNG(t, filepath.Join(root, "backgrounds", "bg_002.png"), 320, 180)
-	writeMaskIconPNG(t, filepath.Join(root, "icons", "icon_house", "001.png"), 48, 48)
-	writeMaskIconPNG(t, filepath.Join(root, "icons", "icon_leaf", "001.png"), 48, 48)
+	writeMaskIconPNG(t, filepath.Join(root, "group1", "icons", "icon_house", "001.png"), 48, 48)
+	writeMaskIconPNG(t, filepath.Join(root, "group1", "icons", "icon_leaf", "001.png"), 48, 48)
+	writeMaskIconPNG(t, filepath.Join(root, "group2", "shapes", "shape_ticket", "001.png"), 48, 48)
+	writeMaskIconPNG(t, filepath.Join(root, "group2", "shapes", "shape_cloud", "001.png"), 48, 48)
 	return root
 }
 
-func writeClassesManifest(t *testing.T, path string) {
+func createGroup1OnlyMaterialsPack(t *testing.T) string {
+	t.Helper()
+	root := filepath.Join(t.TempDir(), "materials-group1")
+	writeMaterialsManifest(t, filepath.Join(root, "manifests", "materials.yaml"))
+	writeGroup1Manifest(t, filepath.Join(root, "manifests", "group1.classes.yaml"))
+	writePNG(t, filepath.Join(root, "backgrounds", "bg_001.png"), 320, 180)
+	writePNG(t, filepath.Join(root, "backgrounds", "bg_002.png"), 320, 180)
+	writeMaskIconPNG(t, filepath.Join(root, "group1", "icons", "icon_house", "001.png"), 48, 48)
+	writeMaskIconPNG(t, filepath.Join(root, "group1", "icons", "icon_leaf", "001.png"), 48, 48)
+	return root
+}
+
+func createGroup2OnlyMaterialsPack(t *testing.T) string {
+	t.Helper()
+	root := filepath.Join(t.TempDir(), "materials-group2")
+	writeMaterialsManifest(t, filepath.Join(root, "manifests", "materials.yaml"))
+	writeGroup2Manifest(t, filepath.Join(root, "manifests", "group2.shapes.yaml"))
+	writePNG(t, filepath.Join(root, "backgrounds", "bg_001.png"), 320, 180)
+	writePNG(t, filepath.Join(root, "backgrounds", "bg_002.png"), 320, 180)
+	writeMaskIconPNG(t, filepath.Join(root, "group2", "shapes", "shape_ticket", "001.png"), 48, 48)
+	writeMaskIconPNG(t, filepath.Join(root, "group2", "shapes", "shape_cloud", "001.png"), 48, 48)
+	return root
+}
+
+func writeMaterialsManifest(t *testing.T, path string) {
+	t.Helper()
+	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+		t.Fatalf("mkdir manifest dir: %v", err)
+	}
+	content := "schema_version: 2\n"
+	if err := os.WriteFile(path, []byte(content), 0o644); err != nil {
+		t.Fatalf("write manifest: %v", err)
+	}
+}
+
+func writeGroup1Manifest(t *testing.T, path string) {
 	t.Helper()
 	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
 		t.Fatalf("mkdir manifest dir: %v", err)
@@ -168,6 +309,26 @@ func writeClassesManifest(t *testing.T, path string) {
 		"  - id: 1",
 		"    name: icon_leaf",
 		"    zh_name: 叶子",
+		"",
+	}, "\n")
+	if err := os.WriteFile(path, []byte(content), 0o644); err != nil {
+		t.Fatalf("write manifest: %v", err)
+	}
+}
+
+func writeGroup2Manifest(t *testing.T, path string) {
+	t.Helper()
+	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+		t.Fatalf("mkdir manifest dir: %v", err)
+	}
+	content := strings.Join([]string{
+		"shapes:",
+		"  - id: 0",
+		"    name: shape_ticket",
+		"    zh_name: 票形缺口",
+		"  - id: 1",
+		"    name: shape_cloud",
+		"    zh_name: 云形缺口",
 		"",
 	}, "\n")
 	if err := os.WriteFile(path, []byte(content), 0o644); err != nil {
@@ -252,18 +413,26 @@ func assertDirHasFiles(t *testing.T, path string) {
 	}
 }
 
-func assertDatasetYAMLHasNoPathField(t *testing.T, path string) {
+func assertGroup1DatasetJSONReferencesPipelineArtifacts(t *testing.T, path string) {
 	t.Helper()
 	content, err := os.ReadFile(path)
 	if err != nil {
-		t.Fatalf("read dataset yaml %s: %v", path, err)
+		t.Fatalf("read dataset json %s: %v", path, err)
 	}
 	text := string(content)
-	if strings.Contains(text, "\npath:") || strings.HasPrefix(text, "path:") {
-		t.Fatalf("dataset yaml should not contain path field:\n%s", text)
-	}
-	if !strings.Contains(text, "train: images/train") {
-		t.Fatalf("dataset yaml missing train path:\n%s", text)
+	for _, expected := range []string{
+		`"task": "group1"`,
+		`"format": "sinan.group1.pipeline.v1"`,
+		`"scene_detector"`,
+		`"scene-yolo/dataset.yaml"`,
+		`"query_parser"`,
+		`"query-yolo/dataset.yaml"`,
+		`"train": "splits/train.jsonl"`,
+		`"strategy": "ordered_class_match_v1"`,
+	} {
+		if !strings.Contains(text, expected) {
+			t.Fatalf("dataset json missing %s:\n%s", expected, text)
+		}
 	}
 }
 

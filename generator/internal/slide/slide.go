@@ -233,21 +233,21 @@ func clampGapDimension(value int, canvas int, fallback int) int {
 	return clamp(value, 18, maxAllowed)
 }
 
-func selectShapeAsset(catalog material.Catalog, rng *rand.Rand) (material.ClassAssets, material.IconAsset, error) {
-	candidates := make([]material.ClassAssets, 0, len(catalog.Classes))
-	for _, classAssets := range catalog.Classes {
-		if len(classAssets.Icons) == 0 {
+func selectShapeAsset(catalog material.Catalog, rng *rand.Rand) (material.ShapeAssets, material.ImageAsset, error) {
+	candidates := make([]material.ShapeAssets, 0, len(catalog.Group2Shapes))
+	for _, shapeAssets := range catalog.Group2Shapes {
+		if len(shapeAssets.Shapes) == 0 {
 			continue
 		}
-		candidates = append(candidates, classAssets)
+		candidates = append(candidates, shapeAssets)
 	}
 	if len(candidates) == 0 {
-		return material.ClassAssets{}, material.IconAsset{}, fmt.Errorf("material catalog has no icon masks for slide mode")
+		return material.ShapeAssets{}, material.ImageAsset{}, fmt.Errorf("material catalog has no group2 shape masks for slide mode")
 	}
 
-	selectedClass := candidates[rng.Intn(len(candidates))]
-	selectedIcon := selectedClass.Icons[rng.Intn(len(selectedClass.Icons))]
-	return selectedClass, selectedIcon, nil
+	selectedShape := candidates[rng.Intn(len(candidates))]
+	selectedAsset := selectedShape.Shapes[rng.Intn(len(selectedShape.Shapes))]
+	return selectedShape, selectedAsset, nil
 }
 
 func loadImage(path string) (image.Image, error) {

@@ -45,11 +45,11 @@ func TestGenerateBuildsConsistentSlideRecord(t *testing.T) {
 			Backgrounds: []material.BackgroundAsset{
 				{ID: "bg_1", Path: backgroundPath, Width: 240, Height: 140},
 			},
-			Classes: []material.ClassAssets{
+			Group2Shapes: []material.ShapeAssets{
 				{
 					ID:   0,
-					Name: "icon_flag",
-					Icons: []material.IconAsset{
+					Name: "shape_flag",
+					Shapes: []material.ImageAsset{
 						{Path: iconPath, Width: 48, Height: 48},
 					},
 				},
@@ -159,11 +159,11 @@ func TestGenerateAppliesEffectsWithoutChangingGapTruth(t *testing.T) {
 		Backgrounds: []material.BackgroundAsset{
 			{ID: "bg_1", Path: backgroundPath, Width: 240, Height: 140},
 		},
-		Classes: []material.ClassAssets{
+		Group2Shapes: []material.ShapeAssets{
 			{
 				ID:   0,
-				Name: "icon_flag",
-				Icons: []material.IconAsset{
+				Name: "shape_flag",
+				Shapes: []material.ImageAsset{
 					{Path: iconPath, Width: 48, Height: 48},
 				},
 			},

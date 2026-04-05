@@ -9,6 +9,8 @@ import shutil
 import subprocess
 import textwrap
 
+from core.release.solver_export import ExportGroup2SolverAssetsRequest, export_group2_solver_assets
+
 
 @dataclass(frozen=True)
 class BuildReleaseRequest:
@@ -27,6 +29,7 @@ class PackageWindowsRequest:
     project_dir: Path
     generator_exe: Path
     output_dir: Path
+    bundle_dir: Path | None = None
     datasets_dir: Path | None = None
     materials_dir: Path | None = None
 
@@ -69,6 +72,10 @@ def package_windows_bundle(request: PackageWindowsRequest) -> None:
 
     shutil.copy2(wheel, python_dir / wheel.name)
     shutil.copy2(request.generator_exe, generator_dir / request.generator_exe.name)
+    if request.bundle_dir is not None:
+        if not request.bundle_dir.exists():
+            raise ValueError(f"solver bundle dir does not exist: {request.bundle_dir}")
+        shutil.copytree(request.bundle_dir, request.output_dir / "bundle", dirs_exist_ok=True)
 
     if request.datasets_dir is not None and request.datasets_dir.exists():
         shutil.copytree(request.datasets_dir, request.output_dir / "datasets", dirs_exist_ok=True)
@@ -81,21 +88,28 @@ def package_windows_bundle(request: PackageWindowsRequest) -> None:
             交付包说明
             ============
 
-            1. python/ 目录包含训练机安装用的 wheel 备份包
+            1. python/ 目录包含 Python wheel，可通过 pip/uv pip 安装本地求解库或训练 CLI
             2. generator/ 目录包含 Go 生成器可执行文件
-            3. 默认训练目录初始化方式：
+            3. 如果本包同时带有 bundle/，则 bundle\\manifest.json 是统一求解入口的模型事实源
+            4. 默认训练目录初始化方式：
                uvx --from sinan-captcha sinan env setup-train --train-root <训练目录>
-            4. 如果已有 YOLO 数据集，可直接拷贝到训练目录 datasets/ 下开始训练
-            5. 如果需要本地生成样本，请先进入 generator/ 目录，再用 .\sinan-generator.exe 执行命令
-            6. 推荐先初始化工作区：
-               .\sinan-generator.exe workspace init --workspace <生成器工作区>
-            7. 准备素材的两种主路径：
-               .\sinan-generator.exe materials import --workspace <生成器工作区> --from <materials-pack目录>
-               .\sinan-generator.exe materials fetch --workspace <生成器工作区> --source <materials-pack.zip或URL>
-            8. 生成训练数据：
-               .\sinan-generator.exe make-dataset --workspace <生成器工作区> --task group1 --dataset-dir <训练数据目录>
-            9. 默认 firstpass 预设一次生成 200 条，smoke 预设一次生成 20 条
-            10. 如果对同一个 dataset-dir 重跑并加 --force，会覆盖原目录；要保留旧数据，请改用新的版本目录
+            5. 如果已有 YOLO 数据集，可直接拷贝到训练目录 datasets/ 下开始训练
+            6. 如果需要本地生成样本，请先进入 generator/ 目录，再用 .\\sinan-generator.exe 执行命令
+            7. 推荐先初始化工作区：
+               .\\sinan-generator.exe workspace init --workspace <生成器工作区>
+            8. 准备素材的两种主路径：
+               .\\sinan-generator.exe materials import --workspace <生成器工作区> --from <materials-pack目录>
+               .\\sinan-generator.exe materials fetch --workspace <生成器工作区> --source <materials-pack.zip或URL>
+            9. 生成训练数据：
+               .\\sinan-generator.exe make-dataset --workspace <生成器工作区> --task group1 --dataset-dir <训练数据目录>
+            10. 默认 firstpass 预设一次生成 200 条，smoke 预设一次生成 20 条
+            11. 如果对同一个 dataset-dir 重跑并加 --force，会覆盖原目录；要保留旧数据，请改用新的版本目录
+            12. 如果已有 solver bundle，可用 Python API 或 CLI 调用：
+                uv run sinan solve run --bundle-dir <bundle目录> --request <请求JSON>
+                Python API: from core.solve.service import UnifiedSolverService
+            13. bundle 目录存在时，至少应包含：
+                bundle\\manifest.json
+                bundle\\models\\...
             """
         ).strip()
         + "\n",

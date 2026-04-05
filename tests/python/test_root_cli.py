@@ -46,6 +46,18 @@ class RootCliTests(unittest.TestCase):
         self.assertEqual(code, 0)
         handler.assert_called_once_with(["build", "--project-dir", "."])
 
+    def test_dispatches_solve_run(self) -> None:
+        with patch("core.cli.solve_cli.main", return_value=0) as handler:
+            code = cli.main(["solve", "run", "--bundle-dir", "bundles/current", "--request", "req.json"])
+        self.assertEqual(code, 0)
+        handler.assert_called_once_with(["run", "--bundle-dir", "bundles/current", "--request", "req.json"])
+
+    def test_dispatches_auto_train_run(self) -> None:
+        with patch("core.cli.auto_train_cli.main", return_value=0) as handler:
+            code = cli.main(["auto-train", "run", "group1", "--study-name", "study_001"])
+        self.assertEqual(code, 0)
+        handler.assert_called_once_with(["run", "group1", "--study-name", "study_001"])
+
     def test_returns_error_for_unknown_command(self) -> None:
         code = cli.main(["unknown"])
         self.assertEqual(code, 1)

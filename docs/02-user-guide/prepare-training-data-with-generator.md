@@ -1,158 +1,174 @@
-# 用生成器准备训练数据
+# 训练者角色：使用生成器准备训练数据
 
-- 文档状态：生效
-- 当前阶段：IMPLEMENTATION
-- 目标读者：需要在本地生成训练数据的人
-- 负责人：Codex
-- 最近更新：2026-04-04
+这页只讲训练者怎么用 `sinan-generator` 把素材整理成可训练的数据集目录。
 
-## 0. 这页解决什么问题
-
-这页只解决一件事：
-
-- 怎样用 `sinan-generator` 在 Windows 机器上准备素材，并直接生成可训练的数据集目录
-
-最终目标是让你拿到这样的目录：
-
-- `D:\sinan-captcha-work\datasets\group1\<version>\yolo`
-- `D:\sinan-captcha-work\datasets\group2\<version>`
-
-然后马上接：
-
-- `uv run sinan train group1`
-- `uv run sinan train group2`
-
-## 1. 开始前先准备 3 个目录
-
-推荐固定成：
-
-```text
-D:\
-  sinan-captcha-generator\
-  sinan-captcha-work\
-```
-
-它们分别表示：
+## 1. 先分清 3 个目录
 
 - 生成器安装目录：
-  - `D:\sinan-captcha-generator`
+  - 例如 `D:\sinan-captcha-generator`
+  - 放 `sinan-generator.exe`
 - 生成器工作区：
-  - `D:\sinan-captcha-generator\workspace`
+  - 例如 `D:\sinan-captcha-generator\workspace`
+  - 放 `presets/`、`materials/`、`jobs/`、`logs/`
 - 训练目录：
-  - `D:\sinan-captcha-work`
+  - 例如 `D:\sinan-captcha-work`
+  - 放 `datasets/`、训练结果和报告
 
-如果训练目录还没有创建，先执行：
+这三者不要混用。`make-dataset` 的输出应该落到训练目录下的 `datasets/`。
 
-- [Windows 快速开始](./windows-quickstart.md)
-  或
-- [Windows 训练机安装与模型训练完整指南](./from-base-model-to-training-guide.md)
+## 2. 你要准备什么
 
-如果你的电脑没有 `D:` 盘，把本页所有 `D:\` 统一替换成你自己的实际盘符。
-
-## 2. 先把生成器放到安装目录
-
-普通用户最少只需要：
+至少要有：
 
 - `sinan-generator.exe`
+- 一个固定工作区目录
+- 一个素材包目录、素材 zip，或一个可访问的素材包 URL
+- 一个训练目录，例如 `D:\sinan-captcha-work`
 
-推荐目录结构：
-
-```text
-D:\sinan-captcha-generator\
-  sinan-generator.exe
-```
-
-注意：
-
-- 不需要手工拷贝 `configs/*.yaml`
-- 预设配置已经内置到生成器里
-- 首次运行时，生成器会自动把工作区需要的预设副本写到 `workspace\presets\`
-- 如果你要覆盖默认难度参数，也只改 `workspace\presets\*.yaml`，不要在 `exe` 同级新增配置文件
-
-如果你在 Windows PowerShell 里直接进入这个目录执行命令：
-
-```powershell
-Set-Location D:\sinan-captcha-generator
-```
-
-后续要写成：
-
-```powershell
-.\sinan-generator.exe ...
-```
-
-不要直接写 `sinan-generator.exe ...`，否则 PowerShell 默认不会从当前目录加载它。
-
-## 3. 你可以从哪种素材来源开始
-
-支持 3 条常见路线。
-
-### 3.1 你已经拿到现成素材包目录
-
-例如：
-
-- `D:\materials-pack`
-
-这是最简单的路线。
-
-### 3.2 你拿到的是 zip 包或远程压缩包
-
-例如：
-
-- `D:\materials-pack.zip`
-- `https://example.com/materials-pack.zip`
-
-### 3.3 你没有现成素材包，但有可访问的下载地址
-
-例如：
-
-- `https://example.com/materials-pack.zip`
-
-这时直接用 `materials fetch` 即可，不需要先手工解压。
-
-### 3.4 一个可导入的素材包最少要长什么样
-
-最少目录结构如下：
+推荐工作区：
 
 ```text
-materials-pack\
+D:\sinan-captcha-generator\workspace
+```
+
+## 3. 素材包应该长什么样
+
+一个最小可用的素材包目录结构如下：
+
+```text
+D:\materials-pack\
   backgrounds\
-  icons\
-    icon_house\
-    icon_leaf\
-    ...
+    bg_001.png
+    bg_002.jpg
+  group1\
+    icons\
+      icon_house\
+        001.png
+        002.png
+      icon_leaf\
+        001.png
+  group2\
+    shapes\
+      shape_badge\
+        001.png
+      shape_shield\
+        001.png
   manifests\
-    classes.yaml
+    materials.yaml
+    group1.classes.yaml
+    group2.shapes.yaml
 ```
 
-说明：
+各目录含义：
 
-- `backgrounds\` 里放背景图
-- `icons\<class_name>\` 里放该类别的图标
-- `manifests\classes.yaml` 负责声明类别名和类别 ID
-- `group2` 会把图标 PNG 的 alpha mask 当作缺口图案素材使用，所以背景图和图标目录都必需
-- 当前实现会统一校验这套结构；即使你只生成 `group2`，当前也仍然要求素材包里有完整的 `classes.yaml` 和图标目录
-- 如果你拿到的是源码仓库里的某个 `materials\` 目录，只有当它本身已经满足这套结构时，才能直接 `materials import`
+- `backgrounds/`
+  - 背景图素材。
+  - 支持 `.png`、`.jpg`、`.jpeg`。
+- `group1/icons/<class_name>/`
+  - 点选任务专用图标池。
+  - 每个子目录代表 1 个点选类别。
+  - 目录名必须和 `group1.classes.yaml` 中的 `name` 一致。
+  - 最好使用透明背景 PNG。
+- `group2/shapes/<shape_name>/`
+  - 滑块缺口任务专用形状池。
+  - 每个子目录代表 1 种缺口形状模板。
+  - 目录名必须和 `group2.shapes.yaml` 中的 `name` 一致。
+  - 这些图形只用于雕刻缺口 mask，不会成为 `group2` 的训练类别。
+  - 边缘越干净，生成出来的缺口越稳定。
+- `manifests/materials.yaml`
+  - 素材包 schema 元信息。
+- `manifests/group1.classes.yaml`
+  - 点选类别清单。
+  - 决定有哪些 `group1/icons/<class_name>/` 目录必须存在。
+- `manifests/group2.shapes.yaml`
+  - 缺口形状清单。
+  - 决定有哪些 `group2/shapes/<shape_name>/` 目录必须存在。
 
-## 4. 先初始化生成器工作区
+`materials.yaml` 示例：
+
+```yaml
+schema_version: 2
+```
+
+`group1.classes.yaml` 示例：
+
+```yaml
+classes:
+  - id: 0
+    name: icon_house
+    zh_name: 房子
+  - id: 1
+    name: icon_leaf
+    zh_name: 叶子
+```
+
+`group2.shapes.yaml` 示例：
+
+```yaml
+shapes:
+  - id: 0
+    name: shape_badge
+    zh_name: 徽章缺口
+  - id: 1
+    name: shape_shield
+    zh_name: 盾牌缺口
+```
+
+字段说明：
+
+- `id`
+  - 素材条目 ID。
+  - `group1` 会写进点选标签；`group2` 主要用于素材管理和审查。
+- `name`
+  - 条目英文名，同时也是对应目录名。
+- `zh_name`
+  - 中文名，方便人工阅读和审查。
+
+不要再把点选图标和缺口形状放在同一个目录里。当前生成器会严格按 `group1/icons/` 和 `group2/shapes/` 两个池子分别读取。
+
+## 3.1 旧素材包怎么迁移
+
+如果你手上还是旧布局，至少要做下面 4 个调整：
+
+- 把旧的点选图标目录迁到 `group1/icons/<class_name>/`
+- 把旧的缺口形状目录迁到 `group2/shapes/<shape_name>/`
+- 把旧的点选类别清单改名成 `manifests/group1.classes.yaml`
+- 新增 `manifests/group2.shapes.yaml`，把缺口形状清单单独维护
+
+最常见的迁移映射：
+
+```text
+旧结构                          新结构
+icons/icon_house/         ->    group1/icons/icon_house/
+icons/icon_leaf/          ->    group1/icons/icon_leaf/
+shapes/shape_badge/       ->    group2/shapes/shape_badge/
+classes.yaml              ->    manifests/group1.classes.yaml
+```
+
+如果你已经把 `group1` 和 `group2` 素材拆成两个独立包，也可以继续用，但要注意下面这条规则：
+
+- `materials import` / `materials fetch` 默认按“全量素材包”校验
+- 如果 zip 或目录里只有 `group1` 或只有 `group2`，导入时要显式传 `--task group1` 或 `--task group2`
+- `make-dataset` 和 `auto-train` 在建数阶段已经支持按任务校验，不会再要求另一个任务的目录同时存在
+
+## 4. 初始化工作区
 
 ```powershell
 Set-Location D:\sinan-captcha-generator
 .\sinan-generator.exe workspace init --workspace D:\sinan-captcha-generator\workspace
 ```
 
-执行成功后，你应该看到工作区里出现：
+如果你想看当前工作区布局和激活中的素材集：
 
-- `workspace.json`
-- `presets\`
-- `materials\`
-- `cache\`
-- `jobs\`
-- `logs\`
+```powershell
+.\sinan-generator.exe workspace show --workspace D:\sinan-captcha-generator\workspace
+```
 
-## 5. 选择素材准备方式
+## 5. 导入素材、下载素材、自动拉取素材
 
-### 5.1 方式 A：导入现成素材目录
+### 5.1 从本地目录导入素材
+
+适合你已经把素材整理成目录的情况：
 
 ```powershell
 .\sinan-generator.exe materials import `
@@ -160,122 +176,86 @@ Set-Location D:\sinan-captcha-generator
   --from D:\materials-pack
 ```
 
-### 5.2 方式 B：同步 zip 包或远程压缩包
+可选参数：
+
+| 参数 | 说明 |
+| --- | --- |
+| `--workspace` | 工作区目录。 |
+| `--from` | 本地素材包目录，目录内部必须包含 `backgrounds/`、`group1/icons/`、`group2/shapes/`、`manifests/materials.yaml`、`manifests/group1.classes.yaml`、`manifests/group2.shapes.yaml`。 |
+| `--name` | 可选素材集名称；不传时默认使用目录名。 |
+| `--task` | 可选。只有当素材包只包含 `group1` 或只包含 `group2` 时才传；可选值是 `group1` 或 `group2`。 |
+
+导入后，素材会复制到工作区的 `materials/local/<name>/`，并自动设为当前激活素材集。
+
+### 5.2 从 zip 包或 URL 下载素材
+
+适合素材由维护者打成 zip 或放到 HTTP 地址的情况：
 
 ```powershell
 .\sinan-generator.exe materials fetch `
   --workspace D:\sinan-captcha-generator\workspace `
-  --source D:\materials-pack.zip
+  --source D:\materials-pack.zip `
+  --name official-pack-v1
 ```
 
-如果是远程地址，把 `--source` 改成 URL 即可。
-
-### 5.3 方式 C：直接抓取远程素材包
+或：
 
 ```powershell
 .\sinan-generator.exe materials fetch `
   --workspace D:\sinan-captcha-generator\workspace `
-  --source https://example.com/materials-pack.zip
+  --source https://example.com/materials-pack.zip `
+  --name official-pack-v1
 ```
 
-如果你的训练机不能联网，就不要走这条路线，改成让交付方提供本地 `materials-pack/` 或 `materials-pack.zip`。
+可选参数：
 
-### 5.4 高级方式：从远程图片源构建素材包
+| 参数 | 说明 |
+| --- | --- |
+| `--workspace` | 工作区目录。 |
+| `--source` | 本地 zip 路径、`file://` URL，或 `http(s)://` URL。 |
+| `--name` | 可选素材集名称；不传时默认使用 zip 文件名或 URL 文件名。 |
+| `--task` | 可选。只有当 zip 里只包含 `group1` 或只包含 `group2` 时才传；可选值是 `group1` 或 `group2`。 |
 
-这不是普通用户默认主链路，但当你手里没有现成素材包、又需要自己从远程图片源构建时，可以这样做。
+下载后，素材会解压到工作区的 `materials/official/<name>/`，并自动设为当前激活素材集。
 
-先确认：
-
-- 你在源码仓库目录里
-- 已经安装好 Python 训练 CLI 运行环境
-- 你有远程图片源的 API Key
-
-当前仓库默认示例使用 Pexels，配置文件是：
-
-- `configs/materials-pack.toml`
-
-其中背景图 key 默认从环境变量读取：
-
-- `PEXELS_API_KEY`
-
-PowerShell 当前会话示例：
+例如，只导入 `group1` 点选素材包：
 
 ```powershell
-$env:PEXELS_API_KEY = "你的PexelsKey"
-```
-
-如果要永久写到当前 Windows 用户环境变量：
-
-```powershell
-setx PEXELS_API_KEY "你的PexelsKey"
-```
-
-然后在源码仓库目录执行：
-
-```powershell
-Set-Location D:\sinan-captcha
-uv run sinan materials build `
-  --spec configs/materials-pack.toml `
-  --output-root D:\materials-pack `
-  --cache-dir D:\sinan-captcha-generator\workspace\cache\materials
-```
-
-构建完成后，再导入生成器工作区：
-
-```powershell
-Set-Location D:\sinan-captcha-generator
 .\sinan-generator.exe materials import `
   --workspace D:\sinan-captcha-generator\workspace `
-  --from D:\materials-pack
+  --from D:\materials-pack-group1 `
+  --task group1
 ```
 
-### 5.5 怎么检查素材够不够
-
-当前生成器会先做结构校验，再决定能不能继续生成。
-
-程序最低标准是：
-
-- `manifests\classes.yaml` 存在且非空
-- `backgrounds\` 里至少有 1 张可正常解码的图片
-- `classes.yaml` 里每个类别对应的 `icons\<class_name>\` 目录至少有 1 张可正常解码的图片
-
-你在 `materials import` 或 `materials fetch` 成功后，会看到一段 JSON，里面至少有：
-
-- `class_count`
-- `background_count`
-- `icon_dir_count`
-
-工程建议，不是程序硬门槛：
-
-- 背景图尽量至少 `100` 张以上
-- 每个类别图标尽量至少 `3-5` 张变体
-- 如果只是验证流程，少量素材也能跑；如果准备做正式 firstpass 训练，素材越少，重复率越高
-
-### 5.6 怎么补齐或增加素材
-
-当前普通用户路径没有“在线增量补一张图”的命令。稳定做法是：
-
-1. 准备一份新的 `materials-pack/`
-2. 往 `backgrounds\` 增加背景图
-3. 往 `icons\<class_name>\` 增加图标
-4. 如果新增了类别，同时更新 `manifests\classes.yaml`
-5. 重新执行一次 `materials import`
-
-如果你想保留旧素材版本，不要覆盖原目录，建议新建一个新目录名，例如：
-
-- `D:\materials-pack-20260404`
-
-然后导入时显式命名：
+例如，只下载 `group2` 缺口形状 zip：
 
 ```powershell
-Set-Location D:\sinan-captcha-generator
-.\sinan-generator.exe materials import `
+.\sinan-generator.exe materials fetch `
   --workspace D:\sinan-captcha-generator\workspace `
-  --from D:\materials-pack-20260404 `
-  --name pack-20260404
+  --source D:\materials-pack-group2.zip `
+  --task group2 `
+  --name group2-pack-v1
 ```
 
-## 6. 直接生成训练数据集
+### 5.3 生成数据时自动拉取素材
+
+如果当前工作区还没有激活素材集，可以在 `make-dataset` 里直接传 `--materials-source`：
+
+```powershell
+.\sinan-generator.exe make-dataset `
+  --workspace D:\sinan-captcha-generator\workspace `
+  --task group1 `
+  --materials-source https://example.com/materials-pack.zip `
+  --dataset-dir D:\sinan-captcha-work\datasets\group1\firstpass
+```
+
+注意：
+
+- `--materials-source` 只在当前工作区还没有激活素材集时才会参与拉取。
+- 如果你想显式切换到某个已导入素材集，优先用 `--materials local/<name>` 或 `--materials official/<name>`。
+- 如果 `--materials-source` 指向的是单任务素材包，`make-dataset` 会按当前 `--task` 自动做 task-scoped 校验。
+
+## 6. 生成训练数据
 
 ### 6.1 生成 `group1`
 
@@ -283,7 +263,7 @@ Set-Location D:\sinan-captcha-generator
 .\sinan-generator.exe make-dataset `
   --workspace D:\sinan-captcha-generator\workspace `
   --task group1 `
-  --dataset-dir D:\sinan-captcha-work\datasets\group1\firstpass\yolo
+  --dataset-dir D:\sinan-captcha-work\datasets\group1\firstpass
 ```
 
 ### 6.2 生成 `group2`
@@ -295,241 +275,162 @@ Set-Location D:\sinan-captcha-generator
   --dataset-dir D:\sinan-captcha-work\datasets\group2\firstpass
 ```
 
-### 6.3 一次默认会生成多少条训练数据
+## 7. `make-dataset` 的参数都是什么意思
 
-当前公开生成器有三个预设：
+| 参数 | 必填 | 说明 |
+| --- | --- | --- |
+| `--workspace` | 否 | 工作区目录。不传时会落到默认工作区，例如 Windows 下的 `%LOCALAPPDATA%\SinanGenerator`。公开示例推荐总是显式传。 |
+| `--task` | 否 | 数据集任务类型，`group1` 或 `group2`，默认 `group1`。 |
+| `--preset` | 否 | 预设名，`smoke`、`firstpass`、`hard`。默认 `firstpass`。 |
+| `--dataset-dir` | 是 | 生成后的数据集目录。目录不存在时会创建。 |
+| `--materials` | 否 | 显式选择一个已经导入到工作区的素材集，格式是 `official/<name>` 或 `local/<name>`。 |
+| `--materials-source` | 否 | 当前工作区没有激活素材集时，用这个参数自动从本地目录、zip、`file://` URL 或 `http(s)://` URL 获取素材。 |
+| `--override-file` | 否 | JSON 覆盖文件，用来临时改样本数量、采样范围和视觉扰动。 |
+| `--force` | 否 | 如果你要覆盖已有的 `dataset-dir`，必须显式加这个参数。 |
+
+## 8. 什么时候用 `preset`，什么时候用 `override-file`
+
+### 8.1 用 `preset`
+
+当前内置：
 
 - `smoke`
-  - 每次生成 `20` 条
 - `firstpass`
-  - 每次生成 `200` 条
 - `hard`
-  - 每次生成 `200` 条
-  - 在不改变标签语义的前提下，增加更强的阴影、背景模糊和边缘软化
 
-如果你不显式传 `--preset`，默认就是：
+内置预设的实际文件名在工作区里是：
 
-- `firstpass`
+- `presets/smoke.yaml`
+- `presets/group1.firstpass.yaml`
+- `presets/group2.firstpass.yaml`
+- `presets/group1.hard.yaml`
+- `presets/group2.hard.yaml`
 
-所以这页里的默认命令，一次会生成：
+默认规模和难度：
 
-- `200` 条样本
+| 预设 | 内置样本数 | 适合场景 |
+| --- | --- | --- |
+| `smoke` | 20 | 验证命令、目录和训练链路是否能跑通。 |
+| `firstpass` | 200 | 第一轮正式训练数据。 |
+| `hard` | 200 | 样本量与 `firstpass` 接近，但会加更强的阴影、模糊和遮挡。 |
 
-如果你只是想先跑通流程，显式加上：
-
-```powershell
-.\sinan-generator.exe make-dataset `
-  --workspace D:\sinan-captcha-generator\workspace `
-  --task group1 `
-  --preset smoke `
-  --dataset-dir D:\sinan-captcha-work\datasets\group1\smoke\yolo
-```
-
-这时会只生成：
-
-- `20` 条样本
-
-### 6.4 如果要生成更多训练数据，应该怎么做
-
-当前普通用户 CLI 没有单独暴露 `--sample-count`，但现在多了两个稳定手段：
-
-1. 用内置 `hard` preset 提高样本难度
-2. 多跑几次，生成多个版本目录
-3. 高级用户在 `workspace\presets\` 里覆盖固定命名 preset
-
-例如直接切到 `hard`：
+例如：
 
 ```powershell
-Set-Location D:\sinan-captcha-generator
 .\sinan-generator.exe make-dataset `
   --workspace D:\sinan-captcha-generator\workspace `
   --task group1 `
   --preset hard `
-  --dataset-dir D:\sinan-captcha-work\datasets\group1\hard_v1\yolo
+  --dataset-dir D:\sinan-captcha-work\datasets\group1\hard_v1
 ```
 
-如果你确实要覆盖默认参数，生成器会按固定文件名自动优先读取：
+### 8.2 用 `override-file`
 
-- `workspace\presets\smoke.yaml`
-- `workspace\presets\group1.firstpass.yaml`
-- `workspace\presets\group1.hard.yaml`
-- `workspace\presets\group2.firstpass.yaml`
-- `workspace\presets\group2.hard.yaml`
+如果你要临时覆盖样本规模或难度，又不想改工作区里的 preset 文件，用 `--override-file`。
 
-规则是：
-
-- 找到对应文件就使用工作区版本
-- 找不到就回退到生成器内置 preset
-- 文件存在但格式错误时，命令会直接报错，不会静默忽略
-
-普通用户最稳的做法是多跑几次，但每次都输出到不同目录，例如：
-
-```powershell
-Set-Location D:\sinan-captcha-generator
-.\sinan-generator.exe make-dataset `
-  --workspace D:\sinan-captcha-generator\workspace `
-  --task group1 `
-  --dataset-dir D:\sinan-captcha-work\datasets\group1\firstpass_v2\yolo
-```
-
-再来一次：
+示例：
 
 ```powershell
 .\sinan-generator.exe make-dataset `
   --workspace D:\sinan-captcha-generator\workspace `
-  --task group1 `
-  --dataset-dir D:\sinan-captcha-work\datasets\group1\firstpass_v3\yolo
+  --task group2 `
+  --preset hard `
+  --override-file D:\study\trial_0002\generator_override.json `
+  --dataset-dir D:\sinan-captcha-work\datasets\group2\v2
 ```
 
-注意：
+一个最小 JSON 示例：
 
-- 当前公开用户路径是一条命令产出一个完整数据集目录
-- 如果你对同一个 `dataset-dir` 再跑一次，并带 `--force`，会覆盖原有生成内容，不会自动追加
-
-### 6.5 第一次生成好的训练数据，后面还能不能继续用
-
-可以。
-
-只要正式训练入口文件和对应资源还在：
-
-- `group1`：`dataset.yaml`、`images\`、`labels\`
-- `group2`：`dataset.json`、`master\`、`tile\`、`splits\`
-
-同一份训练数据可以反复用于：
-
-- `dry-run`
-- 冒烟训练
-- 正式训练
-- 不同超参数训练
-- 不同模型版本对比
-
-建议做法：
-
-- 生成好的数据集目录尽量视为只读版本
-- 训练时改训练运行名，不要改数据目录
-- 如果要生成新一轮数据，改数据版本目录名，而不是覆盖旧目录
-
-## 7. 生成成功后应看到什么
-
-每个数据集目录都至少应包含：
-
-- `group1`：`dataset.yaml`、`images/`、`labels/`、`.sinan/`
-- `group2`：`dataset.json`、`master/`、`tile/`、`splits/`、`.sinan/`
-
-其中：
-
-- `group1/dataset.yaml`
-  - 是第一组训练 CLI 的正式入口
-- `group2/dataset.json`
-  - 是第二组 paired-input 训练 CLI 的正式入口
-- `group2/master/`、`group2/tile/`、`group2/splits/`
-  - 共同组成第二组双输入样本
-- `.sinan/`
-  - 保留 raw、manifest、job 等审计线索
-
-## 8. 下一步怎样开始训练
-
-### 8.1 先做 `dry-run`
-
-`group1`：
-
-```powershell
-Set-Location D:\sinan-captcha-work
-uv run sinan train group1 `
-  --dataset-version firstpass `
-  --name firstpass `
-  --dry-run
+```json
+{
+  "project": {
+    "sample_count": 320
+  },
+  "sampling": {
+    "target_count_min": 3,
+    "target_count_max": 5,
+    "distractor_count_min": 5,
+    "distractor_count_max": 8
+  },
+  "effects": {
+    "common": {
+      "scene_veil_strength": 1.45,
+      "background_blur_radius_min": 1,
+      "background_blur_radius_max": 2
+    },
+    "click": {
+      "icon_shadow_alpha_min": 0.28,
+      "icon_shadow_alpha_max": 0.36,
+      "icon_shadow_offset_x_min": 2,
+      "icon_shadow_offset_x_max": 3,
+      "icon_shadow_offset_y_min": 3,
+      "icon_shadow_offset_y_max": 4,
+      "icon_edge_blur_radius_min": 1,
+      "icon_edge_blur_radius_max": 2
+    }
+  }
+}
 ```
 
-`group2`：
+字段说明：
 
-```powershell
-Set-Location D:\sinan-captcha-work
-uv run sinan train group2 `
-  --dataset-version firstpass `
-  --name firstpass `
-  --dry-run
-```
+| 字段 | 说明 |
+| --- | --- |
+| `project.sample_count` | 这次要生成多少条样本。 |
+| `sampling.target_count_min/max` | `group1` 每张场景图最少/最多放多少个目标图标。 |
+| `sampling.distractor_count_min/max` | `group1` 每张场景图最少/最多放多少个干扰图标。 |
+| `effects.common.scene_veil_strength` | 场景遮罩强度，值越大越容易遮挡背景细节。 |
+| `effects.common.background_blur_radius_min/max` | 背景模糊半径的随机范围。 |
+| `effects.click.icon_shadow_alpha_min/max` | `group1` 图标阴影透明度范围。 |
+| `effects.click.icon_shadow_offset_x/y_min/max` | `group1` 图标阴影偏移范围。 |
+| `effects.click.icon_edge_blur_radius_min/max` | `group1` 图标边缘模糊范围。 |
+| `effects.slide.gap_shadow_alpha_min/max` | `group2` 缺口阴影透明度范围。 |
+| `effects.slide.gap_shadow_offset_x/y_min/max` | `group2` 缺口阴影偏移范围。 |
+| `effects.slide.tile_edge_blur_radius_min/max` | `group2` 拼图块边缘模糊范围。 |
 
-### 8.2 再做冒烟训练
+说明：
 
-`group1`：
+- 所有 `*_min` / `*_max` 字段表示随机采样区间，不是固定值。
+- `sampling.*` 主要影响 `group1`。
+- `effects.click.*` 只影响 `group1`。
+- `effects.slide.*` 只影响 `group2`。
+- 覆盖文件只接受已知字段，写错字段名会直接报错。
+- 传了 `--override-file` 后，最终生效配置会额外写到 `<dataset-dir>\.sinan\effective-config.yaml`，方便你复盘。
 
-```powershell
-uv run sinan train group1 `
-  --dataset-version firstpass `
-  --name smoke `
-  --epochs 1 `
-  --batch 8
-```
+## 9. 生成完成后检查什么
 
-`group2`：
+### `group1`
 
-```powershell
-uv run sinan train group2 `
-  --dataset-version firstpass `
-  --name smoke `
-  --epochs 1 `
-  --batch 8
-```
+至少应有：
 
-### 8.3 第一次训练完成后，怎么看训练效果
+- `dataset.json`
+- `scene-yolo/`
+- `query-yolo/`
+- `splits/`
+- `.sinan/raw/`
+- `.sinan/manifest.json`
+- `.sinan/job.json`
 
-先看最基本的 3 件事：
+### `group2`
 
-- 训练目录里有没有 `weights\best.pt`
-- 训练目录里有没有 `results.csv`
-- `uv run yolo detect predict` 能不能在验证集图片上跑出合理检测框
+至少应有：
 
-完整检查方式继续读：
+- `dataset.json`
+- `master/`
+- `tile/`
+- `splits/`
+- `.sinan/raw/`
+- `.sinan/manifest.json`
+- `.sinan/job.json`
 
-- [训练完成后的模型使用与测试](./use-and-test-trained-models.md)
+如果你重跑同一个目录，需要显式加 `--force`；否则应该改用新的版本目录，例如 `firstpass_v2`、`hard_r0002`。
 
-## 9. 最容易踩的坑
+## 10. 下一步
 
-### 9.1 生成器安装目录和生成器工作区混了
+数据准备完后，继续读：
 
-表现：
+- [训练者角色：使用训练器完成训练、测试与评估](./from-base-model-to-training-guide.md)
 
-- 命令能执行，但素材、任务记录、日志落在你意料之外的目录
+如果你准备让控制器自己调数据和开训，继续读：
 
-处理：
-
-- 所有生成器命令统一显式带上：
-  - `--workspace D:\sinan-captcha-generator\workspace`
-
-### 9.2 训练目录里缺少正式数据集入口文件
-
-表现：
-
-- `uv run sinan train ...` 一启动就报路径错误
-
-处理：
-
-- 回到 `make-dataset` 步骤，重新确认 `--dataset-dir`
-
-### 9.3 素材包导入失败
-
-常见原因：
-
-- 素材目录结构不完整
-- 图像损坏
-- `classes.yaml` 和图标目录不一致
-
-### 9.4 没有现成 `materials-pack/` 或 `materials-pack.zip`
-
-处理：
-
-- 当前普通用户链路不建议在训练机上从规格文件临时构建素材包
-- 直接向交付方要 `materials-pack/`、`materials-pack.zip` 或可访问的下载地址
-- 然后改走 `materials import` 或 `materials fetch`
-
-## 10. 这页完成标志
-
-如果你已经做到下面 5 件事，就说明“本地生成训练数据”这条链路跑通了：
-
-1. 初始化了显式生成器工作区
-2. 至少导入或抓取过一次素材包
-3. 成功生成了 `group1` 或 `group2` 的正式训练数据集目录
-4. `group1` 目录里有 `dataset.yaml`，或 `group2` 目录里有 `dataset.json`
-5. 训练 CLI 能对这个数据集执行 `dry-run`
+- [训练者角色：使用自动化训练](./auto-train-on-training-machine.md)

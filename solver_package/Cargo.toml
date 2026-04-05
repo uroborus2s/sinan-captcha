@@ -1,0 +1,10 @@
+[workspace]
+members = ["native/sinanz_ext"]
+resolver = "2"
+
+[workspace.metadata.sinanz]
+python_package = "sinanz"
+native_module = "sinanz_ext"
+bridge_module = "sinanz.native_bridge"
+runtime_target = "rust-onnxruntime"
+future_features = ["python-extension", "onnx-runtime"]

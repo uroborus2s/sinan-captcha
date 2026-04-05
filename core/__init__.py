@@ -2,4 +2,4 @@
 
 __all__ = ["__version__"]
 
-__version__ = "0.1.13"
+from core._version import VERSION as __version__
