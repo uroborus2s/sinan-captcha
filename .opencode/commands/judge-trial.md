@@ -21,7 +21,7 @@ Optional attached files:
 
 Task:
 
-1. Load the local `training-judge` skill using the `skill` tool with exact name `training-judge`.
+1. Use the inlined local `training-judge` guidance included below.
 2. Read the current trial summary and study budget context.
 3. Decide the next action using only the allowed action set:
    - `RETUNE`

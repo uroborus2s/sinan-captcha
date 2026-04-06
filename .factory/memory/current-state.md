@@ -17,6 +17,38 @@
 
 ## 当前事实
 
+- 2026-04-06 已发布 Python 训练 CLI 包 `sinan-captcha==0.1.19` 到 PyPI：
+  - 当前包含 OpenCode headless `tool-calls` 防线修复
+  - 当前包含 `group2 + train_mode=fresh` 默认模型从 `yolo26n.pt` 修正为 `paired_cnn_v1`
+  - 当前训练者文档已补齐 `group2` 的 `fresh / resume / from_run` 使用场景
+  - 当前 `auto-train` 训练机文档已补齐 `group2` 业务门与推荐 study 启动命令
+  - 当前已确认 `uv run sinan release build --project-dir .` 成功
+  - 当前已修复 `release publish` 会误上传 `dist/` 中历史版本工件的问题，发布器现在只上传当前版本的 wheel 与 sdist
+  - 当前已确认 `uv run sinan release publish --project-dir . --token-env UV_PUBLISH_TOKEN` 成功上传 `0.1.19`
+  - 当前已确认 `uvx --no-config --refresh --default-index https://pypi.org/simple --python 3.12 --from sinan-captcha==0.1.19 sinan --help` 可成功解析安装
+- 2026-04-06 已修复 `auto-train` 在 `group2 + train_mode=fresh` 时错误回落到 `yolo26n.pt` 的问题：
+  - `core/auto_train/runners/train.py` 当前会按任务分配 fresh 默认模型
+  - `group1` 当前仍默认 `yolo26n.pt`
+  - `group2` 当前已改回 `paired_cnn_v1`
+  - 这修复了训练机上 `group2` first run 报“未找到 group2 检查点：yolo26n.pt”的问题
+  - `docs/02-user-guide/from-base-model-to-training-guide.md` 当前已补齐 `group2` 的 `fresh / resume / from_run` 三种模式说明
+  - `docs/02-user-guide/auto-train-on-training-machine.md` 当前已补齐 `group2` 自动训练达到业务门的推荐命令
+  - 当前已验证：
+    - `uv run python -m unittest tests/python/test_auto_train_runners.py`
+    - `uv run python -m unittest tests/python/test_training_jobs.py tests/python/test_auto_train_optimize.py`
+- 2026-04-06 已发布 Python 训练 CLI 包 `sinan-captcha==0.1.18` 到 PyPI，修复训练机上 OpenCode headless 命令停在 `tool-calls`、不返回最终 JSON 的链路：
+  - 当前已确认 `0.1.17` 只覆盖了 attach 空 stdout 重试，没有覆盖“stdout 非空但只包含 `tool_use` / `step_finish(reason=tool-calls)`”的情况
+  - `core/auto_train/opencode_commands.py` 当前会把 `result-reader`、`training-judge`、`dataset-planner`、`study-archivist` 的 skill 指南直接内联进 headless prompt
+  - `.opencode/commands/*.md` 与 `core/auto_train/resources/opencode/commands/*.md` 当前已不再要求 headless command 先调用 `skill` 工具
+  - `core/auto_train/opencode_runtime.py` 当前会把 `step_finish(reason=\"tool-calls\")` 且没有最终 JSON 的返回识别为 `opencode_incomplete_tool_calls`
+  - 当前已确认 `uv build` 成功构建 `sinan_captcha-0.1.18.tar.gz` 与 `sinan_captcha-0.1.18-py3-none-any.whl`
+  - 当前已确认 `uv publish` 成功上传这两个发行件到 PyPI
+  - 当前已确认 `uvx --no-config --refresh --default-index https://pypi.org/simple --python 3.12 --from sinan-captcha==0.1.18 sinan --help` 可成功解析安装
+  - 当前已用真实 OpenCode 外沙箱 E2E 验证：
+    - `plan-dataset` 在 `opencode/qwen3.6-plus-free` 下返回 `reason=stop`、无 `tool_use`，并成功提取 `dataset_plan.json`
+    - `result-read` 在 `opencode/qwen3.6-plus-free` 下返回 `reason=stop`、无 `tool_use`，并成功提取 `result_summary.json`
+  - 当前相关回归已通过 `40` 个测试
+  - 训练机下一步应升级到 `sinan-captcha==0.1.18`
 - 2026-04-06 已发布 Python 训练 CLI 包 `sinan-captcha==0.1.17` 到 PyPI：
   - 当前包含训练机上 OpenCode attach 成功退出但 stdout 为空时的本地直连重试防线
   - `opencode_runtime` 当前只会对本机 `127.0.0.1` / `localhost` attach 地址启用这条降级重试，不会误伤远程 attach

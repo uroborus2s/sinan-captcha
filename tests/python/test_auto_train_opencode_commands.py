@@ -32,7 +32,10 @@ class AutoTrainOpenCodeCommandsTests(unittest.TestCase):
                 "Judge $1 $2 $3 and return only JSON.",
                 encoding="utf-8",
             )
-            (skill_dir / "SKILL.md").write_text("Use training judge skill.", encoding="utf-8")
+            (skill_dir / "SKILL.md").write_text(
+                "---\nname: training-judge\n---\n\nUse training judge skill.\nReturn JSON only.",
+                encoding="utf-8",
+            )
             first = root / "one.json"
             second = root / "two.json"
             first.write_text("{}", encoding="utf-8")
@@ -52,10 +55,13 @@ class AutoTrainOpenCodeCommandsTests(unittest.TestCase):
             self.assertNotIn("--file", command)
             self.assertEqual(command[-2], "--")
             self.assertIn("Judge study_001 group1 trial_0004 and return only JSON.", command[-1])
+            self.assertIn("Local skill guidance (`training-judge`", command[-1])
+            self.assertIn("Use training judge skill.", command[-1])
+            self.assertIn("Return JSON only.", command[-1])
             self.assertIn("Tool usage constraints:", command[-1])
-            self.assertIn("call the `skill` tool with exact name `training-judge`", command[-1])
+            self.assertIn("Do not call the `skill` tool.", command[-1])
             self.assertIn("do not call any file, search, or glob tools", command[-1])
-            self.assertNotIn("or skill tools", command[-1])
+            self.assertNotIn("call the `skill` tool with exact name `training-judge`", command[-1])
             self.assertIn("--- Begin file:", command[-1])
             self.assertIn(str(first), command[-1])
             self.assertIn(str(second), command[-1])
@@ -72,6 +78,7 @@ class AutoTrainOpenCodeCommandsTests(unittest.TestCase):
             self.assertIn("agent: build", text)
             self.assertNotIn("subtask: true", text)
             self.assertIn("Return only one JSON object", text)
+            self.assertNotIn("using the `skill` tool", text)
             for argument_name in spec.message_arguments:
                 self.assertIn(argument_name, text)
             for file_name in spec.required_files:

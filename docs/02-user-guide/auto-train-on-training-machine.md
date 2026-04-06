@@ -141,6 +141,63 @@ uv run sinan auto-train run group2 `
 - `--max-hours 2`
 - `--max-new-datasets 1`
 
+### 5.3 如何让 `group2` 朝“满足业务要求”自动收敛
+
+当前版本里，`auto-train` 对 `group2` 的默认晋级门是：
+
+- `point_hit_rate >= 0.93`
+- `mean_iou >= 0.85`
+- `mean_center_error_px <= 8.0`
+
+也就是说，当前系统里的“满足业务要求”默认等价于上面这组阈值。
+
+如果你只是第一次在训练机上跑通 `group2` 自动训练，先用：
+
+```powershell
+uv run sinan auto-train run group2 `
+  --study-name study_group2_rules `
+  --train-root D:\sinan-captcha-work `
+  --generator-workspace D:\sinan-captcha-generator\workspace `
+  --generator-executable D:\sinan-captcha-generator\sinan-generator.exe `
+  --dataset-version firstpass `
+  --judge-provider rules `
+  --max-steps 20 `
+  --max-trials 20 `
+  --max-hours 12 `
+  --max-no-improve-trials 4 `
+  --max-new-datasets 2
+```
+
+这条命令的推荐含义是：
+
+- 先用 `fresh` 起步，默认模型会自动使用 `paired_cnn_v1`
+- 如果判定结果要求继续调参，控制器会在后续 trial 自动切到 `from_run` 或 `resume`
+- 如果失败模式显示数据契约有问题，控制器会触发 `REGENERATE_DATA`
+- 当指标达到当前晋级门，或预算耗尽、连续无提升达到上限时，study 会停止
+
+如果你已经跑通 `rules`，并且要让 OpenCode 参与摘要、判定和数据规划，再切到：
+
+```powershell
+uv run sinan auto-train run group2 `
+  --study-name study_group2_llm `
+  --train-root D:\sinan-captcha-work `
+  --generator-workspace D:\sinan-captcha-generator\workspace `
+  --generator-executable D:\sinan-captcha-generator\sinan-generator.exe `
+  --dataset-version firstpass `
+  --judge-provider opencode `
+  --judge-model gemma4 `
+  --opencode-attach-url http://127.0.0.1:4096 `
+  --max-steps 20 `
+  --max-trials 20 `
+  --max-hours 12 `
+  --max-no-improve-trials 4 `
+  --max-new-datasets 2
+```
+
+如果你的真实业务阈值不是上面这组默认值，就不要直接开跑。先把 `group2` 的策略门改成你的业务门，再启动 study：
+
+- `core/auto_train/policies.py`
+
 ## 6. `opencode` 路线怎么搭
 
 这条路线会让控制器自动和大模型交互，但前提是你先把 `rules` 路线跑通。
@@ -294,10 +351,20 @@ opencode run `
   - 说明 OpenCode 和模型后端大概率已经连通，后续问题更可能在 `auto-train` 传参、文件路径或工件状态上
 - 返回连接错误、超时或空输出：
   - 优先排查 `opencode serve` 是否还在运行、`--attach` 地址是否正确、模型后端是否可用
+- stdout 以 `step_finish(reason="tool-calls")` 结束，且没有最终 JSON：
+  - 说明这次 headless 调用停在了工具回合，没有真正产出最终对象
+  - 优先升级到 `sinan-captcha==0.1.20` 或更高版本，再重新执行 `env setup-train`
+  - 新版本会把 skill 指南直接内联到 prompt，不再要求 headless command 先调用 `skill` 工具
+- stdout 只有 `step_start` 之类的起始 event，没有最终 JSON：
+  - 说明这次 attach 调用返回了不完整事件流
+  - 优先升级到 `sinan-captcha==0.1.20` 或更高版本，再重新执行 `env setup-train`
+  - 新版本会把这类返回识别成 `opencode_incomplete_event_stream`，并在本机 attach 场景下自动做一次本地直连重试
 - 返回 “File not found”：
   - 优先排查 trace 里引用的 study 目录、trial 目录和训练根目录是否一致
 
 当前版本的控制器在 `--attach` 成功退出但 `stdout` 为空时，会自动再走一次不带 `--attach` 的本地直连重试，避免这类空输出直接让整轮 `auto-train` 退回本地 fallback。
+
+当前版本的控制器还会把 `step_finish(reason="tool-calls")` 这种“只完成工具调用、没有最终 JSON”的事件流识别成 `opencode_incomplete_tool_calls`，不再把它记成普通成功返回。
 
 如果你已经启用最新版本的 `auto-train`，控制器也会把每次发给 OpenCode 的内容和 OpenCode 返回的原始内容写到：
 

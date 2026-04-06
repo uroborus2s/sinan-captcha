@@ -1,5 +1,78 @@
 # 变更摘要
 
+## 2026-04-06 发布 `sinan-captcha==0.1.19`
+
+- 已更新：
+  - `core/_version.py`
+  - `core/release/service.py`
+  - `docs/02-user-guide/auto-train-on-training-machine.md`
+  - `tests/python/test_release_service.py`
+  - `.factory/memory/current-state.md`
+  - `.factory/memory/change-summary.md`
+- 当前已完成的目标：
+  - 已把 Python 包版本提升到 `0.1.19`
+  - 已把训练机文档中的推荐升级版本同步到 `0.1.19`
+  - 已修复 `release publish` 会误上传 `dist/` 中历史版本工件的问题
+  - 发布器当前只上传当前版本的 `wheel + sdist`
+- 已运行验证：
+  - `uv run python -m unittest tests.python.test_release_service tests.python.test_setup_train tests.python.test_auto_train_opencode_commands tests.python.test_auto_train_opencode_runtime tests.python.test_auto_train_json_extract tests.python.test_auto_train_controller tests.python.test_auto_train_runners tests.python.test_training_jobs tests.python.test_auto_train_optimize`
+  - `uv run sinan release build --project-dir .`
+  - `uv run sinan release publish --project-dir . --token-env UV_PUBLISH_TOKEN`
+  - `uvx --no-config --refresh --default-index https://pypi.org/simple --python 3.12 --from sinan-captcha==0.1.19 sinan --help`
+
+## 2026-04-06 修复 `auto-train` 将 `group2` fresh 误解析为 `yolo26n.pt`
+
+- 已更新：
+  - `core/auto_train/runners/train.py`
+  - `tests/python/test_auto_train_runners.py`
+  - `docs/02-user-guide/from-base-model-to-training-guide.md`
+  - `docs/02-user-guide/auto-train-on-training-machine.md`
+  - `.factory/memory/current-state.md`
+  - `.factory/memory/change-summary.md`
+- 当前已完成的目标：
+  - 已把 `auto-train` 的 fresh 默认模型改成按任务分流
+  - `group1` 当前继续使用 `yolo26n.pt`
+  - `group2` 当前改为使用 `paired_cnn_v1`
+  - 已补上 `group2 fresh` 回归测试，避免再次把 YOLO 权重误传给 `group2`
+  - 已把 `group2` 的 `fresh / resume / from_run` 模式语义和自动训练业务门示例补进训练者文档
+- 已运行验证：
+  - `uv run python -m unittest tests/python/test_auto_train_runners.py`
+  - `uv run python -m unittest tests/python/test_training_jobs.py tests/python/test_auto_train_optimize.py`
+
+## 2026-04-06 发布 `sinan-captcha==0.1.18`，修复 OpenCode headless 停在 `tool-calls` 不返回最终 JSON
+
+- 已更新：
+  - `core/_version.py`
+  - `core/auto_train/opencode_commands.py`
+  - `core/auto_train/opencode_runtime.py`
+  - `.opencode/commands/result-read.md`
+  - `.opencode/commands/judge-trial.md`
+  - `.opencode/commands/plan-dataset.md`
+  - `.opencode/commands/study-status.md`
+  - `core/auto_train/resources/opencode/commands/result-read.md`
+  - `core/auto_train/resources/opencode/commands/judge-trial.md`
+  - `core/auto_train/resources/opencode/commands/plan-dataset.md`
+  - `core/auto_train/resources/opencode/commands/study-status.md`
+  - `tests/python/test_auto_train_opencode_commands.py`
+  - `tests/python/test_auto_train_opencode_runtime.py`
+  - `docs/02-user-guide/auto-train-on-training-machine.md`
+  - `.factory/memory/current-state.md`
+  - `.factory/memory/change-summary.md`
+- 当前已完成的目标：
+  - 已确认用户最新 trace 不是空 stdout，而是 `stdout` 只包含 `tool_use` 和 `step_finish(reason=tool-calls)`
+  - headless OpenCode prompt 当前会直接内联 skill 指南，不再要求模型先调用 `skill` 工具
+  - 运行时当前会把这类只停在工具回合的返回明确标记成 `opencode_incomplete_tool_calls`
+  - 训练机排障文档当前已补充 `tool-calls` 作为单独故障特征
+- 已运行验证：
+  - `uv run python -m unittest tests.python.test_auto_train_opencode_commands.AutoTrainOpenCodeCommandsTests.test_headless_invocation_inlines_files_into_prompt tests.python.test_auto_train_opencode_runtime.AutoTrainOpenCodeRuntimeTests.test_runtime_raises_when_opencode_finishes_at_tool_calls`
+  - `uv run python -m unittest tests.python.test_auto_train_opencode_commands tests.python.test_auto_train_opencode_runtime tests.python.test_auto_train_json_extract tests.python.test_auto_train_controller`
+  - 外沙箱实测 `opencode run --format json --model opencode/qwen3.6-plus-free -- '{"ok":true}'`
+  - 外沙箱实测 `plan-dataset` 新 prompt：`reason=stop`、`contains_tool_use=false`、成功提取 `dataset_action`
+  - 外沙箱实测 `result-read` 新 prompt：`reason=stop`、`contains_tool_use=false`、成功提取 `study_name/task/trial_id`
+  - `uv build`
+  - `uv publish --publish-url https://upload.pypi.org/legacy/ --check-url https://pypi.org/simple dist/sinan_captcha-0.1.18-py3-none-any.whl dist/sinan_captcha-0.1.18.tar.gz`
+  - `uvx --no-config --refresh --default-index https://pypi.org/simple --python 3.12 --from sinan-captcha==0.1.18 sinan --help`
+
 ## 2026-04-06 发布 `sinan-captcha==0.1.17`，补上 OpenCode attach 空 stdout 的本地重试防线
 
 - 已更新：

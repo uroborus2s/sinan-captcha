@@ -6,6 +6,8 @@ from collections import OrderedDict
 from dataclasses import dataclass
 from pathlib import Path
 
+from core.auto_train import opencode_skills
+
 INLINE_FILE_PREVIEW_LIMIT = 40_000
 
 
@@ -96,6 +98,27 @@ def _render_arguments(template: str, arguments: list[str]) -> str:
     return rendered
 
 
+def _read_markdown_body(path: Path) -> str:
+    return _strip_frontmatter(path.read_text(encoding="utf-8"))
+
+
+def _render_skill_section(project_root: Path, skill_name: str) -> str:
+    skill_path = opencode_skills.skill_registry()[skill_name].markdown_path(project_root)
+    try:
+        skill_body = _read_markdown_body(skill_path)
+    except UnicodeDecodeError as exc:
+        skill_body = f"[skill_read_error: unicode_decode_error: {exc}]"
+    except OSError as exc:
+        skill_body = f"[skill_read_error: os_error: {exc}]"
+    return "\n".join(
+        [
+            f"Local skill guidance (`{skill_name}`, already loaded below; do not call the `skill` tool):",
+            "",
+            skill_body,
+        ]
+    )
+
+
 def render_prompt(
     name: str,
     *,
@@ -105,22 +128,22 @@ def render_prompt(
 ) -> str:
     spec = get_command_spec(name)
     command_path = spec.markdown_path(project_root)
-    command_text = command_path.read_text(encoding="utf-8")
-    command_body = _render_arguments(_strip_frontmatter(command_text), arguments)
+    command_body = _render_arguments(_read_markdown_body(command_path), arguments)
 
     sections = [command_body]
     if spec.skill_name is not None:
-        sections.append(
-            "\n".join(
-                [
-                    "Tool usage constraints:",
-                    f"- If you need local guidance, call the `skill` tool with exact name `{spec.skill_name}`.",
-                    "- Do not call `glob_search`; that tool does not exist in this environment.",
-                    "- Do not call bash, read, glob, grep, edit, write, task, webfetch, or todowrite unless the prompt explicitly requires them.",
-                    "- All required input files are already inlined below, so file/search tools are unnecessary.",
-                ]
-            )
+        sections.append(_render_skill_section(project_root, spec.skill_name))
+    sections.append(
+        "\n".join(
+            [
+                "Tool usage constraints:",
+                "- Do not call the `skill` tool. Relevant local skill guidance is already inlined below.",
+                "- Do not call `glob_search`; that tool does not exist in this environment.",
+                "- Do not call bash, read, glob, grep, edit, write, task, webfetch, or todowrite unless the prompt explicitly requires them.",
+                "- All required input files are already inlined below, so file/search tools are unnecessary.",
+            ]
         )
+    )
     if files:
         file_sections: list[str] = [
             "Inline file contents (already loaded below; do not call any file, search, or glob tools):"
@@ -134,7 +157,7 @@ def render_prompt(
                 f"Final output contract: return exactly one JSON object for {spec.output_artifact}.",
                 "Do not emit markdown fences.",
                 "Do not emit any prose before or after the JSON object.",
-                "Prefer a single `skill` tool call only when needed, then return one final JSON object.",
+                "Do not call tools before returning the final JSON object.",
             ]
         )
     )

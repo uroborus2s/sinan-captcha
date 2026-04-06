@@ -43,6 +43,12 @@ uv run sinan train group2 `
   --name firstpass
 ```
 
+这里有一个关键边界：
+
+- `group2` 的 fresh 训练默认不是加载 `yolo26n.pt`
+- `group2` 默认会使用内置架构名 `paired_cnn_v1`
+- 这表示按 `PairedGapLocator` 架构从头开始训练第一版模型
+
 ## 4. 续训方式
 
 ### 4.1 从当前训练继续
@@ -58,6 +64,50 @@ uv run sinan train group2 --name firstpass --resume
 uv run sinan train group1 --dataset-version firstpass_v2 --name round2 --from-run firstpass
 uv run sinan train group2 --dataset-version firstpass_v2 --name round2 --from-run firstpass
 ```
+
+### 4.3 `group2` 三种模式怎么选
+
+- `fresh`
+  - 场景：第一次训 `group2`，或者你想完全重新开一轮
+  - 命令：
+
+```powershell
+uv run sinan train group2 `
+  --dataset-version firstpass `
+  --name firstpass
+```
+
+  - 实际含义：默认使用 `paired_cnn_v1`，从头训练
+
+- `resume`
+  - 场景：同一个 run 中断后继续
+  - 命令：
+
+```powershell
+uv run sinan train group2 `
+  --name firstpass `
+  --resume
+```
+
+  - 实际含义：自动续接 `runs/group2/firstpass/weights/last.pt`
+
+- `from_run`
+  - 场景：上一轮已经有较好的 `best.pt`，想开新 run 继续优化
+  - 命令：
+
+```powershell
+uv run sinan train group2 `
+  --dataset-version firstpass_v2 `
+  --name round2 `
+  --from-run firstpass
+```
+
+  - 实际含义：自动把 `runs/group2/firstpass/weights/best.pt` 作为起点
+
+不要把 `group1` 用的 `yolo26n.pt` 传给 `group2`。`group2` 只接受：
+
+- 架构名 `paired_cnn_v1`
+- 或者 `group2` 自己训练产出的 checkpoint `.pt`
 
 ## 5. 预测、测试与评估
 

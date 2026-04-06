@@ -24,7 +24,7 @@ Optional attached files:
 
 Task:
 
-0. Load the local `result-reader` skill using the `skill` tool with exact name `result-reader`.
+0. Use the inlined local `result-reader` guidance included below.
 1. Read only the attached files.
 2. Compress the current trial into the final contents of `result_summary.json`.
 3. Echo `study_name`, `task`, `trial_id`, `dataset_version`, `train_name`, and `primary_metric` exactly from the arguments above.

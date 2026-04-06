@@ -404,6 +404,214 @@ class AutoTrainOpenCodeRuntimeTests(unittest.TestCase):
             self.assertEqual(str(ctx.exception), "opencode_empty_stdout")
             self.assertEqual(len(seen_commands), 1)
 
+    def test_runtime_raises_when_opencode_finishes_at_tool_calls(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            root = Path(tmpdir)
+            command_dir = root / ".opencode" / "commands"
+            skill_dir = root / ".opencode" / "skills" / "training-judge"
+            command_dir.mkdir(parents=True, exist_ok=True)
+            skill_dir.mkdir(parents=True, exist_ok=True)
+            (command_dir / "judge-trial.md").write_text("judge prompt body", encoding="utf-8")
+            (skill_dir / "SKILL.md").write_text("training judge skill body", encoding="utf-8")
+            attached = root / "result_summary.json"
+            attached.write_text("{}", encoding="utf-8")
+            traces: list[opencode_runtime.OpenCodeTraceRecord] = []
+
+            tool_only_stdout = "\n".join(
+                [
+                    '{"type":"step_start","part":{"type":"step-start"}}',
+                    '{"type":"tool_use","part":{"type":"tool","tool":"skill","state":{"status":"completed","input":{"name":"training-judge"},"output":"skill body"}}}',
+                    '{"type":"step_finish","part":{"type":"step-finish","reason":"tool-calls"}}',
+                ]
+            )
+
+            def fake_runner(command: list[str], *, cwd: Path, timeout_seconds: float) -> opencode_runtime.OpenCodeInvocationResult:
+                return opencode_runtime.OpenCodeInvocationResult(
+                    stdout=tool_only_stdout,
+                    stderr="",
+                    command=tuple(command),
+                    returncode=0,
+                )
+
+            runtime = opencode_runtime.OpenCodeRuntimeAdapter(
+                config=opencode_runtime.OpenCodeRuntimeConfig(project_root=root, trace_sink=traces.append),
+                runner=fake_runner,
+            )
+
+            with self.assertRaises(opencode_runtime.OpenCodeRuntimeError) as ctx:
+                runtime.judge_trial(
+                    study_name="study_001",
+                    task="group1",
+                    trial_id="trial_0004",
+                    files=[attached],
+                )
+
+            self.assertEqual(str(ctx.exception), "opencode_incomplete_tool_calls")
+            self.assertEqual(len(traces), 1)
+            self.assertFalse(traces[0].success)
+            self.assertEqual(traces[0].error_message, "opencode_incomplete_tool_calls")
+
+    def test_runtime_retries_without_attach_when_local_attach_finishes_at_tool_calls(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            root = Path(tmpdir)
+            command_dir = root / ".opencode" / "commands"
+            skill_dir = root / ".opencode" / "skills" / "training-judge"
+            command_dir.mkdir(parents=True, exist_ok=True)
+            skill_dir.mkdir(parents=True, exist_ok=True)
+            (command_dir / "judge-trial.md").write_text("judge prompt body", encoding="utf-8")
+            (skill_dir / "SKILL.md").write_text("training judge skill body", encoding="utf-8")
+            attached = root / "result_summary.json"
+            attached.write_text("{}", encoding="utf-8")
+            traces: list[opencode_runtime.OpenCodeTraceRecord] = []
+            seen_commands: list[list[str]] = []
+
+            tool_only_stdout = "\n".join(
+                [
+                    '{"type":"step_start","part":{"type":"step-start"}}',
+                    '{"type":"tool_use","part":{"type":"tool","tool":"skill","state":{"status":"completed","output":"skill body"}}}',
+                    '{"type":"step_finish","part":{"type":"step-finish","reason":"tool-calls"}}',
+                ]
+            )
+
+            def fake_runner(command: list[str], *, cwd: Path, timeout_seconds: float) -> opencode_runtime.OpenCodeInvocationResult:
+                seen_commands.append(command)
+                if len(seen_commands) == 1:
+                    self.assertIn("--attach", command)
+                    return opencode_runtime.OpenCodeInvocationResult(
+                        stdout=tool_only_stdout,
+                        stderr="",
+                        command=tuple(command),
+                        returncode=0,
+                    )
+                self.assertNotIn("--attach", command)
+                return opencode_runtime.OpenCodeInvocationResult(
+                    stdout='{"decision":"RETUNE"}',
+                    stderr="",
+                    command=tuple(command),
+                    returncode=0,
+                )
+
+            runtime = opencode_runtime.OpenCodeRuntimeAdapter(
+                config=opencode_runtime.OpenCodeRuntimeConfig(
+                    project_root=root,
+                    attach_url="http://127.0.0.1:4096",
+                    trace_sink=traces.append,
+                ),
+                runner=fake_runner,
+            )
+
+            result = runtime.judge_trial(
+                study_name="study_001",
+                task="group1",
+                trial_id="trial_0004",
+                files=[attached],
+            )
+
+            self.assertEqual(result.stdout, '{"decision":"RETUNE"}')
+            self.assertEqual(len(seen_commands), 2)
+            self.assertEqual(len(traces), 2)
+            self.assertFalse(traces[0].success)
+            self.assertEqual(traces[0].error_message, "opencode_incomplete_tool_calls")
+            self.assertEqual(traces[0].attach_url, "http://127.0.0.1:4096")
+            self.assertTrue(traces[1].success)
+            self.assertIsNone(traces[1].attach_url)
+
+    def test_runtime_raises_when_opencode_event_stream_has_no_terminal_output(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            root = Path(tmpdir)
+            command_dir = root / ".opencode" / "commands"
+            skill_dir = root / ".opencode" / "skills" / "training-judge"
+            command_dir.mkdir(parents=True, exist_ok=True)
+            skill_dir.mkdir(parents=True, exist_ok=True)
+            (command_dir / "judge-trial.md").write_text("judge prompt body", encoding="utf-8")
+            (skill_dir / "SKILL.md").write_text("training judge skill body", encoding="utf-8")
+            attached = root / "result_summary.json"
+            attached.write_text("{}", encoding="utf-8")
+            traces: list[opencode_runtime.OpenCodeTraceRecord] = []
+
+            def fake_runner(command: list[str], *, cwd: Path, timeout_seconds: float) -> opencode_runtime.OpenCodeInvocationResult:
+                return opencode_runtime.OpenCodeInvocationResult(
+                    stdout='{"type":"step_start","part":{"type":"step-start"}}\n',
+                    stderr="",
+                    command=tuple(command),
+                    returncode=0,
+                )
+
+            runtime = opencode_runtime.OpenCodeRuntimeAdapter(
+                config=opencode_runtime.OpenCodeRuntimeConfig(project_root=root, trace_sink=traces.append),
+                runner=fake_runner,
+            )
+
+            with self.assertRaises(opencode_runtime.OpenCodeRuntimeError) as ctx:
+                runtime.judge_trial(
+                    study_name="study_001",
+                    task="group1",
+                    trial_id="trial_0004",
+                    files=[attached],
+                )
+
+            self.assertEqual(str(ctx.exception), "opencode_incomplete_event_stream")
+            self.assertEqual(len(traces), 1)
+            self.assertFalse(traces[0].success)
+            self.assertEqual(traces[0].error_message, "opencode_incomplete_event_stream")
+
+    def test_runtime_retries_without_attach_when_local_attach_returns_incomplete_event_stream(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            root = Path(tmpdir)
+            command_dir = root / ".opencode" / "commands"
+            skill_dir = root / ".opencode" / "skills" / "training-judge"
+            command_dir.mkdir(parents=True, exist_ok=True)
+            skill_dir.mkdir(parents=True, exist_ok=True)
+            (command_dir / "judge-trial.md").write_text("judge prompt body", encoding="utf-8")
+            (skill_dir / "SKILL.md").write_text("training judge skill body", encoding="utf-8")
+            attached = root / "result_summary.json"
+            attached.write_text("{}", encoding="utf-8")
+            traces: list[opencode_runtime.OpenCodeTraceRecord] = []
+            seen_commands: list[list[str]] = []
+
+            def fake_runner(command: list[str], *, cwd: Path, timeout_seconds: float) -> opencode_runtime.OpenCodeInvocationResult:
+                seen_commands.append(command)
+                if len(seen_commands) == 1:
+                    self.assertIn("--attach", command)
+                    return opencode_runtime.OpenCodeInvocationResult(
+                        stdout='{"type":"step_start","part":{"type":"step-start"}}\n',
+                        stderr="",
+                        command=tuple(command),
+                        returncode=0,
+                    )
+                self.assertNotIn("--attach", command)
+                return opencode_runtime.OpenCodeInvocationResult(
+                    stdout='{"decision":"RETUNE"}',
+                    stderr="",
+                    command=tuple(command),
+                    returncode=0,
+                )
+
+            runtime = opencode_runtime.OpenCodeRuntimeAdapter(
+                config=opencode_runtime.OpenCodeRuntimeConfig(
+                    project_root=root,
+                    attach_url="http://127.0.0.1:4096",
+                    trace_sink=traces.append,
+                ),
+                runner=fake_runner,
+            )
+
+            result = runtime.judge_trial(
+                study_name="study_001",
+                task="group1",
+                trial_id="trial_0004",
+                files=[attached],
+            )
+
+            self.assertEqual(result.stdout, '{"decision":"RETUNE"}')
+            self.assertEqual(len(seen_commands), 2)
+            self.assertEqual(len(traces), 2)
+            self.assertFalse(traces[0].success)
+            self.assertEqual(traces[0].error_message, "opencode_incomplete_event_stream")
+            self.assertEqual(traces[0].attach_url, "http://127.0.0.1:4096")
+            self.assertTrue(traces[1].success)
+            self.assertIsNone(traces[1].attach_url)
+
     def test_runtime_raises_on_timeout(self) -> None:
         with tempfile.TemporaryDirectory() as tmpdir:
             root = Path(tmpdir)

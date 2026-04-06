@@ -20,7 +20,7 @@ Optional attached files:
 
 Task:
 
-1. Load the local `study-archivist` skill using the `skill` tool with exact name `study-archivist`.
+1. Use the inlined local `study-archivist` guidance included below.
 2. Read the attached study state and leaderboard.
 3. Produce the final contents of `study_status.json`.
 4. Summarize current status, best trial, current trial, budget pressure, and the next human-readable actions in Chinese.

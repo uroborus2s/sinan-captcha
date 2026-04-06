@@ -9,6 +9,7 @@ import shutil
 import subprocess
 import textwrap
 
+from core._version import VERSION as PACKAGE_VERSION
 from core.release.solver_export import ExportGroup2SolverAssetsRequest, export_group2_solver_assets
 
 
@@ -46,6 +47,7 @@ def publish_distribution(request: PublishReleaseRequest) -> None:
     publish_url, check_url = _resolve_repository_urls(request.repository)
     env = os.environ.copy()
     env["UV_PUBLISH_TOKEN"] = token
+    distribution_files = _current_distribution_files(request.project_dir / "dist")
     subprocess.run(
         args=[
             "uv",
@@ -54,6 +56,7 @@ def publish_distribution(request: PublishReleaseRequest) -> None:
             publish_url,
             "--check-url",
             check_url,
+            *[path.as_posix() for path in distribution_files],
         ],
         check=True,
         cwd=request.project_dir,
@@ -122,6 +125,16 @@ def _latest_wheel(dist_dir: Path) -> Path:
     if not wheels:
         raise ValueError(f"no wheel found in dist dir: {dist_dir}")
     return wheels[-1]
+
+
+def _current_distribution_files(dist_dir: Path) -> list[Path]:
+    wheel = dist_dir / f"sinan_captcha-{PACKAGE_VERSION}-py3-none-any.whl"
+    sdist = dist_dir / f"sinan_captcha-{PACKAGE_VERSION}.tar.gz"
+    missing = [path for path in (wheel, sdist) if not path.exists()]
+    if missing:
+        missing_text = ", ".join(str(path) for path in missing)
+        raise ValueError(f"missing release artifacts for current version: {missing_text}")
+    return [wheel, sdist]
 
 
 def _resolve_repository_urls(repository: str) -> tuple[str, str]:

@@ -24,7 +24,7 @@ Optional attached files:
 
 Task:
 
-1. Load the local `result-reader` skill using the `skill` tool with exact name `result-reader`.
+1. Use the inlined local `result-reader` guidance included below.
 2. Read the test and evaluation artifacts.
 3. Echo `study_name`, `task`, `trial_id`, `dataset_version`, `train_name`, and `primary_metric` exactly from the arguments above.
 4. Produce the final contents of `result_summary.json`.

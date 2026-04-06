@@ -30,6 +30,11 @@ class ReleaseServiceTests(unittest.TestCase):
     def test_publish_distribution_reads_token_from_env(self) -> None:
         with tempfile.TemporaryDirectory() as tmpdir:
             project_dir = Path(tmpdir)
+            dist_dir = project_dir / "dist"
+            dist_dir.mkdir()
+            (dist_dir / f"sinan_captcha-{PACKAGE_VERSION}-py3-none-any.whl").write_text("wheel", encoding="utf-8")
+            (dist_dir / f"sinan_captcha-{PACKAGE_VERSION}.tar.gz").write_text("sdist", encoding="utf-8")
+            (dist_dir / "sinan_captcha-0.1.13-py3-none-any.whl").write_text("old", encoding="utf-8")
             request = PublishReleaseRequest(project_dir=project_dir, repository="pypi", token_env="PYPI_TOKEN")
             env = os.environ.copy()
             env["PYPI_TOKEN"] = "secret-token"
@@ -42,6 +47,9 @@ class ReleaseServiceTests(unittest.TestCase):
             self.assertIn("--publish-url", command)
             self.assertIn("https://upload.pypi.org/legacy/", command)
             self.assertEqual(subprocess_run.call_args.kwargs["env"]["UV_PUBLISH_TOKEN"], "secret-token")
+            self.assertTrue(any(item.endswith(f"sinan_captcha-{PACKAGE_VERSION}-py3-none-any.whl") for item in command))
+            self.assertTrue(any(item.endswith(f"sinan_captcha-{PACKAGE_VERSION}.tar.gz") for item in command))
+            self.assertFalse(any(item.endswith("sinan_captcha-0.1.13-py3-none-any.whl") for item in command))
 
     def test_package_windows_bundle_copies_expected_artifacts(self) -> None:
         with tempfile.TemporaryDirectory() as tmpdir:

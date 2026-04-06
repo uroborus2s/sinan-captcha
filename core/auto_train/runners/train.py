@@ -28,6 +28,11 @@ from core.train.group2.service import Group2TrainingJob, build_group2_training_j
 
 TrainingExecutor = Callable[[object], int]
 
+_FRESH_DEFAULT_MODELS = {
+    "group1": "yolo26n.pt",
+    "group2": "paired_cnn_v1",
+}
+
 
 @dataclass(frozen=True)
 class TrainRunnerRequest:
@@ -185,7 +190,17 @@ def _resolve_model(request: TrainRunnerRequest) -> str:
             return str(group1_component_best_weights(request.train_root, request.base_run, SCENE_COMPONENT))
         return str(default_best_weights(request.train_root, request.task, request.base_run))
 
-    return request.model or "yolo26n.pt"
+    if request.model is not None:
+        return request.model
+    try:
+        return _FRESH_DEFAULT_MODELS[request.task]
+    except KeyError as exc:
+        raise RunnerExecutionError(
+            stage="TRAIN",
+            reason="invalid_request",
+            message=f"不支持的训练任务：{request.task}",
+            retryable=False,
+        ) from exc
 
 
 def _build_training_job(

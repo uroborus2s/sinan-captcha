@@ -67,6 +67,34 @@ class AutoTrainDatasetRunnerTests(unittest.TestCase):
 
 
 class AutoTrainTrainRunnerTests(unittest.TestCase):
+    def test_train_runner_uses_group2_architecture_name_for_fresh_runs(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            train_root = Path(tmpdir)
+            dataset_config = train_root / "datasets" / "group2" / "firstpass" / "dataset.json"
+            dataset_config.parent.mkdir(parents=True)
+            dataset_config.write_text(
+                '{"task":"group2","format":"sinan.group2.paired.v1","splits":{"train":"splits/train.jsonl","val":"splits/val.jsonl","test":"splits/test.jsonl"}}',
+                encoding="utf-8",
+            )
+
+            captured_jobs: list[object] = []
+            result = train.run_training_request(
+                train.TrainRunnerRequest(
+                    task="group2",
+                    train_root=train_root,
+                    dataset_version="firstpass",
+                    train_name="trial_0001",
+                    train_mode="fresh",
+                ),
+                executor=lambda job: captured_jobs.append(job) or 0,
+            )
+
+            self.assertEqual(result.record.task, "group2")
+            self.assertEqual(result.record.params["model"], "paired_cnn_v1")
+            self.assertIn("--model", result.command)
+            self.assertIn("paired_cnn_v1", result.command)
+            self.assertEqual(len(captured_jobs), 1)
+
     def test_train_runner_builds_group1_job_from_previous_run(self) -> None:
         with tempfile.TemporaryDirectory() as tmpdir:
             train_root = Path(tmpdir)

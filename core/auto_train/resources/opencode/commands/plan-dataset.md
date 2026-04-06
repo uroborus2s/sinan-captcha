@@ -20,7 +20,7 @@ Optional attached files:
 
 Task:
 
-1. Load the local `dataset-planner` skill using the `skill` tool with exact name `dataset-planner`.
+1. Use the inlined local `dataset-planner` guidance included below.
 2. Read the summarized weak classes, failure patterns, and trend.
 3. Produce the final contents of `dataset_plan.json` for the next dataset action.
 4. Keep the plan constrained to data strategy only: class boosts, failure-pattern focus, reuse vs new version, generator preset selection, and generator override fields for `sample_count`, `sampling`, and `effects`.

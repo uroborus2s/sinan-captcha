@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 import subprocess
 from dataclasses import dataclass
 from datetime import datetime, timezone
@@ -15,6 +16,11 @@ DEFAULT_PROJECT_ROOT = Path(__file__).resolve().parents[2]
 DEFAULT_OPENCODE_BINARY = "opencode"
 DEFAULT_TIMEOUT_SECONDS = 300.0
 TRACE_TEXT_PREVIEW_LIMIT = 40_000
+_LOCAL_ATTACH_RETRYABLE_MESSAGES = {
+    "opencode_empty_stdout",
+    "opencode_incomplete_event_stream",
+    "opencode_incomplete_tool_calls",
+}
 
 
 def _utc_now_iso() -> str:
@@ -26,6 +32,62 @@ def _is_local_attach_url(url: str | None) -> bool:
         return False
     parsed = urlparse(url)
     return parsed.hostname in {"127.0.0.1", "localhost", "::1"}
+
+
+def _json_event_payloads(raw_output: str) -> list[dict[str, object]]:
+    payloads: list[dict[str, object]] = []
+    for line in raw_output.splitlines():
+        stripped = line.strip()
+        if not stripped:
+            continue
+        try:
+            payload = json.loads(stripped)
+        except json.JSONDecodeError:
+            continue
+        if isinstance(payload, dict):
+            payloads.append(payload)
+    return payloads
+
+
+def _collect_event_output_strings(node: object, *, path: tuple[str, ...], sink: list[str]) -> None:
+    if isinstance(node, dict):
+        for key, value in node.items():
+            _collect_event_output_strings(value, path=path + (key,), sink=sink)
+        return
+    if isinstance(node, list):
+        for value in node:
+            _collect_event_output_strings(value, path=path, sink=sink)
+        return
+    if not isinstance(node, str):
+        return
+    if "input" in path:
+        return
+    leaf = path[-1] if path else ""
+    if leaf in {"output", "text", "content"}:
+        sink.append(node)
+
+
+def _detect_incomplete_event_stream(raw_output: str) -> str | None:
+    event_payloads = [payload for payload in _json_event_payloads(raw_output) if isinstance(payload.get("type"), str)]
+    if not event_payloads:
+        return None
+    last_payload = event_payloads[-1]
+    if last_payload.get("type") != "step_finish":
+        text_candidates: list[str] = []
+        for payload in event_payloads:
+            _collect_event_output_strings(payload, path=(), sink=text_candidates)
+        if text_candidates:
+            return None
+        return "opencode_incomplete_event_stream"
+    part = last_payload.get("part")
+    if isinstance(part, dict) and part.get("reason") == "tool-calls":
+        return "opencode_incomplete_tool_calls"
+    text_candidates = []
+    for payload in event_payloads:
+        _collect_event_output_strings(payload, path=(), sink=text_candidates)
+    if text_candidates:
+        return None
+    return "opencode_incomplete_event_stream"
 
 
 def _read_text_preview(path: Path, *, limit: int = TRACE_TEXT_PREVIEW_LIMIT) -> tuple[str | None, bool, str | None]:
@@ -256,7 +318,7 @@ class OpenCodeRuntimeAdapter:
                 empty_stdout_error_message="opencode_empty_stdout",
             )
         except OpenCodeRuntimeError as exc:
-            if not _is_local_attach_url(self.config.attach_url) or str(exc) != "opencode_empty_stdout":
+            if not _is_local_attach_url(self.config.attach_url) or str(exc) not in _LOCAL_ATTACH_RETRYABLE_MESSAGES:
                 raise
 
         retry_command = self._build_command(name, arguments=arguments, files=files, attach_url=None)
@@ -404,6 +466,28 @@ class OpenCodeRuntimeAdapter:
             raise OpenCodeRuntimeError(
                 command_name=name,
                 message=empty_stdout_error_message,
+                command=list(result.command),
+                returncode=result.returncode,
+            )
+        incomplete_output_error = _detect_incomplete_event_stream(result.stdout)
+        if incomplete_output_error is not None:
+            self._emit_trace(
+                spec=spec,
+                name=name,
+                arguments=arguments,
+                files=files,
+                command=command,
+                command_markdown_path=command_markdown_path,
+                attach_url=attach_url,
+                stdout=result.stdout,
+                stderr=result.stderr,
+                returncode=result.returncode,
+                success=False,
+                error_message=incomplete_output_error,
+            )
+            raise OpenCodeRuntimeError(
+                command_name=name,
+                message=incomplete_output_error,
                 command=list(result.command),
                 returncode=result.returncode,
             )
