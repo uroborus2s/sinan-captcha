@@ -1,5 +1,23 @@
 # 变更摘要
 
+## 2026-04-08 准备发布 `sinan-captcha==0.1.22`，修复 `auto-train` 续训时错误继承 `model` 参数
+
+- 已更新：
+  - `core/_version.py`
+  - `core/auto_train/controller.py`
+  - `tests/python/test_auto_train_controller.py`
+  - `.factory/memory/current-state.md`
+  - `.factory/memory/change-summary.md`
+- 当前已完成的目标：
+  - 已修复 `auto-train` 在 `train_mode=from_run` / `resume` 时继续沿用上一轮 `params.model` 的问题
+  - 当前控制器在为下一轮 trial 生成 `input.json` 时，会在续训路径上主动移除继承来的 `model`
+  - 这修复了训练机上 `group2` 续训反复报错 `train_mode=from_run 时不要再显式传入 model`
+  - `group2` 续训回归测试当前已明确断言：下一轮 trial 不再携带 `model`
+  - `group1` 的 Optuna 建议与规则 fallback 路径当前也已同步到相同口径，避免再次把 `model` 写回 `from_run` trial
+- 已运行验证：
+  - `.venv/bin/python -m unittest tests.python.test_auto_train_controller`
+  - `git diff --check`
+
 ## 2026-04-07 调整 `group2` 商业验收 gate：固定推荐目录、稳定随机抽样 100 组、阈值提升到 98%
 
 - 已更新：

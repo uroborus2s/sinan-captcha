@@ -644,6 +644,7 @@ class AutoTrainController:
             train_mode = "resume"
             train_name = previous_input.train_name
             base_run = None
+            next_params.pop("model", None)
         elif train_action == "fresh":
             train_mode = "fresh"
             train_name = next_trial_id
@@ -652,6 +653,7 @@ class AutoTrainController:
             train_mode = "from_run"
             train_name = next_trial_id
             base_run = _string_action(decision.next_action, "base_run", previous_input.train_name)
+            next_params.pop("model", None)
 
         return contracts.TrialInputRecord(
             trial_id=next_trial_id,

@@ -192,14 +192,23 @@ class AutoTrainControllerTests(unittest.TestCase):
             log_text = ctrl.paths.opencode_log_file.read_text(encoding="utf-8")
             self.assertIn("OpenCode Trace: judge-trial [trial_0001]", log_text)
             self.assertIn('{"decision":"REGENERATE_DATA"}', log_text)
+            self.assertIn("raw_stdout_file:", log_text)
+            self.assertIn("raw_stderr_file:", log_text)
 
             trace_files = list(ctrl.paths.trial_opencode_trace_root("trial_0001").glob("*.json"))
             self.assertEqual(len(trace_files), 1)
             payload = json.loads(trace_files[0].read_text(encoding="utf-8"))
             self.assertEqual(payload["command_name"], "judge-trial")
             self.assertEqual(payload["arguments"], ["study_001", "group1", "trial_0001"])
+            stdout_files = list(ctrl.paths.trial_opencode_trace_root("trial_0001").glob("*.stdout.txt"))
+            stderr_files = list(ctrl.paths.trial_opencode_trace_root("trial_0001").glob("*.stderr.txt"))
+            self.assertEqual(len(stdout_files), 1)
+            self.assertEqual(len(stderr_files), 1)
+            self.assertEqual(stdout_files[0].read_text(encoding="utf-8"), '{"decision":"REGENERATE_DATA"}')
+            self.assertEqual(stderr_files[0].read_text(encoding="utf-8"), "")
             self.assertEqual(len(terminal_lines), 1)
             self.assertIn("trace_file:", terminal_lines[0])
+            self.assertIn("raw_stdout_file:", terminal_lines[0])
             self.assertIn("judge markdown body", terminal_lines[0])
             self.assertIn("training judge skill body", terminal_lines[0])
 
@@ -253,8 +262,16 @@ class AutoTrainControllerTests(unittest.TestCase):
 
             ctrl._record_opencode_trace(trace)
 
+            stdout_files = list(ctrl.paths.trial_opencode_trace_root("trial_0001").glob("*.stdout.txt"))
+            stderr_files = list(ctrl.paths.trial_opencode_trace_root("trial_0001").glob("*.stderr.txt"))
+            self.assertEqual(len(stdout_files), 1)
+            self.assertEqual(len(stderr_files), 1)
+            self.assertEqual(stdout_files[0].read_text(encoding="utf-8"), "")
+            self.assertEqual(stderr_files[0].read_text(encoding="utf-8"), "")
             self.assertEqual(len(terminal_lines), 1)
-            self.assertIn("--- stdout ---", terminal_lines[0])
+            self.assertIn("raw_stdout_file:", terminal_lines[0])
+            self.assertIn("raw_stderr_file:", terminal_lines[0])
+            self.assertIn("--- raw stdout ---", terminal_lines[0])
             self.assertIn("(empty)", terminal_lines[0])
 
     def test_default_opencode_runtime_uses_train_root_as_project_root(self) -> None:
@@ -1815,6 +1832,7 @@ class AutoTrainControllerTests(unittest.TestCase):
             self.assertEqual(next_input.train_mode, "from_run")
             self.assertEqual(next_input.base_run, "trial_0001")
             self.assertEqual(next_input.params["imgsz"], 224)
+            self.assertNotIn("model", next_input.params)
 
     def test_run_uses_optuna_suggestion_for_retune_when_runtime_is_available(self) -> None:
         with tempfile.TemporaryDirectory() as tmpdir:
@@ -1890,7 +1908,7 @@ class AutoTrainControllerTests(unittest.TestCase):
 
             self.assertEqual(result.final_stage, "PLAN")
             next_input = storage.read_trial_input_record(ctrl.paths.input_file("trial_0002"))
-            self.assertEqual(next_input.params["model"], "yolo26s.pt")
+            self.assertNotIn("model", next_input.params)
             self.assertEqual(next_input.params["epochs"], 160)
             self.assertEqual(next_input.params["batch"], 8)
             self.assertEqual(next_input.params["imgsz"], 512)
@@ -1960,7 +1978,7 @@ class AutoTrainControllerTests(unittest.TestCase):
 
             self.assertEqual(result.final_stage, "PLAN")
             next_input = storage.read_trial_input_record(ctrl.paths.input_file("trial_0002"))
-            self.assertEqual(next_input.params["model"], "yolo26s.pt")
+            self.assertNotIn("model", next_input.params)
             self.assertEqual(next_input.params["epochs"], 140)
             self.assertEqual(next_input.params["batch"], 8)
             self.assertEqual(next_input.params["imgsz"], 640)

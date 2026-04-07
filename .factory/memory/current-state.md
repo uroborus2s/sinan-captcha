@@ -17,6 +17,17 @@
 
 ## 当前事实
 
+- 2026-04-08 已完成 Python 训练 CLI 包 `sinan-captcha==0.1.22` 的发布准备，修复 `auto-train` 续训时错误继承 `model` 参数：
+  - 当前已确认训练机在 `group2` 旧 study / 新 study 续训路径上，会把上一轮 trial 的 `params.model` 连同 `train_mode=from_run` 一起写入下一轮 `input.json`
+  - `core/auto_train/runners/train.py` 当前本来就禁止 `from_run` 再显式传入 `model`
+  - `core/auto_train/controller.py` 当前已改为在 `resume` / `from_run` 两条续训路径上主动删除继承来的 `model`
+  - `tests/python/test_auto_train_controller.py` 当前已补齐：
+    - `group2` 续训 next trial 不再携带 `model`
+    - `group1` Optuna 建议续训不再把 `model` 写回 `from_run`
+    - `group1` 规则 fallback 续训不再把 `model` 写回 `from_run`
+  - 当前已验证：
+    - `.venv/bin/python -m unittest tests.python.test_auto_train_controller`
+    - `git diff --check`
 - 2026-04-06 已重构 `docs/03-developer-guide/`：
   - `index.md` 当前已改成面向开发者动作的入口页，直接按“快速上手 -> 模块编译 -> 打包发布”组织
   - `maintainer-quickstart.md` 当前已改成 30 分钟接手手册，覆盖根仓库 Python、Go 生成器、`solver_package` 的最小验证与最快编译命令
