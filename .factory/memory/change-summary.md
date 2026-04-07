@@ -1,6 +1,6 @@
 # 变更摘要
 
-## 2026-04-08 准备发布 `sinan-captcha==0.1.22`，修复 `auto-train` 续训时错误继承 `model` 参数
+## 2026-04-08 发布 `sinan-captcha==0.1.22`，修复 `auto-train` 续训时错误继承 `model` 参数
 
 - 已更新：
   - `core/_version.py`
@@ -17,6 +17,9 @@
 - 已运行验证：
   - `.venv/bin/python -m unittest tests.python.test_auto_train_controller`
   - `git diff --check`
+  - `uv build`
+  - `uv publish --publish-url https://upload.pypi.org/legacy/ --check-url https://pypi.org/simple dist/sinan_captcha-0.1.22-py3-none-any.whl dist/sinan_captcha-0.1.22.tar.gz`
+  - `curl https://pypi.org/pypi/sinan-captcha/json`
 
 ## 2026-04-07 调整 `group2` 商业验收 gate：固定推荐目录、稳定随机抽样 100 组、阈值提升到 98%
 
