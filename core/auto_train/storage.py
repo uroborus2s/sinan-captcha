@@ -89,6 +89,14 @@ def read_result_summary_record(path: Path) -> contracts.ResultSummaryRecord:
     return contracts.ResultSummaryRecord.from_dict(_read_json(path))
 
 
+def write_business_eval_record(path: Path, record: contracts.BusinessEvalRecord) -> None:
+    _write_json(path, record.to_dict())
+
+
+def read_business_eval_record(path: Path) -> contracts.BusinessEvalRecord:
+    return contracts.BusinessEvalRecord.from_dict(_read_json(path))
+
+
 def write_study_status_record(path: Path, record: contracts.StudyStatusRecord) -> None:
     _write_json(path, record.to_dict())
 
@@ -126,6 +134,11 @@ def append_text(path: Path, text: str) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
     with path.open("a", encoding="utf-8") as handle:
         handle.write(text)
+
+
+def write_text(path: Path, text: str) -> None:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(text, encoding="utf-8")
 
 
 def _write_json(path: Path, payload: dict[str, contracts.JsonValue]) -> None:

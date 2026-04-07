@@ -13,6 +13,7 @@ ALLOWED_STUDY_MODES = {"full_auto", "review_auto"}
 ALLOWED_TRAIN_MODES = {"fresh", "resume", "from_run"}
 ALLOWED_SUMMARY_TRENDS = {"baseline", "improving", "declining", "plateau"}
 ALLOWED_BUDGET_PRESSURE = {"low", "medium", "high"}
+ALLOWED_BUSINESS_GATE_STATUS = {"passed", "failed", "error"}
 ALLOWED_DATASET_ACTIONS = {"reuse", "new_version", "freeze"}
 ALLOWED_GENERATOR_OVERRIDE_TOP_LEVEL = {"project", "sampling", "effects"}
 ALLOWED_GENERATOR_OVERRIDE_PROJECT_FIELDS = {"sample_count"}
@@ -132,6 +133,38 @@ class StudyBudget:
 
 
 @dataclass(frozen=True)
+class BusinessEvalConfig:
+    cases_root: str
+    success_threshold: float = 0.98
+    min_cases: int = 100
+    sample_size: int = 100
+    occlusion_threshold: float = 0.78
+
+    def __post_init__(self) -> None:
+        _require_non_empty(self.cases_root, "cases_root")
+        _require_ratio(self.success_threshold, "success_threshold")
+        _require_positive_int(self.min_cases, "min_cases")
+        _require_positive_int(self.sample_size, "sample_size")
+        if self.sample_size < self.min_cases:
+            raise ValueError("sample_size must be greater than or equal to min_cases")
+        _require_ratio(self.occlusion_threshold, "occlusion_threshold")
+
+    def to_dict(self) -> dict[str, JsonValue]:
+        return asdict(self)
+
+    @classmethod
+    def from_dict(cls, payload: dict[str, JsonValue]) -> "BusinessEvalConfig":
+        min_cases = _int(payload, "min_cases")
+        return cls(
+            cases_root=_string(payload, "cases_root"),
+            success_threshold=_float(payload, "success_threshold"),
+            min_cases=min_cases,
+            sample_size=_optional_int(payload, "sample_size") or min_cases,
+            occlusion_threshold=_float(payload, "occlusion_threshold"),
+        )
+
+
+@dataclass(frozen=True)
 class StudyRecord:
     study_name: str
     task: str
@@ -141,6 +174,7 @@ class StudyRecord:
     generator_workspace: str
     judge: JudgeConfig
     budget: StudyBudget
+    business_eval: BusinessEvalConfig | None = None
     started_at: str | None = None
     current_trial_id: str | None = None
     best_trial_id: str | None = None
@@ -169,6 +203,7 @@ class StudyRecord:
             "generator_workspace": self.generator_workspace,
             "judge": self.judge.to_dict(),
             "budget": self.budget.to_dict(),
+            "business_eval": None if self.business_eval is None else self.business_eval.to_dict(),
             "started_at": self.started_at,
             "current_trial_id": self.current_trial_id,
             "best_trial_id": self.best_trial_id,
@@ -185,6 +220,11 @@ class StudyRecord:
             generator_workspace=_string(payload, "generator_workspace"),
             judge=JudgeConfig.from_dict(_mapping(payload, "judge")),
             budget=StudyBudget.from_dict(_mapping(payload, "budget")),
+            business_eval=(
+                None
+                if payload.get("business_eval") is None
+                else BusinessEvalConfig.from_dict(_mapping(payload, "business_eval"))
+            ),
             started_at=_optional_string(payload, "started_at"),
             current_trial_id=_optional_string(payload, "current_trial_id"),
             best_trial_id=_optional_string(payload, "best_trial_id"),
@@ -751,6 +791,155 @@ class ResultSummaryRecord:
 
 
 @dataclass(frozen=True)
+class BusinessEvalCaseRecord:
+    case_id: str
+    master_image: str
+    tile_image: str
+    predicted_bbox: list[int]
+    predicted_center: list[int]
+    inference_ms: float
+    boundary_before: float
+    boundary_after: float
+    fill_score: float
+    seam_score: float
+    occlusion_score: float
+    success: bool
+    reason_cn: str
+    overlay_path: str
+    diff_path: str
+
+    def __post_init__(self) -> None:
+        _require_non_empty(self.case_id, "case_id")
+        _require_non_empty(self.master_image, "master_image")
+        _require_non_empty(self.tile_image, "tile_image")
+        _require_non_empty(self.reason_cn, "reason_cn")
+        _require_non_empty(self.overlay_path, "overlay_path")
+        _require_non_empty(self.diff_path, "diff_path")
+        _require_bbox(self.predicted_bbox, "predicted_bbox")
+        _require_point(self.predicted_center, "predicted_center")
+        if self.inference_ms < 0:
+            raise ValueError("inference_ms must not be negative")
+        _require_ratio(self.boundary_before, "boundary_before")
+        _require_ratio(self.boundary_after, "boundary_after")
+        _require_ratio(self.fill_score, "fill_score")
+        _require_ratio(self.seam_score, "seam_score")
+        _require_ratio(self.occlusion_score, "occlusion_score")
+
+    def to_dict(self) -> dict[str, JsonValue]:
+        return asdict(self)
+
+    @classmethod
+    def from_dict(cls, payload: dict[str, JsonValue]) -> "BusinessEvalCaseRecord":
+        return cls(
+            case_id=_string(payload, "case_id"),
+            master_image=_string(payload, "master_image"),
+            tile_image=_string(payload, "tile_image"),
+            predicted_bbox=_int_list(payload, "predicted_bbox", expected_length=4),
+            predicted_center=_int_list(payload, "predicted_center", expected_length=2),
+            inference_ms=_float(payload, "inference_ms"),
+            boundary_before=_float(payload, "boundary_before"),
+            boundary_after=_float(payload, "boundary_after"),
+            fill_score=_float(payload, "fill_score"),
+            seam_score=_float(payload, "seam_score"),
+            occlusion_score=_float(payload, "occlusion_score"),
+            success=_bool(payload, "success"),
+            reason_cn=_string(payload, "reason_cn"),
+            overlay_path=_string(payload, "overlay_path"),
+            diff_path=_string(payload, "diff_path"),
+        )
+
+
+@dataclass(frozen=True)
+class BusinessEvalRecord:
+    trial_id: str
+    task: str
+    train_name: str
+    cases_root: str
+    available_cases: int
+    total_cases: int
+    passed_cases: int
+    success_rate: float
+    success_threshold: float
+    min_cases: int
+    sample_size: int
+    commercial_ready: bool
+    occlusion_threshold: float
+    report_dir: str
+    case_results: list[BusinessEvalCaseRecord]
+    evidence: list[str]
+
+    def __post_init__(self) -> None:
+        _require_non_empty(self.trial_id, "trial_id")
+        _require_in(self.task, "task", ALLOWED_TASKS)
+        _require_non_empty(self.train_name, "train_name")
+        _require_non_empty(self.cases_root, "cases_root")
+        _require_non_empty(self.report_dir, "report_dir")
+        if self.available_cases < 0:
+            raise ValueError("available_cases must not be negative")
+        if self.total_cases < 0:
+            raise ValueError("total_cases must not be negative")
+        if self.total_cases > self.available_cases:
+            raise ValueError("total_cases must not exceed available_cases")
+        if self.passed_cases < 0:
+            raise ValueError("passed_cases must not be negative")
+        if self.passed_cases > self.total_cases:
+            raise ValueError("passed_cases must not exceed total_cases")
+        _require_ratio(self.success_rate, "success_rate")
+        _require_ratio(self.success_threshold, "success_threshold")
+        _require_positive_int(self.min_cases, "min_cases")
+        _require_positive_int(self.sample_size, "sample_size")
+        _require_ratio(self.occlusion_threshold, "occlusion_threshold")
+        if any(not isinstance(item, str) or not item.strip() for item in self.evidence):
+            raise ValueError("evidence entries must be non-empty strings")
+
+    def to_dict(self) -> dict[str, JsonValue]:
+        return {
+            "trial_id": self.trial_id,
+            "task": self.task,
+            "train_name": self.train_name,
+            "cases_root": self.cases_root,
+            "available_cases": self.available_cases,
+            "total_cases": self.total_cases,
+            "passed_cases": self.passed_cases,
+            "success_rate": self.success_rate,
+            "success_threshold": self.success_threshold,
+            "min_cases": self.min_cases,
+            "sample_size": self.sample_size,
+            "commercial_ready": self.commercial_ready,
+            "occlusion_threshold": self.occlusion_threshold,
+            "report_dir": self.report_dir,
+            "case_results": [item.to_dict() for item in self.case_results],
+            "evidence": self.evidence,
+        }
+
+    @classmethod
+    def from_dict(cls, payload: dict[str, JsonValue]) -> "BusinessEvalRecord":
+        case_payload = payload.get("case_results")
+        if not isinstance(case_payload, list):
+            raise ValueError("case_results must be a list")
+        total_cases = _int(payload, "total_cases")
+        min_cases = _int(payload, "min_cases")
+        return cls(
+            trial_id=_string(payload, "trial_id"),
+            task=_string(payload, "task"),
+            train_name=_string(payload, "train_name"),
+            cases_root=_string(payload, "cases_root"),
+            available_cases=_optional_int(payload, "available_cases") or total_cases,
+            total_cases=total_cases,
+            passed_cases=_int(payload, "passed_cases"),
+            success_rate=_float(payload, "success_rate"),
+            success_threshold=_float(payload, "success_threshold"),
+            min_cases=min_cases,
+            sample_size=_optional_int(payload, "sample_size") or min_cases,
+            commercial_ready=_bool(payload, "commercial_ready"),
+            occlusion_threshold=_float(payload, "occlusion_threshold"),
+            report_dir=_string(payload, "report_dir"),
+            case_results=[BusinessEvalCaseRecord.from_dict(_coerce_mapping(item, "case_results")) for item in case_payload],
+            evidence=_string_list(payload, "evidence"),
+        )
+
+
+@dataclass(frozen=True)
 class StudyStatusRecord:
     study_name: str
     task: str
@@ -763,6 +952,10 @@ class StudyStatusRecord:
     summary_cn: str
     next_actions_cn: list[str]
     evidence: list[str]
+    business_success_rate: float | None = None
+    business_success_threshold: float | None = None
+    commercial_ready: bool | None = None
+    latest_gate_status: str | None = None
 
     def __post_init__(self) -> None:
         _require_non_empty(self.study_name, "study_name")
@@ -776,6 +969,12 @@ class StudyStatusRecord:
             _require_non_empty(self.best_trial_id, "best_trial_id")
         if self.latest_decision is not None:
             _require_in(self.latest_decision, "latest_decision", ALLOWED_DECISIONS)
+        if self.business_success_rate is not None:
+            _require_ratio(self.business_success_rate, "business_success_rate")
+        if self.business_success_threshold is not None:
+            _require_ratio(self.business_success_threshold, "business_success_threshold")
+        if self.latest_gate_status is not None:
+            _require_in(self.latest_gate_status, "latest_gate_status", ALLOWED_BUSINESS_GATE_STATUS)
         if any(not isinstance(item, str) or not item.strip() for item in self.next_actions_cn):
             raise ValueError("next_actions_cn entries must be non-empty strings")
         if any(not isinstance(item, str) or not item.strip() for item in self.evidence):
@@ -795,6 +994,10 @@ class StudyStatusRecord:
             latest_decision=_optional_string(payload, "latest_decision"),
             best_primary_score=_optional_float(payload, "best_primary_score"),
             budget_pressure=_string(payload, "budget_pressure"),
+            business_success_rate=_optional_float(payload, "business_success_rate"),
+            business_success_threshold=_optional_float(payload, "business_success_threshold"),
+            commercial_ready=_optional_bool(payload, "commercial_ready"),
+            latest_gate_status=_optional_string(payload, "latest_gate_status"),
             summary_cn=_string(payload, "summary_cn"),
             next_actions_cn=_string_list(payload, "next_actions_cn"),
             evidence=_string_list(payload, "evidence"),
@@ -905,6 +1108,15 @@ def _bool(payload: dict[str, JsonValue], field_name: str) -> bool:
     return value
 
 
+def _optional_bool(payload: dict[str, JsonValue], field_name: str) -> bool | None:
+    value = payload.get(field_name)
+    if value is None:
+        return None
+    if not isinstance(value, bool):
+        raise ValueError(f"{field_name} must be a boolean or null")
+    return value
+
+
 def _mapping(payload: dict[str, JsonValue], field_name: str) -> dict[str, JsonValue]:
     value = payload.get(field_name)
     if not isinstance(value, dict):
@@ -938,6 +1150,28 @@ def _string_list(payload: dict[str, JsonValue], field_name: str) -> list[str]:
     if not isinstance(value, list):
         raise ValueError(f"{field_name} must be a list")
     return [_coerce_string(item, field_name) for item in value]
+
+
+def _int_list(payload: dict[str, JsonValue], field_name: str, *, expected_length: int) -> list[int]:
+    value = payload.get(field_name)
+    if not isinstance(value, list) or len(value) != expected_length:
+        raise ValueError(f"{field_name} must be a list of {expected_length} integers")
+    result: list[int] = []
+    for item in value:
+        if not isinstance(item, int) or isinstance(item, bool):
+            raise ValueError(f"{field_name} must be a list of {expected_length} integers")
+        result.append(item)
+    return result
+
+
+def _require_bbox(value: list[int], field_name: str) -> None:
+    if len(value) != 4:
+        raise ValueError(f"{field_name} must contain 4 integers")
+
+
+def _require_point(value: list[int], field_name: str) -> None:
+    if len(value) != 2:
+        raise ValueError(f"{field_name} must contain 2 integers")
 
 
 def _validate_generator_overrides(payload: dict[str, JsonValue], field_name: str) -> None:

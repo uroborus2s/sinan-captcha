@@ -9,6 +9,7 @@ import os
 from pathlib import Path
 
 from core.auto_train import (
+    business_eval,
     contracts,
     dataset_plan,
     decision_protocol,
@@ -84,6 +85,11 @@ class AutoTrainRequest:
     prediction_dir: Path | None = None
     point_tolerance_px: int = 12
     iou_threshold: float = 0.5
+    business_eval_dir: Path | None = None
+    business_eval_success_threshold: float = 0.98
+    business_eval_min_cases: int = 100
+    business_eval_sample_size: int = 100
+    business_eval_occlusion_threshold: float = 0.78
 
     def __post_init__(self) -> None:
         if self.task not in contracts.ALLOWED_TASKS:
@@ -100,6 +106,19 @@ class AutoTrainRequest:
             raise ValueError("max_no_improve_trials must be greater than 0")
         if self.opencode_timeout_seconds <= 0:
             raise ValueError("opencode_timeout_seconds must be greater than 0")
+        if self.business_eval_dir is not None:
+            if self.task != "group2":
+                raise ValueError("business_eval_dir is currently only supported for group2")
+            if not 0.0 <= self.business_eval_success_threshold <= 1.0:
+                raise ValueError("business_eval_success_threshold must be between 0.0 and 1.0")
+            if self.business_eval_min_cases <= 0:
+                raise ValueError("business_eval_min_cases must be greater than 0")
+            if self.business_eval_sample_size <= 0:
+                raise ValueError("business_eval_sample_size must be greater than 0")
+            if self.business_eval_sample_size < self.business_eval_min_cases:
+                raise ValueError("business_eval_sample_size must be greater than or equal to business_eval_min_cases")
+            if not 0.0 <= self.business_eval_occlusion_threshold <= 1.0:
+                raise ValueError("business_eval_occlusion_threshold must be between 0.0 and 1.0")
 
     @property
     def effective_imgsz(self) -> int:
@@ -130,6 +149,7 @@ class ControllerDependencies:
     train_runner: object = runners.train.run_training_request
     test_runner: object = runners.test.run_test_request
     evaluate_runner: object = runners.evaluate.run_evaluation_request
+    business_eval_runner: object = runners.business_eval.run_business_eval_request
     summary_builder: object = summary.build_result_summary
     opencode_runtime: object | None = None
     optuna_runtime: object | None = None
@@ -383,9 +403,14 @@ class AutoTrainController:
         if plan_record is not None:
             storage.write_dataset_plan_record(self.paths.dataset_plan_file(trial_id), plan_record)
         storage.append_decision_history(self.paths.decisions_file, decision)
-        self._write_study_summary(study, leaderboard, decision)
 
-        if decision.decision in {"PROMOTE_BRANCH", "ABANDON_BRANCH"}:
+        business_record = self._run_business_eval_if_needed(
+            trial_id=trial_id,
+            summary_record=summary_record,
+            decision=decision,
+            study=study,
+        )
+        if business_record is not None and business_record.commercial_ready:
             updated = self._with_study_updates(
                 study,
                 status="completed",
@@ -393,10 +418,47 @@ class AutoTrainController:
                 best_trial_id=leaderboard.best_entry.trial_id if leaderboard.best_entry is not None else study.best_trial_id,
             )
             storage.write_study_record(self.paths.study_file, updated)
+            self._write_business_eval_artifacts(trial_id=trial_id, record=business_record)
+            self._write_study_summary(updated, leaderboard, decision, business_record)
+            self._write_commercial_report(updated, leaderboard, decision, business_record)
             return StageExecution(trial_id=trial_id, stage="NEXT_ACTION", next_stage="STOP", detail=decision.decision)
 
+        if decision.decision == "ABANDON_BRANCH":
+            updated = self._with_study_updates(
+                study,
+                status="completed",
+                current_trial_id=trial_id,
+                best_trial_id=leaderboard.best_entry.trial_id if leaderboard.best_entry is not None else study.best_trial_id,
+            )
+            storage.write_study_record(self.paths.study_file, updated)
+            self._write_study_summary(updated, leaderboard, decision, business_record)
+            if business_record is not None:
+                self._write_business_eval_artifacts(trial_id=trial_id, record=business_record)
+                self._write_commercial_report(updated, leaderboard, decision, business_record)
+            return StageExecution(trial_id=trial_id, stage="NEXT_ACTION", next_stage="STOP", detail=decision.decision)
+
+        if decision.decision == "PROMOTE_BRANCH" and business_record is None:
+            updated = self._with_study_updates(
+                study,
+                status="completed",
+                current_trial_id=trial_id,
+                best_trial_id=leaderboard.best_entry.trial_id if leaderboard.best_entry is not None else study.best_trial_id,
+            )
+            storage.write_study_record(self.paths.study_file, updated)
+            self._write_study_summary(updated, leaderboard, decision, None)
+            return StageExecution(trial_id=trial_id, stage="NEXT_ACTION", next_stage="STOP", detail=decision.decision)
+
+        effective_decision = (
+            decision
+            if business_record is None
+            else self._retry_decision_after_failed_business_gate(
+                summary_record=summary_record,
+                decision=decision,
+                business_record=business_record,
+            )
+        )
         dataset_action = plan_record.dataset_action if plan_record is not None else _string_action(
-            decision.next_action,
+            effective_decision.next_action,
             "dataset_action",
             "reuse",
         )
@@ -404,6 +466,7 @@ class AutoTrainController:
             study,
             leaderboard,
             pending_new_dataset=(dataset_action == "new_version"),
+            ignore_adaptive_limits=self._business_eval_enabled(study),
         )
         if stop_decision.should_stop:
             updated = self._with_study_updates(
@@ -413,6 +476,10 @@ class AutoTrainController:
                 best_trial_id=leaderboard.best_entry.trial_id if leaderboard.best_entry is not None else study.best_trial_id,
             )
             storage.write_study_record(self.paths.study_file, updated)
+            if business_record is not None:
+                self._write_business_eval_artifacts(trial_id=trial_id, record=business_record)
+                self._write_commercial_report(updated, leaderboard, decision, business_record)
+            self._write_study_summary(updated, leaderboard, decision, business_record)
             return StageExecution(
                 trial_id=trial_id,
                 stage="NEXT_ACTION",
@@ -420,7 +487,7 @@ class AutoTrainController:
                 detail=stop_decision.reason,
             )
 
-        next_trial = self._prepare_next_trial(summary_record, decision, plan_record)
+        next_trial = self._prepare_next_trial(summary_record, effective_decision, plan_record)
         storage.write_trial_input_record(self.paths.input_file(next_trial.trial_id), next_trial)
         storage.append_trial_history(self.paths.trial_history_file, next_trial)
         updated = self._with_study_updates(
@@ -430,6 +497,10 @@ class AutoTrainController:
             best_trial_id=leaderboard.best_entry.trial_id if leaderboard.best_entry is not None else study.best_trial_id,
         )
         storage.write_study_record(self.paths.study_file, updated)
+        if business_record is not None:
+            self._write_business_eval_artifacts(trial_id=trial_id, record=business_record)
+            self._write_commercial_report(updated, leaderboard, decision, business_record)
+        self._write_study_summary(updated, leaderboard, decision, business_record)
         return StageExecution(
             trial_id=trial_id,
             stage="NEXT_ACTION",
@@ -438,10 +509,16 @@ class AutoTrainController:
         )
 
     def _load_or_create_study(self) -> contracts.StudyRecord:
+        requested_business_eval = self._requested_business_eval_config()
         if self.paths.study_file.exists():
             record = storage.read_study_record(self.paths.study_file)
+            changes: dict[str, object] = {}
             if record.started_at is None:
-                record = self._with_study_updates(record)
+                changes["started_at"] = self._now_utc().isoformat()
+            if record.business_eval is None and requested_business_eval is not None:
+                changes["business_eval"] = requested_business_eval
+            if changes:
+                record = replace(record, **changes)
                 storage.write_study_record(self.paths.study_file, record)
             return record
         record = contracts.StudyRecord(
@@ -458,6 +535,7 @@ class AutoTrainController:
                 max_new_datasets=self.request.max_new_datasets,
                 max_no_improve_trials=self.request.max_no_improve_trials,
             ),
+            business_eval=requested_business_eval,
             started_at=self._now_utc().isoformat(),
             current_trial_id=None,
             best_trial_id=None,
@@ -634,6 +712,7 @@ class AutoTrainController:
         leaderboard: contracts.LeaderboardRecord,
         *,
         pending_new_dataset: bool,
+        ignore_adaptive_limits: bool = False,
     ) -> stop_rules.StopDecision:
         scores_by_trial: list[float] = []
         for trial_dir in sorted(self.paths.trials_root.glob("trial_*"), key=lambda item: layout.parse_trial_id(item.name)):
@@ -648,9 +727,9 @@ class AutoTrainController:
             max_trials=self.request.max_trials,
             max_hours=self.request.max_hours,
             max_new_datasets=self.request.max_new_datasets,
-            plateau_window=policy.plateau_window,
+            plateau_window=None if ignore_adaptive_limits else policy.plateau_window,
             min_delta=policy.min_delta,
-            max_no_improve_trials=self.request.max_no_improve_trials,
+            max_no_improve_trials=None if ignore_adaptive_limits else self.request.max_no_improve_trials,
         )
         snapshot = stop_rules.StopSnapshot(
             completed_trials=len(scores_by_trial),
@@ -762,10 +841,130 @@ class AutoTrainController:
         study: contracts.StudyRecord,
         leaderboard: contracts.LeaderboardRecord,
         decision: contracts.DecisionRecord,
+        business_eval_record: contracts.BusinessEvalRecord | None = None,
     ) -> None:
-        record = self._study_status_record(study=study, leaderboard=leaderboard, decision=decision)
+        record = self._study_status_record(
+            study=study,
+            leaderboard=leaderboard,
+            decision=decision,
+            business_eval_record=business_eval_record,
+        )
         storage.write_study_status_record(self.paths.study_status_file, record)
         self.paths.summary_file.write_text(study_status.markdown_from_study_status(record), encoding="utf-8")
+
+    def _requested_business_eval_config(self) -> contracts.BusinessEvalConfig | None:
+        if self.request.business_eval_dir is None:
+            return None
+        return contracts.BusinessEvalConfig(
+            cases_root=str(self.request.business_eval_dir),
+            success_threshold=self.request.business_eval_success_threshold,
+            min_cases=self.request.business_eval_min_cases,
+            sample_size=self.request.business_eval_sample_size,
+            occlusion_threshold=self.request.business_eval_occlusion_threshold,
+        )
+
+    def _business_eval_enabled(self, study: contracts.StudyRecord) -> bool:
+        return study.business_eval is not None
+
+    def _run_business_eval_if_needed(
+        self,
+        *,
+        trial_id: str,
+        summary_record: contracts.ResultSummaryRecord,
+        decision: contracts.DecisionRecord,
+        study: contracts.StudyRecord,
+    ) -> contracts.BusinessEvalRecord | None:
+        config = study.business_eval
+        if config is None or decision.decision != "PROMOTE_BRANCH":
+            return None
+
+        request = runners.business_eval.BusinessEvalRunnerRequest(
+            trial_id=trial_id,
+            task=self.request.task,
+            train_root=self.request.train_root,
+            train_name=summary_record.train_name,
+            cases_root=Path(config.cases_root),
+            report_dir=self.paths.business_eval_root(trial_id),
+            device=self.request.device,
+            success_threshold=config.success_threshold,
+            min_cases=config.min_cases,
+            sample_size=config.sample_size,
+            occlusion_threshold=config.occlusion_threshold,
+        )
+        try:
+            result = self.dependencies.business_eval_runner(request)
+        except runners.RunnerExecutionError as exc:
+            return contracts.BusinessEvalRecord(
+                trial_id=trial_id,
+                task=self.request.task,
+                train_name=summary_record.train_name,
+                cases_root=config.cases_root,
+                available_cases=0,
+                total_cases=0,
+                passed_cases=0,
+                success_rate=0.0,
+                success_threshold=config.success_threshold,
+                min_cases=config.min_cases,
+                sample_size=config.sample_size,
+                commercial_ready=False,
+                occlusion_threshold=config.occlusion_threshold,
+                report_dir=str(self.paths.business_eval_root(trial_id)),
+                case_results=[],
+                evidence=[f"runner_error={exc.reason}", str(exc)],
+            )
+        return result.record
+
+    def _write_business_eval_artifacts(
+        self,
+        *,
+        trial_id: str,
+        record: contracts.BusinessEvalRecord,
+    ) -> None:
+        storage.write_business_eval_record(self.paths.business_eval_file(trial_id), record)
+        storage.write_text(self.paths.business_eval_markdown_file(trial_id), business_eval.markdown_from_business_eval(record))
+
+    def _write_commercial_report(
+        self,
+        study: contracts.StudyRecord,
+        leaderboard: contracts.LeaderboardRecord,
+        decision: contracts.DecisionRecord,
+        business_eval_record: contracts.BusinessEvalRecord,
+    ) -> None:
+        storage.write_text(
+            self.paths.commercial_report_file,
+            business_eval.commercial_report_markdown(
+                study=study,
+                leaderboard=leaderboard,
+                decision=decision,
+                business_record=business_eval_record,
+            ),
+        )
+
+    def _retry_decision_after_failed_business_gate(
+        self,
+        *,
+        summary_record: contracts.ResultSummaryRecord,
+        decision: contracts.DecisionRecord,
+        business_record: contracts.BusinessEvalRecord,
+    ) -> contracts.DecisionRecord:
+        return contracts.DecisionRecord(
+            trial_id=decision.trial_id,
+            decision="RETUNE",
+            confidence=decision.confidence,
+            reason="business_gate_blocked",
+            next_action={
+                "dataset_action": "reuse",
+                "train_action": "from_run",
+                "base_run": summary_record.train_name,
+            },
+            evidence=[
+                *decision.evidence,
+                f"business_success_rate={business_record.success_rate:.4f}",
+                f"business_success_threshold={business_record.success_threshold:.4f}",
+                "business_gate_blocked",
+            ],
+            agent=decision.agent,
+        )
 
     def _summarize_trial_with_runtime(
         self,
@@ -814,9 +1013,15 @@ class AutoTrainController:
         study: contracts.StudyRecord,
         leaderboard: contracts.LeaderboardRecord,
         decision: contracts.DecisionRecord,
+        business_eval_record: contracts.BusinessEvalRecord | None,
     ) -> contracts.StudyStatusRecord:
-        fallback_record = study_status.build_study_status(study=study, leaderboard=leaderboard, decision=decision)
-        if self.request.judge_provider != "opencode":
+        fallback_record = study_status.build_study_status(
+            study=study,
+            leaderboard=leaderboard,
+            decision=decision,
+            business_eval=business_eval_record,
+        )
+        if self.request.judge_provider != "opencode" or business_eval_record is not None:
             return fallback_record
 
         runtime = self._opencode_runtime()
@@ -974,9 +1179,19 @@ class AutoTrainController:
         trace_root = self._opencode_trace_root(trace)
         trace_root.mkdir(parents=True, exist_ok=True)
         sequence = len(list(trace_root.glob("*.json"))) + 1
-        trace_path = trace_root / f"{sequence:04d}_{trace.command_name}.json"
+        stem = f"{sequence:04d}_{trace.command_name}"
+        trace_path = trace_root / f"{stem}.json"
+        raw_stdout_path = trace_root / f"{stem}.stdout.txt"
+        raw_stderr_path = trace_root / f"{stem}.stderr.txt"
         storage.write_json_payload(trace_path, trace.to_dict())
-        rendered = _render_opencode_trace(trace=trace, trace_path=trace_path)
+        storage.write_text(raw_stdout_path, trace.stdout or "")
+        storage.write_text(raw_stderr_path, trace.stderr or "")
+        rendered = _render_opencode_trace(
+            trace=trace,
+            trace_path=trace_path,
+            raw_stdout_path=raw_stdout_path,
+            raw_stderr_path=raw_stderr_path,
+        )
         storage.append_text(self.paths.opencode_log_file, rendered)
         writer = self.dependencies.console_writer
         if writer is not None:
@@ -1105,6 +1320,10 @@ def _study_status_with_extra_evidence(
         summary_cn=record.summary_cn,
         next_actions_cn=record.next_actions_cn,
         evidence=[*record.evidence, *[item for item in extra_evidence if item.strip()]],
+        business_success_rate=record.business_success_rate,
+        business_success_threshold=record.business_success_threshold,
+        commercial_ready=record.commercial_ready,
+        latest_gate_status=record.latest_gate_status,
     )
 
 
@@ -1230,6 +1449,8 @@ def _render_opencode_trace(
     *,
     trace: opencode_runtime.OpenCodeTraceRecord,
     trace_path: Path,
+    raw_stdout_path: Path,
+    raw_stderr_path: Path,
 ) -> str:
     trial_id = _trace_trial_id(trace)
     scope = trial_id or "study"
@@ -1237,6 +1458,8 @@ def _render_opencode_trace(
         f"=== OpenCode Trace: {trace.command_name} [{scope}] ===",
         f"time: {trace.created_at}",
         f"trace_file: {trace_path}",
+        f"raw_stdout_file: {raw_stdout_path}",
+        f"raw_stderr_file: {raw_stderr_path}",
         f"project_root: {trace.project_root}",
         f"model: {trace.model or '(default)'}",
         f"attach_url: {trace.attach_url or '(none)'}",
@@ -1280,9 +1503,9 @@ def _render_opencode_trace(
                 lines.append("(attached file content truncated)")
     stdout_text = trace.stdout or ""
     stderr_text = trace.stderr or ""
-    lines.append("--- stdout ---")
+    lines.append("--- raw stdout ---")
     lines.append(stdout_text if stdout_text.strip() else "(empty)")
-    lines.append("--- stderr ---")
+    lines.append("--- raw stderr ---")
     lines.append(stderr_text if stderr_text.strip() else "(empty)")
     lines.append("")
     return "\n".join(lines)

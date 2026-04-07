@@ -414,6 +414,92 @@ opencode run `
 - `dataset_plan.json` 是下一轮数据策略
 - `summary.md` 是 study 级摘要，第一眼先看这里
 
+## 7.1 把真实样本 business gate 接到最终停止条件
+
+如果你希望 `group2` 不是“达到训练指标就停”，而是“必须通过真实样本遮挡验证才停”，可以额外传入：
+
+```powershell
+uv run sinan auto-train run group2 `
+  --study-name study_group2_llm `
+  --train-root D:\sinan-captcha-work `
+  --generator-workspace D:\sinan-generator\workspace `
+  --business-eval-dir D:\sinan-captcha-work\business_eval\group2 `
+  --business-eval-success-threshold 0.98 `
+  --business-eval-min-cases 100 `
+  --business-eval-sample-size 100 `
+  --business-eval-occlusion-threshold 0.78
+```
+
+推荐目录：
+
+- 建议直接放在训练根目录下：
+  - `D:\sinan-captcha-work\business_eval\group2`
+- 这样做的好处是：
+  - 训练数据 `datasets/`、训练产物 `runs/`、商业验收样本 `business_eval/` 在同一个训练根目录里，便于迁移和复盘
+  - 启动命令不需要再额外记一条独立磁盘路径
+
+`--business-eval-dir` 的目录约定：
+
+- 可以直接放一组样本：
+  - `master.png`
+  - `tile.png`
+  - 或 `bg.jpg`
+  - 或 `gap.jpg`
+- 也可以放多组子目录：
+  - `case_0001/master.png`
+  - `case_0001/tile.png`
+  - `case_0002/master.png`
+  - `case_0002/tile.png`
+  - 或者像你的真实样本一样：
+  - `20260407190052_2/bg.jpg`
+  - `20260407190052_2/gap.jpg`
+  - `20260407190323_4/bg.jpg`
+  - `20260407190323_4/gap.jpg`
+
+当前兼容的文件名别名：
+
+- 背景图：`master.*`、`bg.*`、`background.*`
+- 缺口块：`tile.*`、`gap.*`、`piece.*`、`puzzle_piece.*`
+
+启用后，控制器会在“训练指标已达标、当前候选被判为 `PROMOTE_BRANCH`”时额外执行一轮商业验收 gate：
+
+1. 用当前 `group2` 模型预测缺口位置
+2. 把 `tile` 贴回 `master`
+3. 计算边界残差改善和拼缝质量，得到 `occlusion_score`
+4. 从 `--business-eval-dir` 中稳定随机抽取最多 `100` 组样本进行本轮验收
+5. 统计这 `100` 组样本的成功率
+6. 只有当成功率达到 `98%` 且本轮验收样本数达到 `100` 时，study 才会真正停止
+
+这里的“稳定随机抽样”指的是：
+
+- 每个候选 `trial` 都会随机抽取一批样本
+- 同一个 `trial` 重跑时，抽中的样本保持一致，便于复盘
+- 新的 `trial` 会抽到不同的 100 组样本
+- 当目录内总样本数少于 100 时，本轮会跑全部样本，但不会达到正式商业验收门
+
+当前会额外落盘：
+
+- `trials/<trial_id>/business_eval.json`
+- `trials/<trial_id>/business_eval.md`
+- `trials/<trial_id>/business_eval/<case_id>/overlay.png`
+- `trials/<trial_id>/business_eval/<case_id>/diff.png`
+- `commercial_report.md`
+
+注意：
+
+- 启用 business gate 后，`PROMOTE_BRANCH` 当前表示“训练指标达标的候选”，不再等同于“已经达到商用门”
+- 当前商业验收默认门槛：
+  - `business_eval_success_threshold = 0.98`
+  - `business_eval_min_cases = 100`
+  - `business_eval_sample_size = 100`
+- 当 business gate 已启用但尚未通过时，控制器当前不会因为 `plateau` 或 `max_no_improve_trials` 提前停掉 study
+- 真正的硬停止条件仍然是：
+  - `max_trials`
+  - `max_hours`
+  - `max_new_datasets`
+  - `STOP` 文件
+  - 或手动中断
+
 如果你要排查 “OpenCode 到底看了什么、怎么判断的、怎么生成数据计划的”，再额外看：
 
 - `opencode.log`
@@ -534,6 +620,8 @@ uv run sinan auto-train stage BUILD_DATASET group1 `
 | `trials/trial_0001/result_summary.json` | 给判定器消费的压缩摘要。 |
 | `trials/trial_0001/decision.json` | 这一轮的决策结果。 |
 | `trials/trial_0001/opencode/*.json` | `result-read` / `judge-trial` / `plan-dataset` 的原始 trace。 |
+| `trials/trial_0001/opencode/*.stdout.txt` | 每次 OpenCode 调用的原始标准输出，不经过 JSON 二次包装，优先用于排查模型到底返回了什么。 |
+| `trials/trial_0001/opencode/*.stderr.txt` | 每次 OpenCode 调用的原始标准错误。 |
 | `opencode/*.json` | `study-status` 这类 study 级 OpenCode trace。 |
 
 ## 11. 推荐的观察顺序
@@ -554,7 +642,15 @@ uv run sinan auto-train stage BUILD_DATASET group1 `
 
 - `opencode.log`
 - `trials/<trial_id>/opencode/0001_judge-trial.json`
+- `trials/<trial_id>/opencode/0001_judge-trial.stdout.txt`
 - `trials/<trial_id>/opencode/0001_plan-dataset.json`
+- `trials/<trial_id>/opencode/0001_plan-dataset.stdout.txt`
+
+排查优先级建议：
+
+- 先看 `*.stdout.txt`，这是模型原始返回，最接近真实现场
+- 再看 `opencode.log`，这里会串行记录 `trace_file`、`raw_stdout_file`、`raw_stderr_file` 和同一次调用的上下文
+- 最后再看 `*.json` trace，用来对照命令参数、附带文件和运行时判定分支
 
 ## 12. 当前最重要的现实边界
 

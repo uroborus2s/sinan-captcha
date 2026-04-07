@@ -1,5 +1,130 @@
 # 变更摘要
 
+## 2026-04-07 调整 `group2` 商业验收 gate：固定推荐目录、稳定随机抽样 100 组、阈值提升到 98%
+
+- 已更新：
+  - `core/auto_train/business_eval.py`
+  - `core/auto_train/contracts.py`
+  - `core/auto_train/controller.py`
+  - `core/auto_train/runners/business_eval.py`
+  - `core/auto_train/cli.py`
+  - `tests/python/test_auto_train_business_eval.py`
+  - `tests/python/test_auto_train_cli.py`
+  - `docs/02-user-guide/auto-train-on-training-machine.md`
+  - `.factory/memory/current-state.md`
+  - `.factory/memory/change-summary.md`
+- 当前已完成的目标：
+  - 当前推荐把商业验收样本固定放在 `<train_root>/business_eval/group2`
+  - `group2` 商业验收当前不再全量扫描样本池，而是按 `trial_id` 做稳定随机抽样，每轮最多抽 `100` 组样本
+  - 同一 `trial` 重跑会命中同一批样本，新的 `trial` 会更换样本子集，兼顾随机性与可复盘性
+  - 商业验收默认门槛当前已调整为：
+    - `success_threshold = 0.98`
+    - `min_cases = 100`
+    - `sample_size = 100`
+  - `business_eval.json` 与 `commercial_report.md` 当前会同时记录：
+    - 样本池总量 `available_cases`
+    - 本轮实际抽样量 `total_cases`
+    - 目标抽样量 `sample_size`
+- 已运行验证：
+  - `.venv/bin/python -m unittest tests.python.test_auto_train_business_eval`
+  - `.venv/bin/python -m unittest tests.python.test_auto_train_cli`
+  - `git diff --check`
+
+## 2026-04-06 为 `group2 auto-train` 接入真实样本 business eval gate 与商业可用性中文报告
+
+- 已更新：
+  - `core/auto_train/business_eval.py`
+  - `core/auto_train/runners/business_eval.py`
+  - `core/auto_train/contracts.py`
+  - `core/auto_train/controller.py`
+  - `core/auto_train/layout.py`
+  - `core/auto_train/storage.py`
+  - `core/auto_train/study_status.py`
+  - `core/auto_train/cli.py`
+  - `core/auto_train/__init__.py`
+  - `core/auto_train/runners/__init__.py`
+  - `tests/python/test_auto_train_business_eval.py`
+  - `tests/python/test_auto_train_cli.py`
+  - `docs/02-user-guide/auto-train-on-training-machine.md`
+  - `.factory/memory/current-state.md`
+  - `.factory/memory/change-summary.md`
+- 当前已完成的目标：
+  - `group2` 当前可以把真实样本目录接入 `auto-train` 的最终停止条件
+  - 当配置 `business_eval_dir` 后，`PROMOTE_BRANCH` 当前只表示“候选可晋级”，还必须通过真实样本遮挡 gate 才会真正 `STOP`
+  - 当前 business gate 使用“预测缺口位置 -> 把 tile 贴回 master -> 计算边界残差改善与拼缝质量”的混合判定，不再把最终放行完全交给大模型主观看图
+  - 当前会额外写出：
+    - `trials/<trial_id>/business_eval.json`
+    - `trials/<trial_id>/business_eval.md`
+    - `study_root/commercial_report.md`
+  - 当配置了 business gate 但尚未通过时，`plateau` / `max_no_improve_trials` 当前不会提前终止 study；仍由 `max_trials / max_hours / max_new_datasets / STOP` 等硬约束兜底
+  - `auto-train` CLI 当前已新增：
+    - `--business-eval-dir`
+    - `--business-eval-success-threshold`
+    - `--business-eval-min-cases`
+    - `--business-eval-occlusion-threshold`
+- 已运行验证：
+  - `.venv/bin/python -m unittest tests.python.test_auto_train_business_eval`
+  - `.venv/bin/python -m unittest tests.python.test_auto_train_cli`
+  - `.venv/bin/python -m unittest tests.python.test_auto_train_controller`
+  - `.venv/bin/python -m unittest discover -s tests/python`
+
+## 2026-04-06 重构开发者指南，收口为“快速上手 -> 模块编译 -> 打包发布”
+
+- 已更新：
+  - `docs/03-developer-guide/index.md`
+  - `docs/03-developer-guide/maintainer-quickstart.md`
+  - `docs/03-developer-guide/local-development-workflow.md`
+  - `docs/03-developer-guide/release-and-delivery-workflow.md`
+  - `docs/index.md`
+  - `.factory/memory/current-state.md`
+  - `.factory/memory/change-summary.md`
+- 当前已完成的目标：
+  - 已把 `03-developer-guide` 从概念性说明重写成开发者动作手册
+  - 已明确根仓库 Python 包、Go 生成器、`solver_package` 三个模块各自的最快编译命令
+  - 已把版本号更新、Python 构建、PyPI 上传、生成器构建、solver 资产导出、Windows 交付包组装整理成单条正式发版顺序
+  - 已把文档导航标题同步改成更直接的动作名称
+- 已运行验证：
+  - `git diff --check`
+
+## 2026-04-06 补强 OpenCode 原始输出落盘，便于训练机直接排查模型返回
+
+- 已更新：
+  - `core/auto_train/controller.py`
+  - `core/auto_train/storage.py`
+  - `tests/python/test_auto_train_controller.py`
+  - `docs/02-user-guide/auto-train-on-training-machine.md`
+  - `.factory/memory/current-state.md`
+  - `.factory/memory/change-summary.md`
+- 当前已完成的目标：
+  - 每次 OpenCode trace 当前除了 `*.json` 外，还会额外生成同序号的 `*.stdout.txt` 与 `*.stderr.txt`
+  - `opencode.log` 当前会显式记录 `raw_stdout_file` 和 `raw_stderr_file`
+  - 训练机当前可以不经过 JSON 转义，直接查看模型原始返回文本
+- 已运行验证：
+  - `uv run python -m unittest tests.python.test_auto_train_controller.AutoTrainControllerTests.test_record_opencode_trace_writes_log_json_and_terminal_output tests.python.test_auto_train_controller.AutoTrainControllerTests.test_record_opencode_trace_handles_none_stdout_and_stderr`
+
+## 2026-04-06 发布 `sinan-captcha==0.1.20`，修复 OpenCode `step_start-only` 不完整事件流
+
+- 已更新：
+  - `core/_version.py`
+  - `core/auto_train/opencode_runtime.py`
+  - `tests/python/test_auto_train_opencode_runtime.py`
+  - `docs/02-user-guide/auto-train-on-training-machine.md`
+  - `.factory/memory/current-state.md`
+  - `.factory/memory/change-summary.md`
+- 当前已完成的目标：
+  - 已把 OpenCode attach 只返回起始事件、没有最终 JSON 的情况识别为 `opencode_incomplete_event_stream`
+  - 当前在本机 attach 场景下，会对这类不完整事件流自动做一次本地直连重试
+  - 当前本机 attach 下的 3 类不完整返回都已纳入统一重试：
+    - `opencode_empty_stdout`
+    - `opencode_incomplete_tool_calls`
+    - `opencode_incomplete_event_stream`
+  - 训练机排障文档当前已补充 `step_start-only` 现象与升级建议
+- 已运行验证：
+  - `uv run python -m unittest tests.python.test_auto_train_opencode_runtime tests.python.test_auto_train_opencode_commands tests.python.test_auto_train_json_extract tests.python.test_auto_train_controller tests.python.test_auto_train_runners tests.python.test_training_jobs tests.python.test_auto_train_optimize tests.python.test_release_service tests.python.test_setup_train`
+  - `uv run sinan release build --project-dir .`
+  - `uv run sinan release publish --project-dir . --token-env UV_PUBLISH_TOKEN`
+  - `uvx --no-config --refresh --default-index https://pypi.org/simple --python 3.12 --from sinan-captcha==0.1.20 sinan --help`
+
 ## 2026-04-06 发布 `sinan-captcha==0.1.19`
 
 - 已更新：

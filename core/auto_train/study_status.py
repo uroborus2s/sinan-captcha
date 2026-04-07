@@ -10,10 +10,17 @@ def build_study_status(
     study: contracts.StudyRecord,
     leaderboard: contracts.LeaderboardRecord,
     decision: contracts.DecisionRecord,
+    business_eval: contracts.BusinessEvalRecord | None = None,
 ) -> contracts.StudyStatusRecord:
     best_entry = leaderboard.best_entry
     budget_pressure = _budget_pressure(study, completed_trials=len(leaderboard.entries))
-    summary_cn = _summary_cn(study=study, best_entry=best_entry, decision=decision, budget_pressure=budget_pressure)
+    summary_cn = _summary_cn(
+        study=study,
+        best_entry=best_entry,
+        decision=decision,
+        budget_pressure=budget_pressure,
+        business_eval=business_eval,
+    )
     return contracts.StudyStatusRecord(
         study_name=study.study_name,
         task=study.task,
@@ -24,8 +31,18 @@ def build_study_status(
         best_primary_score=None if best_entry is None else best_entry.primary_score,
         budget_pressure=budget_pressure,
         summary_cn=summary_cn,
-        next_actions_cn=_next_actions_cn(decision.decision),
-        evidence=_evidence(study=study, best_entry=best_entry, decision=decision, budget_pressure=budget_pressure),
+        next_actions_cn=_next_actions_cn(decision.decision, business_eval=business_eval),
+        evidence=_evidence(
+            study=study,
+            best_entry=best_entry,
+            decision=decision,
+            budget_pressure=budget_pressure,
+            business_eval=business_eval,
+        ),
+        business_success_rate=None if business_eval is None else business_eval.success_rate,
+        business_success_threshold=None if business_eval is None else business_eval.success_threshold,
+        commercial_ready=None if business_eval is None else business_eval.commercial_ready,
+        latest_gate_status=_gate_status(business_eval),
     )
 
 
@@ -40,14 +57,27 @@ def markdown_from_study_status(record: contracts.StudyStatusRecord) -> str:
         f"- best_trial_id: {record.best_trial_id}",
         f"- best_primary_score: {record.best_primary_score}",
         f"- budget_pressure: {record.budget_pressure}",
-        "",
-        "## 中文摘要",
-        "",
-        record.summary_cn,
-        "",
-        "## 下一步",
-        "",
     ]
+    if record.business_success_rate is not None:
+        lines.extend(
+            [
+                f"- business_success_rate: {record.business_success_rate}",
+                f"- business_success_threshold: {record.business_success_threshold}",
+                f"- commercial_ready: {record.commercial_ready}",
+                f"- latest_gate_status: {record.latest_gate_status}",
+            ]
+        )
+    lines.extend(
+        [
+            "",
+            "## 中文摘要",
+            "",
+            record.summary_cn,
+            "",
+            "## 下一步",
+            "",
+        ]
+    )
     for action in record.next_actions_cn:
         lines.append(f"- {action}")
     return "\n".join(lines) + "\n"
@@ -68,7 +98,19 @@ def _summary_cn(
     best_entry: contracts.LeaderboardEntry | None,
     decision: contracts.DecisionRecord,
     budget_pressure: str,
+    business_eval: contracts.BusinessEvalRecord | None,
 ) -> str:
+    if business_eval is not None:
+        if business_eval.commercial_ready:
+            return (
+                f"当前 study 状态为 {study.status}，最新候选已通过真实业务样本 gate，"
+                f"成功率达到 {business_eval.success_rate:.2%}，满足 {business_eval.success_threshold:.0%} 商用门槛。"
+            )
+        return (
+            f"当前 study 状态为 {study.status}，训练指标已进入候选晋级区间，"
+            f"但真实业务样本 gate 成功率仅 {business_eval.success_rate:.2%}，"
+            f"尚未达到 {business_eval.success_threshold:.0%} 商用门槛，将继续训练。"
+        )
     if best_entry is None:
         return f"当前 study 还没有形成稳定最佳轮次，最近动作是 {decision.decision}，预算压力为 {budget_pressure}。"
     return (
@@ -77,7 +119,15 @@ def _summary_cn(
     )
 
 
-def _next_actions_cn(decision: str) -> list[str]:
+def _next_actions_cn(
+    decision: str,
+    *,
+    business_eval: contracts.BusinessEvalRecord | None,
+) -> list[str]:
+    if business_eval is not None:
+        if business_eval.commercial_ready:
+            return ["当前候选已达到商用门，停止自动训练并固化最终报告。"]
+        return ["继续下一轮训练，优先修复 business gate 未通过的样本。"]
     if decision == "PROMOTE_BRANCH":
         return ["冻结当前最佳分支并安排人工验收。"]
     if decision == "REGENERATE_DATA":
@@ -95,6 +145,7 @@ def _evidence(
     best_entry: contracts.LeaderboardEntry | None,
     decision: contracts.DecisionRecord,
     budget_pressure: str,
+    business_eval: contracts.BusinessEvalRecord | None,
 ) -> list[str]:
     evidence = [
         f"status={study.status}",
@@ -105,4 +156,17 @@ def _evidence(
     if best_entry is not None:
         evidence.append(f"best_trial_id={best_entry.trial_id}")
         evidence.append(f"best_primary_score={best_entry.primary_score:.6f}")
+    if business_eval is not None:
+        evidence.append(f"business_success_rate={business_eval.success_rate:.6f}")
+        evidence.append(f"business_success_threshold={business_eval.success_threshold:.6f}")
+        evidence.append(f"commercial_ready={str(business_eval.commercial_ready).lower()}")
     return evidence
+
+
+def _gate_status(record: contracts.BusinessEvalRecord | None) -> str | None:
+    if record is None:
+        return None
+    for item in record.evidence:
+        if item.startswith("runner_error="):
+            return "error"
+    return "passed" if record.commercial_ready else "failed"

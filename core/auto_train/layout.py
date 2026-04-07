@@ -74,6 +74,10 @@ class StudyPaths:
         return self.study_root / "summary.md"
 
     @property
+    def commercial_report_file(self) -> Path:
+        return self.study_root / "commercial_report.md"
+
+    @property
     def study_status_file(self) -> Path:
         return self.study_root / "study_status.json"
 
@@ -131,6 +135,18 @@ class StudyPaths:
 
     def decision_file(self, trial_id: str) -> Path:
         return self.trial_dir(trial_id) / "decision.json"
+
+    def business_eval_file(self, trial_id: str) -> Path:
+        return self.trial_dir(trial_id) / "business_eval.json"
+
+    def business_eval_markdown_file(self, trial_id: str) -> Path:
+        return self.trial_dir(trial_id) / "business_eval.md"
+
+    def business_eval_root(self, trial_id: str) -> Path:
+        return self.trial_dir(trial_id) / "business_eval"
+
+    def business_eval_case_dir(self, trial_id: str, case_id: str) -> Path:
+        return self.business_eval_root(trial_id) / case_id
 
     def dataset_plan_file(self, trial_id: str) -> Path:
         return self.trial_dir(trial_id) / "dataset_plan.json"

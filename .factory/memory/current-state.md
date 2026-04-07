@@ -17,6 +17,37 @@
 
 ## 当前事实
 
+- 2026-04-06 已重构 `docs/03-developer-guide/`：
+  - `index.md` 当前已改成面向开发者动作的入口页，直接按“快速上手 -> 模块编译 -> 打包发布”组织
+  - `maintainer-quickstart.md` 当前已改成 30 分钟接手手册，覆盖根仓库 Python、Go 生成器、`solver_package` 的最小验证与最快编译命令
+  - `local-development-workflow.md` 当前已改成模块化开发手册，按根仓库 Python、Go 生成器、独立 solver 包和跨模块契约分别给出验证矩阵
+  - `release-and-delivery-workflow.md` 当前已补齐开发者视角的正式发版顺序：版本号、Python 包构建、PyPI 上传、生成器构建、solver 资产导出、Windows 交付包组装
+  - `docs/index.md` 当前已把开发者指南导航标题同步改成：
+    - 开发者快速上手
+    - 模块编译与本地验证
+    - 打包与上传发布
+- 2026-04-06 已补强 OpenCode 原始返回排障面：
+  - `core/auto_train/controller.py` 当前会在每次 OpenCode trace 落盘时，额外写出同序号的 `*.stdout.txt` 与 `*.stderr.txt`
+  - `studies/<task>/<study>/opencode.log` 当前会显式记录 `raw_stdout_file` 与 `raw_stderr_file`
+  - 这保证训练机上即使出现 `fallback_invalid_json`、`opencode_incomplete_event_stream` 或 attach 重试，也能直接看到模型原始返回文本
+  - `tests/python/test_auto_train_controller.py` 当前已补齐：
+    - 成功调用会生成原始 stdout/stderr 文件
+    - 空 stdout/stderr 失败分支也会生成对应空文件并写入日志
+  - `docs/02-user-guide/auto-train-on-training-machine.md` 当前已补充优先查看 `*.stdout.txt` / `*.stderr.txt` 的排障顺序
+- 2026-04-06 已发布 Python 训练 CLI 包 `sinan-captcha==0.1.20` 到 PyPI：
+  - 当前修复了 OpenCode attach 返回只有 `step_start` 等起始事件、没有最终 JSON 时被误判成普通 `invalid_json` 的问题
+  - `core/auto_train/opencode_runtime.py` 当前会把这类返回识别成 `opencode_incomplete_event_stream`
+  - 当前在本机 `attach_url=127.0.0.1/localhost` 场景下，会对 3 类不完整返回自动做一次本地直连重试：
+    - `opencode_empty_stdout`
+    - `opencode_incomplete_tool_calls`
+    - `opencode_incomplete_event_stream`
+  - `tests/python/test_auto_train_opencode_runtime.py` 当前已补齐：
+    - `tool-calls` 本地 attach 自动重试
+    - `step_start-only` 事件流检测
+    - `step_start-only` 本地 attach 自动重试
+  - 当前已确认 `uv run sinan release build --project-dir .` 成功
+  - 当前已确认 `uv run sinan release publish --project-dir . --token-env UV_PUBLISH_TOKEN` 成功上传 `0.1.20`
+  - 当前已确认 `uvx --no-config --refresh --default-index https://pypi.org/simple --python 3.12 --from sinan-captcha==0.1.20 sinan --help` 可成功解析安装
 - 2026-04-06 已发布 Python 训练 CLI 包 `sinan-captcha==0.1.19` 到 PyPI：
   - 当前包含 OpenCode headless `tool-calls` 防线修复
   - 当前包含 `group2 + train_mode=fresh` 默认模型从 `yolo26n.pt` 修正为 `paired_cnn_v1`
@@ -161,6 +192,23 @@
   - `EVALUATE` 当前会优先自动接上 `TEST` 产物；显式 `gold_dir/prediction_dir` 仍可覆盖
   - `max_hours` 当前已基于 study `started_at` 形成真实计时停止规则
   - `max_new_datasets` 当前已在 `REGENERATE_DATA -> new_version` 路径上形成真正的停止约束
+- 2026-04-06 已为 `group2 auto-train` 接入真实样本 business eval gate：
+  - 训练者当前可通过 `--business-eval-dir` 把 `master.* + tile.*` 或 `bg.* + gap.*` 样本目录接到最终停止条件
+  - 当前推荐把商业验收样本固定放在 `<train_root>/business_eval/group2`
+  - 当启用 business gate 后，`PROMOTE_BRANCH` 当前只表示“候选可晋级”，还必须通过真实样本遮挡评测才会真正 `STOP`
+  - 当前 business gate 会生成：
+    - `trials/<trial_id>/business_eval.json`
+    - `trials/<trial_id>/business_eval.md`
+    - `commercial_report.md`
+  - 当前真实样本判定采用确定性遮挡评分：
+    - 模型预测缺口位置
+    - 将 `tile` 贴回 `master`
+    - 以边界残差改善 + 拼缝质量计算 `occlusion_score`
+  - 当前商业验收默认策略已调整为：
+    - 每个候选 `trial` 最多稳定随机抽样 `100` 组真实样本
+    - `success_threshold = 0.98`
+    - `min_cases = 100`
+  - 当 business gate 已启用但尚未通过时，`plateau` / `max_no_improve_trials` 当前不会提前终止 study；仍由 `max_trials / max_hours / max_new_datasets / STOP` 等硬约束兜底
 - 2026-04-05 当前 `auto-train` 剩余的主要边界：
   - 还没有 Windows + NVIDIA 训练机长流程验收
   - 还不能宣称为“可长期无人值守”的正式入口
