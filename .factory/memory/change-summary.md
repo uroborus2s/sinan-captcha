@@ -1,5 +1,52 @@
 # 变更摘要
 
+## 2026-04-09 发布准备 `sinan-captcha==0.1.28`
+
+- 已更新：
+  - `core/_version.py`
+  - `.factory/memory/current-state.md`
+  - `.factory/memory/change-summary.md`
+- 当前已完成的目标：
+  - 当前版本号已从 `0.1.27` 提升到 `0.1.28`
+  - 本次发布覆盖：
+    - `group2 auto-train` 状态工件原子写入
+    - leaderboard 读取损坏 `business_eval.json` 时的容错
+    - `TEST` 阶段 `best.pt -> last.pt` 的权重回退
+    - 更接近人眼判断的 `group2` 商业检测硬门
+- 已运行验证：
+  - `uv run python -m unittest discover -s tests/python`
+  - `git diff --check`
+
+## 2026-04-08 修复 `group2 auto-train` 恢复崩溃，并放宽商业检测到“局部最优 + 10px 容差”
+
+- 已更新：
+  - `core/auto_train/storage.py`
+  - `core/auto_train/controller.py`
+  - `core/auto_train/business_eval.py`
+  - `tests/python/test_auto_train_business_eval.py`
+  - `tests/python/test_auto_train_controller.py`
+  - `docs/02-user-guide/auto-train-on-training-machine.md`
+  - `.factory/memory/current-state.md`
+  - `.factory/memory/change-summary.md`
+- 当前已完成的目标：
+  - `business_eval.json`、`study_status.json` 等关键工件当前改为原子写入，避免写入半截时被读取
+  - leaderboard 更新阶段当前会容忍单个 trial 的损坏 `business_eval.json`，不再因为一份坏 JSON 直接打断整个 study
+  - `TEST` 阶段当前会优先读取 `train.json` 里的权重记录：
+    - 优先 `best_weights`
+    - `best.pt` 缺失时回退到 `last_weights`
+  - `group2` 商业检测当前不再把 `clean_score` 单独作为唯一硬门
+  - 当前单样本通过规则收口为：
+    - 模型输出与邻域内最优位置边框偏差 `<= 10px`
+    - `contour_overlap_ratio >= 0.55`
+    - `double_contour_ratio <= 0.45`
+    - `overflow_edge_score <= 0.40`
+    - `clean_score >= max(0.72, configured_threshold - 0.06)`
+  - `exposed_gap_edge_ratio` 与 `tile_residue_ratio` 当前继续输出到日志，但不再单独决定 PASS/FAIL
+- 已运行验证：
+  - `uv run python -m unittest tests.python.test_auto_train_business_eval tests.python.test_auto_train_controller`
+  - `uv run python -m unittest discover -s tests/python`
+  - `git diff --check`
+
 ## 2026-04-09 目录更名：`sript/ -> script/`
 
 - 已更新：

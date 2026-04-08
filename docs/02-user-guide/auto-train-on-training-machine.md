@@ -518,8 +518,12 @@ uv run sinan auto-train run group2 `
   - `best_local_clean_score`
 - 当前单样本通过条件变成：
   - 模型输出位置与邻域内最干净位置的边框偏差 `<= 10px`
-  - 邻域内最干净位置的 `best_local_clean_score >= main_score_threshold`
   - 当前模型输出位置的 `contour_overlap_ratio >= 0.55`
+  - 当前模型输出位置的 `double_contour_ratio <= 0.45`
+  - 当前模型输出位置的 `overflow_edge_score <= 0.40`
+  - 当前模型输出位置的 `clean_score >= effective_clean_threshold`
+    - `effective_clean_threshold = max(0.72, --business-eval-occlusion-threshold - 0.06)`
+  - `exposed_gap_edge_ratio` 与 `tile_residue_ratio` 当前继续保留在日志里做辅诊断，但不再单独作为硬门
 - `boundary_before / boundary_after / fill_score / seam_score` 当前仍会保留为兼容旧日志的辅诊断字段：
   - `fill_score` 现等价于 `contour_overlap_ratio`
   - `seam_score` 现表示边缘干净程度
@@ -559,6 +563,7 @@ uv run sinan auto-train run group2 `
   - `clean_score`
     - 这些字段由商业测试评分模块计算
     - 表示当前模型输出位置的整体贴合干净程度，越高越好
+    - 当前它是参考分，不再是唯一决定单样本 PASS/FAIL 的硬门
   - `success_rate / commercial_ready`
     - 这些字段表示整批真实样本的通过率和是否达到最终商用门
 - `commercial_report.md` 是最终人类可读报告，当前固定包含：
@@ -597,7 +602,7 @@ uv run sinan auto-train run group2 `
 - 旧规则的问题是：如果很多 trial 的 `point_hit_rate` 都是 `1.0`，最早的简单样本轮次会一直排第一。
 - 当前排行榜会综合考虑：
   - `offline_score`：离线指标组合分，来自 `point_hit_rate + mean_iou + mean_center_error_px`
-  - `difficulty_score`：当前数据版本的难度系数，来自 `dataset_preset + 数据重生深度`
+  - `difficulty_score`：当前数据版本的策略难度系数，不是从图片像素里算出来的，而是来自 `dataset_preset + 数据重生深度`
     - `smoke = 0.85`
     - `firstpass = 1.00`
     - `hard = 1.12`
@@ -605,6 +610,18 @@ uv run sinan auto-train run group2 `
   - `business_success_rate`：当前真实业务样本通过率
   - `commercial_ready`：当前是否已经达到最终商业门
 - 这 4 项会汇总成 `ranking_score`，`leaderboard.json` 与 `best_trial.json` 当前都按这个综合分选“最佳 trial”。
+- 当前具体公式是：
+  - `center_quality = clamp(1 - mean_center_error_px / 12, 0..1)`
+  - `offline_score = 0.50 * point_hit_rate + 0.30 * mean_iou + 0.20 * center_quality`
+  - `difficulty_score = preset_weight + min(regenerate_depth * 0.02, 0.08)`
+  - `business_component = business_success_rate * 0.75 + (commercial_ready ? 0.25 : 0.0)`
+  - `ranking_score = offline_score * difficulty_score + business_component * 0.35`
+- 你可以直接在 `studies/<task>/<study-name>/leaderboard.json` 里看每个 trial 的：
+  - `offline_score`
+  - `difficulty_score`
+  - `business_success_rate`
+  - `commercial_ready`
+  - `ranking_score`
 - 因此：
   - 离线同分时，不会再默认让 `trial_0001` 永远排第一
   - 更难的数据版本、真实业务通过率更高的 trial，会被更优先地视为当前最佳候选

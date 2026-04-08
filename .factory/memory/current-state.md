@@ -17,6 +17,29 @@
 
 ## 当前事实
 
+- 2026-04-09 已准备发布 Python 训练 CLI 包 `sinan-captcha==0.1.28`：
+  - 当前版本收口了 `group2 auto-train` 的两类现场问题：
+    - leaderboard 重建时读到半写入的 `business_eval.json` 导致崩溃
+    - `TEST` 阶段硬找 `best.pt`，而现场 trial 只剩 `last.pt` 时直接崩溃
+  - 当前版本同时把 `group2` 商业检测继续放宽到更接近人眼判断：
+    - 局部最优位置 `10px` 容差
+    - `contour_overlap_ratio / double_contour_ratio / overflow_edge_score` 作为主硬门
+    - `clean_score` 改为参考分，不再单独决定 PASS/FAIL
+  - 当前已验证：
+    - `uv run python -m unittest discover -s tests/python`
+    - `git diff --check`
+- 2026-04-08 当前仓库已补强 `group2 auto-train` 的恢复与商业检测稳定性：
+  - `core/auto_train/storage.py` 当前改为原子写 JSON / 文本工件，避免 `business_eval.json`、`study_status.json` 等文件在写入中途被读取到半截内容
+  - `core/auto_train/controller.py` 当前在读取历史 `business_eval.json` 构建 leaderboard 时，会容忍单个 trial 的坏 JSON，避免整个 study 因一份损坏工件直接崩掉
+  - `core/auto_train/controller.py` 当前在 `TEST` 阶段会优先读取 `train.json` 里记录的权重路径：
+    - 优先 `best_weights`
+    - `best.pt` 缺失时回退到 `last_weights`
+  - 这修复了两类训练机现场问题：
+    - `NEXT_ACTION` 因历史 `business_eval.json` 非法 JSON 崩溃
+    - `TEST` 因 `runs/group2/<trial>/weights/best.pt` 缺失而崩溃
+  - 当前已验证：
+    - `uv run python -m unittest tests.python.test_auto_train_business_eval tests.python.test_auto_train_controller`
+    - `uv run python -m unittest discover -s tests/python`
 - 2026-04-09 当前开发期脚本目录已从 `sript/` 正式更名为 `script/`：
   - 当前脚本源码入口已统一改为 `script/crawl/ctrip_login.py`
   - 当前脚本目录说明文件已改为 `script/README.md`
@@ -136,7 +159,14 @@
     - 数据重生深度
       - 每多一层 `_rNNNN` 再额外加 `0.02`
       - 最多额外加到 `0.08`
+    - 它当前是“策略难度系数”，不是从图片像素里自动识别“样本难不难”
   - `ranking_score` 当前会把离线质量、样本难度和商业测试结果一起纳入
+  - 当前具体公式：
+    - `center_quality = clamp(1 - mean_center_error_px / 12, 0..1)`
+    - `offline_score = 0.50 * point_hit_rate + 0.30 * mean_iou + 0.20 * center_quality`
+    - `difficulty_score = preset_weight + min(regenerate_depth * 0.02, 0.08)`
+    - `business_component = business_success_rate * 0.75 + (commercial_ready ? 0.25 : 0.0)`
+    - `ranking_score = offline_score * difficulty_score + business_component * 0.35`
   - `core/auto_train/contracts.py` 当前在 `LeaderboardRecord` 排序时，会优先按 `ranking_score` 排，而不是只看 `primary_score`
   - `core/auto_train/controller.py` 当前在重生下一轮时，会优先继承 `leaderboard.best_entry.train_name`
   - 当前还会自动清理模型目录，只保留综合评分最优的前 3 个 run
