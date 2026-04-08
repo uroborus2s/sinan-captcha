@@ -17,7 +17,7 @@
 
 ## 当前事实
 
-- 2026-04-08 已准备发布 Python 训练 CLI 包 `sinan-captcha==0.1.23`：
+- 2026-04-08 已发布 Python 训练 CLI 包 `sinan-captcha==0.1.23`：
   - `group2` 商业验收当前已改为“商用目标优先”的搜索闭环
   - `core/auto_train/controller.py` 当前在 `group2 + business gate` 开启时，会把未达到最终商用门的分支统一收口为：
     - `decision = REGENERATE_DATA`
@@ -34,6 +34,9 @@
     - `.venv/bin/python -m unittest tests.python.test_solve_service`
     - `.venv/bin/python -m unittest discover -s tests/python`
     - `git diff --check`
+    - `uv build`
+    - `uv publish --publish-url https://upload.pypi.org/legacy/ --check-url https://pypi.org/simple dist/sinan_captcha-0.1.23-py3-none-any.whl dist/sinan_captcha-0.1.23.tar.gz`
+    - `https://pypi.org/pypi/sinan-captcha/json` 当前已可见 `version = 0.1.23`
 - 2026-04-08 已补强 `group2` 商业验收对真实 `gap.jpg` 的兼容性与日志可观测性：
   - `core/solve/group2_runtime.py` 当前在 `tile/gap` 图片缺少有效 alpha 通道时，会按图块四周背景自动提取轮廓掩码
   - 同一套掩码当前会同时用于：

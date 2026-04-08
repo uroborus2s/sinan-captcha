@@ -1,6 +1,6 @@
 # 变更摘要
 
-## 2026-04-08 准备发布 `sinan-captcha==0.1.23`：`group2` 商业验收切换为“商用目标优先”闭环
+## 2026-04-08 发布 `sinan-captcha==0.1.23`：`group2` 商业验收切换为“商用目标优先”闭环
 
 - 已更新：
   - `core/_version.py`
@@ -29,6 +29,9 @@
   - `.venv/bin/python -m unittest tests.python.test_solve_service`
   - `.venv/bin/python -m unittest discover -s tests/python`
   - `git diff --check`
+  - `uv build`
+  - `uv publish --publish-url https://upload.pypi.org/legacy/ --check-url https://pypi.org/simple dist/sinan_captcha-0.1.23-py3-none-any.whl dist/sinan_captcha-0.1.23.tar.gz`
+  - `curl -s https://pypi.org/pypi/sinan-captcha/json`
 
 ## 2026-04-08 补强 `group2` 商业验收：`gap.jpg` 自动提轮廓掩码，并写出逐 case 预测日志
 
