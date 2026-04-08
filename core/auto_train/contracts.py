@@ -817,6 +817,9 @@ class BusinessEvalCaseRecord:
     reason_cn: str
     overlay_path: str
     diff_path: str
+    reference_bbox: list[int] | None = None
+    reference_center: list[int] | None = None
+    position_error_px: float | None = None
 
     def __post_init__(self) -> None:
         _require_non_empty(self.case_id, "case_id")
@@ -827,6 +830,12 @@ class BusinessEvalCaseRecord:
         _require_non_empty(self.diff_path, "diff_path")
         _require_bbox(self.predicted_bbox, "predicted_bbox")
         _require_point(self.predicted_center, "predicted_center")
+        if self.reference_bbox is not None:
+            _require_bbox(self.reference_bbox, "reference_bbox")
+        if self.reference_center is not None:
+            _require_point(self.reference_center, "reference_center")
+        if self.position_error_px is not None and self.position_error_px < 0:
+            raise ValueError("position_error_px must not be negative")
         if self.inference_ms < 0:
             raise ValueError("inference_ms must not be negative")
         _require_ratio(self.boundary_before, "boundary_before")
@@ -846,6 +855,9 @@ class BusinessEvalCaseRecord:
             tile_image=_string(payload, "tile_image"),
             predicted_bbox=_int_list(payload, "predicted_bbox", expected_length=4),
             predicted_center=_int_list(payload, "predicted_center", expected_length=2),
+            reference_bbox=_optional_int_list(payload, "reference_bbox", expected_length=4),
+            reference_center=_optional_int_list(payload, "reference_center", expected_length=2),
+            position_error_px=_optional_float(payload, "position_error_px"),
             inference_ms=_float(payload, "inference_ms"),
             boundary_before=_float(payload, "boundary_before"),
             boundary_after=_float(payload, "boundary_after"),
@@ -1180,6 +1192,17 @@ def _int_list(payload: dict[str, JsonValue], field_name: str, *, expected_length
             raise ValueError(f"{field_name} must be a list of {expected_length} integers")
         result.append(item)
     return result
+
+
+def _optional_int_list(
+    payload: dict[str, JsonValue],
+    field_name: str,
+    *,
+    expected_length: int,
+) -> list[int] | None:
+    if payload.get(field_name) is None:
+        return None
+    return _int_list(payload, field_name, expected_length=expected_length)
 
 
 def _require_bbox(value: list[int], field_name: str) -> None:

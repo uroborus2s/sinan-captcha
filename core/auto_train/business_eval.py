@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+import math
 from pathlib import Path
 import random
 import time
@@ -12,7 +13,6 @@ from core.auto_train import contracts
 from core.solve import group2_runtime
 from core.train.base import default_best_weights
 
-_EDGE_DIFF_THRESHOLD = 18.0
 _IMAGE_EXTENSIONS = (".png", ".jpg", ".jpeg", ".webp", ".bmp")
 _MASTER_IMAGE_STEMS = ("master", "bg", "background")
 _TILE_IMAGE_STEMS = ("tile", "gap", "piece", "puzzle_piece")
@@ -26,6 +26,9 @@ class OcclusionScore:
     seam_score: float
     occlusion_score: float
     success: bool
+    reference_bbox: list[int]
+    reference_center: list[int]
+    position_error_px: float
 
 
 @dataclass(frozen=True)
@@ -43,37 +46,50 @@ def score_occlusion_overlay(
     x: int,
     y: int,
     success_threshold: float = 0.78,
-    edge_diff_threshold: float = _EDGE_DIFF_THRESHOLD,
 ) -> OcclusionScore:
-    """Score whether overlaying the tile at ``(x, y)`` cleanly occludes the gap."""
+    """Score whether overlaying the tile at ``(x, y)`` aligns with the detected slot."""
 
     _validate_grids(master_luma=master_luma, tile_luma=tile_luma, tile_alpha=tile_alpha)
     composite = _composite_luma_grid(master_luma=master_luma, tile_luma=tile_luma, tile_alpha=tile_alpha, x=x, y=y)
     before_diffs = _boundary_diffs(image=master_luma, tile_alpha=tile_alpha, x=x, y=y)
     after_diffs = _boundary_diffs(image=composite, tile_alpha=tile_alpha, x=x, y=y)
+    reference_bbox, reference_center, _ = _estimate_reference_bbox(master_luma=master_luma, tile_alpha=tile_alpha)
+    predicted_center = _bbox_center([x, y, x + len(tile_alpha[0]), y + len(tile_alpha)])
+    position_error_px = _point_distance(predicted_center, reference_center)
+    position_tolerance_px = _position_tolerance_px(tile_alpha)
+    slot_signal_score = _slot_signal_score(master_luma=master_luma, tile_alpha=tile_alpha, x=x, y=y)
+    reference_alignment_score = _clamp01(1.0 - (position_error_px / max(position_tolerance_px, 1e-6)))
     if not before_diffs or not after_diffs:
         return OcclusionScore(
             boundary_before=1.0,
             boundary_after=1.0,
-            fill_score=0.0,
-            seam_score=0.0,
+            fill_score=slot_signal_score,
+            seam_score=reference_alignment_score,
             occlusion_score=0.0,
             success=False,
+            reference_bbox=reference_bbox,
+            reference_center=reference_center,
+            position_error_px=position_error_px,
         )
 
     boundary_before = _clamp01(_mean(before_diffs) / 255.0)
     boundary_after = _clamp01(_mean(after_diffs) / 255.0)
-    fill_score = _clamp01((boundary_before - boundary_after) / max(boundary_before, 1e-6))
-    seam_score = 1.0 - _bad_edge_ratio(after_diffs, threshold=edge_diff_threshold)
-    occlusion_score = _clamp01(fill_score * 0.6 + seam_score * 0.4)
-    success = occlusion_score >= success_threshold and fill_score >= 0.2
+    occlusion_score = _clamp01(slot_signal_score * 0.4 + reference_alignment_score * 0.6)
+    success = (
+        occlusion_score >= success_threshold
+        and reference_alignment_score >= 0.6
+        and slot_signal_score >= 0.45
+    )
     return OcclusionScore(
         boundary_before=boundary_before,
         boundary_after=boundary_after,
-        fill_score=fill_score,
-        seam_score=seam_score,
+        fill_score=slot_signal_score,
+        seam_score=reference_alignment_score,
         occlusion_score=occlusion_score,
         success=success,
+        reference_bbox=reference_bbox,
+        reference_center=reference_center,
+        position_error_px=position_error_px,
     )
 
 
@@ -167,6 +183,9 @@ def run_group2_business_eval(
                 tile_image=str(case.tile_path),
                 predicted_bbox=bbox,
                 predicted_center=center,
+                reference_bbox=score.reference_bbox,
+                reference_center=score.reference_center,
+                position_error_px=round(score.position_error_px, 4),
                 inference_ms=round(inference_ms, 4),
                 boundary_before=round(score.boundary_before, 6),
                 boundary_after=round(score.boundary_after, 6),
@@ -243,7 +262,7 @@ def markdown_from_business_eval(record: contracts.BusinessEvalRecord) -> str:
         f"- passed_cases: {record.passed_cases}",
         f"- success_rate: {record.success_rate:.4f}",
         f"- success_threshold: {record.success_threshold:.4f}",
-        f"- occlusion_threshold: {record.occlusion_threshold:.4f}",
+        f"- main_score_threshold: {record.occlusion_threshold:.4f}",
         f"- verdict_cn: {verdict}",
         "",
         "## 字段说明",
@@ -251,16 +270,19 @@ def markdown_from_business_eval(record: contracts.BusinessEvalRecord) -> str:
         "- available_cases: business_eval 目录下发现的全部候选样本数。",
         "- sample_size: 本轮配置允许抽样的最大样本数。",
         "- total_cases: 本轮实际参与商业测试的样本数。",
-        "- passed_cases: 单样本 occlusion / fill 同时达标的通过数。",
+        "- passed_cases: 单样本主评分与参考槽位对齐同时达标的通过数。",
         "- success_rate: passed_cases / total_cases，表示本轮商业测试通过率。",
         "- success_threshold: 判定达到商用门所需的最小通过率。",
-        "- occlusion_threshold: 单样本 occlusion_score 的最低通过阈值。",
+        "- main_score_threshold: 单样本主评分的最低通过阈值。",
         "- predicted_bbox: 求解模块输出的缺口框坐标，格式为 [x1, y1, x2, y2]。",
         "- predicted_center: 求解模块输出的缺口中心点，格式为 [cx, cy]。",
+        "- reference_bbox: 商业测试规则从背景图中反推出的参考槽位框，格式为 [x1, y1, x2, y2]。",
+        "- reference_center: 参考槽位框中心点，格式为 [cx, cy]。",
+        "- position_error_px: predicted_center 与 reference_center 的欧氏距离，单位像素。",
         "- inference_ms: 求解模块本次推理耗时，单位毫秒。",
-        "- fill: 贴回缺口块后，原始缺口边界残差下降的幅度，越高越好。",
-        "- seam: 缺口块边缘与背景拼缝的自然程度，越高越好。",
-        "- occlusion: 商业测试主分数，按 0.6 * fill + 0.4 * seam 计算。",
+        "- slot_signal(fill): 兼容旧字段 fill_score，表示预测位置本身有多像真实占位槽位，越高越好。",
+        "- reference_alignment(seam): 兼容旧字段 seam_score，表示预测位置与参考槽位的对齐程度，越高越好。",
+        "- main_score(occlusion): 商业测试主分数，按 0.4 * slot_signal + 0.6 * reference_alignment 计算。",
         "",
         "## 样本结果",
         "",
@@ -271,9 +293,11 @@ def markdown_from_business_eval(record: contracts.BusinessEvalRecord) -> str:
         status = "PASS" if item.success else "FAIL"
         lines.append(
             f"- {item.case_id}: {status}, predicted_bbox={item.predicted_bbox}, "
-            f"predicted_center={item.predicted_center}, inference_ms={item.inference_ms:.4f}, "
-            f"occlusion={item.occlusion_score:.4f}, fill={item.fill_score:.4f}, "
-            f"seam={item.seam_score:.4f}, reason_cn={item.reason_cn}"
+            f"predicted_center={item.predicted_center}, reference_bbox={item.reference_bbox}, "
+            f"reference_center={item.reference_center}, position_error_px={_format_optional_float(item.position_error_px)}, "
+            f"inference_ms={item.inference_ms:.4f}, main_score={item.occlusion_score:.4f}, "
+            f"slot_signal={item.fill_score:.4f}, reference_alignment={item.seam_score:.4f}, "
+            f"reason_cn={item.reason_cn}"
         )
     return "\n".join(lines) + "\n"
 
@@ -283,10 +307,13 @@ def log_from_business_eval(record: contracts.BusinessEvalRecord) -> str:
         "# 字段说明",
         "# predicted_bbox: 模型输出的背景图坐标框 [x1, y1, x2, y2]。",
         "# predicted_center: 模型输出的缺口中心点 [cx, cy]。",
+        "# reference_bbox: 由商业测试规则从背景图反推的参考槽位坐标框 [x1, y1, x2, y2]。",
+        "# reference_center: 由参考槽位坐标框推导出的中心点 [cx, cy]。",
+        "# position_error_px: predicted_center 与 reference_center 的欧氏距离，单位像素。",
         "# inference_ms: 求解模块单次推理耗时，单位毫秒。",
-        "# fill: 贴回后原始缺口边界残差下降幅度，越高越好。",
-        "# seam: 拼缝边缘自然程度，越高越好。",
-        "# occlusion: 商业测试主分数，按 0.6 * fill + 0.4 * seam 计算。",
+        "# slot_signal(fill): 兼容旧字段 fill_score，表示预测位置本身有多像真实占位槽位，越高越好。",
+        "# reference_alignment(seam): 兼容旧字段 seam_score，表示预测位置与参考槽位的对齐程度，越高越好。",
+        "# main_score(occlusion): 商业测试主分数，按 0.4 * slot_signal + 0.6 * reference_alignment 计算。",
         "# success_rate: 当前批次通过率，即 passed_cases / total_cases。",
         "# commercial_ready: 当前批次是否达到最终商用门。",
         "",
@@ -299,7 +326,7 @@ def log_from_business_eval(record: contracts.BusinessEvalRecord) -> str:
         f"passed_cases={record.passed_cases}",
         f"success_rate={record.success_rate:.4f}",
         f"success_threshold={record.success_threshold:.4f}",
-        f"occlusion_threshold={record.occlusion_threshold:.4f}",
+        f"main_score_threshold={record.occlusion_threshold:.4f}",
         f"commercial_ready={str(record.commercial_ready).lower()}",
         "",
     ]
@@ -307,9 +334,11 @@ def log_from_business_eval(record: contracts.BusinessEvalRecord) -> str:
         status = "PASS" if item.success else "FAIL"
         lines.append(
             f"{status} case_id={item.case_id} predicted_bbox={item.predicted_bbox} "
-            f"predicted_center={item.predicted_center} inference_ms={item.inference_ms:.4f} "
-            f"occlusion={item.occlusion_score:.4f} fill={item.fill_score:.4f} "
-            f"seam={item.seam_score:.4f} reason_cn={item.reason_cn}"
+            f"predicted_center={item.predicted_center} reference_bbox={item.reference_bbox} "
+            f"reference_center={item.reference_center} position_error_px={_format_optional_float(item.position_error_px)} "
+            f"inference_ms={item.inference_ms:.4f} main_score={item.occlusion_score:.4f} "
+            f"slot_signal={item.fill_score:.4f} reference_alignment={item.seam_score:.4f} "
+            f"reason_cn={item.reason_cn}"
         )
     return "\n".join(lines) + "\n"
 
@@ -379,15 +408,18 @@ def commercial_report_markdown(
         f"- passed_cases: {business_record.passed_cases}",
         f"- success_rate: {business_record.success_rate:.4f}",
         f"- success_threshold: {business_record.success_threshold:.4f}",
-        f"- occlusion_threshold: {business_record.occlusion_threshold:.4f}",
+        f"- main_score_threshold: {business_record.occlusion_threshold:.4f}",
         f"- commercial_ready: {business_record.commercial_ready}",
         "",
         "## 商业测试字段说明",
         "",
         "- predicted_bbox / predicted_center / inference_ms: 直接来自 group2 求解模块的推理输出。",
-        "- fill_score: 缺口块贴回后，原始缺口边界残差被削减的幅度；0 表示几乎没补上，1 表示显著补平。",
-        "- seam_score: 缺口块边缘与背景拼缝的自然程度；越高说明边缘越贴合。",
-        "- occlusion_score: 该样本的主评分，按 0.6 * fill_score + 0.4 * seam_score 计算。",
+        "- reference_bbox / reference_center: 商业测试规则从背景图中自动反推出的参考槽位位置，用来近似人眼判断的目标位置。",
+        "- position_error_px: predicted_center 与 reference_center 的欧氏距离，越低越好。",
+        "- fill_score: 兼容旧字段名；现表示 slot_signal_score，即预测位置本身看起来有多像真实占位槽位。",
+        "- seam_score: 兼容旧字段名；现表示 reference_alignment_score，即预测位置与参考槽位的对齐程度。",
+        "- occlusion_score: 当前样本的主评分，按 0.4 * slot_signal_score + 0.6 * reference_alignment_score 计算。",
+        "- boundary_before / boundary_after: 贴图残差辅诊断字段，保留用于排查，不再单独决定通过/失败。",
         "- success_rate: 本轮商业测试通过率，即 passed_cases / total_cases。",
         "- commercial_ready: success_rate 是否达到 success_threshold，且样本数满足 min_cases。",
         "",
@@ -400,8 +432,10 @@ def commercial_report_markdown(
     for item in failed_cases[:20]:
         lines.append(
             f"- {item.case_id}: predicted_bbox={item.predicted_bbox}, "
-            f"predicted_center={item.predicted_center}, occlusion={item.occlusion_score:.4f}, "
-            f"fill={item.fill_score:.4f}, seam={item.seam_score:.4f}, reason_cn={item.reason_cn}"
+            f"predicted_center={item.predicted_center}, reference_bbox={item.reference_bbox}, "
+            f"reference_center={item.reference_center}, position_error_px={_format_optional_float(item.position_error_px)}, "
+            f"main_score={item.occlusion_score:.4f}, slot_signal={item.fill_score:.4f}, "
+            f"reference_alignment={item.seam_score:.4f}, reason_cn={item.reason_cn}"
         )
     return "\n".join(lines) + "\n"
 
@@ -453,7 +487,7 @@ def _business_test_conclusion_cn(record: contracts.BusinessEvalRecord) -> str:
         f"- 本轮从 {record.available_cases} 组真实样本中抽取 {record.total_cases} 组进行商业测试。\n"
         f"- 其中通过 {record.passed_cases} 组，通过率为 {record.success_rate:.2%}。\n"
         f"- 当前商用门要求 success_rate >= {record.success_threshold:.0%}，"
-        f"单样本还需满足 occlusion_score >= {record.occlusion_threshold:.2f}。"
+        f"单样本还需满足主评分 >= {record.occlusion_threshold:.2f}，且预测位置需要与参考槽位基本对齐。"
     )
 
 
@@ -580,12 +614,12 @@ def _image_to_alpha_grid(image: object) -> list[list[float]]:
 
 def _reason_cn(score: OcclusionScore) -> str:
     if score.success:
-        return "贴回后缺口边界明显收敛，遮挡质量达到阈值。"
-    if score.fill_score < 0.2:
-        return "贴回后没有显著降低原始缺口边界残差，疑似未覆盖到真实缺口。"
+        return "预测位置与背景中的参考槽位基本对齐，商业测试通过。"
+    if score.fill_score < 0.45:
+        return "预测位置附近未检测到足够强的槽位信号，疑似未命中真实缺口占位。"
     if score.seam_score < 0.6:
-        return "贴图边缘与周围背景衔接仍然明显，疑似定位存在偏移。"
-    return "遮挡质量未达到商用阈值。"
+        return "预测位置与背景中的参考槽位偏差较大，疑似定位存在明显偏移。"
+    return "主评分未达到商用阈值，建议结合 overlay/diff 进行人工复核。"
 
 
 def _find_image(root: Path, *, stem: str) -> Path | None:
@@ -611,12 +645,136 @@ def _mean(values: Iterable[float]) -> float:
     return sum(items) / float(len(items))
 
 
-def _bad_edge_ratio(diffs: list[float], *, threshold: float) -> float:
-    if not diffs:
-        return 1.0
-    bad = sum(1 for item in diffs if item > threshold)
-    return bad / float(len(diffs))
-
-
 def _clamp01(value: float) -> float:
     return max(0.0, min(float(value), 1.0))
+
+
+def _estimate_reference_bbox(
+    *,
+    master_luma: list[list[float]],
+    tile_alpha: list[list[float]],
+) -> tuple[list[int], list[int], float]:
+    height = len(master_luma)
+    width = len(master_luma[0])
+    tile_height = len(tile_alpha)
+    tile_width = len(tile_alpha[0])
+    max_x = max(0, width - tile_width)
+    max_y = max(0, height - tile_height)
+    search_space = (max_x + 1) * (max_y + 1)
+    coarse_step = 2 if search_space > 4096 else 1
+
+    best_x = 0
+    best_y = 0
+    best_score = -1.0
+    for candidate_y in range(0, max_y + 1, coarse_step):
+        for candidate_x in range(0, max_x + 1, coarse_step):
+            score = _slot_signal_score(master_luma=master_luma, tile_alpha=tile_alpha, x=candidate_x, y=candidate_y)
+            if score > best_score:
+                best_x = candidate_x
+                best_y = candidate_y
+                best_score = score
+
+    refine_radius = max(1, coarse_step)
+    for candidate_y in range(max(0, best_y - refine_radius), min(max_y, best_y + refine_radius) + 1):
+        for candidate_x in range(max(0, best_x - refine_radius), min(max_x, best_x + refine_radius) + 1):
+            score = _slot_signal_score(master_luma=master_luma, tile_alpha=tile_alpha, x=candidate_x, y=candidate_y)
+            if score > best_score:
+                best_x = candidate_x
+                best_y = candidate_y
+                best_score = score
+
+    bbox = [best_x, best_y, best_x + tile_width, best_y + tile_height]
+    return bbox, _bbox_center(bbox), best_score
+
+
+def _slot_signal_score(
+    *,
+    master_luma: list[list[float]],
+    tile_alpha: list[list[float]],
+    x: int,
+    y: int,
+) -> float:
+    inside_values, boundary_diffs = _mask_patch_values(image=master_luma, tile_alpha=tile_alpha, x=x, y=y)
+    if not inside_values:
+        return 0.0
+    inside_mean = _mean(inside_values) / 255.0
+    inside_std = _stddev(inside_values) / 255.0
+    bright_ratio = sum(1 for value in inside_values if value >= 180.0) / float(len(inside_values))
+    boundary_score = _clamp01(_mean(boundary_diffs) / 96.0)
+    brightness_score = _clamp01((inside_mean - 0.55) / 0.30)
+    uniformity_score = 1.0 - _clamp01(inside_std / 0.12)
+    bright_ratio_score = _clamp01(bright_ratio / 0.75)
+    return _clamp01(
+        boundary_score * 0.35
+        + brightness_score * 0.25
+        + uniformity_score * 0.20
+        + bright_ratio_score * 0.20
+    )
+
+
+def _mask_patch_values(
+    *,
+    image: list[list[float]],
+    tile_alpha: list[list[float]],
+    x: int,
+    y: int,
+) -> tuple[list[float], list[float]]:
+    inside_values: list[float] = []
+    boundary_diffs: list[float] = []
+    height = len(image)
+    width = len(image[0])
+    tile_height = len(tile_alpha)
+    tile_width = len(tile_alpha[0])
+    for tile_y in range(tile_height):
+        for tile_x in range(tile_width):
+            if tile_alpha[tile_y][tile_x] <= 0.0:
+                continue
+            target_x = x + tile_x
+            target_y = y + tile_y
+            if target_x < 0 or target_x >= width or target_y < 0 or target_y >= height:
+                continue
+            inside_values.append(image[target_y][target_x])
+            for delta_x, delta_y in ((1, 0), (-1, 0), (0, 1), (0, -1)):
+                neighbor_tile_x = tile_x + delta_x
+                neighbor_tile_y = tile_y + delta_y
+                neighbor_is_mask = (
+                    0 <= neighbor_tile_x < tile_width
+                    and 0 <= neighbor_tile_y < tile_height
+                    and tile_alpha[neighbor_tile_y][neighbor_tile_x] > 0.0
+                )
+                if neighbor_is_mask:
+                    continue
+                outside_x = target_x + delta_x
+                outside_y = target_y + delta_y
+                if outside_x < 0 or outside_x >= width or outside_y < 0 or outside_y >= height:
+                    continue
+                boundary_diffs.append(abs(image[target_y][target_x] - image[outside_y][outside_x]))
+    return inside_values, boundary_diffs
+
+
+def _stddev(values: Iterable[float]) -> float:
+    items = list(values)
+    if not items:
+        return 0.0
+    avg = _mean(items)
+    return math.sqrt(sum((value - avg) ** 2 for value in items) / float(len(items)))
+
+
+def _bbox_center(bbox: list[int]) -> list[int]:
+    return [int((bbox[0] + bbox[2]) / 2), int((bbox[1] + bbox[3]) / 2)]
+
+
+def _position_tolerance_px(tile_alpha: list[list[float]]) -> float:
+    tile_height = len(tile_alpha)
+    tile_width = len(tile_alpha[0])
+    return max(10.0, min(tile_width, tile_height) * 0.5)
+
+
+def _point_distance(lhs: list[int], rhs: list[int]) -> float:
+    return math.sqrt(float((lhs[0] - rhs[0]) ** 2 + (lhs[1] - rhs[1]) ** 2))
+
+
+def _format_optional_float(value: float | None) -> str:
+    if value is None:
+        return "None"
+    return f"{value:.4f}"

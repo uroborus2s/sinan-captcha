@@ -11,6 +11,10 @@ def _gradient_grid(width: int, height: int) -> list[list[float]]:
     return [[float((x * 7 + y * 3) % 256) for x in range(width)] for y in range(height)]
 
 
+def _dark_textured_grid(width: int, height: int) -> list[list[float]]:
+    return [[float(28 + ((x * 5 + y * 7) % 24)) for x in range(width)] for y in range(height)]
+
+
 def _copy_patch(
     grid: list[list[float]],
     *,
@@ -79,11 +83,11 @@ def _group2_trial_input(trial_id: str) -> contracts.TrialInputRecord:
 
 
 class BusinessEvalScoringTests(unittest.TestCase):
-    def test_occlusion_score_prefers_correct_overlay_position(self) -> None:
-        base = _gradient_grid(48, 48)
+    def test_alignment_score_prefers_detected_placeholder_position(self) -> None:
+        base = _dark_textured_grid(48, 48)
         tile = _copy_patch(base, x=18, y=16, width=10, height=10)
         alpha = _solid_mask(10, 10)
-        master = _with_gap(base, x=18, y=16, width=10, height=10, fill=12.0)
+        master = _with_gap(base, x=18, y=16, width=10, height=10, fill=236.0)
 
         correct = business_eval.score_occlusion_overlay(
             master_luma=master,
@@ -101,8 +105,14 @@ class BusinessEvalScoringTests(unittest.TestCase):
         )
 
         self.assertGreater(correct.occlusion_score, wrong.occlusion_score)
+        self.assertEqual(correct.reference_bbox, [18, 16, 28, 26])
+        self.assertEqual(correct.reference_center, [23, 21])
+        self.assertAlmostEqual(correct.position_error_px, 0.0, places=4)
+        self.assertGreater(correct.fill_score, 0.7)
+        self.assertGreater(correct.seam_score, 0.95)
         self.assertTrue(correct.success)
         self.assertFalse(wrong.success)
+        self.assertGreater(wrong.position_error_px, 5.0)
 
     def test_discover_group2_cases_accepts_bg_and_gap_file_names(self) -> None:
         with tempfile.TemporaryDirectory() as tmpdir:
@@ -160,14 +170,17 @@ class BusinessEvalScoringTests(unittest.TestCase):
                     tile_image="/tmp/case_0001/gap.jpg",
                     predicted_bbox=[12, 18, 36, 42],
                     predicted_center=[24, 30],
+                    reference_bbox=[14, 18, 38, 42],
+                    reference_center=[26, 30],
+                    position_error_px=2.0,
                     inference_ms=8.5321,
                     boundary_before=0.91,
                     boundary_after=0.18,
-                    fill_score=0.8022,
-                    seam_score=0.9444,
-                    occlusion_score=0.8591,
+                    fill_score=0.8123,
+                    seam_score=0.9000,
+                    occlusion_score=0.8654,
                     success=True,
-                    reason_cn="贴回后缺口边界明显收敛，遮挡质量达到阈值。",
+                    reason_cn="预测位置与背景中的参考槽位基本对齐，商业测试通过。",
                     overlay_path="/tmp/business-eval/case_0001/overlay.png",
                     diff_path="/tmp/business-eval/case_0001/diff.png",
                 )
@@ -179,9 +192,12 @@ class BusinessEvalScoringTests(unittest.TestCase):
 
         self.assertIn("# 字段说明", rendered)
         self.assertIn("predicted_bbox: 模型输出的背景图坐标框", rendered)
+        self.assertIn("reference_bbox: 由商业测试规则从背景图反推的参考槽位坐标框", rendered)
         self.assertIn("predicted_bbox=[12, 18, 36, 42]", rendered)
+        self.assertIn("reference_bbox=[14, 18, 38, 42]", rendered)
         self.assertIn("predicted_center=[24, 30]", rendered)
-        self.assertIn("occlusion=0.8591", rendered)
+        self.assertIn("position_error_px=2.0000", rendered)
+        self.assertIn("main_score=0.8654", rendered)
         self.assertIn("PASS", rendered)
 
 
@@ -201,14 +217,17 @@ class BusinessEvalControllerTests(unittest.TestCase):
                 tile_image=str(business_cases / "case_0001" / "gap.jpg"),
                 predicted_bbox=[12, 18, 36, 42],
                 predicted_center=[24, 30],
+                reference_bbox=[14, 18, 38, 42],
+                reference_center=[26, 30],
+                position_error_px=2.0,
                 inference_ms=8.5321,
                 boundary_before=0.91,
                 boundary_after=0.18,
-                fill_score=0.8022,
-                seam_score=0.9444,
-                occlusion_score=0.8591,
+                fill_score=0.8123,
+                seam_score=0.9000,
+                occlusion_score=0.8654,
                 success=True,
-                reason_cn="贴回后缺口边界明显收敛，遮挡质量达到阈值。",
+                reason_cn="预测位置与背景中的参考槽位基本对齐，商业测试通过。",
                 overlay_path=str(root / "reports" / "business_eval_trial_0001" / "case_0001" / "overlay.png"),
                 diff_path=str(root / "reports" / "business_eval_trial_0001" / "case_0001" / "diff.png"),
             )
@@ -293,6 +312,8 @@ class BusinessEvalControllerTests(unittest.TestCase):
             log_text = ctrl.paths.business_eval_log_file("trial_0001").read_text(encoding="utf-8")
             self.assertIn("predicted_bbox=[12, 18, 36, 42]", log_text)
             self.assertIn("predicted_center=[24, 30]", log_text)
+            self.assertIn("reference_bbox=[14, 18, 38, 42]", log_text)
+            self.assertIn("position_error_px=2.0000", log_text)
 
     def test_promote_branch_waits_for_business_gate_when_commercial_threshold_not_met(self) -> None:
         with tempfile.TemporaryDirectory() as tmpdir:

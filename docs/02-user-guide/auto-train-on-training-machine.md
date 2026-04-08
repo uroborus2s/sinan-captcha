@@ -474,10 +474,21 @@ uv run sinan auto-train run group2 `
 
 1. 用当前 `group2` 模型预测缺口位置
 2. 把 `tile` 贴回 `master`
-3. 计算边界残差改善和拼缝质量，得到 `occlusion_score`
-4. 从 `--business-eval-dir` 中稳定随机抽取最多 `100` 组样本进行本轮验收
-5. 统计这 `100` 组样本的成功率
-6. 只有当成功率达到 `98%` 且本轮验收样本数达到 `100` 时，study 才会真正停止
+3. 从背景图中自动反推出参考槽位位置，并计算预测位置与参考槽位的偏差
+4. 结合“预测位置本身是否像真实槽位”和“与参考槽位是否对齐”得到单样本主评分
+5. 从 `--business-eval-dir` 中稳定随机抽取最多 `100` 组样本进行本轮验收
+6. 统计这 `100` 组样本的成功率
+7. 只有当成功率达到 `98%` 且本轮验收样本数达到 `100` 时，study 才会真正停止
+
+当前 `group2` 商业验收的主判标准已经从“贴回后原图是否几乎消失”调整为“预测位置是否与背景中的真实槽位对齐”。
+
+- 旧规则更适合“贴回后应接近无痕恢复原图”的数据分布。
+- 真实业务图里常见的是“白色占位槽 + 带描边的图块”，人眼判断更多依赖形状是否对齐，而不是贴回后是否完全看不见边缘。
+- 因此当前商业测试的主评分已经改成：
+  - `slot_signal(fill_score)`：预测位置本身看起来有多像真实占位槽位
+  - `reference_alignment(seam_score)`：预测位置与背景图中自动反推出的参考槽位有多接近
+  - `main_score(occlusion_score) = 0.4 * slot_signal + 0.6 * reference_alignment`
+- `boundary_before / boundary_after` 仍会保留为辅助诊断字段，但不再单独决定单样本通过或失败。
 
 这里的“稳定随机抽样”指的是：
 
@@ -502,9 +513,11 @@ uv run sinan auto-train run group2 `
 - `business_eval.log` 是逐 case 文本日志，当前会先写“字段说明 / 数据来源”，再记录：
   - `predicted_bbox / predicted_center / inference_ms`
     - 这些字段直接来自 `group2` 求解模块的推理输出
-  - `occlusion / fill / seam`
+  - `reference_bbox / reference_center / position_error_px`
+    - 这些字段由商业测试规则从背景图自动反推出参考槽位，再计算预测位置与参考槽位的误差
+  - `main_score / slot_signal(fill) / reference_alignment(seam)`
     - 这些字段由商业测试评分模块计算
-    - `occlusion = 0.6 * fill + 0.4 * seam`
+    - `main_score = 0.4 * slot_signal + 0.6 * reference_alignment`
   - `success_rate / commercial_ready`
     - 这些字段表示整批真实样本的通过率和是否达到最终商用门
 - `commercial_report.md` 是最终人类可读报告，当前固定包含：
@@ -521,8 +534,11 @@ uv run sinan auto-train run group2 `
 - `business_eval.log` 的逐 case 行当前会记录：
   - `predicted_bbox`
   - `predicted_center`
+  - `reference_bbox`
+  - `reference_center`
+  - `position_error_px`
   - `inference_ms`
-  - `occlusion/fill/seam`
+  - `main_score / slot_signal(fill) / reference_alignment(seam)`
   - `PASS/FAIL`
 
 注意：

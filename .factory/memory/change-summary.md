@@ -1,5 +1,31 @@
 # 变更摘要
 
+## 2026-04-08 调整 `group2` 商业测试规则：改为“参考槽位定位 + 位置误差门”
+
+- 已更新：
+  - `core/auto_train/contracts.py`
+  - `core/auto_train/business_eval.py`
+  - `tests/python/test_auto_train_business_eval.py`
+  - `docs/02-user-guide/auto-train-on-training-machine.md`
+  - `.factory/memory/current-state.md`
+  - `.factory/memory/change-summary.md`
+- 当前已完成的目标：
+  - `group2` 商业测试当前不再把“贴回后原图残差是否几乎消失”作为单样本主判
+  - 商业测试当前会先从背景图中自动反推出：
+    - `reference_bbox`
+    - `reference_center`
+  - 然后再计算：
+    - `position_error_px`
+    - `slot_signal(fill_score)`：预测位置本身像不像真实槽位
+    - `reference_alignment(seam_score)`：预测位置与参考槽位是否对齐
+    - `main_score(occlusion_score) = 0.4 * slot_signal + 0.6 * reference_alignment`
+  - `boundary_before / boundary_after` 当前保留为辅诊断字段，用于排查，不再单独决定 PASS/FAIL
+  - `business_eval.log / business_eval.md / commercial_report.md` 当前已同步改成围绕“参考槽位对齐”解释结果
+- 已运行验证：
+  - `./.venv/bin/python -m unittest tests.python.test_auto_train_business_eval`
+  - `./.venv/bin/python -m unittest discover -s tests/python`
+  - `git diff --check`
+
 ## 2026-04-08 发布 `sinan-captcha==0.1.24`：修复 `auto-train` 终态误导
 
 - 已更新：

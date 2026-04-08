@@ -17,6 +17,24 @@
 
 ## 当前事实
 
+- 2026-04-08 当前仓库已调整 `group2` 商业测试规则，使真实业务验收更贴近人类判读，但尚未发布新版本：
+  - `core/auto_train/business_eval.py` 当前已把单样本主判从“贴回后原图残差是否几乎消失”切换为“参考槽位定位 + 位置误差门”
+  - 商业测试当前会先从背景图中自动反推出 `reference_bbox / reference_center`
+  - 再计算：
+    - `position_error_px`
+    - `slot_signal(fill_score)`：预测位置本身有多像真实占位槽位
+    - `reference_alignment(seam_score)`：预测位置与参考槽位有多接近
+    - `main_score(occlusion_score) = 0.4 * slot_signal + 0.6 * reference_alignment`
+  - `boundary_before / boundary_after` 当前保留为辅诊断字段，不再单独决定通过/失败
+  - `core/auto_train/contracts.py` 当前已给 `BusinessEvalCaseRecord` 增加：
+    - `reference_bbox`
+    - `reference_center`
+    - `position_error_px`
+  - `business_eval.log / business_eval.md / commercial_report.md` 当前已同步解释这些新字段，并在失败样本中展示预测位置与参考槽位的差异
+  - 当前已验证：
+    - `./.venv/bin/python -m unittest tests.python.test_auto_train_business_eval`
+    - `./.venv/bin/python -m unittest discover -s tests/python`
+    - `git diff --check`
 - 2026-04-08 已发布 Python 训练 CLI 包 `sinan-captcha==0.1.24`，修复 `auto-train` 终态可读性与退出语义：
   - `core/auto_train/contracts.py` 当前已给 `StudyRecord / StudyStatusRecord` 增加：
     - `final_reason`
