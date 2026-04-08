@@ -54,16 +54,16 @@ mkdocs:
         - title: 独立 solver 包迁移与集成边界
           path: 03-developer-guide/solver-bundle-and-integration.md
           access: private
-        - title: 维护者快速使用说明
+        - title: 开发者快速上手
           path: 03-developer-guide/maintainer-quickstart.md
           access: private
         - title: 仓库结构与边界
           path: 03-developer-guide/repository-structure-and-boundaries.md
           access: private
-        - title: 本地开发与验证工作流
+        - title: 模块编译与本地验证
           path: 03-developer-guide/local-development-workflow.md
           access: private
-        - title: 发布与交付工作流
+        - title: 打包与上传发布
           path: 03-developer-guide/release-and-delivery-workflow.md
           access: private
     - title: 项目开发文档（内）

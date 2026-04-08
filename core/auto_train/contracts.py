@@ -180,6 +180,7 @@ class StudyRecord:
     best_trial_id: str | None = None
     final_reason: str | None = None
     final_detail: str | None = None
+    goal_only_stop: bool = False
 
     def __post_init__(self) -> None:
         _require_non_empty(self.study_name, "study_name")
@@ -215,6 +216,7 @@ class StudyRecord:
             "best_trial_id": self.best_trial_id,
             "final_reason": self.final_reason,
             "final_detail": self.final_detail,
+            "goal_only_stop": self.goal_only_stop,
         }
 
     @classmethod
@@ -238,6 +240,7 @@ class StudyRecord:
             best_trial_id=_optional_string(payload, "best_trial_id"),
             final_reason=_optional_string(payload, "final_reason"),
             final_detail=_optional_string(payload, "final_detail"),
+            goal_only_stop=_optional_bool(payload, "goal_only_stop") or False,
         )
 
 
@@ -817,9 +820,16 @@ class BusinessEvalCaseRecord:
     reason_cn: str
     overlay_path: str
     diff_path: str
+    best_local_bbox: list[int] | None = None
+    best_local_offset_px: float | None = None
+    best_local_clean_score: float | None = None
+    tile_residue_ratio: float | None = None
+    double_edge_score: float | None = None
+    overflow_edge_score: float | None = None
     reference_bbox: list[int] | None = None
     reference_center: list[int] | None = None
     position_error_px: float | None = None
+    bbox_edge_error_px: float | None = None
 
     def __post_init__(self) -> None:
         _require_non_empty(self.case_id, "case_id")
@@ -830,12 +840,26 @@ class BusinessEvalCaseRecord:
         _require_non_empty(self.diff_path, "diff_path")
         _require_bbox(self.predicted_bbox, "predicted_bbox")
         _require_point(self.predicted_center, "predicted_center")
+        if self.best_local_bbox is not None:
+            _require_bbox(self.best_local_bbox, "best_local_bbox")
+        if self.best_local_offset_px is not None and self.best_local_offset_px < 0:
+            raise ValueError("best_local_offset_px must not be negative")
+        if self.best_local_clean_score is not None:
+            _require_ratio(self.best_local_clean_score, "best_local_clean_score")
+        if self.tile_residue_ratio is not None:
+            _require_ratio(self.tile_residue_ratio, "tile_residue_ratio")
+        if self.double_edge_score is not None:
+            _require_ratio(self.double_edge_score, "double_edge_score")
+        if self.overflow_edge_score is not None:
+            _require_ratio(self.overflow_edge_score, "overflow_edge_score")
         if self.reference_bbox is not None:
             _require_bbox(self.reference_bbox, "reference_bbox")
         if self.reference_center is not None:
             _require_point(self.reference_center, "reference_center")
         if self.position_error_px is not None and self.position_error_px < 0:
             raise ValueError("position_error_px must not be negative")
+        if self.bbox_edge_error_px is not None and self.bbox_edge_error_px < 0:
+            raise ValueError("bbox_edge_error_px must not be negative")
         if self.inference_ms < 0:
             raise ValueError("inference_ms must not be negative")
         _require_ratio(self.boundary_before, "boundary_before")
@@ -855,9 +879,16 @@ class BusinessEvalCaseRecord:
             tile_image=_string(payload, "tile_image"),
             predicted_bbox=_int_list(payload, "predicted_bbox", expected_length=4),
             predicted_center=_int_list(payload, "predicted_center", expected_length=2),
+            best_local_bbox=_optional_int_list(payload, "best_local_bbox", expected_length=4),
+            best_local_offset_px=_optional_float(payload, "best_local_offset_px"),
+            best_local_clean_score=_optional_float(payload, "best_local_clean_score"),
+            tile_residue_ratio=_optional_float(payload, "tile_residue_ratio"),
+            double_edge_score=_optional_float(payload, "double_edge_score"),
+            overflow_edge_score=_optional_float(payload, "overflow_edge_score"),
             reference_bbox=_optional_int_list(payload, "reference_bbox", expected_length=4),
             reference_center=_optional_int_list(payload, "reference_center", expected_length=2),
             position_error_px=_optional_float(payload, "position_error_px"),
+            bbox_edge_error_px=_optional_float(payload, "bbox_edge_error_px"),
             inference_ms=_float(payload, "inference_ms"),
             boundary_before=_float(payload, "boundary_before"),
             boundary_after=_float(payload, "boundary_after"),

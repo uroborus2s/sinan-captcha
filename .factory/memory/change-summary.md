@@ -1,5 +1,68 @@
 # 变更摘要
 
+## 2026-04-08 调整 `group2` 商业检测：改为 `overlay` 痕迹检测 + 局部 5px 容差
+
+- 已更新：
+  - `core/auto_train/contracts.py`
+  - `core/auto_train/business_eval.py`
+  - `tests/python/test_auto_train_business_eval.py`
+  - `docs/02-user-guide/auto-train-on-training-machine.md`
+  - `.factory/memory/current-state.md`
+  - `.factory/memory/change-summary.md`
+- 当前已完成的目标：
+  - 不再把背景图里启发式反推的 `reference_bbox / reference_center` 作为商业检测主判
+  - 当前会直接分析模型输出生成的 `overlay.png`
+  - 商业检测当前会在模型输出位置附近做局部搜索，找到附近“痕迹最干净”的贴合位置
+  - 当前新增主字段：
+    - `best_local_bbox`
+    - `best_local_offset_px`
+    - `best_local_clean_score`
+    - `tile_residue_ratio`
+    - `double_edge_score`
+    - `overflow_edge_score`
+  - 当前单样本通过条件：
+    - `best_local_clean_score >= main_score_threshold`
+    - 且模型输出位置与局部最优位置的边框偏差 `<= 5px`
+  - 这让商业检测更接近人眼标准：
+    - 是否还有大面积图块痕迹
+    - 是否有明显双边缘/重影
+    - 是否有明显越界边缘
+- 已运行验证：
+  - `.venv/bin/python -m unittest tests.python.test_auto_train_business_eval`
+  - `.venv/bin/python -m unittest discover -s tests/python`
+  - `git diff --check`
+
+## 2026-04-08 调整 `auto-train` 结束语义：默认支持“目标驱动停止 + 中断恢复”
+
+- 已更新：
+  - `core/auto_train/contracts.py`
+  - `core/auto_train/controller.py`
+  - `core/auto_train/cli.py`
+  - `tests/python/test_auto_train_cli.py`
+  - `tests/python/test_auto_train_controller.py`
+  - `docs/02-user-guide/auto-train-on-training-machine.md`
+  - `.factory/memory/current-state.md`
+  - `.factory/memory/change-summary.md`
+- 当前已完成的目标：
+  - 只要配置了 `--business-eval-dir`，`auto-train run` 当前默认就会切到目标驱动停止模式
+  - 当前也支持显式传入 `--goal-only-stop`
+  - `--max-steps` 当前支持 `0`，表示本次命令持续运行直到真正 `STOP`
+  - `StudyRecord` 当前会持久化 `goal_only_stop`，同一个 `study-name` 恢复时会沿用这条语义
+  - 当前在 `goal_only_stop=true` 时，不再因为：
+    - `max_trials`
+    - `max_hours`
+    - `max_new_datasets`
+    - `max_no_improve_trials`
+    - `plateau`
+    自动停掉 study
+  - 当前真正结束条件收口为：
+    - 商业测试通过
+    - `STOP` 文件
+    - 或进程/机器中断后等待恢复
+- 已运行验证：
+  - `.venv/bin/python -m unittest tests.python.test_auto_train_cli`
+  - `.venv/bin/python -m unittest tests.python.test_auto_train_controller`
+
 ## 2026-04-08 发布 `sinan-captcha==0.1.25`：`group2` 商业测试切换为“参考槽位定位 + 位置误差门”
 
 - 已更新：
@@ -17,9 +80,12 @@
     - `predicted_bbox / predicted_center`
     - `reference_bbox / reference_center`
     - `position_error_px`
+    - `bbox_edge_error_px`
     - `slot_signal(fill_score)`
     - `reference_alignment(seam_score)`
     - `main_score(occlusion_score)`
+  - 当前规则已进一步放宽：
+    - `predicted_bbox` 与 `reference_bbox` 四条边最大偏差 `<= 5px` 直接视为定位正常
   - `0.1.25` 当前已成功上传到 PyPI
 - 已运行验证：
   - `./.venv/bin/python -m unittest tests.python.test_auto_train_business_eval`

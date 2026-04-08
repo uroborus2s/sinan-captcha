@@ -14,7 +14,7 @@ def build_parser() -> argparse.ArgumentParser:
 
     run_parser = subparsers.add_parser("run", help="create or resume a study and run controller stages")
     _add_common_arguments(run_parser)
-    run_parser.add_argument("--max-steps", type=int, default=1)
+    run_parser.add_argument("--max-steps", type=int, default=None)
 
     stage_parser = subparsers.add_parser("stage", help="run one stage capsule against a study")
     stage_parser.add_argument("stage")
@@ -26,6 +26,7 @@ def build_parser() -> argparse.ArgumentParser:
 def main(argv: list[str] | None = None) -> int:
     parser = build_parser()
     args = parser.parse_args(argv)
+    goal_only_stop = bool(args.goal_only_stop or args.business_eval_dir is not None)
 
     request = controller.AutoTrainRequest(
         task=args.task,
@@ -62,11 +63,13 @@ def main(argv: list[str] | None = None) -> int:
         business_eval_min_cases=args.business_eval_min_cases,
         business_eval_sample_size=args.business_eval_sample_size,
         business_eval_occlusion_threshold=args.business_eval_occlusion_threshold,
+        goal_only_stop=goal_only_stop,
     )
     ctrl = controller.AutoTrainController(request=request)
 
     if args.command == "run":
-        result = ctrl.run(max_steps=args.max_steps)
+        max_steps = _resolve_max_steps(args.max_steps, goal_only_stop=goal_only_stop)
+        result = ctrl.run(max_steps=max_steps)
         for item in result.executed:
             print(f"{item.stage} -> {item.next_stage} [{item.trial_id}]")
         print(f"final_stage={result.final_stage}")
@@ -112,6 +115,7 @@ def _add_common_arguments(parser: argparse.ArgumentParser) -> None:
     parser.add_argument("--business-eval-min-cases", type=int, default=100)
     parser.add_argument("--business-eval-sample-size", type=int, default=100)
     parser.add_argument("--business-eval-occlusion-threshold", type=float, default=0.78)
+    parser.add_argument("--goal-only-stop", action="store_true")
 
 
 if __name__ == "__main__":
@@ -138,3 +142,9 @@ def _run_exit_code(ctrl: controller.AutoTrainController, result: controller.Auto
         return 2
     print("final_verdict=SUCCESS")
     return 0
+
+
+def _resolve_max_steps(value: int | None, *, goal_only_stop: bool) -> int:
+    if value is None:
+        return 0 if goal_only_stop else 1
+    return value

@@ -35,7 +35,10 @@
 
 - 能把 `dataset_plan` 传给生成器 `--preset / --override-file`
 - 能在 `TEST` 后自动接上 `EVALUATE`
-- 能按 `max_hours`、`max_trials`、`max_new_datasets`、`max_no_improve_trials` 停止
+- 当前在启用 `business_eval` 时，默认会切到“目标驱动停止”：
+  - 结束条件是商业测试通过
+  - 或人工 `STOP` 文件
+  - 或进程/机器意外中断后用同一个 `study-name` 恢复继续
 
 当前还没有完成的边界：
 
@@ -474,21 +477,40 @@ uv run sinan auto-train run group2 `
 
 1. 用当前 `group2` 模型预测缺口位置
 2. 把 `tile` 贴回 `master`
-3. 从背景图中自动反推出参考槽位位置，并计算预测位置与参考槽位的偏差
-4. 结合“预测位置本身是否像真实槽位”和“与参考槽位是否对齐”得到单样本主评分
+3. 在模型输出位置附近做一圈局部搜索，尝试把缺口块在附近轻微挪动
+4. 比较当前 overlay 与附近候选 overlay，判断当前结果是否已经接近附近最干净的贴合位置
 5. 从 `--business-eval-dir` 中稳定随机抽取最多 `100` 组样本进行本轮验收
 6. 统计这 `100` 组样本的成功率
 7. 只有当成功率达到 `98%` 且本轮验收样本数达到 `100` 时，study 才会真正停止
 
-当前 `group2` 商业验收的主判标准已经从“贴回后原图是否几乎消失”调整为“预测位置是否与背景中的真实槽位对齐”。
+这里还有一个重要变化：
 
-- 旧规则更适合“贴回后应接近无痕恢复原图”的数据分布。
-- 真实业务图里常见的是“白色占位槽 + 带描边的图块”，人眼判断更多依赖形状是否对齐，而不是贴回后是否完全看不见边缘。
-- 因此当前商业测试的主评分已经改成：
-  - `slot_signal(fill_score)`：预测位置本身看起来有多像真实占位槽位
-  - `reference_alignment(seam_score)`：预测位置与背景图中自动反推出的参考槽位有多接近
-  - `main_score(occlusion_score) = 0.4 * slot_signal + 0.6 * reference_alignment`
-- `boundary_before / boundary_after` 仍会保留为辅助诊断字段，但不再单独决定单样本通过或失败。
+- 只要配置了 `--business-eval-dir`，当前 study 默认就会进入“目标驱动停止”模式
+- 这意味着：
+  - 默认不再因为 `max_trials / max_hours / max_new_datasets / max_no_improve_trials / plateau` 自动停止
+  - 进程会持续跑，直到：
+    - 商业测试通过
+    - 你手工放置 `STOP` 文件
+    - 或进程/机器被意外中断
+- 意外中断后，用同一个 `--study-name` 重启命令即可恢复
+
+当前 `group2` 商业验收的主判标准已经从“背景图里反推参考槽位”调整为“overlay 痕迹检测 + 局部 5px 容差”。
+
+- 旧规则的问题是：它需要在背景图里猜一个“参考缺口位置”，本质上仍是启发式假设。
+- 真实业务图里更可靠的人眼判断方式是：看 overlay 里是否还残留明显图块痕迹、双边缘或越界边缘。
+- 因此当前商业测试会直接分析当前 `overlay`：
+  - `tile_residue_ratio`：是否还能看到大面积图块痕迹
+  - `double_edge_score`：是否有明显双边缘/重影
+  - `overflow_edge_score`：是否有明显超出缺口轮廓的边缘
+  - `clean_score(occlusion_score)`：当前位置整体贴合得有多干净，越高越好
+- 同时程序会在模型输出位置附近做一圈局部搜索：
+  - `best_local_bbox`
+  - `best_local_offset_px`
+  - `best_local_clean_score`
+- 当前单样本通过条件变成：
+  - 附近最干净贴合位置的 `best_local_clean_score >= main_score_threshold`
+  - 且模型输出位置与该最优位置的边框偏差 `<= 5px`
+- `boundary_before / boundary_after` 当前仍会保留为兼容旧日志的辅诊断字段，现分别对应双边缘程度和越界边缘程度。
 
 这里的“稳定随机抽样”指的是：
 
@@ -513,11 +535,13 @@ uv run sinan auto-train run group2 `
 - `business_eval.log` 是逐 case 文本日志，当前会先写“字段说明 / 数据来源”，再记录：
   - `predicted_bbox / predicted_center / inference_ms`
     - 这些字段直接来自 `group2` 求解模块的推理输出
-  - `reference_bbox / reference_center / position_error_px`
-    - 这些字段由商业测试规则从背景图自动反推出参考槽位，再计算预测位置与参考槽位的误差
-  - `main_score / slot_signal(fill) / reference_alignment(seam)`
+  - `best_local_bbox / best_local_offset_px / best_local_clean_score`
+    - 这些字段来自局部邻域搜索，用来表示“当前位置附近最干净的贴合位置”以及模型输出与它的偏差
+  - `tile_residue_ratio / double_edge_score / overflow_edge_score`
+    - 这些字段直接描述当前 overlay 中是否还存在明显图块残留、双边缘和越界边缘
+  - `clean_score`
     - 这些字段由商业测试评分模块计算
-    - `main_score = 0.4 * slot_signal + 0.6 * reference_alignment`
+    - 表示当前模型输出位置的整体贴合干净程度，越高越好
   - `success_rate / commercial_ready`
     - 这些字段表示整批真实样本的通过率和是否达到最终商用门
 - `commercial_report.md` 是最终人类可读报告，当前固定包含：
@@ -534,11 +558,14 @@ uv run sinan auto-train run group2 `
 - `business_eval.log` 的逐 case 行当前会记录：
   - `predicted_bbox`
   - `predicted_center`
-  - `reference_bbox`
-  - `reference_center`
-  - `position_error_px`
+  - `best_local_bbox`
+  - `best_local_offset_px`
+  - `best_local_clean_score`
   - `inference_ms`
-  - `main_score / slot_signal(fill) / reference_alignment(seam)`
+  - `clean_score`
+  - `tile_residue_ratio`
+  - `double_edge_score`
+  - `overflow_edge_score`
   - `PASS/FAIL`
 
 注意：
@@ -560,13 +587,17 @@ uv run sinan auto-train run group2 `
   - `business_eval_success_threshold = 0.98`
   - `business_eval_min_cases = 100`
   - `business_eval_sample_size = 100`
-- 当 business gate 已启用但尚未通过时，控制器当前不会因为 `plateau` 或 `max_no_improve_trials` 提前停掉 study
-- 真正的硬停止条件仍然是：
+- 当 business gate 已启用时，当前默认不会因为：
   - `max_trials`
   - `max_hours`
   - `max_new_datasets`
+  - `max_no_improve_trials`
+  - `plateau`
+  提前停掉 study
+- 目标驱动模式下，真正会结束 study 的条件是：
+  - 商业测试通过
   - `STOP` 文件
-  - 或手动中断
+  - 或进程/机器中断后等待你恢复
 - 如果终端输出 `final_stage=STOP`，不要直接理解成“商业测试通过”
   - 还需要继续看 `study_status`、`commercial_ready`、`final_reason`
 - 当前 CLI 退出码语义：
@@ -605,15 +636,16 @@ uv run sinan auto-train run group2 `
 | `--generator-executable` | 可选但在 Windows 上强烈建议显式传。填 `sinan-generator.exe` 的完整路径，避免找不到生成器命令。 |
 | `--generator-workspace` | 生成器工作区目录。 |
 
-### 8.2 预算与停止参数
+### 8.2 运行批次与停止参数
 
 | 参数 | 默认值 | 说明 |
 | --- | --- | --- |
-| `--max-steps` | `1` | 本次命令最多执行多少个阶段胶囊，不是 trial 数。 |
-| `--max-trials` | `20` | 整个 study 最多完成多少个 trial。 |
-| `--max-hours` | `24` | 整个 study 的总小时预算。 |
-| `--max-new-datasets` | 无 | 最多允许新建多少个新数据版本，不含最初的 `dataset-version`。 |
-| `--max-no-improve-trials` | `4` | 连续多少个 trial 没有明显提升就停。 |
+| `--max-steps` | `business_eval 开启时为 0，否则为 1` | `0` 表示本次命令持续运行直到真正 `STOP`；正整数表示本次命令最多执行多少个阶段胶囊，不是 trial 数。 |
+| `--goal-only-stop` | 关 | 显式开启“只按目标停止”。当前只要配置了 `--business-eval-dir`，即使不写这个参数也会自动开启。 |
+| `--max-trials` | `20` | 整个 study 最多完成多少个 trial。启用目标驱动停止时，这个上限只会被记录，不再自动触发 stop rule。 |
+| `--max-hours` | `24` | 整个 study 的总小时预算。启用目标驱动停止时，这个上限只会被记录，不再自动触发 stop rule。 |
+| `--max-new-datasets` | 无 | 最多允许新建多少个新数据版本，不含最初的 `dataset-version`。启用目标驱动停止时，这个上限只会被记录，不再自动触发 stop rule。 |
+| `--max-no-improve-trials` | `4` | 连续多少个 trial 没有明显提升就停。启用目标驱动停止时，这个上限只会被记录，不再自动触发 stop rule。 |
 
 ### 8.3 判定与 OpenCode 参数
 
@@ -646,6 +678,32 @@ uv run sinan auto-train run group2 `
 ### 9.1 恢复已有 study
 
 用同一个 `--study-name`、`--train-root` 和 `--generator-workspace` 重新执行原命令即可。控制器会根据已有工件推断下一阶段。
+
+当前支持恢复的场景：
+
+- 你主动按下 `Ctrl+C`
+- 训练机重启
+- 终端或 Python 进程意外退出
+- `opencode` / 训练器 / 生成器等外部进程临时失败后，你修好环境再重新执行
+
+恢复时不需要手工指定“从哪一轮开始”。控制器会读取：
+
+- `study.json`
+- 当前 `trial_xxxx` 目录已有工件
+- `STOP` 文件是否存在
+
+然后自动推断从：
+
+- `PLAN`
+- `BUILD_DATASET`
+- `TRAIN`
+- `TEST`
+- `EVALUATE`
+- `SUMMARIZE`
+- `JUDGE`
+- `NEXT_ACTION`
+
+中的哪一层继续。
 
 ### 9.2 请求停止
 

@@ -16,6 +16,8 @@ from core.train.base import default_best_weights
 _IMAGE_EXTENSIONS = (".png", ".jpg", ".jpeg", ".webp", ".bmp")
 _MASTER_IMAGE_STEMS = ("master", "bg", "background")
 _TILE_IMAGE_STEMS = ("tile", "gap", "piece", "puzzle_piece")
+_BBOX_EDGE_TOLERANCE_PX = 5.0
+_LOCAL_SEARCH_RADIUS_PX = 8
 
 
 @dataclass(frozen=True)
@@ -26,9 +28,12 @@ class OcclusionScore:
     seam_score: float
     occlusion_score: float
     success: bool
-    reference_bbox: list[int]
-    reference_center: list[int]
-    position_error_px: float
+    best_local_bbox: list[int]
+    best_local_offset_px: float
+    best_local_clean_score: float
+    tile_residue_ratio: float
+    double_edge_score: float
+    overflow_edge_score: float
 
 
 @dataclass(frozen=True)
@@ -36,6 +41,15 @@ class CaseSpec:
     case_id: str
     master_path: Path
     tile_path: Path
+
+
+@dataclass(frozen=True)
+class OverlayArtifactMetrics:
+    tile_residue_ratio: float
+    double_edge_score: float
+    overflow_edge_score: float
+    artifact_score: float
+    clean_score: float
 
 
 def score_occlusion_overlay(
@@ -47,49 +61,42 @@ def score_occlusion_overlay(
     y: int,
     success_threshold: float = 0.78,
 ) -> OcclusionScore:
-    """Score whether overlaying the tile at ``(x, y)`` aligns with the detected slot."""
+    """Score whether overlaying the tile at ``(x, y)`` looks locally well-fitted."""
 
     _validate_grids(master_luma=master_luma, tile_luma=tile_luma, tile_alpha=tile_alpha)
-    composite = _composite_luma_grid(master_luma=master_luma, tile_luma=tile_luma, tile_alpha=tile_alpha, x=x, y=y)
-    before_diffs = _boundary_diffs(image=master_luma, tile_alpha=tile_alpha, x=x, y=y)
-    after_diffs = _boundary_diffs(image=composite, tile_alpha=tile_alpha, x=x, y=y)
-    reference_bbox, reference_center, _ = _estimate_reference_bbox(master_luma=master_luma, tile_alpha=tile_alpha)
-    predicted_center = _bbox_center([x, y, x + len(tile_alpha[0]), y + len(tile_alpha)])
-    position_error_px = _point_distance(predicted_center, reference_center)
-    position_tolerance_px = _position_tolerance_px(tile_alpha)
-    slot_signal_score = _slot_signal_score(master_luma=master_luma, tile_alpha=tile_alpha, x=x, y=y)
-    reference_alignment_score = _clamp01(1.0 - (position_error_px / max(position_tolerance_px, 1e-6)))
-    if not before_diffs or not after_diffs:
-        return OcclusionScore(
-            boundary_before=1.0,
-            boundary_after=1.0,
-            fill_score=slot_signal_score,
-            seam_score=reference_alignment_score,
-            occlusion_score=0.0,
-            success=False,
-            reference_bbox=reference_bbox,
-            reference_center=reference_center,
-            position_error_px=position_error_px,
-        )
-
-    boundary_before = _clamp01(_mean(before_diffs) / 255.0)
-    boundary_after = _clamp01(_mean(after_diffs) / 255.0)
-    occlusion_score = _clamp01(slot_signal_score * 0.4 + reference_alignment_score * 0.6)
-    success = (
-        occlusion_score >= success_threshold
-        and reference_alignment_score >= 0.6
-        and slot_signal_score >= 0.45
+    predicted_metrics = _overlay_artifact_metrics(
+        master_luma=master_luma,
+        tile_luma=tile_luma,
+        tile_alpha=tile_alpha,
+        x=x,
+        y=y,
     )
+    best_local_bbox, best_local_metrics = _best_local_bbox(
+        master_luma=master_luma,
+        tile_luma=tile_luma,
+        tile_alpha=tile_alpha,
+        x=x,
+        y=y,
+    )
+    best_local_offset_px = _bbox_edge_error([x, y, x + len(tile_alpha[0]), y + len(tile_alpha)], best_local_bbox)
+    success = (
+        best_local_offset_px <= _BBOX_EDGE_TOLERANCE_PX
+        and best_local_metrics.clean_score >= success_threshold
+    )
+    edge_clean_score = _clamp01(1.0 - max(predicted_metrics.double_edge_score, predicted_metrics.overflow_edge_score))
     return OcclusionScore(
-        boundary_before=boundary_before,
-        boundary_after=boundary_after,
-        fill_score=slot_signal_score,
-        seam_score=reference_alignment_score,
-        occlusion_score=occlusion_score,
+        boundary_before=predicted_metrics.double_edge_score,
+        boundary_after=predicted_metrics.overflow_edge_score,
+        fill_score=_clamp01(1.0 - predicted_metrics.tile_residue_ratio),
+        seam_score=edge_clean_score,
+        occlusion_score=predicted_metrics.clean_score,
         success=success,
-        reference_bbox=reference_bbox,
-        reference_center=reference_center,
-        position_error_px=position_error_px,
+        best_local_bbox=best_local_bbox,
+        best_local_offset_px=best_local_offset_px,
+        best_local_clean_score=best_local_metrics.clean_score,
+        tile_residue_ratio=predicted_metrics.tile_residue_ratio,
+        double_edge_score=predicted_metrics.double_edge_score,
+        overflow_edge_score=predicted_metrics.overflow_edge_score,
     )
 
 
@@ -183,9 +190,6 @@ def run_group2_business_eval(
                 tile_image=str(case.tile_path),
                 predicted_bbox=bbox,
                 predicted_center=center,
-                reference_bbox=score.reference_bbox,
-                reference_center=score.reference_center,
-                position_error_px=round(score.position_error_px, 4),
                 inference_ms=round(inference_ms, 4),
                 boundary_before=round(score.boundary_before, 6),
                 boundary_after=round(score.boundary_after, 6),
@@ -196,6 +200,12 @@ def run_group2_business_eval(
                 reason_cn=_reason_cn(score),
                 overlay_path=str(overlay_path),
                 diff_path=str(diff_path),
+                best_local_bbox=score.best_local_bbox,
+                best_local_offset_px=round(score.best_local_offset_px, 4),
+                best_local_clean_score=round(score.best_local_clean_score, 6),
+                tile_residue_ratio=round(score.tile_residue_ratio, 6),
+                double_edge_score=round(score.double_edge_score, 6),
+                overflow_edge_score=round(score.overflow_edge_score, 6),
             )
         )
 
@@ -270,19 +280,20 @@ def markdown_from_business_eval(record: contracts.BusinessEvalRecord) -> str:
         "- available_cases: business_eval 目录下发现的全部候选样本数。",
         "- sample_size: 本轮配置允许抽样的最大样本数。",
         "- total_cases: 本轮实际参与商业测试的样本数。",
-        "- passed_cases: 单样本主评分与参考槽位对齐同时达标的通过数。",
+        "- passed_cases: 单样本 overlay 痕迹检测与局部 5px 容差同时达标的通过数。",
         "- success_rate: passed_cases / total_cases，表示本轮商业测试通过率。",
         "- success_threshold: 判定达到商用门所需的最小通过率。",
-        "- main_score_threshold: 单样本主评分的最低通过阈值。",
+        "- main_score_threshold: 单样本最佳局部 clean_score 的最低通过阈值。",
         "- predicted_bbox: 求解模块输出的缺口框坐标，格式为 [x1, y1, x2, y2]。",
         "- predicted_center: 求解模块输出的缺口中心点，格式为 [cx, cy]。",
-        "- reference_bbox: 商业测试规则从背景图中反推出的参考槽位框，格式为 [x1, y1, x2, y2]。",
-        "- reference_center: 参考槽位框中心点，格式为 [cx, cy]。",
-        "- position_error_px: predicted_center 与 reference_center 的欧氏距离，单位像素。",
+        "- best_local_bbox: 在模型输出位置附近小范围搜索后，痕迹最干净的候选框。",
+        "- best_local_offset_px: predicted_bbox 与 best_local_bbox 四条边偏差的最大值；<= 5px 视为定位正常。",
+        "- best_local_clean_score: 邻域内最优贴合位置的 clean_score，越高越好。",
         "- inference_ms: 求解模块本次推理耗时，单位毫秒。",
-        "- slot_signal(fill): 兼容旧字段 fill_score，表示预测位置本身有多像真实占位槽位，越高越好。",
-        "- reference_alignment(seam): 兼容旧字段 seam_score，表示预测位置与参考槽位的对齐程度，越高越好。",
-        "- main_score(occlusion): 商业测试主分数，按 0.4 * slot_signal + 0.6 * reference_alignment 计算。",
+        "- tile_residue_ratio: overlay 中仍然保留大面积图块痕迹的程度，越低越好。",
+        "- double_edge_score: overlay 中出现明显双边缘/重影的程度，越低越好。",
+        "- overflow_edge_score: overlay 中出现越界边缘的程度，越低越好。",
+        "- clean_score(occlusion): 兼容旧字段 occlusion_score，表示当前模型输出位置的整体干净程度，越高越好。",
         "",
         "## 样本结果",
         "",
@@ -293,10 +304,13 @@ def markdown_from_business_eval(record: contracts.BusinessEvalRecord) -> str:
         status = "PASS" if item.success else "FAIL"
         lines.append(
             f"- {item.case_id}: {status}, predicted_bbox={item.predicted_bbox}, "
-            f"predicted_center={item.predicted_center}, reference_bbox={item.reference_bbox}, "
-            f"reference_center={item.reference_center}, position_error_px={_format_optional_float(item.position_error_px)}, "
-            f"inference_ms={item.inference_ms:.4f}, main_score={item.occlusion_score:.4f}, "
-            f"slot_signal={item.fill_score:.4f}, reference_alignment={item.seam_score:.4f}, "
+            f"predicted_center={item.predicted_center}, best_local_bbox={item.best_local_bbox}, "
+            f"best_local_offset_px={_format_optional_float(item.best_local_offset_px)}, "
+            f"best_local_clean_score={_format_optional_float(item.best_local_clean_score)}, "
+            f"inference_ms={item.inference_ms:.4f}, clean_score={item.occlusion_score:.4f}, "
+            f"tile_residue_ratio={_format_optional_float(item.tile_residue_ratio)}, "
+            f"double_edge_score={_format_optional_float(item.double_edge_score)}, "
+            f"overflow_edge_score={_format_optional_float(item.overflow_edge_score)}, "
             f"reason_cn={item.reason_cn}"
         )
     return "\n".join(lines) + "\n"
@@ -307,13 +321,14 @@ def log_from_business_eval(record: contracts.BusinessEvalRecord) -> str:
         "# 字段说明",
         "# predicted_bbox: 模型输出的背景图坐标框 [x1, y1, x2, y2]。",
         "# predicted_center: 模型输出的缺口中心点 [cx, cy]。",
-        "# reference_bbox: 由商业测试规则从背景图反推的参考槽位坐标框 [x1, y1, x2, y2]。",
-        "# reference_center: 由参考槽位坐标框推导出的中心点 [cx, cy]。",
-        "# position_error_px: predicted_center 与 reference_center 的欧氏距离，单位像素。",
+        "# best_local_bbox: 在模型输出位置附近做局部搜索后，痕迹最干净的候选框。",
+        "# best_local_offset_px: predicted_bbox 与 best_local_bbox 四条边偏差的最大值，<= 5px 视为定位正常。",
+        "# best_local_clean_score: 邻域内最优贴合位置的 clean_score，越高越好。",
         "# inference_ms: 求解模块单次推理耗时，单位毫秒。",
-        "# slot_signal(fill): 兼容旧字段 fill_score，表示预测位置本身有多像真实占位槽位，越高越好。",
-        "# reference_alignment(seam): 兼容旧字段 seam_score，表示预测位置与参考槽位的对齐程度，越高越好。",
-        "# main_score(occlusion): 商业测试主分数，按 0.4 * slot_signal + 0.6 * reference_alignment 计算。",
+        "# tile_residue_ratio: overlay 中仍保留明显图块痕迹的程度，越低越好。",
+        "# double_edge_score: overlay 中出现双边缘/重影的程度，越低越好。",
+        "# overflow_edge_score: overlay 中出现越界边缘的程度，越低越好。",
+        "# clean_score(occlusion): 当前模型输出位置的整体干净程度，越高越好。",
         "# success_rate: 当前批次通过率，即 passed_cases / total_cases。",
         "# commercial_ready: 当前批次是否达到最终商用门。",
         "",
@@ -334,10 +349,13 @@ def log_from_business_eval(record: contracts.BusinessEvalRecord) -> str:
         status = "PASS" if item.success else "FAIL"
         lines.append(
             f"{status} case_id={item.case_id} predicted_bbox={item.predicted_bbox} "
-            f"predicted_center={item.predicted_center} reference_bbox={item.reference_bbox} "
-            f"reference_center={item.reference_center} position_error_px={_format_optional_float(item.position_error_px)} "
-            f"inference_ms={item.inference_ms:.4f} main_score={item.occlusion_score:.4f} "
-            f"slot_signal={item.fill_score:.4f} reference_alignment={item.seam_score:.4f} "
+            f"predicted_center={item.predicted_center} best_local_bbox={item.best_local_bbox} "
+            f"best_local_offset_px={_format_optional_float(item.best_local_offset_px)} "
+            f"best_local_clean_score={_format_optional_float(item.best_local_clean_score)} "
+            f"inference_ms={item.inference_ms:.4f} clean_score={item.occlusion_score:.4f} "
+            f"tile_residue_ratio={_format_optional_float(item.tile_residue_ratio)} "
+            f"double_edge_score={_format_optional_float(item.double_edge_score)} "
+            f"overflow_edge_score={_format_optional_float(item.overflow_edge_score)} "
             f"reason_cn={item.reason_cn}"
         )
     return "\n".join(lines) + "\n"
@@ -414,12 +432,16 @@ def commercial_report_markdown(
         "## 商业测试字段说明",
         "",
         "- predicted_bbox / predicted_center / inference_ms: 直接来自 group2 求解模块的推理输出。",
-        "- reference_bbox / reference_center: 商业测试规则从背景图中自动反推出的参考槽位位置，用来近似人眼判断的目标位置。",
-        "- position_error_px: predicted_center 与 reference_center 的欧氏距离，越低越好。",
-        "- fill_score: 兼容旧字段名；现表示 slot_signal_score，即预测位置本身看起来有多像真实占位槽位。",
-        "- seam_score: 兼容旧字段名；现表示 reference_alignment_score，即预测位置与参考槽位的对齐程度。",
-        "- occlusion_score: 当前样本的主评分，按 0.4 * slot_signal_score + 0.6 * reference_alignment_score 计算。",
-        "- boundary_before / boundary_after: 贴图残差辅诊断字段，保留用于排查，不再单独决定通过/失败。",
+        "- best_local_bbox: 在模型输出位置附近做局部搜索后，痕迹最干净的候选框。",
+        "- best_local_offset_px: predicted_bbox 与 best_local_bbox 四条边偏差的最大值；当前 <= 5px 视为定位正常。",
+        "- best_local_clean_score: 邻域内最优贴合位置的 clean_score，越高越好。",
+        "- tile_residue_ratio: overlay 中仍然保留大面积图块痕迹的程度，越低越好。",
+        "- double_edge_score: overlay 中出现双边缘/重影的程度，越低越好。",
+        "- overflow_edge_score: overlay 中出现越界边缘的程度，越低越好。",
+        "- fill_score: 兼容旧字段名；现表示 tile_clean_score，即 1 - tile_residue_ratio。",
+        "- seam_score: 兼容旧字段名；现表示 edge_clean_score，即 1 - max(double_edge_score, overflow_edge_score)。",
+        "- occlusion_score: 兼容旧字段名；现表示当前模型输出位置的 clean_score，越高越好。",
+        "- boundary_before / boundary_after: 兼容旧辅诊断字段；现分别记录 double_edge_score 与 overflow_edge_score。",
         "- success_rate: 本轮商业测试通过率，即 passed_cases / total_cases。",
         "- commercial_ready: success_rate 是否达到 success_threshold，且样本数满足 min_cases。",
         "",
@@ -432,10 +454,12 @@ def commercial_report_markdown(
     for item in failed_cases[:20]:
         lines.append(
             f"- {item.case_id}: predicted_bbox={item.predicted_bbox}, "
-            f"predicted_center={item.predicted_center}, reference_bbox={item.reference_bbox}, "
-            f"reference_center={item.reference_center}, position_error_px={_format_optional_float(item.position_error_px)}, "
-            f"main_score={item.occlusion_score:.4f}, slot_signal={item.fill_score:.4f}, "
-            f"reference_alignment={item.seam_score:.4f}, reason_cn={item.reason_cn}"
+            f"predicted_center={item.predicted_center}, best_local_bbox={item.best_local_bbox}, "
+            f"best_local_offset_px={_format_optional_float(item.best_local_offset_px)}, "
+            f"best_local_clean_score={_format_optional_float(item.best_local_clean_score)}, "
+            f"clean_score={item.occlusion_score:.4f}, tile_residue_ratio={_format_optional_float(item.tile_residue_ratio)}, "
+            f"double_edge_score={_format_optional_float(item.double_edge_score)}, "
+            f"overflow_edge_score={_format_optional_float(item.overflow_edge_score)}, reason_cn={item.reason_cn}"
         )
     return "\n".join(lines) + "\n"
 
@@ -487,7 +511,8 @@ def _business_test_conclusion_cn(record: contracts.BusinessEvalRecord) -> str:
         f"- 本轮从 {record.available_cases} 组真实样本中抽取 {record.total_cases} 组进行商业测试。\n"
         f"- 其中通过 {record.passed_cases} 组，通过率为 {record.success_rate:.2%}。\n"
         f"- 当前商用门要求 success_rate >= {record.success_threshold:.0%}，"
-        f"单样本还需满足主评分 >= {record.occlusion_threshold:.2f}，且预测位置需要与参考槽位基本对齐。"
+        f"单样本还需满足局部最优 clean_score >= {record.occlusion_threshold:.2f}，"
+        f"且模型输出位置与附近最干净贴合位置的边框偏差 <= 5px。"
     )
 
 
@@ -612,14 +637,181 @@ def _image_to_alpha_grid(image: object) -> list[list[float]]:
     ]
 
 
+def _overlay_artifact_metrics(
+    *,
+    master_luma: list[list[float]],
+    tile_luma: list[list[float]],
+    tile_alpha: list[list[float]],
+    x: int,
+    y: int,
+) -> OverlayArtifactMetrics:
+    composite = _composite_luma_grid(master_luma=master_luma, tile_luma=tile_luma, tile_alpha=tile_alpha, x=x, y=y)
+    mask_coords, boundary_coords, outer_ring_coords = _mask_regions(tile_alpha)
+    tile_residue_ratio = _normalized_region_diff(
+        original=master_luma,
+        overlay=composite,
+        coords=mask_coords,
+        x=x,
+        y=y,
+    )
+    double_edge_score = _normalized_region_diff(
+        original=master_luma,
+        overlay=composite,
+        coords=boundary_coords,
+        x=x,
+        y=y,
+    )
+    overflow_edge_score = _normalized_region_diff(
+        original=master_luma,
+        overlay=composite,
+        coords=outer_ring_coords,
+        x=x,
+        y=y,
+    )
+    artifact_score = _clamp01(
+        tile_residue_ratio * 0.50
+        + double_edge_score * 0.30
+        + overflow_edge_score * 0.20
+    )
+    return OverlayArtifactMetrics(
+        tile_residue_ratio=tile_residue_ratio,
+        double_edge_score=double_edge_score,
+        overflow_edge_score=overflow_edge_score,
+        artifact_score=artifact_score,
+        clean_score=_clamp01(1.0 - artifact_score),
+    )
+
+
+def _best_local_bbox(
+    *,
+    master_luma: list[list[float]],
+    tile_luma: list[list[float]],
+    tile_alpha: list[list[float]],
+    x: int,
+    y: int,
+) -> tuple[list[int], OverlayArtifactMetrics]:
+    height = len(master_luma)
+    width = len(master_luma[0])
+    tile_height = len(tile_alpha)
+    tile_width = len(tile_alpha[0])
+    max_x = max(0, width - tile_width)
+    max_y = max(0, height - tile_height)
+
+    best_x = min(max(x, 0), max_x)
+    best_y = min(max(y, 0), max_y)
+    best_metrics = _overlay_artifact_metrics(
+        master_luma=master_luma,
+        tile_luma=tile_luma,
+        tile_alpha=tile_alpha,
+        x=best_x,
+        y=best_y,
+    )
+    for candidate_y in range(max(0, y - _LOCAL_SEARCH_RADIUS_PX), min(max_y, y + _LOCAL_SEARCH_RADIUS_PX) + 1, 2):
+        for candidate_x in range(max(0, x - _LOCAL_SEARCH_RADIUS_PX), min(max_x, x + _LOCAL_SEARCH_RADIUS_PX) + 1, 2):
+            metrics = _overlay_artifact_metrics(
+                master_luma=master_luma,
+                tile_luma=tile_luma,
+                tile_alpha=tile_alpha,
+                x=candidate_x,
+                y=candidate_y,
+            )
+            if metrics.artifact_score < best_metrics.artifact_score:
+                best_x = candidate_x
+                best_y = candidate_y
+                best_metrics = metrics
+
+    refine_radius = 2
+    for candidate_y in range(max(0, best_y - refine_radius), min(max_y, best_y + refine_radius) + 1):
+        for candidate_x in range(max(0, best_x - refine_radius), min(max_x, best_x + refine_radius) + 1):
+            metrics = _overlay_artifact_metrics(
+                master_luma=master_luma,
+                tile_luma=tile_luma,
+                tile_alpha=tile_alpha,
+                x=candidate_x,
+                y=candidate_y,
+            )
+            if metrics.artifact_score < best_metrics.artifact_score:
+                best_x = candidate_x
+                best_y = candidate_y
+                best_metrics = metrics
+
+    return [best_x, best_y, best_x + tile_width, best_y + tile_height], best_metrics
+
+
+def _mask_regions(
+    tile_alpha: list[list[float]],
+) -> tuple[list[tuple[int, int]], list[tuple[int, int]], list[tuple[int, int]]]:
+    tile_height = len(tile_alpha)
+    tile_width = len(tile_alpha[0])
+    mask_coords: list[tuple[int, int]] = []
+    boundary_coords: list[tuple[int, int]] = []
+    outer_ring: set[tuple[int, int]] = set()
+
+    for tile_y in range(tile_height):
+        for tile_x in range(tile_width):
+            if tile_alpha[tile_y][tile_x] <= 0.0:
+                continue
+            mask_coords.append((tile_x, tile_y))
+            is_boundary = False
+            for delta_x, delta_y in ((1, 0), (-1, 0), (0, 1), (0, -1)):
+                neighbor_x = tile_x + delta_x
+                neighbor_y = tile_y + delta_y
+                neighbor_is_mask = (
+                    0 <= neighbor_x < tile_width
+                    and 0 <= neighbor_y < tile_height
+                    and tile_alpha[neighbor_y][neighbor_x] > 0.0
+                )
+                if neighbor_is_mask:
+                    continue
+                is_boundary = True
+                outer_ring.add((neighbor_x, neighbor_y))
+            if is_boundary:
+                boundary_coords.append((tile_x, tile_y))
+
+    outer_ring_coords = [
+        (tile_x, tile_y)
+        for tile_x, tile_y in sorted(outer_ring)
+        if 0 <= tile_x < tile_width and 0 <= tile_y < tile_height and tile_alpha[tile_y][tile_x] <= 0.0
+    ]
+    return mask_coords, boundary_coords, outer_ring_coords
+
+
+def _normalized_region_diff(
+    *,
+    original: list[list[float]],
+    overlay: list[list[float]],
+    coords: list[tuple[int, int]],
+    x: int,
+    y: int,
+) -> float:
+    if not coords:
+        return 0.0
+    height = len(original)
+    width = len(original[0])
+    values: list[float] = []
+    for offset_x, offset_y in coords:
+        target_x = x + offset_x
+        target_y = y + offset_y
+        if target_x < 0 or target_x >= width or target_y < 0 or target_y >= height:
+            continue
+        values.append(abs(overlay[target_y][target_x] - original[target_y][target_x]))
+    if not values:
+        return 1.0
+    return _clamp01(_mean(values) / 255.0)
+
+
 def _reason_cn(score: OcclusionScore) -> str:
     if score.success:
-        return "预测位置与背景中的参考槽位基本对齐，商业测试通过。"
-    if score.fill_score < 0.45:
-        return "预测位置附近未检测到足够强的槽位信号，疑似未命中真实缺口占位。"
-    if score.seam_score < 0.6:
-        return "预测位置与背景中的参考槽位偏差较大，疑似定位存在明显偏移。"
-    return "主评分未达到商用阈值，建议结合 overlay/diff 进行人工复核。"
+        return "模型输出位置与附近最干净贴合位置的边框偏差在 5px 以内，且局部 overlay 痕迹检测达标，判定通过。"
+    if score.best_local_offset_px > _BBOX_EDGE_TOLERANCE_PX:
+        return "把图块在模型输出位置附近挪动后，存在明显更干净的位置，且偏差超过 5px，判定为定位偏移。"
+    if score.tile_residue_ratio > 0.35:
+        return "overlay 中仍保留明显图块痕迹，疑似缺口块没有贴到合适位置。"
+    if score.double_edge_score > 0.35:
+        return "overlay 中出现明显双边缘或重影，疑似图块轮廓与缺口轮廓没有对齐。"
+    if score.overflow_edge_score > 0.35:
+        return "overlay 中出现明显越界边缘，疑似图块压到了缺口外的背景区域。"
+    return "当前位置附近虽有可接受贴合候选，但最佳局部贴合的 clean score 仍未达标，建议结合 overlay/diff 继续人工复核。"
 
 
 def _find_image(root: Path, *, stem: str) -> Path | None:
@@ -772,6 +964,10 @@ def _position_tolerance_px(tile_alpha: list[list[float]]) -> float:
 
 def _point_distance(lhs: list[int], rhs: list[int]) -> float:
     return math.sqrt(float((lhs[0] - rhs[0]) ** 2 + (lhs[1] - rhs[1]) ** 2))
+
+
+def _bbox_edge_error(lhs: list[int], rhs: list[int]) -> float:
+    return float(max(abs(lhs[index] - rhs[index]) for index in range(4)))
 
 
 def _format_optional_float(value: float | None) -> str:

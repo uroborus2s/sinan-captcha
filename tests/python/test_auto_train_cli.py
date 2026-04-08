@@ -21,6 +21,8 @@ class AutoTrainCliTests(unittest.TestCase):
             captured_request = None
 
             class FakeController:
+                max_steps = None
+
                 def __init__(self, *, request: object) -> None:
                     nonlocal captured_request
                     captured_request = request
@@ -33,7 +35,7 @@ class AutoTrainCliTests(unittest.TestCase):
                     )()
 
                 def run(self, *, max_steps: int) -> object:
-                    self.max_steps = max_steps
+                    type(self).max_steps = max_steps
                     self.paths.study_status_file.parent.mkdir(parents=True, exist_ok=True)
                     storage.write_study_status_record(
                         self.paths.study_status_file,
@@ -92,11 +94,55 @@ class AutoTrainCliTests(unittest.TestCase):
 
             self.assertEqual(code, 0)
             assert captured_request is not None
+            self.assertTrue(captured_request.goal_only_stop)
             self.assertEqual(captured_request.business_eval_dir, business_cases)
             self.assertEqual(captured_request.business_eval_success_threshold, 0.98)
             self.assertEqual(captured_request.business_eval_min_cases, 8)
             self.assertEqual(captured_request.business_eval_sample_size, 100)
             self.assertEqual(captured_request.business_eval_occlusion_threshold, 0.81)
+            self.assertEqual(FakeController.max_steps, 0)
+
+    def test_run_command_forwards_explicit_goal_only_stop_without_business_eval(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            root = Path(tmpdir)
+            train_root = root / "train-root"
+            generator_workspace = root / "generator-workspace"
+            for path in (train_root, generator_workspace):
+                path.mkdir(parents=True, exist_ok=True)
+
+            captured_request = None
+
+            class FakeController:
+                max_steps = None
+
+                def __init__(self, *, request: object) -> None:
+                    nonlocal captured_request
+                    captured_request = request
+                    self.paths = type("Paths", (), {"study_status_file": root / "study_status.json"})()
+
+                def run(self, *, max_steps: int) -> object:
+                    type(self).max_steps = max_steps
+                    return type("Result", (), {"executed": [], "final_stage": "PLAN"})()
+
+            with patch("core.auto_train.cli.controller.AutoTrainController", FakeController):
+                code = cli.main(
+                    [
+                        "run",
+                        "group1",
+                        "--study-name",
+                        "study_001",
+                        "--train-root",
+                        str(train_root),
+                        "--generator-workspace",
+                        str(generator_workspace),
+                        "--goal-only-stop",
+                    ]
+                )
+
+            self.assertEqual(code, 0)
+            assert captured_request is not None
+            self.assertTrue(captured_request.goal_only_stop)
+            self.assertEqual(FakeController.max_steps, 0)
 
     def test_run_command_returns_nonzero_when_stopped_without_commercial_success(self) -> None:
         with tempfile.TemporaryDirectory() as tmpdir:

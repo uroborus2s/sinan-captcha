@@ -17,14 +17,58 @@
 
 ## 当前事实
 
+- 2026-04-08 当前仓库已改 `auto-train` 停止语义，支持“目标驱动停止 + 中断恢复”：
+  - `core/auto_train/cli.py` 当前会把：
+    - `--business-eval-dir`
+    - 或显式 `--goal-only-stop`
+    自动收口为“只按目标停止”模式
+  - 当前 `run` 子命令在目标驱动模式下：
+    - `--max-steps` 默认是 `0`
+    - `0` 表示单次命令持续运行直到真正 `STOP`
+  - `core/auto_train/controller.py` 当前会把 `goal_only_stop` 持久化到 `study.json`
+  - 当前在 `goal_only_stop=true` 时：
+    - 不再因为 `max_trials`
+    - 不再因为 `max_hours`
+    - 不再因为 `max_new_datasets`
+    - 不再因为 `max_no_improve_trials`
+    - 不再因为 `plateau`
+    自动停掉 study
+  - 当前唯一自动结束条件是：
+    - 商业测试通过
+    - `STOP` 文件
+    - 或进程/机器中断后等待恢复
+  - 当前已验证：
+    - `.venv/bin/python -m unittest tests.python.test_auto_train_cli`
+    - `.venv/bin/python -m unittest tests.python.test_auto_train_controller`
+- 2026-04-08 当前仓库已把 `group2` 商业检测主判从“参考槽位反推”切到“overlay 痕迹检测”：
+  - 当前不再把 `reference_bbox / reference_center` 作为主判真值
+  - 当前会直接分析模型输出生成的 `overlay.png`
+  - 当前新增的主字段是：
+    - `best_local_bbox`
+    - `best_local_offset_px`
+    - `best_local_clean_score`
+    - `tile_residue_ratio`
+    - `double_edge_score`
+    - `overflow_edge_score`
+  - 当前含义是：
+    - 在模型输出位置附近做局部搜索
+    - 找到附近“痕迹最干净”的贴合位置
+    - 如果模型输出与该位置的边框偏差 `<= 5px`，且局部最优 clean score 达标，则判通过
+  - 这避免了“用背景图启发式猜真值位置”的逻辑自证问题
+  - 当前已验证：
+    - `.venv/bin/python -m unittest tests.python.test_auto_train_business_eval`
+    - `.venv/bin/python -m unittest discover -s tests/python`
 - 2026-04-08 已发布 Python 训练 CLI 包 `sinan-captcha==0.1.25`：
   - 当前包含 `group2` 商业测试“参考槽位定位 + 位置误差门”规则
   - 当前单样本主判已经从“贴回后原图残差是否几乎消失”切换为：
     - `reference_bbox / reference_center`
     - `position_error_px`
+    - `bbox_edge_error_px`
     - `slot_signal(fill_score)`
     - `reference_alignment(seam_score)`
     - `main_score(occlusion_score) = 0.4 * slot_signal + 0.6 * reference_alignment`
+  - 当前规则已进一步放宽：
+    - 当 `predicted_bbox` 与 `reference_bbox` 四条边最大偏差 `<= 5px` 时，单样本直接视为定位正常
   - `business_eval.log / business_eval.md / commercial_report.md` 当前都会解释这些新字段
   - 当前已确认 PyPI `info.version = 0.1.25`
   - 当前已确认发布文件：

@@ -30,6 +30,44 @@ def _solid_mask(width: int, height: int, value: float = 1.0) -> list[list[float]
     return [[value for _ in range(width)] for _ in range(height)]
 
 
+def _outline_mask(width: int, height: int, *, thickness: int = 1) -> list[list[float]]:
+    output: list[list[float]] = []
+    for y in range(height):
+        row: list[float] = []
+        for x in range(width):
+            is_edge = (
+                x < thickness
+                or x >= width - thickness
+                or y < thickness
+                or y >= height - thickness
+            )
+            row.append(1.0 if is_edge else 0.0)
+        output.append(row)
+    return output
+
+
+def _outlined_tile(width: int, height: int, *, border_value: float = 255.0) -> list[list[float]]:
+    alpha = _outline_mask(width, height)
+    return [[border_value if alpha[y][x] > 0.0 else 0.0 for x in range(width)] for y in range(height)]
+
+
+def _stamp_mask(
+    grid: list[list[float]],
+    *,
+    mask: list[list[float]],
+    x: int,
+    y: int,
+    value: float,
+) -> list[list[float]]:
+    output = [list(row) for row in grid]
+    for mask_y, row in enumerate(mask):
+        for mask_x, alpha in enumerate(row):
+            if alpha <= 0.0:
+                continue
+            output[y + mask_y][x + mask_x] = value
+    return output
+
+
 def _with_gap(
     grid: list[list[float]],
     *,
@@ -83,36 +121,54 @@ def _group2_trial_input(trial_id: str) -> contracts.TrialInputRecord:
 
 
 class BusinessEvalScoringTests(unittest.TestCase):
-    def test_alignment_score_prefers_detected_placeholder_position(self) -> None:
-        base = _dark_textured_grid(48, 48)
-        tile = _copy_patch(base, x=18, y=16, width=10, height=10)
-        alpha = _solid_mask(10, 10)
-        master = _with_gap(base, x=18, y=16, width=10, height=10, fill=236.0)
+    def test_overlay_artifact_score_prefers_aligned_position(self) -> None:
+        base = _dark_textured_grid(64, 64)
+        alpha = _outline_mask(12, 12)
+        tile = _outlined_tile(12, 12)
+        master = _stamp_mask(base, mask=alpha, x=22, y=18, value=255.0)
 
         correct = business_eval.score_occlusion_overlay(
             master_luma=master,
             tile_luma=tile,
             tile_alpha=alpha,
-            x=18,
-            y=16,
+            x=22,
+            y=18,
         )
         wrong = business_eval.score_occlusion_overlay(
             master_luma=master,
             tile_luma=tile,
             tile_alpha=alpha,
-            x=7,
-            y=6,
+            x=8,
+            y=9,
         )
 
         self.assertGreater(correct.occlusion_score, wrong.occlusion_score)
-        self.assertEqual(correct.reference_bbox, [18, 16, 28, 26])
-        self.assertEqual(correct.reference_center, [23, 21])
-        self.assertAlmostEqual(correct.position_error_px, 0.0, places=4)
-        self.assertGreater(correct.fill_score, 0.7)
-        self.assertGreater(correct.seam_score, 0.95)
+        self.assertEqual(correct.best_local_bbox, [22, 18, 34, 30])
+        self.assertAlmostEqual(correct.best_local_offset_px, 0.0, places=4)
+        self.assertGreater(correct.best_local_clean_score, 0.95)
+        self.assertLess(correct.tile_residue_ratio, 0.05)
         self.assertTrue(correct.success)
         self.assertFalse(wrong.success)
-        self.assertGreater(wrong.position_error_px, 5.0)
+        self.assertGreater(wrong.best_local_offset_px, 5.0)
+
+    def test_local_best_offset_within_five_pixels_counts_as_success(self) -> None:
+        base = _dark_textured_grid(72, 72)
+        alpha = _outline_mask(14, 14)
+        tile = _outlined_tile(14, 14)
+        master = _stamp_mask(base, mask=alpha, x=24, y=20, value=255.0)
+
+        near = business_eval.score_occlusion_overlay(
+            master_luma=master,
+            tile_luma=tile,
+            tile_alpha=alpha,
+            x=28,
+            y=24,
+        )
+
+        self.assertEqual(near.best_local_bbox, [24, 20, 38, 34])
+        self.assertAlmostEqual(near.best_local_offset_px, 4.0, places=4)
+        self.assertGreater(near.best_local_clean_score, 0.90)
+        self.assertTrue(near.success)
 
     def test_discover_group2_cases_accepts_bg_and_gap_file_names(self) -> None:
         with tempfile.TemporaryDirectory() as tmpdir:
@@ -170,19 +226,22 @@ class BusinessEvalScoringTests(unittest.TestCase):
                     tile_image="/tmp/case_0001/gap.jpg",
                     predicted_bbox=[12, 18, 36, 42],
                     predicted_center=[24, 30],
-                    reference_bbox=[14, 18, 38, 42],
-                    reference_center=[26, 30],
-                    position_error_px=2.0,
                     inference_ms=8.5321,
-                    boundary_before=0.91,
-                    boundary_after=0.18,
-                    fill_score=0.8123,
-                    seam_score=0.9000,
-                    occlusion_score=0.8654,
+                    boundary_before=0.1200,
+                    boundary_after=0.0900,
+                    fill_score=0.8800,
+                    seam_score=0.9100,
+                    occlusion_score=0.9020,
                     success=True,
-                    reason_cn="预测位置与背景中的参考槽位基本对齐，商业测试通过。",
+                    reason_cn="模型输出位置与附近最干净贴合位置的边框偏差在 5px 以内，且局部 overlay 痕迹检测达标，判定通过。",
                     overlay_path="/tmp/business-eval/case_0001/overlay.png",
                     diff_path="/tmp/business-eval/case_0001/diff.png",
+                    best_local_bbox=[14, 18, 38, 42],
+                    best_local_offset_px=2.0,
+                    best_local_clean_score=0.9470,
+                    tile_residue_ratio=0.1200,
+                    double_edge_score=0.0700,
+                    overflow_edge_score=0.0900,
                 )
             ],
             evidence=["business_success_rate=0.6667"],
@@ -192,12 +251,14 @@ class BusinessEvalScoringTests(unittest.TestCase):
 
         self.assertIn("# 字段说明", rendered)
         self.assertIn("predicted_bbox: 模型输出的背景图坐标框", rendered)
-        self.assertIn("reference_bbox: 由商业测试规则从背景图反推的参考槽位坐标框", rendered)
+        self.assertIn("best_local_bbox: 在模型输出位置附近做局部搜索后，痕迹最干净的候选框", rendered)
         self.assertIn("predicted_bbox=[12, 18, 36, 42]", rendered)
-        self.assertIn("reference_bbox=[14, 18, 38, 42]", rendered)
+        self.assertIn("best_local_bbox=[14, 18, 38, 42]", rendered)
         self.assertIn("predicted_center=[24, 30]", rendered)
-        self.assertIn("position_error_px=2.0000", rendered)
-        self.assertIn("main_score=0.8654", rendered)
+        self.assertIn("best_local_offset_px=2.0000", rendered)
+        self.assertIn("best_local_clean_score=0.9470", rendered)
+        self.assertIn("clean_score=0.9020", rendered)
+        self.assertIn("tile_residue_ratio=0.1200", rendered)
         self.assertIn("PASS", rendered)
 
 
@@ -217,19 +278,22 @@ class BusinessEvalControllerTests(unittest.TestCase):
                 tile_image=str(business_cases / "case_0001" / "gap.jpg"),
                 predicted_bbox=[12, 18, 36, 42],
                 predicted_center=[24, 30],
-                reference_bbox=[14, 18, 38, 42],
-                reference_center=[26, 30],
-                position_error_px=2.0,
                 inference_ms=8.5321,
-                boundary_before=0.91,
-                boundary_after=0.18,
-                fill_score=0.8123,
-                seam_score=0.9000,
-                occlusion_score=0.8654,
+                boundary_before=0.12,
+                boundary_after=0.09,
+                fill_score=0.88,
+                seam_score=0.91,
+                occlusion_score=0.902,
                 success=True,
-                reason_cn="预测位置与背景中的参考槽位基本对齐，商业测试通过。",
+                reason_cn="模型输出位置与附近最干净贴合位置的边框偏差在 5px 以内，且局部 overlay 痕迹检测达标，判定通过。",
                 overlay_path=str(root / "reports" / "business_eval_trial_0001" / "case_0001" / "overlay.png"),
                 diff_path=str(root / "reports" / "business_eval_trial_0001" / "case_0001" / "diff.png"),
+                best_local_bbox=[14, 18, 38, 42],
+                best_local_offset_px=2.0,
+                best_local_clean_score=0.947,
+                tile_residue_ratio=0.12,
+                double_edge_score=0.07,
+                overflow_edge_score=0.09,
             )
             ctrl = controller.AutoTrainController(
                 request=controller.AutoTrainRequest(
@@ -312,8 +376,9 @@ class BusinessEvalControllerTests(unittest.TestCase):
             log_text = ctrl.paths.business_eval_log_file("trial_0001").read_text(encoding="utf-8")
             self.assertIn("predicted_bbox=[12, 18, 36, 42]", log_text)
             self.assertIn("predicted_center=[24, 30]", log_text)
-            self.assertIn("reference_bbox=[14, 18, 38, 42]", log_text)
-            self.assertIn("position_error_px=2.0000", log_text)
+            self.assertIn("best_local_bbox=[14, 18, 38, 42]", log_text)
+            self.assertIn("best_local_offset_px=2.0000", log_text)
+            self.assertIn("tile_residue_ratio=0.1200", log_text)
 
     def test_promote_branch_waits_for_business_gate_when_commercial_threshold_not_met(self) -> None:
         with tempfile.TemporaryDirectory() as tmpdir:

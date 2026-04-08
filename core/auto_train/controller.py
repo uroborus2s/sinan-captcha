@@ -90,6 +90,7 @@ class AutoTrainRequest:
     business_eval_min_cases: int = 100
     business_eval_sample_size: int = 100
     business_eval_occlusion_threshold: float = 0.78
+    goal_only_stop: bool = False
 
     def __post_init__(self) -> None:
         if self.task not in contracts.ALLOWED_TASKS:
@@ -174,20 +175,24 @@ class AutoTrainController:
         self.paths.ensure_layout()
 
     def run(self, *, max_steps: int = 1, force_stage: str | None = None) -> AutoTrainRunResult:
-        if max_steps <= 0:
-            raise ValueError("max_steps must be greater than 0")
+        if max_steps < 0:
+            raise ValueError("max_steps must not be negative")
 
         study = self._load_or_create_study()
         trial_id = self._ensure_current_trial(study)
         current_stage = normalize_stage_name(force_stage) if force_stage is not None else self._current_stage(trial_id)
         executed: list[StageExecution] = []
 
-        for _ in range(max_steps):
+        steps_run = 0
+        while True:
             if current_stage == "STOP":
+                break
+            if max_steps > 0 and steps_run >= max_steps:
                 break
             execution = self._run_stage(current_stage)
             executed.append(execution)
             current_stage = execution.next_stage
+            steps_run += 1
 
         return AutoTrainRunResult(
             study_name=self.request.study_name,
@@ -568,6 +573,8 @@ class AutoTrainController:
                 changes["started_at"] = self._now_utc().isoformat()
             if record.business_eval is None and requested_business_eval is not None:
                 changes["business_eval"] = requested_business_eval
+            if not record.goal_only_stop and self.request.goal_only_stop:
+                changes["goal_only_stop"] = True
             if changes:
                 record = replace(record, **changes)
                 storage.write_study_record(self.paths.study_file, record)
@@ -590,6 +597,7 @@ class AutoTrainController:
             started_at=self._now_utc().isoformat(),
             current_trial_id=None,
             best_trial_id=None,
+            goal_only_stop=self.request.goal_only_stop,
         )
         storage.write_study_record(self.paths.study_file, record)
         return record
@@ -767,6 +775,10 @@ class AutoTrainController:
         pending_new_dataset: bool,
         ignore_adaptive_limits: bool = False,
     ) -> stop_rules.StopDecision:
+        if study.goal_only_stop:
+            if self.paths.stop_file.exists():
+                return stop_rules.StopDecision(True, "stop_file_detected", "STOP file is present")
+            return stop_rules.StopDecision(False, "continue")
         scores_by_trial: list[float] = []
         for trial_dir in sorted(self.paths.trials_root.glob("trial_*"), key=lambda item: layout.parse_trial_id(item.name)):
             summary_path = self.paths.result_summary_file(trial_dir.name)

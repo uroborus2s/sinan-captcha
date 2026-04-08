@@ -22,6 +22,7 @@ train = [
   "scikit-image",
   "tqdm",
   "ultralytics",
+  "playwright",
 ]
 
 [project.scripts]

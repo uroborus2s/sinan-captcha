@@ -1672,6 +1672,226 @@ class AutoTrainControllerTests(unittest.TestCase):
             study = storage.read_study_record(ctrl.paths.study_file)
             self.assertEqual(study.status, "stopped")
 
+    def test_goal_only_stop_ignores_budget_limits_for_business_goal_study(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            root = Path(tmpdir)
+            train_root = root / "train-root"
+            generator_workspace = root / "generator-workspace"
+            dataset_dir = train_root / "datasets" / "group2" / "firstpass"
+            gold_dir = root / "gold"
+            prediction_dir = root / "predictions"
+            business_cases = root / "business-cases"
+            for path in (generator_workspace, dataset_dir, gold_dir, prediction_dir, business_cases):
+                path.mkdir(parents=True, exist_ok=True)
+            (gold_dir / "labels.jsonl").write_text("", encoding="utf-8")
+            (prediction_dir / "labels.jsonl").write_text("", encoding="utf-8")
+            _write_dataset_config(train_root, "group2", "firstpass")
+
+            def fake_train(_: object) -> controller.runners.train.TrainRunnerResult:
+                return controller.runners.train.TrainRunnerResult(
+                    record=contracts.TrainRecord(
+                        task="group2",
+                        train_name="trial_0001",
+                        run_dir=str(train_root / "runs" / "group2" / "trial_0001"),
+                        params={"epochs": 100, "batch": 16, "imgsz": 192},
+                        best_weights=str(train_root / "runs" / "group2" / "trial_0001" / "weights" / "best.pt"),
+                        last_weights=str(train_root / "runs" / "group2" / "trial_0001" / "weights" / "last.pt"),
+                    ),
+                    command="uv run sinan train group2",
+                )
+
+            def fake_test(_: object) -> controller.runners.test.TestRunnerResult:
+                return controller.runners.test.TestRunnerResult(
+                    record=contracts.TestRecord(
+                        task="group2",
+                        dataset_version="firstpass",
+                        train_name="trial_0001",
+                        metrics={"point_hit_rate": 1.0},
+                        predict_output_dir=str(prediction_dir),
+                        val_output_dir=str(train_root / "reports" / "group2" / "val_trial_0001"),
+                        report_dir=str(train_root / "reports" / "group2" / "test_trial_0001"),
+                    ),
+                    predict_command="uv run sinan predict group2",
+                    val_command="uv run sinan test group2",
+                )
+
+            def fake_evaluate(_: object) -> controller.runners.evaluate.EvaluateRunnerResult:
+                return controller.runners.evaluate.EvaluateRunnerResult(
+                    record=contracts.EvaluateRecord(
+                        available=True,
+                        task="group2",
+                        metrics={"point_hit_rate": 1.0, "mean_iou": 0.91, "mean_center_error_px": 3.0},
+                        failure_count=0,
+                        report_dir=str(train_root / "reports" / "group2" / "eval_trial_0001"),
+                    ),
+                    command="uv run sinan evaluate group2",
+                )
+
+            def fake_business_eval(_: object) -> controller.runners.business_eval.BusinessEvalRunnerResult:
+                return controller.runners.business_eval.BusinessEvalRunnerResult(
+                    record=contracts.BusinessEvalRecord(
+                        trial_id="trial_0001",
+                        task="group2",
+                        train_name="trial_0001",
+                        cases_root=str(business_cases),
+                        available_cases=100,
+                        total_cases=100,
+                        passed_cases=0,
+                        success_rate=0.0,
+                        success_threshold=0.98,
+                        min_cases=100,
+                        sample_size=100,
+                        commercial_ready=False,
+                        occlusion_threshold=0.78,
+                        report_dir=str(root / "reports" / "business_eval_trial_0001"),
+                        case_results=[],
+                        evidence=["commercial_ready=false"],
+                    ),
+                    command="uv run sinan business-eval group2",
+                )
+
+            ctrl = controller.AutoTrainController(
+                request=controller.AutoTrainRequest(
+                    task="group2",
+                    study_name="study_001",
+                    train_root=train_root,
+                    generator_workspace=generator_workspace,
+                    studies_root=root / "studies",
+                    dataset_version="firstpass",
+                    gold_dir=gold_dir,
+                    prediction_dir=prediction_dir,
+                    business_eval_dir=business_cases,
+                    goal_only_stop=True,
+                    max_trials=1,
+                    max_hours=0.001,
+                    max_new_datasets=1,
+                    max_no_improve_trials=1,
+                ),
+                dependencies=controller.ControllerDependencies(
+                    train_runner=fake_train,
+                    test_runner=fake_test,
+                    evaluate_runner=fake_evaluate,
+                    business_eval_runner=fake_business_eval,
+                ),
+            )
+
+            result = ctrl.run(max_steps=8)
+
+            self.assertEqual(result.final_stage, "PLAN")
+            study = storage.read_study_record(ctrl.paths.study_file)
+            self.assertTrue(study.goal_only_stop)
+            self.assertEqual(study.status, "running")
+            self.assertEqual(study.current_trial_id, "trial_0002")
+            next_input = storage.read_trial_input_record(ctrl.paths.input_file("trial_0002"))
+            self.assertEqual(next_input.dataset_version, "firstpass_r0002")
+
+    def test_run_with_zero_max_steps_continues_until_commercial_stop(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            root = Path(tmpdir)
+            train_root = root / "train-root"
+            generator_workspace = root / "generator-workspace"
+            dataset_dir = train_root / "datasets" / "group2" / "firstpass"
+            gold_dir = root / "gold"
+            prediction_dir = root / "predictions"
+            business_cases = root / "business-cases"
+            for path in (generator_workspace, dataset_dir, gold_dir, prediction_dir, business_cases):
+                path.mkdir(parents=True, exist_ok=True)
+            (gold_dir / "labels.jsonl").write_text("", encoding="utf-8")
+            (prediction_dir / "labels.jsonl").write_text("", encoding="utf-8")
+            _write_dataset_config(train_root, "group2", "firstpass")
+
+            def fake_train(_: object) -> controller.runners.train.TrainRunnerResult:
+                return controller.runners.train.TrainRunnerResult(
+                    record=contracts.TrainRecord(
+                        task="group2",
+                        train_name="trial_0001",
+                        run_dir=str(train_root / "runs" / "group2" / "trial_0001"),
+                        params={"epochs": 100, "batch": 16, "imgsz": 192},
+                        best_weights=str(train_root / "runs" / "group2" / "trial_0001" / "weights" / "best.pt"),
+                        last_weights=str(train_root / "runs" / "group2" / "trial_0001" / "weights" / "last.pt"),
+                    ),
+                    command="uv run sinan train group2",
+                )
+
+            def fake_test(_: object) -> controller.runners.test.TestRunnerResult:
+                return controller.runners.test.TestRunnerResult(
+                    record=contracts.TestRecord(
+                        task="group2",
+                        dataset_version="firstpass",
+                        train_name="trial_0001",
+                        metrics={"point_hit_rate": 1.0},
+                        predict_output_dir=str(prediction_dir),
+                        val_output_dir=str(train_root / "reports" / "group2" / "val_trial_0001"),
+                        report_dir=str(train_root / "reports" / "group2" / "test_trial_0001"),
+                    ),
+                    predict_command="uv run sinan predict group2",
+                    val_command="uv run sinan test group2",
+                )
+
+            def fake_evaluate(_: object) -> controller.runners.evaluate.EvaluateRunnerResult:
+                return controller.runners.evaluate.EvaluateRunnerResult(
+                    record=contracts.EvaluateRecord(
+                        available=True,
+                        task="group2",
+                        metrics={"point_hit_rate": 1.0, "mean_iou": 0.91, "mean_center_error_px": 3.0},
+                        failure_count=0,
+                        report_dir=str(train_root / "reports" / "group2" / "eval_trial_0001"),
+                    ),
+                    command="uv run sinan evaluate group2",
+                )
+
+            def fake_business_eval(_: object) -> controller.runners.business_eval.BusinessEvalRunnerResult:
+                return controller.runners.business_eval.BusinessEvalRunnerResult(
+                    record=contracts.BusinessEvalRecord(
+                        trial_id="trial_0001",
+                        task="group2",
+                        train_name="trial_0001",
+                        cases_root=str(business_cases),
+                        available_cases=100,
+                        total_cases=100,
+                        passed_cases=99,
+                        success_rate=0.99,
+                        success_threshold=0.98,
+                        min_cases=100,
+                        sample_size=100,
+                        commercial_ready=True,
+                        occlusion_threshold=0.78,
+                        report_dir=str(root / "reports" / "business_eval_trial_0001"),
+                        case_results=[],
+                        evidence=["commercial_ready=true"],
+                    ),
+                    command="uv run sinan business-eval group2",
+                )
+
+            ctrl = controller.AutoTrainController(
+                request=controller.AutoTrainRequest(
+                    task="group2",
+                    study_name="study_001",
+                    train_root=train_root,
+                    generator_workspace=generator_workspace,
+                    studies_root=root / "studies",
+                    dataset_version="firstpass",
+                    gold_dir=gold_dir,
+                    prediction_dir=prediction_dir,
+                    business_eval_dir=business_cases,
+                    goal_only_stop=True,
+                ),
+                dependencies=controller.ControllerDependencies(
+                    train_runner=fake_train,
+                    test_runner=fake_test,
+                    evaluate_runner=fake_evaluate,
+                    business_eval_runner=fake_business_eval,
+                ),
+            )
+
+            result = ctrl.run(max_steps=0)
+
+            self.assertEqual(result.final_stage, "STOP")
+            study = storage.read_study_record(ctrl.paths.study_file)
+            self.assertEqual(study.status, "completed")
+            self.assertEqual(study.final_reason, "commercial_gate_passed")
+            self.assertTrue(study.goal_only_stop)
+
     def test_run_completes_one_trial_when_rule_judge_promotes(self) -> None:
         with tempfile.TemporaryDirectory() as tmpdir:
             root = Path(tmpdir)
