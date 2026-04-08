@@ -17,7 +17,20 @@
 
 ## 当前事实
 
-- 2026-04-08 当前仓库已调整 `group2` 商业测试规则，使真实业务验收更贴近人类判读，但尚未发布新版本：
+- 2026-04-08 已发布 Python 训练 CLI 包 `sinan-captcha==0.1.25`：
+  - 当前包含 `group2` 商业测试“参考槽位定位 + 位置误差门”规则
+  - 当前单样本主判已经从“贴回后原图残差是否几乎消失”切换为：
+    - `reference_bbox / reference_center`
+    - `position_error_px`
+    - `slot_signal(fill_score)`
+    - `reference_alignment(seam_score)`
+    - `main_score(occlusion_score) = 0.4 * slot_signal + 0.6 * reference_alignment`
+  - `business_eval.log / business_eval.md / commercial_report.md` 当前都会解释这些新字段
+  - 当前已确认 PyPI `info.version = 0.1.25`
+  - 当前已确认发布文件：
+    - `sinan_captcha-0.1.25-py3-none-any.whl`
+    - `sinan_captcha-0.1.25.tar.gz`
+- 2026-04-08 当前仓库已调整 `group2` 商业测试规则，使真实业务验收更贴近人类判读：
   - `core/auto_train/business_eval.py` 当前已把单样本主判从“贴回后原图残差是否几乎消失”切换为“参考槽位定位 + 位置误差门”
   - 商业测试当前会先从背景图中自动反推出 `reference_bbox / reference_center`
   - 再计算：

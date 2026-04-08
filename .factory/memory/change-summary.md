@@ -1,5 +1,33 @@
 # 变更摘要
 
+## 2026-04-08 发布 `sinan-captcha==0.1.25`：`group2` 商业测试切换为“参考槽位定位 + 位置误差门”
+
+- 已更新：
+  - `core/_version.py`
+  - `core/auto_train/contracts.py`
+  - `core/auto_train/business_eval.py`
+  - `tests/python/test_auto_train_business_eval.py`
+  - `docs/02-user-guide/auto-train-on-training-machine.md`
+  - `.factory/memory/current-state.md`
+  - `.factory/memory/change-summary.md`
+- 当前已完成的目标：
+  - `group2` 商业测试当前不再把“贴回后原图残差是否几乎消失”作为单样本主判
+  - 商业测试当前会从背景图中自动反推出 `reference_bbox / reference_center`
+  - 当前日志和报告会明确写出：
+    - `predicted_bbox / predicted_center`
+    - `reference_bbox / reference_center`
+    - `position_error_px`
+    - `slot_signal(fill_score)`
+    - `reference_alignment(seam_score)`
+    - `main_score(occlusion_score)`
+  - `0.1.25` 当前已成功上传到 PyPI
+- 已运行验证：
+  - `./.venv/bin/python -m unittest tests.python.test_auto_train_business_eval`
+  - `git diff --check`
+  - `uv run sinan release build --project-dir .`
+  - `uv run sinan release publish --project-dir . --token-env UV_PUBLISH_TOKEN`
+  - `https://pypi.org/pypi/sinan-captcha/json`
+
 ## 2026-04-08 调整 `group2` 商业测试规则：改为“参考槽位定位 + 位置误差门”
 
 - 已更新：
