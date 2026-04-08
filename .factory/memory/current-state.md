@@ -17,7 +17,7 @@
 
 ## 当前事实
 
-- 2026-04-08 已准备发布 Python 训练 CLI 包 `sinan-captcha==0.1.24`，修复 `auto-train` 终态可读性与退出语义：
+- 2026-04-08 已发布 Python 训练 CLI 包 `sinan-captcha==0.1.24`，修复 `auto-train` 终态可读性与退出语义：
   - `core/auto_train/contracts.py` 当前已给 `StudyRecord / StudyStatusRecord` 增加：
     - `final_reason`
     - `final_detail`
@@ -46,6 +46,7 @@
   - 当前已验证：
     - `uv run python -m unittest tests.python.test_auto_train_contracts tests.python.test_auto_train_cli tests.python.test_auto_train_business_eval`
     - `uv run python -m unittest tests.python.test_auto_train_controller tests.python.test_solve_group2_runtime tests.python.test_solve_service`
+    - `https://pypi.org/pypi/sinan-captcha/json` 当前已可见 `version = 0.1.24`
 - 2026-04-08 已发布 Python 训练 CLI 包 `sinan-captcha==0.1.23`：
   - `group2` 商业验收当前已改为“商用目标优先”的搜索闭环
   - `core/auto_train/controller.py` 当前在 `group2 + business gate` 开启时，会把未达到最终商用门的分支统一收口为：

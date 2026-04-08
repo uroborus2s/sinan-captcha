@@ -1,6 +1,6 @@
 # 变更摘要
 
-## 2026-04-08 准备发布 `sinan-captcha==0.1.24`：修复 `auto-train` 终态误导
+## 2026-04-08 发布 `sinan-captcha==0.1.24`：修复 `auto-train` 终态误导
 
 - 已更新：
   - `core/auto_train/contracts.py`
@@ -32,6 +32,7 @@
 - 已运行验证：
   - `uv run python -m unittest tests.python.test_auto_train_contracts tests.python.test_auto_train_cli tests.python.test_auto_train_business_eval`
   - `uv run python -m unittest tests.python.test_auto_train_controller tests.python.test_solve_group2_runtime tests.python.test_solve_service`
+  - `https://pypi.org/pypi/sinan-captcha/json`
 
 ## 2026-04-08 发布 `sinan-captcha==0.1.23`：`group2` 商业验收切换为“商用目标优先”闭环
 
