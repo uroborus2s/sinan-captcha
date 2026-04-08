@@ -141,7 +141,7 @@ def run_group2_business_eval(
         center = group2_runtime.bbox_center(bbox)
 
         master_rgba = Image.open(case.master_path).convert("RGBA")
-        tile_rgba = Image.open(case.tile_path).convert("RGBA")
+        tile_rgba = group2_runtime.normalize_tile_rgba_image(Image.open(case.tile_path))
         score = score_occlusion_overlay(
             master_luma=_image_to_luma_grid(master_rgba.convert("L")),
             tile_luma=_image_to_luma_grid(tile_rgba.convert("L")),
@@ -254,8 +254,36 @@ def markdown_from_business_eval(record: contracts.BusinessEvalRecord) -> str:
     for item in record.case_results:
         status = "PASS" if item.success else "FAIL"
         lines.append(
-            f"- {item.case_id}: {status}, occlusion={item.occlusion_score:.4f}, "
-            f"fill={item.fill_score:.4f}, seam={item.seam_score:.4f}, reason_cn={item.reason_cn}"
+            f"- {item.case_id}: {status}, predicted_bbox={item.predicted_bbox}, "
+            f"predicted_center={item.predicted_center}, inference_ms={item.inference_ms:.4f}, "
+            f"occlusion={item.occlusion_score:.4f}, fill={item.fill_score:.4f}, "
+            f"seam={item.seam_score:.4f}, reason_cn={item.reason_cn}"
+        )
+    return "\n".join(lines) + "\n"
+
+
+def log_from_business_eval(record: contracts.BusinessEvalRecord) -> str:
+    lines = [
+        f"trial_id={record.trial_id}",
+        f"train_name={record.train_name}",
+        f"cases_root={record.cases_root}",
+        f"available_cases={record.available_cases}",
+        f"sample_size={record.sample_size}",
+        f"total_cases={record.total_cases}",
+        f"passed_cases={record.passed_cases}",
+        f"success_rate={record.success_rate:.4f}",
+        f"success_threshold={record.success_threshold:.4f}",
+        f"occlusion_threshold={record.occlusion_threshold:.4f}",
+        f"commercial_ready={str(record.commercial_ready).lower()}",
+        "",
+    ]
+    for item in record.case_results:
+        status = "PASS" if item.success else "FAIL"
+        lines.append(
+            f"{status} case_id={item.case_id} predicted_bbox={item.predicted_bbox} "
+            f"predicted_center={item.predicted_center} inference_ms={item.inference_ms:.4f} "
+            f"occlusion={item.occlusion_score:.4f} fill={item.fill_score:.4f} "
+            f"seam={item.seam_score:.4f} reason_cn={item.reason_cn}"
         )
     return "\n".join(lines) + "\n"
 
@@ -302,7 +330,8 @@ def commercial_report_markdown(
         lines.append("- 无")
     for item in failed_cases[:20]:
         lines.append(
-            f"- {item.case_id}: occlusion={item.occlusion_score:.4f}, "
+            f"- {item.case_id}: predicted_bbox={item.predicted_bbox}, "
+            f"predicted_center={item.predicted_center}, occlusion={item.occlusion_score:.4f}, "
             f"fill={item.fill_score:.4f}, seam={item.seam_score:.4f}, reason_cn={item.reason_cn}"
         )
     return "\n".join(lines) + "\n"

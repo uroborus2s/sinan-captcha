@@ -399,10 +399,6 @@ class AutoTrainController:
         decision = storage.read_decision_record(self.paths.decision_file(trial_id))
         study = self._load_or_create_study()
         leaderboard = self._update_leaderboard(summary_record, decision)
-        plan_record = self._dataset_plan_record(summary_record=summary_record, decision=decision, leaderboard=leaderboard)
-        if plan_record is not None:
-            storage.write_dataset_plan_record(self.paths.dataset_plan_file(trial_id), plan_record)
-        storage.append_decision_history(self.paths.decisions_file, decision)
 
         business_record = self._run_business_eval_if_needed(
             trial_id=trial_id,
@@ -423,7 +419,23 @@ class AutoTrainController:
             self._write_commercial_report(updated, leaderboard, decision, business_record)
             return StageExecution(trial_id=trial_id, stage="NEXT_ACTION", next_stage="STOP", detail=decision.decision)
 
-        if decision.decision == "ABANDON_BRANCH":
+        effective_decision = self._effective_next_action_decision(
+            study=study,
+            summary_record=summary_record,
+            decision=decision,
+            business_record=business_record,
+            leaderboard=leaderboard,
+        )
+        plan_record = self._dataset_plan_record(
+            summary_record=summary_record,
+            decision=effective_decision,
+            leaderboard=leaderboard,
+        )
+        if plan_record is not None:
+            storage.write_dataset_plan_record(self.paths.dataset_plan_file(trial_id), plan_record)
+        storage.append_decision_history(self.paths.decisions_file, effective_decision)
+
+        if effective_decision.decision == "ABANDON_BRANCH":
             updated = self._with_study_updates(
                 study,
                 status="completed",
@@ -431,13 +443,18 @@ class AutoTrainController:
                 best_trial_id=leaderboard.best_entry.trial_id if leaderboard.best_entry is not None else study.best_trial_id,
             )
             storage.write_study_record(self.paths.study_file, updated)
-            self._write_study_summary(updated, leaderboard, decision, business_record)
+            self._write_study_summary(updated, leaderboard, effective_decision, business_record)
             if business_record is not None:
                 self._write_business_eval_artifacts(trial_id=trial_id, record=business_record)
-                self._write_commercial_report(updated, leaderboard, decision, business_record)
-            return StageExecution(trial_id=trial_id, stage="NEXT_ACTION", next_stage="STOP", detail=decision.decision)
+                self._write_commercial_report(updated, leaderboard, effective_decision, business_record)
+            return StageExecution(
+                trial_id=trial_id,
+                stage="NEXT_ACTION",
+                next_stage="STOP",
+                detail=effective_decision.decision,
+            )
 
-        if decision.decision == "PROMOTE_BRANCH" and business_record is None:
+        if effective_decision.decision == "PROMOTE_BRANCH" and business_record is None:
             updated = self._with_study_updates(
                 study,
                 status="completed",
@@ -445,18 +462,14 @@ class AutoTrainController:
                 best_trial_id=leaderboard.best_entry.trial_id if leaderboard.best_entry is not None else study.best_trial_id,
             )
             storage.write_study_record(self.paths.study_file, updated)
-            self._write_study_summary(updated, leaderboard, decision, None)
-            return StageExecution(trial_id=trial_id, stage="NEXT_ACTION", next_stage="STOP", detail=decision.decision)
-
-        effective_decision = (
-            decision
-            if business_record is None
-            else self._retry_decision_after_failed_business_gate(
-                summary_record=summary_record,
-                decision=decision,
-                business_record=business_record,
+            self._write_study_summary(updated, leaderboard, effective_decision, None)
+            return StageExecution(
+                trial_id=trial_id,
+                stage="NEXT_ACTION",
+                next_stage="STOP",
+                detail=effective_decision.decision,
             )
-        )
+
         dataset_action = plan_record.dataset_action if plan_record is not None else _string_action(
             effective_decision.next_action,
             "dataset_action",
@@ -478,8 +491,8 @@ class AutoTrainController:
             storage.write_study_record(self.paths.study_file, updated)
             if business_record is not None:
                 self._write_business_eval_artifacts(trial_id=trial_id, record=business_record)
-                self._write_commercial_report(updated, leaderboard, decision, business_record)
-            self._write_study_summary(updated, leaderboard, decision, business_record)
+                self._write_commercial_report(updated, leaderboard, effective_decision, business_record)
+            self._write_study_summary(updated, leaderboard, effective_decision, business_record)
             return StageExecution(
                 trial_id=trial_id,
                 stage="NEXT_ACTION",
@@ -499,8 +512,8 @@ class AutoTrainController:
         storage.write_study_record(self.paths.study_file, updated)
         if business_record is not None:
             self._write_business_eval_artifacts(trial_id=trial_id, record=business_record)
-            self._write_commercial_report(updated, leaderboard, decision, business_record)
-        self._write_study_summary(updated, leaderboard, decision, business_record)
+            self._write_commercial_report(updated, leaderboard, effective_decision, business_record)
+        self._write_study_summary(updated, leaderboard, effective_decision, business_record)
         return StageExecution(
             trial_id=trial_id,
             stage="NEXT_ACTION",
@@ -868,6 +881,34 @@ class AutoTrainController:
     def _business_eval_enabled(self, study: contracts.StudyRecord) -> bool:
         return study.business_eval is not None
 
+    def _effective_next_action_decision(
+        self,
+        *,
+        study: contracts.StudyRecord,
+        summary_record: contracts.ResultSummaryRecord,
+        decision: contracts.DecisionRecord,
+        business_record: contracts.BusinessEvalRecord | None,
+        leaderboard: contracts.LeaderboardRecord,
+    ) -> contracts.DecisionRecord:
+        if (
+            self.request.task == "group2"
+            and self._business_eval_enabled(study)
+            and not (business_record is not None and business_record.commercial_ready)
+        ):
+            return self._regenerate_decision_for_group2_business_goal(
+                summary_record=summary_record,
+                decision=decision,
+                business_record=business_record,
+                leaderboard=leaderboard,
+            )
+        if business_record is not None:
+            return self._retry_decision_after_failed_business_gate(
+                summary_record=summary_record,
+                decision=decision,
+                business_record=business_record,
+            )
+        return decision
+
     def _run_business_eval_if_needed(
         self,
         *,
@@ -924,6 +965,7 @@ class AutoTrainController:
     ) -> None:
         storage.write_business_eval_record(self.paths.business_eval_file(trial_id), record)
         storage.write_text(self.paths.business_eval_markdown_file(trial_id), business_eval.markdown_from_business_eval(record))
+        storage.write_text(self.paths.business_eval_log_file(trial_id), business_eval.log_from_business_eval(record))
 
     def _write_commercial_report(
         self,
@@ -951,11 +993,11 @@ class AutoTrainController:
     ) -> contracts.DecisionRecord:
         return contracts.DecisionRecord(
             trial_id=decision.trial_id,
-            decision="RETUNE",
+            decision="REGENERATE_DATA",
             confidence=decision.confidence,
             reason="business_gate_blocked",
             next_action={
-                "dataset_action": "reuse",
+                "dataset_action": "new_version",
                 "train_action": "from_run",
                 "base_run": summary_record.train_name,
             },
@@ -965,6 +1007,50 @@ class AutoTrainController:
                 f"business_success_threshold={business_record.success_threshold:.4f}",
                 "business_gate_blocked",
             ],
+            agent=decision.agent,
+        )
+
+    def _regenerate_decision_for_group2_business_goal(
+        self,
+        *,
+        summary_record: contracts.ResultSummaryRecord,
+        decision: contracts.DecisionRecord,
+        business_record: contracts.BusinessEvalRecord | None,
+        leaderboard: contracts.LeaderboardRecord,
+    ) -> contracts.DecisionRecord:
+        if decision.decision == "PROMOTE_BRANCH" and business_record is None:
+            return decision
+
+        best_train_name = (
+            leaderboard.best_entry.train_name
+            if leaderboard.best_entry is not None and leaderboard.best_entry.train_name
+            else summary_record.train_name
+        )
+        evidence = [
+            *decision.evidence,
+            f"business_goal_original_decision={decision.decision}",
+            f"business_goal_base_run={best_train_name}",
+        ]
+        reason = "candidate_not_promoted_regenerate"
+        if business_record is not None:
+            evidence.extend(
+                [
+                    f"business_success_rate={business_record.success_rate:.4f}",
+                    f"business_success_threshold={business_record.success_threshold:.4f}",
+                ]
+            )
+            reason = "business_gate_blocked"
+        return contracts.DecisionRecord(
+            trial_id=decision.trial_id,
+            decision="REGENERATE_DATA",
+            confidence=decision.confidence,
+            reason=reason,
+            next_action={
+                "dataset_action": "new_version",
+                "train_action": "from_run",
+                "base_run": best_train_name,
+            },
+            evidence=evidence,
             agent=decision.agent,
         )
 

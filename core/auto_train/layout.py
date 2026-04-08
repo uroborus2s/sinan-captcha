@@ -142,6 +142,9 @@ class StudyPaths:
     def business_eval_markdown_file(self, trial_id: str) -> Path:
         return self.trial_dir(trial_id) / "business_eval.md"
 
+    def business_eval_log_file(self, trial_id: str) -> Path:
+        return self.trial_dir(trial_id) / "business_eval.log"
+
     def business_eval_root(self, trial_id: str) -> Path:
         return self.trial_dir(trial_id) / "business_eval"
 

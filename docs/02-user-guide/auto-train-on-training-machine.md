@@ -461,6 +461,15 @@ uv run sinan auto-train run group2 `
 - 背景图：`master.*`、`bg.*`、`background.*`
 - 缺口块：`tile.*`、`gap.*`、`piece.*`、`puzzle_piece.*`
 
+关于 `gap.jpg` / `tile.jpg`：
+
+- 当前商业验收不再强依赖透明 PNG 的 alpha 通道。
+- 如果 `gap/tile` 本身已经带透明边缘，运行时会直接使用原始 alpha。
+- 如果 `gap/tile` 是像你的真实样本那样的 `jpg` 小图，运行时会根据图块四周的背景颜色自动提取轮廓掩码，再用于：
+  - `group2` 推理输入
+  - 商业验收贴回评分
+- 这意味着 `bg.jpg + gap.jpg` 现在可以直接参与商业验收，不需要先手工改成透明 PNG。
+
 启用后，控制器会在“训练指标已达标、当前候选被判为 `PROMOTE_BRANCH`”时额外执行一轮商业验收 gate：
 
 1. 用当前 `group2` 模型预测缺口位置
@@ -481,13 +490,37 @@ uv run sinan auto-train run group2 `
 
 - `trials/<trial_id>/business_eval.json`
 - `trials/<trial_id>/business_eval.md`
+- `trials/<trial_id>/business_eval.log`
 - `trials/<trial_id>/business_eval/<case_id>/overlay.png`
 - `trials/<trial_id>/business_eval/<case_id>/diff.png`
 - `commercial_report.md`
 
+其中：
+
+- `business_eval.json` 是结构化明细，适合机器读取
+- `business_eval.md` 是中文摘要
+- `business_eval.log` 是逐 case 文本日志，当前会记录：
+  - `predicted_bbox`
+  - `predicted_center`
+  - `inference_ms`
+  - `occlusion/fill/seam`
+  - `PASS/FAIL`
+
 注意：
 
 - 启用 business gate 后，`PROMOTE_BRANCH` 当前表示“训练指标达标的候选”，不再等同于“已经达到商用门”
+- 当前 business gate 不是“每固定 N 轮就跑一次”，而是“某个 `trial` 先被判成候选晋级时才跑一次”
+- 当前 `group2 + business gate` 已改为“商用目标优先”的搜索闭环：
+  - 如果本轮已经通过 business gate，study 才真正 `STOP`
+  - 如果本轮还没有进入候选晋级区间，下一轮默认也会进入 `REGENERATE_DATA`
+  - 如果本轮进入候选晋级区间但 business gate 未通过，下一轮同样会进入 `REGENERATE_DATA`
+  - 也就是说，只要还没达到最终商用门，下一轮默认就是：
+    - 新数据版本
+    - 基于当前最佳 run 继续训练
+- `group2` 的离线晋级阈值和商业测试阈值当前不是同一个指标体系：
+  - 离线晋级看 `point_hit_rate / mean_iou / mean_center_error_px`
+  - 最终停止看真实样本 `business_success_rate`
+  - 但控制器当前已把离线晋级和调参动作都收口为“服务于最终 business gate”
 - 当前商业验收默认门槛：
   - `business_eval_success_threshold = 0.98`
   - `business_eval_min_cases = 100`

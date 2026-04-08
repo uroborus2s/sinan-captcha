@@ -17,6 +17,55 @@
 
 ## 当前事实
 
+- 2026-04-08 已准备发布 Python 训练 CLI 包 `sinan-captcha==0.1.23`：
+  - `group2` 商业验收当前已改为“商用目标优先”的搜索闭环
+  - `core/auto_train/controller.py` 当前在 `group2 + business gate` 开启时，会把未达到最终商用门的分支统一收口为：
+    - `decision = REGENERATE_DATA`
+    - `dataset_action = new_version`
+    - `train_action = from_run`
+    - `base_run = 当前最佳 run`
+  - 这让训练路径从“旧数据上反复 retune”切到“新样本 -> 训练 -> 晋级判断 -> 商业测试，不通过就重建样本”
+  - `core/solve/group2_runtime.py` 当前还新增了对真实 `gap.jpg` / `tile.jpg` 的自动轮廓掩码提取
+  - `core/auto_train/business_eval.py` 当前会额外写出 `business_eval.log`，逐 case 记录预测框、中心点和评分
+  - 当前已验证：
+    - `.venv/bin/python -m unittest tests.python.test_solve_group2_runtime`
+    - `.venv/bin/python -m unittest tests.python.test_auto_train_business_eval`
+    - `.venv/bin/python -m unittest tests.python.test_auto_train_controller`
+    - `.venv/bin/python -m unittest tests.python.test_solve_service`
+    - `.venv/bin/python -m unittest discover -s tests/python`
+    - `git diff --check`
+- 2026-04-08 已补强 `group2` 商业验收对真实 `gap.jpg` 的兼容性与日志可观测性：
+  - `core/solve/group2_runtime.py` 当前在 `tile/gap` 图片缺少有效 alpha 通道时，会按图块四周背景自动提取轮廓掩码
+  - 同一套掩码当前会同时用于：
+    - `group2` 推理输入
+    - `auto-train` 的 business eval 贴回评分
+  - 这修复了训练机上使用 `bg.jpg + gap.jpg` 真实样本时，商业验收把整个矩形图块误当成缺口 mask 的问题
+  - `core/auto_train/business_eval.py` 当前会把每个 case 的：
+    - `predicted_bbox`
+    - `predicted_center`
+    - `inference_ms`
+    - `occlusion/fill/seam`
+    写入新的 `trials/<trial_id>/business_eval.log`
+  - `docs/02-user-guide/auto-train-on-training-machine.md` 当前已补充：
+    - `gap.jpg` 自动轮廓掩码 fallback
+    - `business_eval.log` 产物说明
+    - 当前 business gate 的触发时机仍是“候选晋级时触发”
+  - `core/auto_train/controller.py` 当前已改为在 `group2 + business gate` 开启时，把未达到最终商用门的分支统一归一化为：
+    - `decision = REGENERATE_DATA`
+    - `dataset_action = new_version`
+    - `train_action = from_run`
+    - `base_run = 当前最佳 run`
+  - 这意味着：
+    - 训练未进入候选晋级区间：下一轮也会换新数据版本
+    - 候选通过离线指标但 business gate 未通过：下一轮同样换新数据版本
+    - 离线晋级阈值当前退化为“进入商业测试前的预筛选”，最终停止条件仍由 business gate 决定
+  - 当前已验证：
+    - `.venv/bin/python -m unittest tests.python.test_solve_group2_runtime`
+    - `.venv/bin/python -m unittest tests.python.test_auto_train_business_eval`
+    - `.venv/bin/python -m unittest tests.python.test_auto_train_controller`
+    - `.venv/bin/python -m unittest tests.python.test_solve_service`
+    - `.venv/bin/python -m unittest discover -s tests/python`
+    - `git diff --check`
 - 2026-04-08 已发布 Python 训练 CLI 包 `sinan-captcha==0.1.22`，修复 `auto-train` 续训时错误继承 `model` 参数：
   - 当前已确认训练机在 `group2` 旧 study / 新 study 续训路径上，会把上一轮 trial 的 `params.model` 连同 `train_mode=from_run` 一起写入下一轮 `input.json`
   - `core/auto_train/runners/train.py` 当前本来就禁止 `from_run` 再显式传入 `model`

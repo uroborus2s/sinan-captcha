@@ -1,5 +1,73 @@
 # 变更摘要
 
+## 2026-04-08 准备发布 `sinan-captcha==0.1.23`：`group2` 商业验收切换为“商用目标优先”闭环
+
+- 已更新：
+  - `core/_version.py`
+  - `core/solve/group2_runtime.py`
+  - `core/auto_train/business_eval.py`
+  - `core/auto_train/controller.py`
+  - `core/auto_train/layout.py`
+  - `tests/python/test_solve_group2_runtime.py`
+  - `tests/python/test_auto_train_business_eval.py`
+  - `docs/02-user-guide/auto-train-on-training-machine.md`
+  - `.factory/memory/current-state.md`
+  - `.factory/memory/change-summary.md`
+- 当前准备发布的能力：
+  - `gap.jpg` / `tile.jpg` 当前可按图块四周背景自动提轮廓掩码，不再强依赖透明 alpha
+  - `group2` 商业验收当前会写出 `business_eval.log`，逐 case 落盘预测框、中心点和评分
+  - `group2 + business gate` 当前已收口为“新样本 -> 训练 -> 晋级判断 -> 商业测试，不通过就重新建样本”的闭环
+  - 未达到最终商用门时，下一轮当前统一走：
+    - `decision = REGENERATE_DATA`
+    - `dataset_action = new_version`
+    - `train_action = from_run`
+    - `base_run = 当前最佳 run`
+- 已运行验证：
+  - `.venv/bin/python -m unittest tests.python.test_solve_group2_runtime`
+  - `.venv/bin/python -m unittest tests.python.test_auto_train_business_eval`
+  - `.venv/bin/python -m unittest tests.python.test_auto_train_controller`
+  - `.venv/bin/python -m unittest tests.python.test_solve_service`
+  - `.venv/bin/python -m unittest discover -s tests/python`
+  - `git diff --check`
+
+## 2026-04-08 补强 `group2` 商业验收：`gap.jpg` 自动提轮廓掩码，并写出逐 case 预测日志
+
+- 已更新：
+  - `core/solve/group2_runtime.py`
+  - `core/auto_train/business_eval.py`
+  - `core/auto_train/controller.py`
+  - `core/auto_train/layout.py`
+  - `tests/python/test_solve_group2_runtime.py`
+  - `tests/python/test_auto_train_business_eval.py`
+  - `docs/02-user-guide/auto-train-on-training-machine.md`
+  - `.factory/memory/current-state.md`
+  - `.factory/memory/change-summary.md`
+- 当前已完成的目标：
+  - `group2` 商业验收当前不再强依赖透明 PNG 的 alpha 通道
+  - 当真实样本使用 `gap.jpg` / `tile.jpg` 这类无 alpha 图块时，运行时当前会按图块四周背景自动提取轮廓掩码
+  - 同一套掩码当前会同时作用于：
+    - `group2` 推理输入
+    - 商业验收贴回评分
+  - 当前已新增 `trials/<trial_id>/business_eval.log`，逐 case 记录：
+    - `predicted_bbox`
+    - `predicted_center`
+    - `inference_ms`
+    - `occlusion/fill/seam`
+    - `PASS/FAIL`
+  - `business_eval.md` 与 `commercial_report.md` 当前也会同步展示预测框和中心点，便于训练机排查
+  - `group2 + business gate` 当前已把状态机收口为“商用目标优先”：
+    - 训练未晋级：下一轮改为 `REGENERATE_DATA`
+    - 候选晋级但 business gate 未通过：下一轮同样改为 `REGENERATE_DATA`
+    - `base_run` 当前优先继承 leaderboard 中的最佳 run，而不是盲目沿用当前轮次
+    - 这让自动训练更接近“新样本 -> 训练 -> 晋级判断 -> 商业测试，不通过就重新建样本”的闭环
+- 已运行验证：
+  - `.venv/bin/python -m unittest tests.python.test_solve_group2_runtime`
+  - `.venv/bin/python -m unittest tests.python.test_auto_train_business_eval`
+  - `.venv/bin/python -m unittest tests.python.test_auto_train_controller`
+  - `.venv/bin/python -m unittest tests.python.test_solve_service`
+  - `.venv/bin/python -m unittest discover -s tests/python`
+  - `git diff --check`
+
 ## 2026-04-08 发布 `sinan-captcha==0.1.22`，修复 `auto-train` 续训时错误继承 `model` 参数
 
 - 已更新：

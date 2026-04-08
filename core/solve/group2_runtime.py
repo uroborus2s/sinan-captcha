@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from collections import deque
 from pathlib import Path
 from typing import Any
 
@@ -70,7 +71,7 @@ def prepare_inputs(*, master_path: Path, tile_path: Path, imgsz: int) -> tuple[A
         raise RuntimeError("当前环境缺少 `numpy` / `Pillow` / `torch`，无法准备 group2 solver 输入。") from exc
 
     master_image = Image.open(master_path).convert("L")
-    tile_image = Image.open(tile_path).convert("RGBA")
+    tile_image = normalize_tile_rgba_image(Image.open(tile_path))
     master_width, master_height = master_image.size
     tile_width, tile_height = tile_image.size
     scale_x = imgsz / float(master_width)
@@ -124,6 +125,51 @@ def bbox_center(bbox: list[int]) -> list[int]:
     return [int((bbox[0] + bbox[2]) / 2), int((bbox[1] + bbox[3]) / 2)]
 
 
+def normalize_tile_rgba_image(image: Any) -> Any:
+    rgba = image.convert("RGBA")
+    alpha_grid = _image_to_alpha_grid(rgba)
+    if _alpha_grid_has_shape(alpha_grid):
+        return rgba
+    derived_alpha = derive_alpha_grid_from_rgb_grid(_image_to_rgb_grid(rgba.convert("RGB")))
+    alpha_image = rgba.getchannel("A").copy()
+    alpha_image.putdata([int(round(value * 255.0)) for row in derived_alpha for value in row])
+    normalized = rgba.copy()
+    normalized.putalpha(alpha_image)
+    return normalized
+
+
+def derive_alpha_grid_from_rgb_grid(
+    rgb_grid: list[list[tuple[int, int, int]]],
+) -> list[list[float]]:
+    if not rgb_grid or not rgb_grid[0]:
+        raise ValueError("rgb_grid must not be empty")
+    width = len(rgb_grid[0])
+    if any(len(row) != width for row in rgb_grid):
+        raise ValueError("rgb_grid rows must have equal width")
+
+    background_rgb = _estimate_border_background(rgb_grid)
+    diff_grid = [
+        [_rgb_distance(pixel, background_rgb) for pixel in row]
+        for row in rgb_grid
+    ]
+    border_diffs = _border_values(diff_grid)
+    threshold = max(12.0, _percentile(border_diffs, 0.95) + 8.0)
+    if max(max(row) for row in diff_grid) <= threshold:
+        return [[1.0 for _ in row] for row in rgb_grid]
+
+    background = _background_region(diff_grid, threshold=threshold)
+    alpha_grid = [
+        [0.0 if background[row_index][column_index] else 1.0 for column_index in range(width)]
+        for row_index in range(len(rgb_grid))
+    ]
+    if all(value <= 0.0 for row in alpha_grid for value in row):
+        return [
+            [1.0 if diff_grid[row_index][column_index] > threshold else 0.0 for column_index in range(width)]
+            for row_index in range(len(rgb_grid))
+        ]
+    return alpha_grid
+
+
 def load_checkpoint(path: Path, device: Any) -> dict[str, Any]:
     try:
         import torch
@@ -161,6 +207,103 @@ def _rgba_tile_to_tensor(torch: Any, np: Any, image: Any) -> Any:
     rgb = rgba[:, :, :3].mean(axis=2)
     alpha = rgba[:, :, 3] / 255.0
     return torch.from_numpy((rgb * alpha / 255.0).astype(np.float32)).unsqueeze(0)
+
+
+def _image_to_alpha_grid(image: Any) -> list[list[float]]:
+    alpha_image = image.getchannel("A")
+    width, height = alpha_image.size
+    pixels = list(alpha_image.getdata())
+    return [
+        [float(pixels[row * width + column]) / 255.0 for column in range(width)]
+        for row in range(height)
+    ]
+
+
+def _image_to_rgb_grid(image: Any) -> list[list[tuple[int, int, int]]]:
+    width, height = image.size
+    pixels = list(image.getdata())
+    return [
+        [tuple(int(channel) for channel in pixels[row * width + column]) for column in range(width)]
+        for row in range(height)
+    ]
+
+
+def _alpha_grid_has_shape(alpha_grid: list[list[float]]) -> bool:
+    min_alpha = min(min(row) for row in alpha_grid)
+    max_alpha = max(max(row) for row in alpha_grid)
+    return max_alpha > 0.0 and min_alpha < 0.999
+
+
+def _estimate_border_background(
+    rgb_grid: list[list[tuple[int, int, int]]],
+) -> tuple[float, float, float]:
+    border_pixels = _border_values(rgb_grid)
+    return tuple(_median([float(pixel[index]) for pixel in border_pixels]) for index in range(3))
+
+
+def _background_region(diff_grid: list[list[float]], *, threshold: float) -> list[list[bool]]:
+    height = len(diff_grid)
+    width = len(diff_grid[0])
+    visited = [[False for _ in range(width)] for _ in range(height)]
+    queue: deque[tuple[int, int]] = deque()
+
+    def push_if_background(x: int, y: int) -> None:
+        if visited[y][x] or diff_grid[y][x] > threshold:
+            return
+        visited[y][x] = True
+        queue.append((x, y))
+
+    for column in range(width):
+        push_if_background(column, 0)
+        push_if_background(column, height - 1)
+    for row in range(height):
+        push_if_background(0, row)
+        push_if_background(width - 1, row)
+
+    while queue:
+        x, y = queue.popleft()
+        for delta_x, delta_y in ((1, 0), (-1, 0), (0, 1), (0, -1)):
+            next_x = x + delta_x
+            next_y = y + delta_y
+            if next_x < 0 or next_x >= width or next_y < 0 or next_y >= height:
+                continue
+            push_if_background(next_x, next_y)
+    return visited
+
+
+def _border_values(grid: list[list[Any]]) -> list[Any]:
+    height = len(grid)
+    width = len(grid[0])
+    values: list[Any] = []
+    for column in range(width):
+        values.append(grid[0][column])
+        values.append(grid[height - 1][column])
+    for row in range(height):
+        values.append(grid[row][0])
+        values.append(grid[row][width - 1])
+    return values
+
+
+def _median(values: list[float]) -> float:
+    items = sorted(values)
+    middle = len(items) // 2
+    if len(items) % 2 == 1:
+        return items[middle]
+    return (items[middle - 1] + items[middle]) / 2.0
+
+
+def _percentile(values: list[float], ratio: float) -> float:
+    if not values:
+        return 0.0
+    items = sorted(values)
+    index = min(len(items) - 1, max(0, int(round((len(items) - 1) * ratio))))
+    return items[index]
+
+
+def _rgb_distance(pixel: tuple[int, int, int], background_rgb: tuple[float, float, float]) -> float:
+    red, green, blue = pixel
+    bg_red, bg_green, bg_blue = background_rgb
+    return ((red - bg_red) ** 2 + (green - bg_green) ** 2 + (blue - bg_blue) ** 2) ** 0.5
 
 
 def _load_torch_modules() -> tuple[Any, Any, Any]:
