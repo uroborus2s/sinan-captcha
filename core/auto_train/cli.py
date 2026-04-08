@@ -5,7 +5,7 @@ from __future__ import annotations
 import argparse
 from pathlib import Path
 
-from core.auto_train import controller
+from core.auto_train import controller, storage
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -70,7 +70,7 @@ def main(argv: list[str] | None = None) -> int:
         for item in result.executed:
             print(f"{item.stage} -> {item.next_stage} [{item.trial_id}]")
         print(f"final_stage={result.final_stage}")
-        return 0
+        return _run_exit_code(ctrl, result)
 
     execution = ctrl.run_stage(args.stage)
     print(f"{execution.stage} -> {execution.next_stage} [{execution.trial_id}]")
@@ -116,3 +116,25 @@ def _add_common_arguments(parser: argparse.ArgumentParser) -> None:
 
 if __name__ == "__main__":
     raise SystemExit(main())
+
+
+def _run_exit_code(ctrl: controller.AutoTrainController, result: controller.AutoTrainRunResult) -> int:
+    if result.final_stage != "STOP":
+        return 0
+    if not ctrl.paths.study_status_file.exists():
+        return 0
+    record = storage.read_study_status_record(ctrl.paths.study_status_file)
+    print(f"study_status={record.status}")
+    if record.final_reason is not None:
+        print(f"final_reason={record.final_reason}")
+    if record.final_detail is not None:
+        print(f"final_detail={record.final_detail}")
+    if record.commercial_ready is not None:
+        print(f"commercial_ready={record.commercial_ready}")
+    if record.business_success_rate is not None:
+        print(f"business_success_rate={record.business_success_rate:.4f}")
+    if record.status == "stopped" and record.commercial_ready is False:
+        print("final_verdict=FAILED_GOAL")
+        return 2
+    print("final_verdict=SUCCESS")
+    return 0

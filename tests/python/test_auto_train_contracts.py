@@ -26,6 +26,8 @@ class AutoTrainContractsTests(unittest.TestCase):
                 ),
                 current_trial_id="trial_0002",
                 best_trial_id="trial_0001",
+                final_reason="max_trials_reached",
+                final_detail="20/20",
             )
 
             path = Path(tmpdir) / "study.json"
@@ -146,7 +148,7 @@ class AutoTrainContractsTests(unittest.TestCase):
             study_status_record = contracts.StudyStatusRecord(
                 study_name="study_001",
                 task="group1",
-                status="running",
+                status="stopped",
                 current_trial_id="trial_0003",
                 best_trial_id="trial_0002",
                 latest_decision="REGENERATE_DATA",
@@ -155,6 +157,8 @@ class AutoTrainContractsTests(unittest.TestCase):
                 summary_cn="当前应补数据再继续训练。",
                 next_actions_cn=["先生成新数据版本。"],
                 evidence=["budget_pressure=medium"],
+                final_reason="max_new_datasets_reached",
+                final_detail="6/6",
             )
 
             storage.write_dataset_plan_record(root / "dataset_plan.json", dataset_plan_record)

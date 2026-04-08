@@ -1,5 +1,38 @@
 # 变更摘要
 
+## 2026-04-08 准备发布 `sinan-captcha==0.1.24`：修复 `auto-train` 终态误导
+
+- 已更新：
+  - `core/auto_train/contracts.py`
+  - `core/auto_train/study_status.py`
+  - `core/auto_train/business_eval.py`
+  - `core/auto_train/controller.py`
+  - `core/auto_train/cli.py`
+  - `tests/python/test_auto_train_contracts.py`
+  - `tests/python/test_auto_train_cli.py`
+  - `tests/python/test_auto_train_business_eval.py`
+  - `docs/02-user-guide/auto-train-on-training-machine.md`
+  - `.factory/memory/current-state.md`
+  - `.factory/memory/change-summary.md`
+- 当前已完成的修复：
+  - `StudyRecord / StudyStatusRecord` 当前新增 `final_reason / final_detail`
+  - study 终态现在会显式落盘停止原因，不再只有 `status=stopped`
+  - `summary.md / study_status.json` 当前会区分：
+    - 流程已经停止
+    - 商业测试未通过
+  - `commercial_report.md` 当前升级为详细最终报告，固定包含：
+    - 最终结论
+    - 流程状态
+    - 训练过程结论
+    - 晋级结论
+    - 商业测试结论
+    - 商业测试字段说明
+  - `business_eval.log` 当前会先解释字段含义，再写逐 case 数据来源与评分结果
+  - `auto-train run` 当前在 `final_stage=STOP` 且 `commercial_ready=false` 时会返回非零退出码，并打印 `final_verdict=FAILED_GOAL`
+- 已运行验证：
+  - `uv run python -m unittest tests.python.test_auto_train_contracts tests.python.test_auto_train_cli tests.python.test_auto_train_business_eval`
+  - `uv run python -m unittest tests.python.test_auto_train_controller tests.python.test_solve_group2_runtime tests.python.test_solve_service`
+
 ## 2026-04-08 发布 `sinan-captcha==0.1.23`：`group2` 商业验收切换为“商用目标优先”闭环
 
 - 已更新：

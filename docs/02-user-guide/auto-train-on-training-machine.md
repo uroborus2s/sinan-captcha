@@ -499,7 +499,26 @@ uv run sinan auto-train run group2 `
 
 - `business_eval.json` 是结构化明细，适合机器读取
 - `business_eval.md` 是中文摘要
-- `business_eval.log` 是逐 case 文本日志，当前会记录：
+- `business_eval.log` 是逐 case 文本日志，当前会先写“字段说明 / 数据来源”，再记录：
+  - `predicted_bbox / predicted_center / inference_ms`
+    - 这些字段直接来自 `group2` 求解模块的推理输出
+  - `occlusion / fill / seam`
+    - 这些字段由商业测试评分模块计算
+    - `occlusion = 0.6 * fill + 0.4 * seam`
+  - `success_rate / commercial_ready`
+    - 这些字段表示整批真实样本的通过率和是否达到最终商用门
+- `commercial_report.md` 是最终人类可读报告，当前固定包含：
+  - 最终结论
+  - 流程状态
+  - 训练过程结论
+  - 晋级结论
+  - 商业测试结论
+  - 商业测试字段说明
+- `summary.md` / `study_status.json` 当前也会额外写出：
+  - `final_reason`
+  - `final_detail`
+  - 用来区分“流程正常停止”和“商业测试通过”
+- `business_eval.log` 的逐 case 行当前会记录：
   - `predicted_bbox`
   - `predicted_center`
   - `inference_ms`
@@ -532,6 +551,11 @@ uv run sinan auto-train run group2 `
   - `max_new_datasets`
   - `STOP` 文件
   - 或手动中断
+- 如果终端输出 `final_stage=STOP`，不要直接理解成“商业测试通过”
+  - 还需要继续看 `study_status`、`commercial_ready`、`final_reason`
+- 当前 CLI 退出码语义：
+  - `0`：本次流程正常结束，且最终业务目标达成，或者本次只是中途返回
+  - `2`：本次流程被 stop rule 停止，但最终没有达到商用门
 
 如果你要排查 “OpenCode 到底看了什么、怎么判断的、怎么生成数据计划的”，再额外看：
 

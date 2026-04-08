@@ -178,6 +178,8 @@ class StudyRecord:
     started_at: str | None = None
     current_trial_id: str | None = None
     best_trial_id: str | None = None
+    final_reason: str | None = None
+    final_detail: str | None = None
 
     def __post_init__(self) -> None:
         _require_non_empty(self.study_name, "study_name")
@@ -192,6 +194,10 @@ class StudyRecord:
             _require_non_empty(self.current_trial_id, "current_trial_id")
         if self.best_trial_id is not None:
             _require_non_empty(self.best_trial_id, "best_trial_id")
+        if self.final_reason is not None:
+            _require_non_empty(self.final_reason, "final_reason")
+        if self.final_detail is not None:
+            _require_non_empty(self.final_detail, "final_detail")
 
     def to_dict(self) -> dict[str, JsonValue]:
         return {
@@ -207,6 +213,8 @@ class StudyRecord:
             "started_at": self.started_at,
             "current_trial_id": self.current_trial_id,
             "best_trial_id": self.best_trial_id,
+            "final_reason": self.final_reason,
+            "final_detail": self.final_detail,
         }
 
     @classmethod
@@ -228,6 +236,8 @@ class StudyRecord:
             started_at=_optional_string(payload, "started_at"),
             current_trial_id=_optional_string(payload, "current_trial_id"),
             best_trial_id=_optional_string(payload, "best_trial_id"),
+            final_reason=_optional_string(payload, "final_reason"),
+            final_detail=_optional_string(payload, "final_detail"),
         )
 
 
@@ -956,6 +966,8 @@ class StudyStatusRecord:
     business_success_threshold: float | None = None
     commercial_ready: bool | None = None
     latest_gate_status: str | None = None
+    final_reason: str | None = None
+    final_detail: str | None = None
 
     def __post_init__(self) -> None:
         _require_non_empty(self.study_name, "study_name")
@@ -975,6 +987,10 @@ class StudyStatusRecord:
             _require_ratio(self.business_success_threshold, "business_success_threshold")
         if self.latest_gate_status is not None:
             _require_in(self.latest_gate_status, "latest_gate_status", ALLOWED_BUSINESS_GATE_STATUS)
+        if self.final_reason is not None:
+            _require_non_empty(self.final_reason, "final_reason")
+        if self.final_detail is not None:
+            _require_non_empty(self.final_detail, "final_detail")
         if any(not isinstance(item, str) or not item.strip() for item in self.next_actions_cn):
             raise ValueError("next_actions_cn entries must be non-empty strings")
         if any(not isinstance(item, str) or not item.strip() for item in self.evidence):
@@ -998,6 +1014,8 @@ class StudyStatusRecord:
             business_success_threshold=_optional_float(payload, "business_success_threshold"),
             commercial_ready=_optional_bool(payload, "commercial_ready"),
             latest_gate_status=_optional_string(payload, "latest_gate_status"),
+            final_reason=_optional_string(payload, "final_reason"),
+            final_detail=_optional_string(payload, "final_detail"),
             summary_cn=_string(payload, "summary_cn"),
             next_actions_cn=_string_list(payload, "next_actions_cn"),
             evidence=_string_list(payload, "evidence"),

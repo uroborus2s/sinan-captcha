@@ -412,11 +412,20 @@ class AutoTrainController:
                 status="completed",
                 current_trial_id=trial_id,
                 best_trial_id=leaderboard.best_entry.trial_id if leaderboard.best_entry is not None else study.best_trial_id,
+                final_reason="commercial_gate_passed",
+                final_detail=f"{business_record.success_rate:.4f}/{business_record.success_threshold:.4f}",
             )
             storage.write_study_record(self.paths.study_file, updated)
             self._write_business_eval_artifacts(trial_id=trial_id, record=business_record)
             self._write_study_summary(updated, leaderboard, decision, business_record)
-            self._write_commercial_report(updated, leaderboard, decision, business_record)
+            self._write_commercial_report(
+                study=updated,
+                leaderboard=leaderboard,
+                summary_record=summary_record,
+                raw_decision=decision,
+                effective_decision=decision,
+                business_eval_record=business_record,
+            )
             return StageExecution(trial_id=trial_id, stage="NEXT_ACTION", next_stage="STOP", detail=decision.decision)
 
         effective_decision = self._effective_next_action_decision(
@@ -441,12 +450,21 @@ class AutoTrainController:
                 status="completed",
                 current_trial_id=trial_id,
                 best_trial_id=leaderboard.best_entry.trial_id if leaderboard.best_entry is not None else study.best_trial_id,
+                final_reason="abandon_branch",
+                final_detail=effective_decision.reason,
             )
             storage.write_study_record(self.paths.study_file, updated)
             self._write_study_summary(updated, leaderboard, effective_decision, business_record)
             if business_record is not None:
                 self._write_business_eval_artifacts(trial_id=trial_id, record=business_record)
-                self._write_commercial_report(updated, leaderboard, effective_decision, business_record)
+                self._write_commercial_report(
+                    study=updated,
+                    leaderboard=leaderboard,
+                    summary_record=summary_record,
+                    raw_decision=decision,
+                    effective_decision=effective_decision,
+                    business_eval_record=business_record,
+                )
             return StageExecution(
                 trial_id=trial_id,
                 stage="NEXT_ACTION",
@@ -460,6 +478,8 @@ class AutoTrainController:
                 status="completed",
                 current_trial_id=trial_id,
                 best_trial_id=leaderboard.best_entry.trial_id if leaderboard.best_entry is not None else study.best_trial_id,
+                final_reason="offline_promotion_ready",
+                final_detail=effective_decision.reason,
             )
             storage.write_study_record(self.paths.study_file, updated)
             self._write_study_summary(updated, leaderboard, effective_decision, None)
@@ -487,11 +507,20 @@ class AutoTrainController:
                 status="stopped",
                 current_trial_id=trial_id,
                 best_trial_id=leaderboard.best_entry.trial_id if leaderboard.best_entry is not None else study.best_trial_id,
+                final_reason=stop_decision.reason,
+                final_detail=stop_decision.detail,
             )
             storage.write_study_record(self.paths.study_file, updated)
             if business_record is not None:
                 self._write_business_eval_artifacts(trial_id=trial_id, record=business_record)
-                self._write_commercial_report(updated, leaderboard, effective_decision, business_record)
+                self._write_commercial_report(
+                    study=updated,
+                    leaderboard=leaderboard,
+                    summary_record=summary_record,
+                    raw_decision=decision,
+                    effective_decision=effective_decision,
+                    business_eval_record=business_record,
+                )
             self._write_study_summary(updated, leaderboard, effective_decision, business_record)
             return StageExecution(
                 trial_id=trial_id,
@@ -508,11 +537,20 @@ class AutoTrainController:
             status="running",
             current_trial_id=next_trial.trial_id,
             best_trial_id=leaderboard.best_entry.trial_id if leaderboard.best_entry is not None else study.best_trial_id,
+            final_reason=None,
+            final_detail=None,
         )
         storage.write_study_record(self.paths.study_file, updated)
         if business_record is not None:
             self._write_business_eval_artifacts(trial_id=trial_id, record=business_record)
-            self._write_commercial_report(updated, leaderboard, effective_decision, business_record)
+            self._write_commercial_report(
+                study=updated,
+                leaderboard=leaderboard,
+                summary_record=summary_record,
+                raw_decision=decision,
+                effective_decision=effective_decision,
+                business_eval_record=business_record,
+            )
         self._write_study_summary(updated, leaderboard, effective_decision, business_record)
         return StageExecution(
             trial_id=trial_id,
@@ -969,9 +1007,12 @@ class AutoTrainController:
 
     def _write_commercial_report(
         self,
+        *,
         study: contracts.StudyRecord,
         leaderboard: contracts.LeaderboardRecord,
-        decision: contracts.DecisionRecord,
+        summary_record: contracts.ResultSummaryRecord,
+        raw_decision: contracts.DecisionRecord,
+        effective_decision: contracts.DecisionRecord,
         business_eval_record: contracts.BusinessEvalRecord,
     ) -> None:
         storage.write_text(
@@ -979,7 +1020,9 @@ class AutoTrainController:
             business_eval.commercial_report_markdown(
                 study=study,
                 leaderboard=leaderboard,
-                decision=decision,
+                summary_record=summary_record,
+                raw_decision=raw_decision,
+                effective_decision=effective_decision,
                 business_record=business_eval_record,
             ),
         )
@@ -1412,6 +1455,8 @@ def _study_status_with_extra_evidence(
         business_success_threshold=record.business_success_threshold,
         commercial_ready=record.commercial_ready,
         latest_gate_status=record.latest_gate_status,
+        final_reason=record.final_reason,
+        final_detail=record.final_detail,
     )
 
 

@@ -246,6 +246,22 @@ def markdown_from_business_eval(record: contracts.BusinessEvalRecord) -> str:
         f"- occlusion_threshold: {record.occlusion_threshold:.4f}",
         f"- verdict_cn: {verdict}",
         "",
+        "## 字段说明",
+        "",
+        "- available_cases: business_eval 目录下发现的全部候选样本数。",
+        "- sample_size: 本轮配置允许抽样的最大样本数。",
+        "- total_cases: 本轮实际参与商业测试的样本数。",
+        "- passed_cases: 单样本 occlusion / fill 同时达标的通过数。",
+        "- success_rate: passed_cases / total_cases，表示本轮商业测试通过率。",
+        "- success_threshold: 判定达到商用门所需的最小通过率。",
+        "- occlusion_threshold: 单样本 occlusion_score 的最低通过阈值。",
+        "- predicted_bbox: 求解模块输出的缺口框坐标，格式为 [x1, y1, x2, y2]。",
+        "- predicted_center: 求解模块输出的缺口中心点，格式为 [cx, cy]。",
+        "- inference_ms: 求解模块本次推理耗时，单位毫秒。",
+        "- fill: 贴回缺口块后，原始缺口边界残差下降的幅度，越高越好。",
+        "- seam: 缺口块边缘与背景拼缝的自然程度，越高越好。",
+        "- occlusion: 商业测试主分数，按 0.6 * fill + 0.4 * seam 计算。",
+        "",
         "## 样本结果",
         "",
     ]
@@ -264,6 +280,16 @@ def markdown_from_business_eval(record: contracts.BusinessEvalRecord) -> str:
 
 def log_from_business_eval(record: contracts.BusinessEvalRecord) -> str:
     lines = [
+        "# 字段说明",
+        "# predicted_bbox: 模型输出的背景图坐标框 [x1, y1, x2, y2]。",
+        "# predicted_center: 模型输出的缺口中心点 [cx, cy]。",
+        "# inference_ms: 求解模块单次推理耗时，单位毫秒。",
+        "# fill: 贴回后原始缺口边界残差下降幅度，越高越好。",
+        "# seam: 拼缝边缘自然程度，越高越好。",
+        "# occlusion: 商业测试主分数，按 0.6 * fill + 0.4 * seam 计算。",
+        "# success_rate: 当前批次通过率，即 passed_cases / total_cases。",
+        "# commercial_ready: 当前批次是否达到最终商用门。",
+        "",
         f"trial_id={record.trial_id}",
         f"train_name={record.train_name}",
         f"cases_root={record.cases_root}",
@@ -292,23 +318,57 @@ def commercial_report_markdown(
     *,
     study: contracts.StudyRecord,
     leaderboard: contracts.LeaderboardRecord,
-    decision: contracts.DecisionRecord,
+    summary_record: contracts.ResultSummaryRecord,
+    raw_decision: contracts.DecisionRecord,
+    effective_decision: contracts.DecisionRecord,
     business_record: contracts.BusinessEvalRecord,
 ) -> str:
     best_entry = leaderboard.best_entry
-    conclusion = "达到商用门，可停止自动训练。" if business_record.commercial_ready else "未达到商用门，应继续训练。"
+    process_conclusion = _process_conclusion_cn(study=study, business_record=business_record)
+    final_conclusion = _final_conclusion_cn(study=study, business_record=business_record)
+    offline_promotion = _offline_promotion_conclusion_cn(raw_decision=raw_decision, business_record=business_record)
+    business_test_conclusion = _business_test_conclusion_cn(business_record)
     lines = [
         f"# {study.study_name} 商业可用性结论",
         "",
-        "## 结论",
+        "## 最终结论",
         "",
-        conclusion,
+        final_conclusion,
         "",
-        "## 当前最佳候选",
+        "## 流程状态",
         "",
-        f"- latest_decision: {decision.decision}",
+        f"- study_status: {study.status}",
+        f"- final_reason: {study.final_reason}",
+        f"- final_detail: {study.final_detail}",
+        f"- 流程结论: {process_conclusion}",
+        "",
+        "## 训练过程结论",
+        "",
+        f"- 当前触发结论的 trial: {summary_record.trial_id}",
+        f"- 已完成 trial 数: {len(leaderboard.entries)}",
         f"- best_trial_id: {None if best_entry is None else best_entry.trial_id}",
         f"- best_primary_score: {None if best_entry is None else best_entry.primary_score}",
+        f"- best_dataset_version: {None if best_entry is None else best_entry.dataset_version}",
+        f"- point_hit_rate: {_metric_value(best_entry, 'point_hit_rate')}",
+        f"- mean_iou: {_metric_value(best_entry, 'mean_iou')}",
+        f"- mean_center_error_px: {_metric_value(best_entry, 'mean_center_error_px')}",
+        f"- mean_inference_ms: {_metric_value(best_entry, 'mean_inference_ms')}",
+        "- point_hit_rate: 预测中心点落入容差范围的比例，越高越好。",
+        "- mean_iou: 预测框与目标框重叠程度的均值，越高越好。",
+        "- mean_center_error_px: 预测中心与真实中心的平均像素误差，越低越好。",
+        "- mean_inference_ms: 单次推理平均耗时，越低越好。",
+        "",
+        "## 晋级结论",
+        "",
+        f"- 离线晋级判定: {raw_decision.decision}",
+        f"- 离线晋级说明: {offline_promotion}",
+        f"- 最终动作判定: {effective_decision.decision}",
+        f"- 最终动作原因: {effective_decision.reason}",
+        "- group2 离线晋级门: point_hit_rate >= 0.93、mean_iou >= 0.85、mean_center_error_px <= 8.0。",
+        "",
+        "## 商业测试结论",
+        "",
+        business_test_conclusion,
         "",
         "## 真实业务样本 Gate",
         "",
@@ -321,6 +381,15 @@ def commercial_report_markdown(
         f"- success_threshold: {business_record.success_threshold:.4f}",
         f"- occlusion_threshold: {business_record.occlusion_threshold:.4f}",
         f"- commercial_ready: {business_record.commercial_ready}",
+        "",
+        "## 商业测试字段说明",
+        "",
+        "- predicted_bbox / predicted_center / inference_ms: 直接来自 group2 求解模块的推理输出。",
+        "- fill_score: 缺口块贴回后，原始缺口边界残差被削减的幅度；0 表示几乎没补上，1 表示显著补平。",
+        "- seam_score: 缺口块边缘与背景拼缝的自然程度；越高说明边缘越贴合。",
+        "- occlusion_score: 该样本的主评分，按 0.6 * fill_score + 0.4 * seam_score 计算。",
+        "- success_rate: 本轮商业测试通过率，即 passed_cases / total_cases。",
+        "- commercial_ready: success_rate 是否达到 success_threshold，且样本数满足 min_cases。",
         "",
         "## 失败样本",
         "",
@@ -335,6 +404,85 @@ def commercial_report_markdown(
             f"fill={item.fill_score:.4f}, seam={item.seam_score:.4f}, reason_cn={item.reason_cn}"
         )
     return "\n".join(lines) + "\n"
+
+
+def _metric_value(entry: contracts.LeaderboardEntry | None, key: str) -> str:
+    if entry is None:
+        return "None"
+    value = entry.metrics.get(key)
+    if value is None:
+        return "None"
+    if isinstance(value, float):
+        return f"{value:.4f}"
+    return str(value)
+
+
+def _process_conclusion_cn(*, study: contracts.StudyRecord, business_record: contracts.BusinessEvalRecord) -> str:
+    if study.status == "completed" and business_record.commercial_ready:
+        return "自动训练流程正常完成，且最终商业测试达标。"
+    if study.status == "stopped":
+        return f"自动训练流程正常结束，但属于预算/停止规则触发的停止；原因是 {_final_reason_cn(study.final_reason, study.final_detail)}。"
+    return "自动训练流程仍处于运行中。"
+
+
+def _final_conclusion_cn(*, study: contracts.StudyRecord, business_record: contracts.BusinessEvalRecord) -> str:
+    if business_record.commercial_ready:
+        return "达到商用门。本次最佳候选已经通过真实业务样本 gate，可以结束自动训练并进入交付/复核阶段。"
+    if study.status == "stopped":
+        return (
+            "未达到商用门。本次自动训练虽然正常执行完毕，但最终因为停止规则触发而结束，"
+            "不是因为商业测试通过。"
+        )
+    return "未达到商用门。当前应继续迭代训练并优先修复商业测试失败样本。"
+
+
+def _offline_promotion_conclusion_cn(
+    *,
+    raw_decision: contracts.DecisionRecord,
+    business_record: contracts.BusinessEvalRecord,
+) -> str:
+    if raw_decision.decision == "PROMOTE_BRANCH":
+        if business_record.commercial_ready:
+            return "离线指标已达到候选晋级区间，且商业测试通过。"
+        return "离线指标已达到候选晋级区间，但商业测试未通过，因此不能认定为最终商用成功。"
+    return f"离线指标未进入候选晋级区间，judge 返回 {raw_decision.decision}。"
+
+
+def _business_test_conclusion_cn(record: contracts.BusinessEvalRecord) -> str:
+    return (
+        f"- 本轮从 {record.available_cases} 组真实样本中抽取 {record.total_cases} 组进行商业测试。\n"
+        f"- 其中通过 {record.passed_cases} 组，通过率为 {record.success_rate:.2%}。\n"
+        f"- 当前商用门要求 success_rate >= {record.success_threshold:.0%}，"
+        f"单样本还需满足 occlusion_score >= {record.occlusion_threshold:.2f}。"
+    )
+
+
+def _final_reason_cn(reason: str | None, detail: str | None) -> str:
+    if reason == "commercial_gate_passed":
+        return "真实业务样本 gate 已通过"
+    if reason == "offline_promotion_ready":
+        return "离线晋级门已通过"
+    if reason == "abandon_branch":
+        return "当前分支被判定为应停止投入"
+    if reason == "max_trials_reached":
+        return f"达到最大训练轮次上限（{detail}）" if detail else "达到最大训练轮次上限"
+    if reason == "max_hours_reached":
+        return f"达到最大训练时长上限（{detail}）" if detail else "达到最大训练时长上限"
+    if reason == "max_new_datasets_reached":
+        return f"达到最大新数据版本上限（{detail}）" if detail else "达到最大新数据版本上限"
+    if reason == "no_improve_limit_reached":
+        return f"达到连续无提升轮次上限（{detail}）" if detail else "达到连续无提升轮次上限"
+    if reason == "plateau_detected":
+        return "近期指标进入平台期"
+    if reason == "fatal_failure":
+        return detail or "发生致命错误"
+    if reason == "stop_file_detected":
+        return "检测到人工 STOP 文件"
+    if reason and detail:
+        return f"{reason}（{detail}）"
+    if reason:
+        return reason
+    return "未记录最终原因"
 
 
 def _validate_grids(
