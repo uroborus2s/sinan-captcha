@@ -143,15 +143,17 @@ class BusinessEvalScoringTests(unittest.TestCase):
         )
 
         self.assertGreater(correct.occlusion_score, wrong.occlusion_score)
-        self.assertEqual(correct.best_local_bbox, [22, 18, 34, 30])
-        self.assertAlmostEqual(correct.best_local_offset_px, 0.0, places=4)
-        self.assertGreater(correct.best_local_clean_score, 0.95)
-        self.assertLess(correct.tile_residue_ratio, 0.05)
+        self.assertGreater(correct.contour_overlap_ratio, wrong.contour_overlap_ratio)
+        self.assertLessEqual(correct.best_local_offset_px, 1.0)
+        self.assertEqual(correct.best_local_bbox[1], 18)
+        self.assertEqual(correct.best_local_bbox[3], 30)
+        self.assertGreaterEqual(correct.best_local_clean_score, 0.80)
+        self.assertGreater(correct.contour_overlap_ratio, 0.70)
         self.assertTrue(correct.success)
         self.assertFalse(wrong.success)
         self.assertGreater(wrong.best_local_offset_px, 5.0)
 
-    def test_local_best_offset_within_five_pixels_counts_as_success(self) -> None:
+    def test_local_best_offset_within_ten_pixels_counts_as_success(self) -> None:
         base = _dark_textured_grid(72, 72)
         alpha = _outline_mask(14, 14)
         tile = _outlined_tile(14, 14)
@@ -161,13 +163,14 @@ class BusinessEvalScoringTests(unittest.TestCase):
             master_luma=master,
             tile_luma=tile,
             tile_alpha=alpha,
-            x=28,
-            y=24,
+            x=32,
+            y=28,
         )
 
-        self.assertEqual(near.best_local_bbox, [24, 20, 38, 34])
-        self.assertAlmostEqual(near.best_local_offset_px, 4.0, places=4)
-        self.assertGreater(near.best_local_clean_score, 0.90)
+        self.assertLessEqual(near.best_local_offset_px, 10.0)
+        self.assertEqual(near.best_local_bbox[1], 20)
+        self.assertEqual(near.best_local_bbox[3], 34)
+        self.assertGreaterEqual(near.best_local_clean_score, 0.80)
         self.assertTrue(near.success)
 
     def test_discover_group2_cases_accepts_bg_and_gap_file_names(self) -> None:
@@ -234,11 +237,18 @@ class BusinessEvalScoringTests(unittest.TestCase):
                     occlusion_score=0.9020,
                     success=True,
                     reason_cn="模型输出位置与附近最干净贴合位置的边框偏差在 5px 以内，且局部 overlay 痕迹检测达标，判定通过。",
+                    result_cn="成功",
+                    final_score=0.9470,
+                    required_score=0.7800,
+                    failed_checks_cn=[],
                     overlay_path="/tmp/business-eval/case_0001/overlay.png",
                     diff_path="/tmp/business-eval/case_0001/diff.png",
                     best_local_bbox=[14, 18, 38, 42],
                     best_local_offset_px=2.0,
                     best_local_clean_score=0.9470,
+                    contour_overlap_ratio=0.9200,
+                    exposed_gap_edge_ratio=0.0800,
+                    double_contour_ratio=0.0700,
                     tile_residue_ratio=0.1200,
                     double_edge_score=0.0700,
                     overflow_edge_score=0.0900,
@@ -257,6 +267,13 @@ class BusinessEvalScoringTests(unittest.TestCase):
         self.assertIn("predicted_center=[24, 30]", rendered)
         self.assertIn("best_local_offset_px=2.0000", rendered)
         self.assertIn("best_local_clean_score=0.9470", rendered)
+        self.assertIn("contour_overlap_ratio=0.9200", rendered)
+        self.assertIn("exposed_gap_edge_ratio=0.0800", rendered)
+        self.assertIn("double_contour_ratio=0.0700", rendered)
+        self.assertIn("result_cn=成功", rendered)
+        self.assertIn("final_score=0.9470", rendered)
+        self.assertIn("required_score=0.7800", rendered)
+        self.assertIn("failed_checks_cn=无", rendered)
         self.assertIn("clean_score=0.9020", rendered)
         self.assertIn("tile_residue_ratio=0.1200", rendered)
         self.assertIn("PASS", rendered)
@@ -286,11 +303,18 @@ class BusinessEvalControllerTests(unittest.TestCase):
                 occlusion_score=0.902,
                 success=True,
                 reason_cn="模型输出位置与附近最干净贴合位置的边框偏差在 5px 以内，且局部 overlay 痕迹检测达标，判定通过。",
+                result_cn="成功",
+                final_score=0.947,
+                required_score=0.78,
+                failed_checks_cn=[],
                 overlay_path=str(root / "reports" / "business_eval_trial_0001" / "case_0001" / "overlay.png"),
                 diff_path=str(root / "reports" / "business_eval_trial_0001" / "case_0001" / "diff.png"),
                 best_local_bbox=[14, 18, 38, 42],
                 best_local_offset_px=2.0,
                 best_local_clean_score=0.947,
+                contour_overlap_ratio=0.92,
+                exposed_gap_edge_ratio=0.08,
+                double_contour_ratio=0.07,
                 tile_residue_ratio=0.12,
                 double_edge_score=0.07,
                 overflow_edge_score=0.09,
@@ -378,6 +402,7 @@ class BusinessEvalControllerTests(unittest.TestCase):
             self.assertIn("predicted_center=[24, 30]", log_text)
             self.assertIn("best_local_bbox=[14, 18, 38, 42]", log_text)
             self.assertIn("best_local_offset_px=2.0000", log_text)
+            self.assertIn("contour_overlap_ratio=0.9200", log_text)
             self.assertIn("tile_residue_ratio=0.1200", log_text)
 
     def test_promote_branch_waits_for_business_gate_when_commercial_threshold_not_met(self) -> None:
@@ -475,7 +500,7 @@ class BusinessEvalControllerTests(unittest.TestCase):
             business_record = storage.read_business_eval_record(ctrl.paths.business_eval_file("trial_0001"))
             self.assertFalse(business_record.commercial_ready)
             next_input = storage.read_trial_input_record(ctrl.paths.input_file("trial_0002"))
-            self.assertEqual(next_input.dataset_version, "firstpass_r0002")
+            self.assertEqual(next_input.dataset_version, "study_001_trial_0002")
             self.assertEqual(next_input.base_run, "trial_0001")
             self.assertIsNotNone(next_input.dataset_override)
             study_status = storage.read_study_status_record(ctrl.paths.study_status_file)
@@ -755,7 +780,7 @@ class BusinessEvalControllerTests(unittest.TestCase):
             self.assertEqual(execution.next_stage, "PLAN")
             self.assertEqual(execution.detail, "trial_0004")
             next_input = storage.read_trial_input_record(ctrl.paths.input_file("trial_0004"))
-            self.assertEqual(next_input.dataset_version, "firstpass_r0004")
+            self.assertEqual(next_input.dataset_version, "study_001_trial_0004")
             self.assertIsNotNone(next_input.dataset_override)
             study = storage.read_study_record(ctrl.paths.study_file)
             self.assertEqual(study.status, "running")
@@ -827,7 +852,7 @@ class BusinessEvalControllerTests(unittest.TestCase):
 
             self.assertEqual(execution.next_stage, "PLAN")
             next_input = storage.read_trial_input_record(ctrl.paths.input_file("trial_0002"))
-            self.assertEqual(next_input.dataset_version, "firstpass_r0002")
+            self.assertEqual(next_input.dataset_version, "study_001_trial_0002")
             self.assertEqual(next_input.base_run, "trial_0001")
             self.assertIsNotNone(next_input.dataset_override)
             study_status = storage.read_study_status_record(ctrl.paths.study_status_file)

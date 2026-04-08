@@ -7,6 +7,8 @@ from dataclasses import dataclass, replace
 from datetime import datetime, timezone
 import os
 from pathlib import Path
+import re
+import shutil
 
 from core.auto_train import (
     business_eval,
@@ -26,7 +28,7 @@ from core.auto_train import (
     study_status,
     summary,
 )
-from core.train.base import default_dataset_config, default_report_dir
+from core.train.base import default_dataset_config, default_report_dir, default_run_dir
 
 DEFAULT_JUDGE_PROVIDER = "rules"
 DEFAULT_JUDGE_MODEL = "policy-v1"
@@ -403,7 +405,6 @@ class AutoTrainController:
         summary_record = storage.read_result_summary_record(self.paths.result_summary_file(trial_id))
         decision = storage.read_decision_record(self.paths.decision_file(trial_id))
         study = self._load_or_create_study()
-        leaderboard = self._update_leaderboard(summary_record, decision)
 
         business_record = self._run_business_eval_if_needed(
             trial_id=trial_id,
@@ -411,6 +412,7 @@ class AutoTrainController:
             decision=decision,
             study=study,
         )
+        leaderboard = self._update_leaderboard(summary_record, decision, business_record)
         if business_record is not None and business_record.commercial_ready:
             updated = self._with_study_updates(
                 study,
@@ -661,11 +663,10 @@ class AutoTrainController:
     ) -> contracts.TrialInputRecord:
         previous_input = storage.read_trial_input_record(self.paths.input_file(summary_record.trial_id))
         next_trial_id = self._next_trial_id()
-        next_index = layout.parse_trial_id(next_trial_id)
         dataset_action = plan_record.dataset_action if plan_record is not None else _string_action(decision.next_action, "dataset_action", "reuse")
         train_action = _string_action(decision.next_action, "train_action", "from_run")
         if dataset_action == "new_version":
-            dataset_version = f"{previous_input.dataset_version}_r{next_index:04d}"
+            dataset_version = layout.format_generated_dataset_version(summary_record.study_name, next_trial_id)
         else:
             dataset_version = previous_input.dataset_version
         dataset_preset = previous_input.dataset_preset or _infer_dataset_preset(previous_input.dataset_version)
@@ -730,24 +731,61 @@ class AutoTrainController:
         self,
         summary_record: contracts.ResultSummaryRecord,
         decision: contracts.DecisionRecord,
+        business_record: contracts.BusinessEvalRecord | None = None,
     ) -> contracts.LeaderboardRecord:
-        metrics = dict(summary_record.test_metrics)
-        for key, value in summary_record.evaluation_metrics.items():
-            metrics[key] = value
-        entry = contracts.LeaderboardEntry(
-            trial_id=summary_record.trial_id,
-            dataset_version=summary_record.dataset_version,
-            train_name=summary_record.train_name,
-            primary_score=summary_record.primary_score or 0.0,
-            metrics=metrics,
-            decision=decision.decision,
-        )
+        existing_entries: dict[str, contracts.LeaderboardEntry] = {}
         if self.paths.leaderboard_file.exists():
             leaderboard = storage.read_leaderboard_record(self.paths.leaderboard_file)
-            entries = [item for item in leaderboard.entries if item.trial_id != entry.trial_id]
+            existing_entries = {item.trial_id: item for item in leaderboard.entries}
+
+        trial_ids = sorted({*existing_entries.keys(), summary_record.trial_id}, key=layout.parse_trial_id)
+        entries: list[contracts.LeaderboardEntry] = []
+        for candidate_trial_id in trial_ids:
+            if candidate_trial_id == summary_record.trial_id:
+                entry = self._build_leaderboard_entry(
+                    summary_record=summary_record,
+                    decision=decision,
+                    business_record=business_record,
+                )
+            else:
+                candidate_summary_path = self.paths.result_summary_file(candidate_trial_id)
+                if not candidate_summary_path.exists():
+                    fallback_entry = existing_entries.get(candidate_trial_id)
+                    if fallback_entry is None:
+                        continue
+                    entries.append(fallback_entry)
+                    continue
+                candidate_summary = storage.read_result_summary_record(candidate_summary_path)
+                candidate_decision_path = self.paths.decision_file(candidate_trial_id)
+                fallback_decision_name = "RETUNE"
+                existing_entry = existing_entries.get(candidate_trial_id)
+                if existing_entry is not None and existing_entry.decision is not None:
+                    fallback_decision_name = existing_entry.decision
+                candidate_decision = (
+                    storage.read_decision_record(candidate_decision_path)
+                    if candidate_decision_path.exists()
+                    else contracts.DecisionRecord(
+                        trial_id=candidate_trial_id,
+                        decision=fallback_decision_name,
+                        confidence=0.0,
+                        reason="leaderboard_rehydrated",
+                        next_action={"dataset_action": "reuse", "train_action": "from_run"},
+                        evidence=["leaderboard_rehydrated"],
+                        agent=contracts.AgentRef(provider="system", name="leaderboard"),
+                    )
+                )
+                candidate_business = (
+                    storage.read_business_eval_record(self.paths.business_eval_file(candidate_trial_id))
+                    if self.paths.business_eval_file(candidate_trial_id).exists()
+                    else None
+                )
+                entry = self._build_leaderboard_entry(
+                    summary_record=candidate_summary,
+                    decision=candidate_decision,
+                    business_record=candidate_business,
+                )
             entries.append(entry)
-        else:
-            entries = [entry]
+
         record = contracts.LeaderboardRecord(
             study_name=self.request.study_name,
             task=self.request.task,
@@ -765,7 +803,67 @@ class AutoTrainController:
                     entry=record.best_entry,
                 ),
             )
+        self._prune_model_runs(record)
         return record
+
+    def _prune_model_runs(self, leaderboard: contracts.LeaderboardRecord) -> None:
+        prune_names = {
+            entry.train_name
+            for entry in leaderboard.entries[3:]
+            if entry.train_name
+        }
+        for train_name in sorted(prune_names):
+            run_dir = default_run_dir(self.request.train_root, self.request.task, train_name)
+            if run_dir.exists():
+                shutil.rmtree(run_dir)
+
+    def _build_leaderboard_entry(
+        self,
+        *,
+        summary_record: contracts.ResultSummaryRecord,
+        decision: contracts.DecisionRecord,
+        business_record: contracts.BusinessEvalRecord | None,
+    ) -> contracts.LeaderboardEntry:
+        metrics = dict(summary_record.test_metrics)
+        for key, value in summary_record.evaluation_metrics.items():
+            metrics[key] = value
+
+        input_record = None
+        input_path = self.paths.input_file(summary_record.trial_id)
+        if input_path.exists():
+            input_record = storage.read_trial_input_record(input_path)
+
+        difficulty_score = _difficulty_score_for_trial(
+            dataset_version=summary_record.dataset_version,
+            dataset_preset=None if input_record is None else input_record.dataset_preset,
+        )
+        offline_score = _offline_ranking_score(summary_record)
+        business_success_rate = None if business_record is None else business_record.success_rate
+        commercial_ready = None if business_record is None else business_record.commercial_ready
+        ranking_score = _composite_ranking_score(
+            offline_score=offline_score,
+            difficulty_score=difficulty_score,
+            business_success_rate=business_success_rate,
+            commercial_ready=commercial_ready,
+        )
+        metrics.update(
+            {
+                "offline_score": round(offline_score, 6),
+                "difficulty_score": round(difficulty_score, 6),
+                "ranking_score": round(ranking_score, 6),
+                "business_success_rate": None if business_success_rate is None else round(business_success_rate, 6),
+                "commercial_ready": commercial_ready,
+                "dataset_preset": None if input_record is None else input_record.dataset_preset,
+            }
+        )
+        return contracts.LeaderboardEntry(
+            trial_id=summary_record.trial_id,
+            dataset_version=summary_record.dataset_version,
+            train_name=summary_record.train_name,
+            primary_score=summary_record.primary_score or 0.0,
+            metrics=metrics,
+            decision=decision.decision,
+        )
 
     def _evaluate_stop(
         self,
@@ -1705,3 +1803,47 @@ def _infer_dataset_preset(dataset_version: str) -> str:
     if version in {"smoke", "firstpass", "hard"}:
         return version
     return "firstpass"
+
+
+def _summary_metric(summary_record: contracts.ResultSummaryRecord, key: str) -> float | None:
+    for metrics in (summary_record.evaluation_metrics, summary_record.test_metrics):
+        value = metrics.get(key)
+        if isinstance(value, bool):
+            continue
+        if isinstance(value, (int, float)):
+            return float(value)
+    return None
+
+
+def _offline_ranking_score(summary_record: contracts.ResultSummaryRecord) -> float:
+    point_hit_rate = _summary_metric(summary_record, "point_hit_rate") or 0.0
+    mean_iou = _summary_metric(summary_record, "mean_iou") or 0.0
+    center_error = _summary_metric(summary_record, "mean_center_error_px")
+    center_quality = 0.0 if center_error is None else max(0.0, min(1.0, 1.0 - (center_error / 12.0)))
+    return (point_hit_rate * 0.50) + (mean_iou * 0.30) + (center_quality * 0.20)
+
+
+def _difficulty_score_for_trial(*, dataset_version: str, dataset_preset: str | None) -> float:
+    preset = dataset_preset or _infer_dataset_preset(dataset_version)
+    preset_weight = {
+        "smoke": 0.85,
+        "firstpass": 1.0,
+        "hard": 1.12,
+    }.get(preset, 1.0)
+    retune_depth = len(re.findall(r"_r\d+", dataset_version))
+    return preset_weight + min(retune_depth * 0.02, 0.08)
+
+
+def _composite_ranking_score(
+    *,
+    offline_score: float,
+    difficulty_score: float,
+    business_success_rate: float | None,
+    commercial_ready: bool | None,
+) -> float:
+    business_component = 0.0
+    if business_success_rate is not None:
+        business_component = business_success_rate * 0.75
+    if commercial_ready:
+        business_component += 0.25
+    return (offline_score * difficulty_score) + (business_component * 0.35)

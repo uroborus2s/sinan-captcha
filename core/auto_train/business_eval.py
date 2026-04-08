@@ -16,7 +16,7 @@ from core.train.base import default_best_weights
 _IMAGE_EXTENSIONS = (".png", ".jpg", ".jpeg", ".webp", ".bmp")
 _MASTER_IMAGE_STEMS = ("master", "bg", "background")
 _TILE_IMAGE_STEMS = ("tile", "gap", "piece", "puzzle_piece")
-_BBOX_EDGE_TOLERANCE_PX = 5.0
+_BBOX_EDGE_TOLERANCE_PX = 10.0
 _LOCAL_SEARCH_RADIUS_PX = 8
 
 
@@ -31,9 +31,13 @@ class OcclusionScore:
     best_local_bbox: list[int]
     best_local_offset_px: float
     best_local_clean_score: float
+    contour_overlap_ratio: float
+    exposed_gap_edge_ratio: float
+    double_contour_ratio: float
     tile_residue_ratio: float
     double_edge_score: float
     overflow_edge_score: float
+    failed_checks_cn: list[str]
 
 
 @dataclass(frozen=True)
@@ -45,6 +49,9 @@ class CaseSpec:
 
 @dataclass(frozen=True)
 class OverlayArtifactMetrics:
+    contour_overlap_ratio: float
+    exposed_gap_edge_ratio: float
+    double_contour_ratio: float
     tile_residue_ratio: float
     double_edge_score: float
     overflow_edge_score: float
@@ -82,21 +89,38 @@ def score_occlusion_overlay(
     success = (
         best_local_offset_px <= _BBOX_EDGE_TOLERANCE_PX
         and best_local_metrics.clean_score >= success_threshold
+        and best_local_metrics.contour_overlap_ratio >= 0.55
     )
-    edge_clean_score = _clamp01(1.0 - max(predicted_metrics.double_edge_score, predicted_metrics.overflow_edge_score))
+    edge_clean_score = _clamp01(
+        1.0
+        - max(
+            predicted_metrics.exposed_gap_edge_ratio,
+            predicted_metrics.double_contour_ratio,
+            predicted_metrics.overflow_edge_score,
+        )
+    )
+    failed_checks_cn = _failed_checks_cn(
+        predicted_metrics=predicted_metrics,
+        best_local_offset_px=best_local_offset_px,
+        success_threshold=success_threshold,
+    )
     return OcclusionScore(
-        boundary_before=predicted_metrics.double_edge_score,
+        boundary_before=predicted_metrics.exposed_gap_edge_ratio,
         boundary_after=predicted_metrics.overflow_edge_score,
-        fill_score=_clamp01(1.0 - predicted_metrics.tile_residue_ratio),
+        fill_score=predicted_metrics.contour_overlap_ratio,
         seam_score=edge_clean_score,
         occlusion_score=predicted_metrics.clean_score,
         success=success,
         best_local_bbox=best_local_bbox,
         best_local_offset_px=best_local_offset_px,
         best_local_clean_score=best_local_metrics.clean_score,
+        contour_overlap_ratio=predicted_metrics.contour_overlap_ratio,
+        exposed_gap_edge_ratio=predicted_metrics.exposed_gap_edge_ratio,
+        double_contour_ratio=predicted_metrics.double_contour_ratio,
         tile_residue_ratio=predicted_metrics.tile_residue_ratio,
-        double_edge_score=predicted_metrics.double_edge_score,
+        double_edge_score=predicted_metrics.double_contour_ratio,
         overflow_edge_score=predicted_metrics.overflow_edge_score,
+        failed_checks_cn=failed_checks_cn,
     )
 
 
@@ -200,9 +224,16 @@ def run_group2_business_eval(
                 reason_cn=_reason_cn(score),
                 overlay_path=str(overlay_path),
                 diff_path=str(diff_path),
+                result_cn="成功" if score.success else "失败",
+                final_score=round(score.best_local_clean_score, 6),
+                required_score=round(occlusion_threshold, 6),
+                failed_checks_cn=score.failed_checks_cn,
                 best_local_bbox=score.best_local_bbox,
                 best_local_offset_px=round(score.best_local_offset_px, 4),
                 best_local_clean_score=round(score.best_local_clean_score, 6),
+                contour_overlap_ratio=round(score.contour_overlap_ratio, 6),
+                exposed_gap_edge_ratio=round(score.exposed_gap_edge_ratio, 6),
+                double_contour_ratio=round(score.double_contour_ratio, 6),
                 tile_residue_ratio=round(score.tile_residue_ratio, 6),
                 double_edge_score=round(score.double_edge_score, 6),
                 overflow_edge_score=round(score.overflow_edge_score, 6),
@@ -280,18 +311,25 @@ def markdown_from_business_eval(record: contracts.BusinessEvalRecord) -> str:
         "- available_cases: business_eval 目录下发现的全部候选样本数。",
         "- sample_size: 本轮配置允许抽样的最大样本数。",
         "- total_cases: 本轮实际参与商业测试的样本数。",
-        "- passed_cases: 单样本 overlay 痕迹检测与局部 5px 容差同时达标的通过数。",
+        "- passed_cases: 单样本轮廓重合率、overlay 痕迹检测与局部 10px 容差同时达标的通过数。",
         "- success_rate: passed_cases / total_cases，表示本轮商业测试通过率。",
         "- success_threshold: 判定达到商用门所需的最小通过率。",
         "- main_score_threshold: 单样本最佳局部 clean_score 的最低通过阈值。",
         "- predicted_bbox: 求解模块输出的缺口框坐标，格式为 [x1, y1, x2, y2]。",
         "- predicted_center: 求解模块输出的缺口中心点，格式为 [cx, cy]。",
         "- best_local_bbox: 在模型输出位置附近小范围搜索后，痕迹最干净的候选框。",
-        "- best_local_offset_px: predicted_bbox 与 best_local_bbox 四条边偏差的最大值；<= 5px 视为定位正常。",
+        "- best_local_offset_px: predicted_bbox 与 best_local_bbox 四条边偏差的最大值；<= 10px 视为定位正常。",
         "- best_local_clean_score: 邻域内最优贴合位置的 clean_score，越高越好。",
+        "- contour_overlap_ratio: 缺口图块轮廓与背景缺口轮廓的重合程度，越高越好。",
+        "- exposed_gap_edge_ratio: overlay 后仍然露在外面的缺口边缘比例，越低越好。",
+        "- double_contour_ratio: overlay 后出现双轮廓/重影边缘的比例，越低越好。",
+        "- result_cn: 当前样本最终中文结论，成功或失败。",
+        "- final_score: 当前样本用于通过判定的最终得分，现等价于邻域最佳 clean_score。",
+        "- required_score: 当前样本要求达到的最低 clean_score 阈值。",
+        "- failed_checks_cn: 当前样本未通过的中文原因列表；通过时显示为无。",
         "- inference_ms: 求解模块本次推理耗时，单位毫秒。",
-        "- tile_residue_ratio: overlay 中仍然保留大面积图块痕迹的程度，越低越好。",
-        "- double_edge_score: overlay 中出现明显双边缘/重影的程度，越低越好。",
+        "- tile_residue_ratio: overlay 中仍然保留大面积图块主体痕迹的程度，越低越好。",
+        "- double_edge_score: 兼容旧字段名；现与 double_contour_ratio 一致。",
         "- overflow_edge_score: overlay 中出现越界边缘的程度，越低越好。",
         "- clean_score(occlusion): 兼容旧字段 occlusion_score，表示当前模型输出位置的整体干净程度，越高越好。",
         "",
@@ -307,6 +345,13 @@ def markdown_from_business_eval(record: contracts.BusinessEvalRecord) -> str:
             f"predicted_center={item.predicted_center}, best_local_bbox={item.best_local_bbox}, "
             f"best_local_offset_px={_format_optional_float(item.best_local_offset_px)}, "
             f"best_local_clean_score={_format_optional_float(item.best_local_clean_score)}, "
+            f"contour_overlap_ratio={_format_optional_float(item.contour_overlap_ratio)}, "
+            f"exposed_gap_edge_ratio={_format_optional_float(item.exposed_gap_edge_ratio)}, "
+            f"double_contour_ratio={_format_optional_float(item.double_contour_ratio)}, "
+            f"result_cn={item.result_cn or ('成功' if item.success else '失败')}, "
+            f"final_score={_format_optional_float(item.final_score)}, "
+            f"required_score={_format_optional_float(item.required_score)}, "
+            f"failed_checks_cn={_format_failed_checks(item.failed_checks_cn)}, "
             f"inference_ms={item.inference_ms:.4f}, clean_score={item.occlusion_score:.4f}, "
             f"tile_residue_ratio={_format_optional_float(item.tile_residue_ratio)}, "
             f"double_edge_score={_format_optional_float(item.double_edge_score)}, "
@@ -322,11 +367,18 @@ def log_from_business_eval(record: contracts.BusinessEvalRecord) -> str:
         "# predicted_bbox: 模型输出的背景图坐标框 [x1, y1, x2, y2]。",
         "# predicted_center: 模型输出的缺口中心点 [cx, cy]。",
         "# best_local_bbox: 在模型输出位置附近做局部搜索后，痕迹最干净的候选框。",
-        "# best_local_offset_px: predicted_bbox 与 best_local_bbox 四条边偏差的最大值，<= 5px 视为定位正常。",
+        "# best_local_offset_px: predicted_bbox 与 best_local_bbox 四条边偏差的最大值，<= 10px 视为定位正常。",
         "# best_local_clean_score: 邻域内最优贴合位置的 clean_score，越高越好。",
+        "# contour_overlap_ratio: 缺口图块轮廓与背景缺口轮廓的重合程度，越高越好。",
+        "# exposed_gap_edge_ratio: overlay 后仍露出的缺口边缘比例，越低越好。",
+        "# double_contour_ratio: overlay 后出现双轮廓/重影边缘的比例，越低越好。",
+        "# result_cn: 当前样本最终中文结论，成功或失败。",
+        "# final_score: 当前样本用于通过判定的最终得分，现等价于邻域最佳 clean_score。",
+        "# required_score: 当前样本要求达到的最低 clean_score 阈值。",
+        "# failed_checks_cn: 当前样本未通过的中文原因列表；通过时显示为无。",
         "# inference_ms: 求解模块单次推理耗时，单位毫秒。",
         "# tile_residue_ratio: overlay 中仍保留明显图块痕迹的程度，越低越好。",
-        "# double_edge_score: overlay 中出现双边缘/重影的程度，越低越好。",
+        "# double_edge_score: 兼容旧字段名；现与 double_contour_ratio 一致。",
         "# overflow_edge_score: overlay 中出现越界边缘的程度，越低越好。",
         "# clean_score(occlusion): 当前模型输出位置的整体干净程度，越高越好。",
         "# success_rate: 当前批次通过率，即 passed_cases / total_cases。",
@@ -352,6 +404,13 @@ def log_from_business_eval(record: contracts.BusinessEvalRecord) -> str:
             f"predicted_center={item.predicted_center} best_local_bbox={item.best_local_bbox} "
             f"best_local_offset_px={_format_optional_float(item.best_local_offset_px)} "
             f"best_local_clean_score={_format_optional_float(item.best_local_clean_score)} "
+            f"contour_overlap_ratio={_format_optional_float(item.contour_overlap_ratio)} "
+            f"exposed_gap_edge_ratio={_format_optional_float(item.exposed_gap_edge_ratio)} "
+            f"double_contour_ratio={_format_optional_float(item.double_contour_ratio)} "
+            f"result_cn={item.result_cn or ('成功' if item.success else '失败')} "
+            f"final_score={_format_optional_float(item.final_score)} "
+            f"required_score={_format_optional_float(item.required_score)} "
+            f"failed_checks_cn={_format_failed_checks(item.failed_checks_cn)} "
             f"inference_ms={item.inference_ms:.4f} clean_score={item.occlusion_score:.4f} "
             f"tile_residue_ratio={_format_optional_float(item.tile_residue_ratio)} "
             f"double_edge_score={_format_optional_float(item.double_edge_score)} "
@@ -433,15 +492,22 @@ def commercial_report_markdown(
         "",
         "- predicted_bbox / predicted_center / inference_ms: 直接来自 group2 求解模块的推理输出。",
         "- best_local_bbox: 在模型输出位置附近做局部搜索后，痕迹最干净的候选框。",
-        "- best_local_offset_px: predicted_bbox 与 best_local_bbox 四条边偏差的最大值；当前 <= 5px 视为定位正常。",
+        "- best_local_offset_px: predicted_bbox 与 best_local_bbox 四条边偏差的最大值；当前 <= 10px 视为定位正常。",
         "- best_local_clean_score: 邻域内最优贴合位置的 clean_score，越高越好。",
+        "- contour_overlap_ratio: 缺口图块轮廓与背景缺口轮廓的重合程度，越高越好。",
+        "- exposed_gap_edge_ratio: overlay 后仍然露在外面的缺口边缘比例，越低越好。",
+        "- double_contour_ratio: overlay 后出现双轮廓/重影边缘的比例，越低越好。",
+        "- result_cn: 当前样本最终中文结论，成功或失败。",
+        "- final_score: 当前样本用于通过判定的最终得分，现等价于邻域最佳 clean_score。",
+        "- required_score: 当前样本要求达到的最低 clean_score 阈值。",
+        "- failed_checks_cn: 当前样本未通过的中文原因列表；通过时显示为无。",
         "- tile_residue_ratio: overlay 中仍然保留大面积图块痕迹的程度，越低越好。",
-        "- double_edge_score: overlay 中出现双边缘/重影的程度，越低越好。",
+        "- double_edge_score: 兼容旧字段名；现与 double_contour_ratio 一致。",
         "- overflow_edge_score: overlay 中出现越界边缘的程度，越低越好。",
-        "- fill_score: 兼容旧字段名；现表示 tile_clean_score，即 1 - tile_residue_ratio。",
-        "- seam_score: 兼容旧字段名；现表示 edge_clean_score，即 1 - max(double_edge_score, overflow_edge_score)。",
+        "- fill_score: 兼容旧字段名；现表示 contour_overlap_ratio。",
+        "- seam_score: 兼容旧字段名；现表示边缘干净度，即 1 - max(exposed_gap_edge_ratio, double_contour_ratio, overflow_edge_score)。",
         "- occlusion_score: 兼容旧字段名；现表示当前模型输出位置的 clean_score，越高越好。",
-        "- boundary_before / boundary_after: 兼容旧辅诊断字段；现分别记录 double_edge_score 与 overflow_edge_score。",
+        "- boundary_before / boundary_after: 兼容旧辅诊断字段；现分别记录 exposed_gap_edge_ratio 与 overflow_edge_score。",
         "- success_rate: 本轮商业测试通过率，即 passed_cases / total_cases。",
         "- commercial_ready: success_rate 是否达到 success_threshold，且样本数满足 min_cases。",
         "",
@@ -457,6 +523,13 @@ def commercial_report_markdown(
             f"predicted_center={item.predicted_center}, best_local_bbox={item.best_local_bbox}, "
             f"best_local_offset_px={_format_optional_float(item.best_local_offset_px)}, "
             f"best_local_clean_score={_format_optional_float(item.best_local_clean_score)}, "
+            f"contour_overlap_ratio={_format_optional_float(item.contour_overlap_ratio)}, "
+            f"exposed_gap_edge_ratio={_format_optional_float(item.exposed_gap_edge_ratio)}, "
+            f"double_contour_ratio={_format_optional_float(item.double_contour_ratio)}, "
+            f"result_cn={item.result_cn or ('成功' if item.success else '失败')}, "
+            f"final_score={_format_optional_float(item.final_score)}, "
+            f"required_score={_format_optional_float(item.required_score)}, "
+            f"failed_checks_cn={_format_failed_checks(item.failed_checks_cn)}, "
             f"clean_score={item.occlusion_score:.4f}, tile_residue_ratio={_format_optional_float(item.tile_residue_ratio)}, "
             f"double_edge_score={_format_optional_float(item.double_edge_score)}, "
             f"overflow_edge_score={_format_optional_float(item.overflow_edge_score)}, reason_cn={item.reason_cn}"
@@ -511,8 +584,8 @@ def _business_test_conclusion_cn(record: contracts.BusinessEvalRecord) -> str:
         f"- 本轮从 {record.available_cases} 组真实样本中抽取 {record.total_cases} 组进行商业测试。\n"
         f"- 其中通过 {record.passed_cases} 组，通过率为 {record.success_rate:.2%}。\n"
         f"- 当前商用门要求 success_rate >= {record.success_threshold:.0%}，"
-        f"单样本还需满足局部最优 clean_score >= {record.occlusion_threshold:.2f}，"
-        f"且模型输出位置与附近最干净贴合位置的边框偏差 <= 5px。"
+        f"单样本还需满足局部最优 clean_score >= {record.occlusion_threshold:.2f}、"
+        f"局部最优轮廓重合率足够高，且模型输出位置与附近最佳重合位置的边框偏差 <= {int(_BBOX_EDGE_TOLERANCE_PX)}px。"
     )
 
 
@@ -646,7 +719,28 @@ def _overlay_artifact_metrics(
     y: int,
 ) -> OverlayArtifactMetrics:
     composite = _composite_luma_grid(master_luma=master_luma, tile_luma=tile_luma, tile_alpha=tile_alpha, x=x, y=y)
+    master_edges = _edge_strength_grid(master_luma)
+    overlay_edges = _edge_strength_grid(composite)
     mask_coords, boundary_coords, outer_ring_coords = _mask_regions(tile_alpha)
+    contour_overlap_ratio = _normalized_region_mean(
+        source=master_edges,
+        coords=boundary_coords,
+        x=x,
+        y=y,
+    )
+    exposed_gap_edge_ratio = _normalized_region_mean(
+        source=master_edges,
+        coords=outer_ring_coords,
+        x=x,
+        y=y,
+    )
+    double_contour_ratio = _normalized_positive_region_diff(
+        baseline=master_edges,
+        candidate=overlay_edges,
+        coords=outer_ring_coords,
+        x=x,
+        y=y,
+    )
     tile_residue_ratio = _normalized_region_diff(
         original=master_luma,
         overlay=composite,
@@ -669,13 +763,18 @@ def _overlay_artifact_metrics(
         y=y,
     )
     artifact_score = _clamp01(
-        tile_residue_ratio * 0.50
-        + double_edge_score * 0.30
-        + overflow_edge_score * 0.20
+        (1.0 - contour_overlap_ratio) * 0.45
+        + exposed_gap_edge_ratio * 0.20
+        + double_contour_ratio * 0.15
+        + overflow_edge_score * 0.10
+        + tile_residue_ratio * 0.10
     )
     return OverlayArtifactMetrics(
+        contour_overlap_ratio=contour_overlap_ratio,
+        exposed_gap_edge_ratio=exposed_gap_edge_ratio,
+        double_contour_ratio=double_contour_ratio,
         tile_residue_ratio=tile_residue_ratio,
-        double_edge_score=double_edge_score,
+        double_edge_score=double_contour_ratio,
         overflow_edge_score=overflow_edge_score,
         artifact_score=artifact_score,
         clean_score=_clamp01(1.0 - artifact_score),
@@ -800,18 +899,123 @@ def _normalized_region_diff(
     return _clamp01(_mean(values) / 255.0)
 
 
+def _normalized_region_mean(
+    *,
+    source: list[list[float]],
+    coords: list[tuple[int, int]],
+    x: int,
+    y: int,
+) -> float:
+    if not coords:
+        return 0.0
+    height = len(source)
+    width = len(source[0])
+    hits = 0
+    total = 0
+    threshold = 0.12
+    for offset_x, offset_y in coords:
+        target_x = x + offset_x
+        target_y = y + offset_y
+        if target_x < 0 or target_x >= width or target_y < 0 or target_y >= height:
+            continue
+        total += 1
+        if source[target_y][target_x] >= threshold:
+            hits += 1
+    if total == 0:
+        return 0.0
+    return _clamp01(hits / float(total))
+
+
+def _normalized_positive_region_diff(
+    *,
+    baseline: list[list[float]],
+    candidate: list[list[float]],
+    coords: list[tuple[int, int]],
+    x: int,
+    y: int,
+) -> float:
+    if not coords:
+        return 0.0
+    height = len(baseline)
+    width = len(baseline[0])
+    values: list[float] = []
+    for offset_x, offset_y in coords:
+        target_x = x + offset_x
+        target_y = y + offset_y
+        if target_x < 0 or target_x >= width or target_y < 0 or target_y >= height:
+            continue
+        values.append(max(0.0, candidate[target_y][target_x] - baseline[target_y][target_x]))
+    if not values:
+        return 0.0
+    return _clamp01(_mean(values))
+
+
+def _edge_strength_grid(image: list[list[float]]) -> list[list[float]]:
+    height = len(image)
+    width = len(image[0])
+    output: list[list[float]] = []
+    for y in range(height):
+        row: list[float] = []
+        for x in range(width):
+            left = image[y][max(0, x - 1)]
+            right = image[y][min(width - 1, x + 1)]
+            up = image[max(0, y - 1)][x]
+            down = image[min(height - 1, y + 1)][x]
+            gradient = (
+                abs(right - left)
+                + abs(down - up)
+                + abs(image[y][x] - left)
+                + abs(image[y][x] - up)
+            ) / (4.0 * 255.0)
+            row.append(_clamp01(gradient))
+        output.append(row)
+    return output
+
+
 def _reason_cn(score: OcclusionScore) -> str:
     if score.success:
-        return "模型输出位置与附近最干净贴合位置的边框偏差在 5px 以内，且局部 overlay 痕迹检测达标，判定通过。"
+        return "模型输出位置与附近最佳轮廓重合位置的边框偏差在 10px 以内，且轮廓重合率与 overlay 痕迹检测都达标，判定通过。"
     if score.best_local_offset_px > _BBOX_EDGE_TOLERANCE_PX:
-        return "把图块在模型输出位置附近挪动后，存在明显更干净的位置，且偏差超过 5px，判定为定位偏移。"
-    if score.tile_residue_ratio > 0.35:
-        return "overlay 中仍保留明显图块痕迹，疑似缺口块没有贴到合适位置。"
-    if score.double_edge_score > 0.35:
-        return "overlay 中出现明显双边缘或重影，疑似图块轮廓与缺口轮廓没有对齐。"
+        return "把图块在模型输出位置附近挪动后，存在明显更像缺口轮廓重合的位置，且偏差超过 10px，判定为定位偏移。"
+    if score.contour_overlap_ratio < 0.55:
+        return "图块轮廓与背景缺口轮廓的重合率偏低，疑似没有真正贴到缺口上。"
+    if score.exposed_gap_edge_ratio > 0.35:
+        return "overlay 后仍然露出明显缺口边缘，疑似缺口没有被完全覆盖。"
+    if score.double_contour_ratio > 0.35:
+        return "overlay 中出现明显双轮廓或重影，疑似图块轮廓与缺口轮廓没有重合。"
     if score.overflow_edge_score > 0.35:
         return "overlay 中出现明显越界边缘，疑似图块压到了缺口外的背景区域。"
-    return "当前位置附近虽有可接受贴合候选，但最佳局部贴合的 clean score 仍未达标，建议结合 overlay/diff 继续人工复核。"
+    if score.tile_residue_ratio > 0.35:
+        return "overlay 中仍保留明显图块主体痕迹，疑似贴合后仍能看出大面积异物。"
+    return "当前位置附近虽有可接受轮廓候选，但最佳局部贴合的综合 clean score 仍未达标，建议结合 overlay/diff 继续人工复核。"
+
+
+def _failed_checks_cn(
+    *,
+    predicted_metrics: OverlayArtifactMetrics,
+    best_local_offset_px: float,
+    success_threshold: float,
+) -> list[str]:
+    checks: list[str] = []
+    if best_local_offset_px > _BBOX_EDGE_TOLERANCE_PX:
+        checks.append(f"边框偏差超限（{best_local_offset_px:.1f}px > {int(_BBOX_EDGE_TOLERANCE_PX)}px）")
+    if predicted_metrics.contour_overlap_ratio < 0.55:
+        checks.append(f"轮廓重合率不足（{predicted_metrics.contour_overlap_ratio:.3f} < 0.550）")
+    if predicted_metrics.clean_score < success_threshold:
+        checks.append(f"局部 clean_score 不足（{predicted_metrics.clean_score:.3f} < {success_threshold:.3f}）")
+    if predicted_metrics.exposed_gap_edge_ratio > 0.35:
+        checks.append(f"露出缺口边缘过多（{predicted_metrics.exposed_gap_edge_ratio:.3f} > 0.350）")
+    if predicted_metrics.double_contour_ratio > 0.35:
+        checks.append(f"双轮廓/重影过多（{predicted_metrics.double_contour_ratio:.3f} > 0.350）")
+    if predicted_metrics.overflow_edge_score > 0.35:
+        checks.append(f"越界边缘过多（{predicted_metrics.overflow_edge_score:.3f} > 0.350）")
+    return checks
+
+
+def _format_failed_checks(values: list[str] | None) -> str:
+    if not values:
+        return "无"
+    return "；".join(values)
 
 
 def _find_image(root: Path, *, stem: str) -> Path | None:

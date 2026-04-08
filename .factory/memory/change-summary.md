@@ -1,5 +1,79 @@
 # 变更摘要
 
+## 2026-04-08 调整 `group2` 商业检测与排行榜：改为“轮廓重合率主判 + 综合评分排名 + 前 3 模型保留”
+
+- 已更新：
+  - `core/auto_train/business_eval.py`
+  - `core/auto_train/contracts.py`
+  - `core/auto_train/controller.py`
+  - `tests/python/test_auto_train_business_eval.py`
+  - `tests/python/test_auto_train_controller.py`
+  - `tests/python/test_auto_train_layout.py`
+  - `docs/02-user-guide/auto-train-on-training-machine.md`
+  - `.factory/memory/current-state.md`
+  - `.factory/memory/change-summary.md`
+- 当前已完成的目标：
+  - 商业检测当前不再主判“背景图里猜出来的参考缺口位置”
+  - 当前会直接分析 `overlay.png`，把“图块轮廓是否和背景缺口轮廓真正重合”作为主判
+  - 当前新增并主用：
+    - `contour_overlap_ratio`
+    - `exposed_gap_edge_ratio`
+    - `double_contour_ratio`
+    - `best_local_bbox`
+    - `best_local_offset_px`
+    - `best_local_clean_score`
+    - `result_cn`
+    - `final_score`
+    - `required_score`
+    - `failed_checks_cn`
+  - 当前单样本通过条件：
+    - 模型输出位置与邻域内最干净位置的边框偏差 `<= 10px`
+    - 邻域内最优 `clean_score` 达标
+    - `contour_overlap_ratio >= 0.55`
+  - `leaderboard.json / best_trial.json` 当前不再只按离线 `primary_score` 排序
+  - 当前会综合：
+    - `offline_score`
+    - `difficulty_score`
+    - `business_success_rate`
+    - `commercial_ready`
+    - `ranking_score`
+  - `difficulty_score` 当前具体来自：
+    - `smoke = 0.85`
+    - `firstpass = 1.00`
+    - `hard = 1.12`
+    - 每一层 `_rNNNN` 数据重生深度再额外加 `0.02`，最多加到 `0.08`
+  - 下一轮 `from_run` 当前会优先继承 `leaderboard.best_entry.train_name`
+  - 当前还会自动删除排行榜前三之外的 run 目录，只保留综合评分最优的 3 个模型
+  - 这修复了“简单题 trial_0001 永远排第一、后续更难更接近商用的模型排不上去”的问题，也避免模型目录无限增长
+- 已运行验证：
+  - `uv run python -m unittest tests.python.test_auto_train_layout`
+  - `uv run python -m unittest tests.python.test_auto_train_controller`
+  - `uv run python -m unittest tests.python.test_auto_train_business_eval`
+
+## 2026-04-08 调整 `auto-train` 自动样本目录命名：改为 `study-name_trial-id`
+
+- 已更新：
+  - `core/auto_train/layout.py`
+  - `core/auto_train/controller.py`
+  - `core/auto_train/resources/opencode/commands/result-read.md`
+  - `tests/python/test_auto_train_layout.py`
+  - `tests/python/test_auto_train_controller.py`
+  - `tests/python/test_auto_train_business_eval.py`
+  - `tests/python/test_auto_train_opencode_runtime.py`
+  - `docs/02-user-guide/auto-train-on-training-machine.md`
+  - `.factory/memory/current-state.md`
+  - `.factory/memory/change-summary.md`
+- 当前已完成的目标：
+  - `auto-train` 在 `dataset_action = new_version` 时，不再把数据集目录继续命名成 `firstpass_r0002_r0003...`
+  - 当前自动生成的数据集版本会固定收口为 `study-name_trial-id`
+  - 例如：
+    - `study_001_trial_0002`
+    - `study_group2_llm_trial_0004`
+  - 用户显式传入的初始 `--dataset-version` 当前保持不变，不会被这条规则覆盖
+- 已运行验证：
+  - `uv run python -m unittest tests.python.test_auto_train_layout tests.python.test_auto_train_controller tests.python.test_auto_train_business_eval.BusinessEvalControllerTests tests.python.test_auto_train_opencode_runtime`
+  - 更大范围的 `test_auto_train_business_eval` 当前仍有既存 `BusinessEvalScoringTests` 失败，表现与本次命名调整无关
+
 ## 2026-04-08 调整 `group2` 商业检测：改为 `overlay` 痕迹检测 + 局部 5px 容差
 
 - 已更新：

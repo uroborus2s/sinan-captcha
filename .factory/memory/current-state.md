@@ -17,6 +17,14 @@
 
 ## 当前事实
 
+- 2026-04-08 当前仓库已把 `auto-train` 自动生成的数据集目录命名收口为 `study-name_trial-id`：
+  - `core/auto_train/controller.py` 当前在 `dataset_action = new_version` 时，会统一生成：
+    - `study_001_trial_0002`
+    - `study_group2_llm_trial_0004`
+  - 当前不再继续叠加 `_r0002_r0003...` 这类越来越长的目录名
+  - 用户显式传入的初始 `--dataset-version` 当前保持不变
+  - 当前已验证：
+    - `uv run python -m unittest tests.python.test_auto_train_layout tests.python.test_auto_train_controller tests.python.test_auto_train_business_eval.BusinessEvalControllerTests tests.python.test_auto_train_opencode_runtime`
 - 2026-04-08 当前仓库已改 `auto-train` 停止语义，支持“目标驱动停止 + 中断恢复”：
   - `core/auto_train/cli.py` 当前会把：
     - `--business-eval-dir`
@@ -40,24 +48,60 @@
   - 当前已验证：
     - `.venv/bin/python -m unittest tests.python.test_auto_train_cli`
     - `.venv/bin/python -m unittest tests.python.test_auto_train_controller`
-- 2026-04-08 当前仓库已把 `group2` 商业检测主判从“参考槽位反推”切到“overlay 痕迹检测”：
+- 2026-04-08 当前仓库已把 `group2` 商业检测主判升级为“轮廓重合率主判 + overlay 痕迹辅判 + 局部 10px 容差”：
   - 当前不再把 `reference_bbox / reference_center` 作为主判真值
   - 当前会直接分析模型输出生成的 `overlay.png`
-  - 当前新增的主字段是：
+  - 当前新增和主用的字段是：
     - `best_local_bbox`
     - `best_local_offset_px`
     - `best_local_clean_score`
+    - `contour_overlap_ratio`
+    - `exposed_gap_edge_ratio`
+    - `double_contour_ratio`
     - `tile_residue_ratio`
-    - `double_edge_score`
     - `overflow_edge_score`
+    - `result_cn`
+    - `final_score`
+    - `required_score`
+    - `failed_checks_cn`
   - 当前含义是：
     - 在模型输出位置附近做局部搜索
-    - 找到附近“痕迹最干净”的贴合位置
-    - 如果模型输出与该位置的边框偏差 `<= 5px`，且局部最优 clean score 达标，则判通过
-  - 这避免了“用背景图启发式猜真值位置”的逻辑自证问题
+    - 找到附近“轮廓重合且痕迹最干净”的贴合位置
+    - 如果模型输出与该位置的边框偏差 `<= 10px`
+    - 且局部最优 clean score 达标
+    - 且当前模型输出位置的 `contour_overlap_ratio` 达标
+    - 则判通过
+  - 这避免了“用背景图启发式猜真值位置”的逻辑自证问题，也比单纯看残留噪声更接近人眼判断
   - 当前已验证：
     - `.venv/bin/python -m unittest tests.python.test_auto_train_business_eval`
     - `.venv/bin/python -m unittest discover -s tests/python`
+- 2026-04-08 当前仓库已把 `group2` leaderboard / best trial 排名从“单一离线主指标”切到“综合评分”：
+  - `core/auto_train/controller.py` 当前会为每个 trial 计算：
+    - `offline_score`
+    - `difficulty_score`
+    - `business_success_rate`
+    - `commercial_ready`
+    - `ranking_score`
+  - `offline_score` 当前综合：
+    - `point_hit_rate`
+    - `mean_iou`
+    - `mean_center_error_px`
+  - `difficulty_score` 当前综合：
+    - `dataset_preset`
+      - `smoke = 0.85`
+      - `firstpass = 1.00`
+      - `hard = 1.12`
+    - 数据重生深度
+      - 每多一层 `_rNNNN` 再额外加 `0.02`
+      - 最多额外加到 `0.08`
+  - `ranking_score` 当前会把离线质量、样本难度和商业测试结果一起纳入
+  - `core/auto_train/contracts.py` 当前在 `LeaderboardRecord` 排序时，会优先按 `ranking_score` 排，而不是只看 `primary_score`
+  - `core/auto_train/controller.py` 当前在重生下一轮时，会优先继承 `leaderboard.best_entry.train_name`
+  - 当前还会自动清理模型目录，只保留综合评分最优的前 3 个 run
+  - 这修复了“简单样本轮次长期占据 trial_0001 第一名”的问题，也避免模型目录无限增长
+  - 当前已验证：
+    - `uv run python -m unittest tests.python.test_auto_train_layout`
+    - `uv run python -m unittest tests.python.test_auto_train_controller`
 - 2026-04-08 已发布 Python 训练 CLI 包 `sinan-captcha==0.1.25`：
   - 当前包含 `group2` 商业测试“参考槽位定位 + 位置误差门”规则
   - 当前单样本主判已经从“贴回后原图残差是否几乎消失”切换为：
@@ -74,24 +118,9 @@
   - 当前已确认发布文件：
     - `sinan_captcha-0.1.25-py3-none-any.whl`
     - `sinan_captcha-0.1.25.tar.gz`
-- 2026-04-08 当前仓库已调整 `group2` 商业测试规则，使真实业务验收更贴近人类判读：
-  - `core/auto_train/business_eval.py` 当前已把单样本主判从“贴回后原图残差是否几乎消失”切换为“参考槽位定位 + 位置误差门”
-  - 商业测试当前会先从背景图中自动反推出 `reference_bbox / reference_center`
-  - 再计算：
-    - `position_error_px`
-    - `slot_signal(fill_score)`：预测位置本身有多像真实占位槽位
-    - `reference_alignment(seam_score)`：预测位置与参考槽位有多接近
-    - `main_score(occlusion_score) = 0.4 * slot_signal + 0.6 * reference_alignment`
-  - `boundary_before / boundary_after` 当前保留为辅诊断字段，不再单独决定通过/失败
-  - `core/auto_train/contracts.py` 当前已给 `BusinessEvalCaseRecord` 增加：
-    - `reference_bbox`
-    - `reference_center`
-    - `position_error_px`
-  - `business_eval.log / business_eval.md / commercial_report.md` 当前已同步解释这些新字段，并在失败样本中展示预测位置与参考槽位的差异
-  - 当前已验证：
-    - `./.venv/bin/python -m unittest tests.python.test_auto_train_business_eval`
-    - `./.venv/bin/python -m unittest discover -s tests/python`
-    - `git diff --check`
+- 2026-04-08 当前仓库曾短暂使用“参考槽位定位 + 位置误差门”作为 `group2` 商业测试规则：
+  - 该路径已被后续版本的“轮廓重合率主判 + overlay 痕迹辅判 + 局部 10px 容差”替代
+  - 保留该记录仅用于解释 0.1.25 阶段的历史训练报告
 - 2026-04-08 已发布 Python 训练 CLI 包 `sinan-captcha==0.1.24`，修复 `auto-train` 终态可读性与退出语义：
   - `core/auto_train/contracts.py` 当前已给 `StudyRecord / StudyStatusRecord` 增加：
     - `final_reason`

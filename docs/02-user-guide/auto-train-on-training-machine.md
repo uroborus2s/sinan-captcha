@@ -35,6 +35,9 @@
 
 - 能把 `dataset_plan` 传给生成器 `--preset / --override-file`
 - 能在 `TEST` 后自动接上 `EVALUATE`
+- 当前当控制器决定“新建一版样本”时，自动生成的数据集目录会固定命名为 `<study-name>_<trial-id>`：
+  - 例如 `study_group1_firstpass_trial_0002`
+  - 不再继续叠加 `_r0002_r0003...` 这类越来越长的目录名
 - 当前在启用 `business_eval` 时，默认会切到“目标驱动停止”：
   - 结束条件是商业测试通过
   - 或人工 `STOP` 文件
@@ -494,23 +497,33 @@ uv run sinan auto-train run group2 `
     - 或进程/机器被意外中断
 - 意外中断后，用同一个 `--study-name` 重启命令即可恢复
 
-当前 `group2` 商业验收的主判标准已经从“背景图里反推参考槽位”调整为“overlay 痕迹检测 + 局部 5px 容差”。
+当前 `group2` 商业验收的主判标准已经从“背景图里反推参考槽位”调整为“轮廓重合率主判 + overlay 痕迹辅判 + 局部 10px 容差”。
 
 - 旧规则的问题是：它需要在背景图里猜一个“参考缺口位置”，本质上仍是启发式假设。
-- 真实业务图里更可靠的人眼判断方式是：看 overlay 里是否还残留明显图块痕迹、双边缘或越界边缘。
-- 因此当前商业测试会直接分析当前 `overlay`：
-  - `tile_residue_ratio`：是否还能看到大面积图块痕迹
-  - `double_edge_score`：是否有明显双边缘/重影
-  - `overflow_edge_score`：是否有明显超出缺口轮廓的边缘
+- 真实业务图里更接近人眼判断的方式是：
+  - 图块轮廓有没有真正压到背景缺口轮廓上
+  - overlay 后是否还露出明显缺口边缘
+  - 是否出现双轮廓/重影
+  - 是否有明显越界边缘
+- 因此当前商业测试会直接分析当前 `overlay`，并把“轮廓是否重合”作为主判：
+  - `contour_overlap_ratio`：图块轮廓与背景缺口轮廓的重合率，越高越好
+  - `exposed_gap_edge_ratio`：overlay 后仍露出的缺口边缘比例，越低越好
+  - `double_contour_ratio`：overlay 后出现双轮廓/重影的比例，越低越好
+  - `tile_residue_ratio`：overlay 中是否还能看到大面积图块痕迹，越低越好
+  - `overflow_edge_score`：是否有明显越界边缘，越低越好
   - `clean_score(occlusion_score)`：当前位置整体贴合得有多干净，越高越好
 - 同时程序会在模型输出位置附近做一圈局部搜索：
   - `best_local_bbox`
   - `best_local_offset_px`
   - `best_local_clean_score`
 - 当前单样本通过条件变成：
-  - 附近最干净贴合位置的 `best_local_clean_score >= main_score_threshold`
-  - 且模型输出位置与该最优位置的边框偏差 `<= 5px`
-- `boundary_before / boundary_after` 当前仍会保留为兼容旧日志的辅诊断字段，现分别对应双边缘程度和越界边缘程度。
+  - 模型输出位置与邻域内最干净位置的边框偏差 `<= 10px`
+  - 邻域内最干净位置的 `best_local_clean_score >= main_score_threshold`
+  - 当前模型输出位置的 `contour_overlap_ratio >= 0.55`
+- `boundary_before / boundary_after / fill_score / seam_score` 当前仍会保留为兼容旧日志的辅诊断字段：
+  - `fill_score` 现等价于 `contour_overlap_ratio`
+  - `seam_score` 现表示边缘干净程度
+  - `boundary_before / boundary_after` 现用于辅助表达露边和越界诊断
 
 这里的“稳定随机抽样”指的是：
 
@@ -537,8 +550,12 @@ uv run sinan auto-train run group2 `
     - 这些字段直接来自 `group2` 求解模块的推理输出
   - `best_local_bbox / best_local_offset_px / best_local_clean_score`
     - 这些字段来自局部邻域搜索，用来表示“当前位置附近最干净的贴合位置”以及模型输出与它的偏差
+  - `contour_overlap_ratio / exposed_gap_edge_ratio / double_contour_ratio`
+    - 这些字段直接描述当前 overlay 中图块轮廓是否和背景缺口轮廓重合、是否露边、是否出现双轮廓
   - `tile_residue_ratio / double_edge_score / overflow_edge_score`
-    - 这些字段直接描述当前 overlay 中是否还存在明显图块残留、双边缘和越界边缘
+    - 这些字段描述当前 overlay 中是否还存在明显图块残留、双边缘和越界边缘
+  - `result_cn / final_score / required_score / failed_checks_cn`
+    - 这些字段直接给出逐样本中文结论、最终得分、要求得分以及未通过项
   - `clean_score`
     - 这些字段由商业测试评分模块计算
     - 表示当前模型输出位置的整体贴合干净程度，越高越好
@@ -561,12 +578,38 @@ uv run sinan auto-train run group2 `
   - `best_local_bbox`
   - `best_local_offset_px`
   - `best_local_clean_score`
+  - `contour_overlap_ratio`
+  - `exposed_gap_edge_ratio`
+  - `double_contour_ratio`
+  - `result_cn`
+  - `final_score`
+  - `required_score`
+  - `failed_checks_cn`
   - `inference_ms`
   - `clean_score`
   - `tile_residue_ratio`
   - `double_edge_score`
   - `overflow_edge_score`
   - `PASS/FAIL`
+
+当前 `leaderboard.json` / `best_trial.json` 也已经不再只按离线 `primary_score` 排序。
+
+- 旧规则的问题是：如果很多 trial 的 `point_hit_rate` 都是 `1.0`，最早的简单样本轮次会一直排第一。
+- 当前排行榜会综合考虑：
+  - `offline_score`：离线指标组合分，来自 `point_hit_rate + mean_iou + mean_center_error_px`
+  - `difficulty_score`：当前数据版本的难度系数，来自 `dataset_preset + 数据重生深度`
+    - `smoke = 0.85`
+    - `firstpass = 1.00`
+    - `hard = 1.12`
+    - 每增加一层重生版本深度，再额外加 `0.02`，最多加到 `0.08`
+  - `business_success_rate`：当前真实业务样本通过率
+  - `commercial_ready`：当前是否已经达到最终商业门
+- 这 4 项会汇总成 `ranking_score`，`leaderboard.json` 与 `best_trial.json` 当前都按这个综合分选“最佳 trial”。
+- 因此：
+  - 离线同分时，不会再默认让 `trial_0001` 永远排第一
+  - 更难的数据版本、真实业务通过率更高的 trial，会被更优先地视为当前最佳候选
+  - 下一轮 `from_run` 默认会优先继承这个综合最佳 trial
+  - 当前还会自动清理模型目录，只保留综合评分最优的前 3 个 run，其他 trial 的模型目录会被删除
 
 注意：
 

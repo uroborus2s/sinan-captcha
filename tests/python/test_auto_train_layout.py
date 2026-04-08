@@ -30,6 +30,10 @@ class AutoTrainLayoutTests(unittest.TestCase):
         self.assertEqual(layout.format_trial_id(1), "trial_0001")
         self.assertEqual(layout.format_trial_id(27), "trial_0027")
         self.assertEqual(layout.parse_trial_id("trial_0042"), 42)
+        self.assertEqual(
+            layout.format_generated_dataset_version("study_001", "trial_0002"),
+            "study_001_trial_0002",
+        )
 
         with self.assertRaises(ValueError):
             layout.parse_trial_id("trial_42")
@@ -80,6 +84,32 @@ class AutoTrainLayoutTests(unittest.TestCase):
             self.assertEqual([entry.trial_id for entry in loaded.entries], ["trial_0001", "trial_0002"])
             self.assertEqual(best.trial_id, "trial_0001")
             self.assertEqual(best.primary_score, 0.84)
+
+    def test_leaderboard_prefers_composite_ranking_score_over_primary_score(self) -> None:
+        leaderboard = contracts.LeaderboardRecord(
+            study_name="study_001",
+            task="group2",
+            primary_metric="point_hit_rate",
+            entries=[
+                contracts.LeaderboardEntry(
+                    trial_id="trial_0001",
+                    dataset_version="v1",
+                    train_name="trial_0001",
+                    primary_score=1.0,
+                    metrics={"point_hit_rate": 1.0, "ranking_score": 0.98},
+                ),
+                contracts.LeaderboardEntry(
+                    trial_id="trial_0002",
+                    dataset_version="study_001_trial_0002",
+                    train_name="trial_0002",
+                    primary_score=0.99,
+                    metrics={"point_hit_rate": 0.99, "ranking_score": 1.06},
+                ),
+            ],
+        )
+
+        self.assertEqual([entry.trial_id for entry in leaderboard.entries], ["trial_0002", "trial_0001"])
+        self.assertEqual(leaderboard.best_entry.trial_id if leaderboard.best_entry is not None else None, "trial_0002")
 
 
 class AutoTrainRecoveryTests(unittest.TestCase):

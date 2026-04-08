@@ -574,7 +574,11 @@ class LeaderboardRecord:
         _require_non_empty(self.primary_metric, "primary_metric")
         normalized_entries = sorted(
             self.entries,
-            key=lambda entry: (-entry.primary_score, entry.trial_id),
+            key=lambda entry: (
+                -_leaderboard_ranking_score(entry),
+                -entry.primary_score,
+                entry.trial_id,
+            ),
         )
         object.__setattr__(self, "entries", normalized_entries)
 
@@ -820,9 +824,16 @@ class BusinessEvalCaseRecord:
     reason_cn: str
     overlay_path: str
     diff_path: str
+    result_cn: str | None = None
+    final_score: float | None = None
+    required_score: float | None = None
+    failed_checks_cn: list[str] | None = None
     best_local_bbox: list[int] | None = None
     best_local_offset_px: float | None = None
     best_local_clean_score: float | None = None
+    contour_overlap_ratio: float | None = None
+    exposed_gap_edge_ratio: float | None = None
+    double_contour_ratio: float | None = None
     tile_residue_ratio: float | None = None
     double_edge_score: float | None = None
     overflow_edge_score: float | None = None
@@ -836,6 +847,8 @@ class BusinessEvalCaseRecord:
         _require_non_empty(self.master_image, "master_image")
         _require_non_empty(self.tile_image, "tile_image")
         _require_non_empty(self.reason_cn, "reason_cn")
+        if self.result_cn is not None:
+            _require_non_empty(self.result_cn, "result_cn")
         _require_non_empty(self.overlay_path, "overlay_path")
         _require_non_empty(self.diff_path, "diff_path")
         _require_bbox(self.predicted_bbox, "predicted_bbox")
@@ -846,6 +859,12 @@ class BusinessEvalCaseRecord:
             raise ValueError("best_local_offset_px must not be negative")
         if self.best_local_clean_score is not None:
             _require_ratio(self.best_local_clean_score, "best_local_clean_score")
+        if self.contour_overlap_ratio is not None:
+            _require_ratio(self.contour_overlap_ratio, "contour_overlap_ratio")
+        if self.exposed_gap_edge_ratio is not None:
+            _require_ratio(self.exposed_gap_edge_ratio, "exposed_gap_edge_ratio")
+        if self.double_contour_ratio is not None:
+            _require_ratio(self.double_contour_ratio, "double_contour_ratio")
         if self.tile_residue_ratio is not None:
             _require_ratio(self.tile_residue_ratio, "tile_residue_ratio")
         if self.double_edge_score is not None:
@@ -860,6 +879,15 @@ class BusinessEvalCaseRecord:
             raise ValueError("position_error_px must not be negative")
         if self.bbox_edge_error_px is not None and self.bbox_edge_error_px < 0:
             raise ValueError("bbox_edge_error_px must not be negative")
+        if self.final_score is not None:
+            _require_ratio(self.final_score, "final_score")
+        if self.required_score is not None:
+            _require_ratio(self.required_score, "required_score")
+        if self.failed_checks_cn is not None:
+            if not isinstance(self.failed_checks_cn, list):
+                raise ValueError("failed_checks_cn must be a list")
+            for item in self.failed_checks_cn:
+                _require_non_empty(item, "failed_checks_cn")
         if self.inference_ms < 0:
             raise ValueError("inference_ms must not be negative")
         _require_ratio(self.boundary_before, "boundary_before")
@@ -882,6 +910,9 @@ class BusinessEvalCaseRecord:
             best_local_bbox=_optional_int_list(payload, "best_local_bbox", expected_length=4),
             best_local_offset_px=_optional_float(payload, "best_local_offset_px"),
             best_local_clean_score=_optional_float(payload, "best_local_clean_score"),
+            contour_overlap_ratio=_optional_float(payload, "contour_overlap_ratio"),
+            exposed_gap_edge_ratio=_optional_float(payload, "exposed_gap_edge_ratio"),
+            double_contour_ratio=_optional_float(payload, "double_contour_ratio"),
             tile_residue_ratio=_optional_float(payload, "tile_residue_ratio"),
             double_edge_score=_optional_float(payload, "double_edge_score"),
             overflow_edge_score=_optional_float(payload, "overflow_edge_score"),
@@ -897,6 +928,10 @@ class BusinessEvalCaseRecord:
             occlusion_score=_float(payload, "occlusion_score"),
             success=_bool(payload, "success"),
             reason_cn=_string(payload, "reason_cn"),
+            result_cn=_optional_string(payload, "result_cn"),
+            final_score=_optional_float(payload, "final_score"),
+            required_score=_optional_float(payload, "required_score"),
+            failed_checks_cn=_optional_string_list(payload, "failed_checks_cn"),
             overlay_path=_string(payload, "overlay_path"),
             diff_path=_string(payload, "diff_path"),
         )
@@ -1162,6 +1197,15 @@ def _optional_float(payload: dict[str, JsonValue], field_name: str) -> float | N
     return float(value)
 
 
+def _leaderboard_ranking_score(entry: LeaderboardEntry) -> float:
+    value = entry.metrics.get("ranking_score")
+    if isinstance(value, bool):
+        return entry.primary_score
+    if isinstance(value, (int, float)):
+        return float(value)
+    return entry.primary_score
+
+
 def _bool(payload: dict[str, JsonValue], field_name: str) -> bool:
     value = payload.get(field_name)
     if not isinstance(value, bool):
@@ -1234,6 +1278,12 @@ def _optional_int_list(
     if payload.get(field_name) is None:
         return None
     return _int_list(payload, field_name, expected_length=expected_length)
+
+
+def _optional_string_list(payload: dict[str, JsonValue], field_name: str) -> list[str] | None:
+    if payload.get(field_name) is None:
+        return None
+    return _string_list(payload, field_name)
 
 
 def _require_bbox(value: list[int], field_name: str) -> None:

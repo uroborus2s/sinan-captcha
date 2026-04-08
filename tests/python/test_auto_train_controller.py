@@ -59,12 +59,250 @@ def _write_dataset_config(train_root: Path, task: str, dataset_version: str) -> 
 
 
 class AutoTrainControllerTests(unittest.TestCase):
+    def test_build_leaderboard_entry_uses_composite_ranking_metrics(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            root = Path(tmpdir)
+            train_root = root / "train-root"
+            generator_workspace = root / "generator-workspace"
+            train_root.mkdir(parents=True, exist_ok=True)
+            generator_workspace.mkdir(parents=True, exist_ok=True)
+
+            ctrl = controller.AutoTrainController(
+                request=controller.AutoTrainRequest(
+                    task="group2",
+                    study_name="study_001",
+                    train_root=train_root,
+                    generator_workspace=generator_workspace,
+                    studies_root=root / "studies",
+                    dataset_version="v1",
+                ),
+            )
+
+            storage.write_trial_input_record(
+                ctrl.paths.input_file("trial_0002"),
+                contracts.TrialInputRecord(
+                    trial_id="trial_0002",
+                    task="group2",
+                    dataset_version="study_001_trial_0002",
+                    train_name="trial_0002",
+                    train_mode="from_run",
+                    base_run="trial_0001",
+                    params={"epochs": 120, "batch": 16, "imgsz": 192, "device": "0"},
+                    dataset_preset="hard",
+                ),
+            )
+
+            summary = contracts.ResultSummaryRecord(
+                study_name="study_001",
+                task="group2",
+                trial_id="trial_0002",
+                dataset_version="study_001_trial_0002",
+                train_name="trial_0002",
+                primary_metric="point_hit_rate",
+                primary_score=0.99,
+                test_metrics={"point_hit_rate": 0.99, "mean_iou": 0.91, "mean_center_error_px": 4.0},
+                evaluation_available=True,
+                evaluation_metrics={"point_hit_rate": 0.99, "mean_iou": 0.91, "mean_center_error_px": 4.0},
+                failure_count=0,
+                trend="improving",
+                delta_vs_previous=0.01,
+                delta_vs_best=0.0,
+                weak_classes=[],
+                failure_patterns=[],
+                recent_trials=[],
+                best_trial=None,
+                evidence=["test"],
+            )
+            decision = contracts.DecisionRecord(
+                trial_id="trial_0002",
+                decision="PROMOTE_BRANCH",
+                confidence=0.95,
+                reason="group2_targets_met",
+                next_action={"dataset_action": "freeze", "train_action": "promote"},
+                evidence=["targets_met"],
+                agent=contracts.AgentRef(provider="rules", name="policy-judge", model="policy-v1"),
+            )
+            business_record = contracts.BusinessEvalRecord(
+                trial_id="trial_0002",
+                task="group2",
+                train_name="trial_0002",
+                cases_root=str(root / "business-cases"),
+                available_cases=120,
+                total_cases=100,
+                passed_cases=82,
+                success_rate=0.82,
+                success_threshold=0.98,
+                min_cases=100,
+                sample_size=100,
+                commercial_ready=False,
+                occlusion_threshold=0.78,
+                report_dir=str(root / "reports" / "trial_0002"),
+                case_results=[],
+                evidence=["business_success_rate=0.82"],
+            )
+
+            entry = ctrl._build_leaderboard_entry(
+                summary_record=summary,
+                decision=decision,
+                business_record=business_record,
+            )
+
+            self.assertEqual(entry.metrics["dataset_preset"], "hard")
+            self.assertGreater(float(entry.metrics["difficulty_score"]), 1.0)
+            self.assertAlmostEqual(float(entry.metrics["business_success_rate"]), 0.82, places=6)
+            self.assertGreater(float(entry.metrics["ranking_score"]), float(entry.metrics["offline_score"]))
+
+    def test_group2_business_goal_regenerate_uses_composite_best_run(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            root = Path(tmpdir)
+            train_root = root / "train-root"
+            generator_workspace = root / "generator-workspace"
+            train_root.mkdir(parents=True, exist_ok=True)
+            generator_workspace.mkdir(parents=True, exist_ok=True)
+
+            ctrl = controller.AutoTrainController(
+                request=controller.AutoTrainRequest(
+                    task="group2",
+                    study_name="study_001",
+                    train_root=train_root,
+                    generator_workspace=generator_workspace,
+                    studies_root=root / "studies",
+                    dataset_version="v1",
+                ),
+            )
+
+            leaderboard = contracts.LeaderboardRecord(
+                study_name="study_001",
+                task="group2",
+                primary_metric="point_hit_rate",
+                entries=[
+                    contracts.LeaderboardEntry(
+                        trial_id="trial_0001",
+                        dataset_version="v1",
+                        train_name="trial_0001",
+                        primary_score=1.0,
+                        metrics={"ranking_score": 0.98},
+                    ),
+                    contracts.LeaderboardEntry(
+                        trial_id="trial_0002",
+                        dataset_version="study_001_trial_0002",
+                        train_name="trial_0002",
+                        primary_score=0.99,
+                        metrics={"ranking_score": 1.06},
+                    ),
+                ],
+            )
+            summary = contracts.ResultSummaryRecord(
+                study_name="study_001",
+                task="group2",
+                trial_id="trial_0003",
+                dataset_version="study_001_trial_0003",
+                train_name="trial_0003",
+                primary_metric="point_hit_rate",
+                primary_score=0.97,
+                test_metrics={"point_hit_rate": 0.97},
+                evaluation_available=True,
+                evaluation_metrics={"point_hit_rate": 0.97},
+                failure_count=0,
+                trend="plateau",
+                delta_vs_previous=0.0,
+                delta_vs_best=-0.02,
+                weak_classes=[],
+                failure_patterns=[],
+                recent_trials=[],
+                best_trial=None,
+                evidence=["plateau"],
+            )
+            decision = contracts.DecisionRecord(
+                trial_id="trial_0003",
+                decision="REGENERATE_DATA",
+                confidence=0.9,
+                reason="business_gate_blocked",
+                next_action={"dataset_action": "new_version", "train_action": "from_run", "base_run": "trial_0003"},
+                evidence=["business_gate_blocked"],
+                agent=contracts.AgentRef(provider="rules", name="policy-judge", model="policy-v1"),
+            )
+
+            regenerated = ctrl._regenerate_decision_for_group2_business_goal(
+                summary_record=summary,
+                decision=decision,
+                business_record=None,
+                leaderboard=leaderboard,
+            )
+
+            self.assertEqual(regenerated.next_action["base_run"], "trial_0002")
+
+    def test_prune_model_runs_keeps_only_top_three_train_names(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            root = Path(tmpdir)
+            train_root = root / "train-root"
+            generator_workspace = root / "generator-workspace"
+            runs_root = train_root / "runs" / "group2"
+            generator_workspace.mkdir(parents=True, exist_ok=True)
+            for train_name in ("trial_0001", "trial_0002", "trial_0003", "trial_0004"):
+                weights_dir = runs_root / train_name / "weights"
+                weights_dir.mkdir(parents=True, exist_ok=True)
+                (weights_dir / "best.pt").write_text("best", encoding="utf-8")
+
+            ctrl = controller.AutoTrainController(
+                request=controller.AutoTrainRequest(
+                    task="group2",
+                    study_name="study_001",
+                    train_root=train_root,
+                    generator_workspace=generator_workspace,
+                    studies_root=root / "studies",
+                    dataset_version="v1",
+                ),
+            )
+            leaderboard = contracts.LeaderboardRecord(
+                study_name="study_001",
+                task="group2",
+                primary_metric="point_hit_rate",
+                entries=[
+                    contracts.LeaderboardEntry(
+                        trial_id="trial_0002",
+                        dataset_version="v2",
+                        train_name="trial_0002",
+                        primary_score=0.99,
+                        metrics={"ranking_score": 1.08},
+                    ),
+                    contracts.LeaderboardEntry(
+                        trial_id="trial_0003",
+                        dataset_version="v3",
+                        train_name="trial_0003",
+                        primary_score=0.98,
+                        metrics={"ranking_score": 1.05},
+                    ),
+                    contracts.LeaderboardEntry(
+                        trial_id="trial_0004",
+                        dataset_version="v4",
+                        train_name="trial_0004",
+                        primary_score=0.97,
+                        metrics={"ranking_score": 1.03},
+                    ),
+                    contracts.LeaderboardEntry(
+                        trial_id="trial_0001",
+                        dataset_version="v1",
+                        train_name="trial_0001",
+                        primary_score=1.0,
+                        metrics={"ranking_score": 0.96},
+                    ),
+                ],
+            )
+
+            ctrl._prune_model_runs(leaderboard)
+
+            self.assertFalse((runs_root / "trial_0001").exists())
+            self.assertTrue((runs_root / "trial_0002").exists())
+            self.assertTrue((runs_root / "trial_0003").exists())
+            self.assertTrue((runs_root / "trial_0004").exists())
+
     def test_hydrate_result_summary_payload_restores_missing_deterministic_fields(self) -> None:
         fallback = contracts.ResultSummaryRecord(
             study_name="study_001",
             task="group1",
             trial_id="trial_0002",
-            dataset_version="firstpass_r0002",
+            dataset_version="study_001_trial_0002",
             train_name="trial_0002",
             primary_metric="map50_95",
             primary_score=0.79,
@@ -121,7 +359,7 @@ class AutoTrainControllerTests(unittest.TestCase):
         hydrated = controller._hydrate_result_summary_payload(payload, fallback_record=fallback)
         record = contracts.ResultSummaryRecord.from_dict(hydrated)
 
-        self.assertEqual(record.dataset_version, "firstpass_r0002")
+        self.assertEqual(record.dataset_version, "study_001_trial_0002")
         self.assertEqual(record.train_name, "trial_0002")
         self.assertIsNotNone(record.best_trial)
         assert record.best_trial is not None
@@ -1200,7 +1438,7 @@ class AutoTrainControllerTests(unittest.TestCase):
             self.assertEqual(plan_record.dataset_action, "new_version")
             self.assertIn("opencode_dataset_plan", plan_record.evidence)
             next_input = storage.read_trial_input_record(ctrl.paths.input_file("trial_0002"))
-            self.assertEqual(next_input.dataset_version, "firstpass_r0002")
+            self.assertEqual(next_input.dataset_version, "study_001_trial_0002")
             self.assertEqual(next_input.dataset_preset, "hard")
             self.assertEqual(next_input.dataset_override, plan_record.generator_overrides)
 
@@ -1416,7 +1654,7 @@ class AutoTrainControllerTests(unittest.TestCase):
                 contracts.TrialInputRecord(
                     trial_id="trial_0002",
                     task="group1",
-                    dataset_version="firstpass_r0002",
+                    dataset_version="study_001_trial_0002",
                     dataset_preset="hard",
                     dataset_override={
                         "project": {"sample_count": 320},
@@ -1618,7 +1856,7 @@ class AutoTrainControllerTests(unittest.TestCase):
                 contracts.TrialInputRecord(
                     trial_id="trial_0002",
                     task="group1",
-                    dataset_version="firstpass_r0002",
+                    dataset_version="study_001_trial_0002",
                     dataset_preset="hard",
                     dataset_override={"project": {"sample_count": 320}},
                     train_name="trial_0002",
@@ -1633,7 +1871,7 @@ class AutoTrainControllerTests(unittest.TestCase):
                     study_name="study_001",
                     task="group1",
                     trial_id="trial_0002",
-                    dataset_version="firstpass_r0002",
+                    dataset_version="study_001_trial_0002",
                     train_name="trial_0002",
                     primary_metric="map50_95",
                     primary_score=0.78,
@@ -1783,7 +2021,7 @@ class AutoTrainControllerTests(unittest.TestCase):
             self.assertEqual(study.status, "running")
             self.assertEqual(study.current_trial_id, "trial_0002")
             next_input = storage.read_trial_input_record(ctrl.paths.input_file("trial_0002"))
-            self.assertEqual(next_input.dataset_version, "firstpass_r0002")
+            self.assertEqual(next_input.dataset_version, "study_001_trial_0002")
 
     def test_run_with_zero_max_steps_continues_until_commercial_stop(self) -> None:
         with tempfile.TemporaryDirectory() as tmpdir:
