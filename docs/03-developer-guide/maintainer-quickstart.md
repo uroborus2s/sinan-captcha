@@ -77,7 +77,7 @@ git --version
 
 目录：
 
-- `solver_package/`
+- `solver/`
 
 职责：
 
@@ -109,7 +109,7 @@ cd ..
 ### 4.3 独立 solver 包最小回归
 
 ```bash
-cd solver_package
+cd solver
 uv run pytest
 cd ..
 ```
@@ -157,15 +157,15 @@ cd ..
 ### 5.3 编译独立 solver 包
 
 ```bash
-cd solver_package
+cd solver
 uv build
 cd ..
 ```
 
 构建结果：
 
-- `solver_package/dist/*.whl`
-- `solver_package/dist/*.tar.gz`
+- `solver/dist/*.whl`
+- `solver/dist/*.tar.gz`
 
 ## 6. 最快发一版根仓库 Python 包
 
@@ -214,8 +214,8 @@ uv run sinan release package-windows \
 
 做到下面这些，才算真正能维护：
 
-1. 知道根仓库 Python 包、Go 生成器、`solver_package` 分别怎么编译
-2. 跑过根仓库 Python、Go、`solver_package` 三类最小回归
+1. 知道根仓库 Python 包、Go 生成器、`solver` 分别怎么编译
+2. 跑过根仓库 Python、Go、`solver` 三类最小回归
 3. 知道根仓库主发布链路是 `sinan-captcha`，不是 `sinanz`
 4. 知道 Windows 交付包依赖 wheel + `sinan-generator.exe`
 5. 改完文档或流程后会同步 `.factory`

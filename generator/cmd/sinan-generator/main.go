@@ -61,6 +61,7 @@ func usage() string {
 		"  workspace show                Print workspace metadata.\n" +
 		"  materials import              Import a local materials pack into the workspace.\n" +
 		"  materials fetch               Fetch a zipped materials pack into the workspace.\n" +
+		"  materials merge               Merge incoming raw images into an existing materials root.\n" +
 		"  make-dataset                  Generate a ready-to-train YOLO dataset directory.\n\n" +
 		"Notes:\n" +
 		"  Presets: firstpass=200 samples, hard=200 samples, smoke=20 samples.\n" +
@@ -75,6 +76,7 @@ func usage() string {
 		"  sinan-generator materials import --workspace D:\\sinan-captcha-generator\\workspace --from D:\\materials-pack\n" +
 		"  sinan-generator materials import --workspace D:\\sinan-captcha-generator\\workspace --from D:\\materials-pack-group1 --task group1\n" +
 		"  sinan-generator materials fetch --workspace D:\\sinan-captcha-generator\\workspace --source https://example.com/materials-pack.zip\n" +
+		"  sinan-generator materials merge --into D:\\materials-pack --from D:\\incoming-materials\n" +
 		"  sinan-generator make-dataset --workspace D:\\sinan-captcha-generator\\workspace --task group1 --dataset-dir D:\\sinan-captcha-work\\datasets\\group1\\firstpass\\yolo\n"
 }
 
@@ -159,6 +161,24 @@ func runMaterials(args []string) error {
 			return err
 		}
 		result, err := materialset.FetchArchive(state, *source, *name, *task)
+		if err != nil {
+			return err
+		}
+		return printJSON(result)
+	case "merge":
+		fs := flag.NewFlagSet("materials merge", flag.ContinueOnError)
+		targetRoot := fs.String("into", "", "path to an existing materials root")
+		incomingRoot := fs.String("from", "", "path to an incoming directory with backgrounds/, group1/, and group2/")
+		if err := fs.Parse(args[1:]); err != nil {
+			return err
+		}
+		if *targetRoot == "" {
+			return fmt.Errorf("--into is required")
+		}
+		if *incomingRoot == "" {
+			return fmt.Errorf("--from is required")
+		}
+		result, err := materialset.Merge(*targetRoot, *incomingRoot)
 		if err != nil {
 			return err
 		}

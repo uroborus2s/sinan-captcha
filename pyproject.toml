@@ -21,8 +21,7 @@ train = [
   "pyyaml",
   "scikit-image",
   "tqdm",
-  "ultralytics",
-  "playwright",
+  "ultralytics"
 ]
 
 [project.scripts]
@@ -63,4 +62,6 @@ strict = true
 warn_unused_configs = true
 
 [dependency-groups]
-dev = []
+dev = [
+    "playwright"
+]

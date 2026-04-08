@@ -121,6 +121,27 @@ def _group2_trial_input(trial_id: str) -> contracts.TrialInputRecord:
 
 
 class BusinessEvalScoringTests(unittest.TestCase):
+    def test_overlay_gate_allows_visually_aligned_case_when_only_clean_score_is_slightly_low(self) -> None:
+        metrics = business_eval.OverlayArtifactMetrics(
+            contour_overlap_ratio=0.605263,
+            exposed_gap_edge_ratio=0.180000,
+            double_contour_ratio=0.120000,
+            tile_residue_ratio=0.280000,
+            double_edge_score=0.120000,
+            overflow_edge_score=0.110000,
+            artifact_score=0.233018,
+            clean_score=0.766982,
+        )
+
+        verdict = business_eval._overlay_gate_verdict(
+            local_metrics=metrics,
+            best_local_offset_px=1.0,
+            success_threshold=0.78,
+        )
+
+        self.assertTrue(verdict.success)
+        self.assertEqual(verdict.failed_checks_cn, [])
+
     def test_overlay_artifact_score_prefers_aligned_position(self) -> None:
         base = _dark_textured_grid(64, 64)
         alpha = _outline_mask(12, 12)

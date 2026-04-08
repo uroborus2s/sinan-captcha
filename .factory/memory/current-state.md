@@ -17,6 +17,48 @@
 
 ## 当前事实
 
+- 2026-04-09 当前开发期脚本目录已从 `sript/` 正式更名为 `script/`：
+  - 当前脚本源码入口已统一改为 `script/crawl/ctrip_login.py`
+  - 当前脚本目录说明文件已改为 `script/README.md`
+  - 当前测试中的动态导入路径已改为 `script/crawl/ctrip_login.py`
+  - 当前开发者与设计文档已同步从 `sript/` 切换到 `script/`
+  - 当前 VS Code 调试配置中的 `script.crawl.ctrip_login` 与目录名已一致
+  - 当前新增验证：
+    - `uv run python -m unittest tests.python.test_ctrip_login_script`
+    - `uv run python -m py_compile script/crawl/ctrip_login.py`
+    - `git diff --check`
+- 2026-04-09 当前 `script/crawl/ctrip_login.py` 已把 `两者都保存` 收口为“连续保存滑块直到点选出现”：
+  - 当前 `两者都保存` 模式会先保存一组滑块图到 `materials/result/<timestamp>_<index>/`
+  - 每次随机拖动后如果仍是滑块，当前会再保存一组新的滑块图
+  - 一旦切到点选模式，当前会保存一组点选图到 `materials/group1/<timestamp>_<index>/`
+  - 当前这一轮任务在保存点选图后就结束，并关闭浏览器进入下一轮
+  - 当前已新增 `capture_both_mode(...)` 状态机，统一处理滑块重复保存与点选收口
+  - 当前新增验证：
+    - `uv run python -m unittest tests.python.test_ctrip_login_script`
+    - `uv run python -m py_compile script/crawl/ctrip_login.py`
+- 2026-04-08 当前 `script/crawl/ctrip_login.py` 已补齐携程验证码采集能力：
+  - 当前脚本启动时会先选择采集模式：
+    - `点选`
+    - `滑块`
+    - `两者都保存`
+  - 当前在 `点选` 或 `两者都保存` 模式下，会在发送验证码后随机拖动滑块，直到携程验证码切换到点选模式
+  - 当前会把点选背景图和小图从 `data:image` 直接落盘到 `materials/group1/<timestamp>_<index>/`
+  - 当前会把滑块背景图和拼图块落盘到 `materials/result/<timestamp>_<index>/`
+  - 当前已把 `data:image` 解码、目录生成、文件保存等逻辑拆成可单测的纯函数
+  - 当前开发者文档已补充 `script/crawl/ctrip_login.py` 的边界和输出位置
+  - 当前新增验证：
+    - `uv run python -m unittest tests.python.test_ctrip_login_script`
+    - `uv run python -m py_compile script/crawl/ctrip_login.py`
+- 2026-04-08 当前仓库已把独立 solver 子项目目录从 `solver_package/` 更名为 `solver/`，并把 crawl 开发脚本迁出 `core/`：
+  - 当前 `solver/` 作为独立 solver 项目根目录继续编译和执行
+  - 当前 `core/crawl/ctrip_login.py` 已迁到 `script/crawl/ctrip_login.py`
+  - 当前 `script/` 只存放开发阶段辅助脚本，不再属于正式 Python 包边界
+  - 当前开发者与设计文档已同步使用 `solver/` 路径
+  - 当前已验证：
+    - `cargo test`（cwd=`solver/`）
+    - `PYTHONPATH=src .venv/bin/python -m unittest discover -s tests -p 'test_*.py'`（cwd=`solver/`）
+    - `PYTHONPYCACHEPREFIX=/tmp/pycache python3 -m py_compile script/crawl/ctrip_login.py`
+    - `git diff --check`
 - 2026-04-08 当前仓库已把 `auto-train` 自动生成的数据集目录命名收口为 `study-name_trial-id`：
   - `core/auto_train/controller.py` 当前在 `dataset_action = new_version` 时，会统一生成：
     - `study_001_trial_0002`

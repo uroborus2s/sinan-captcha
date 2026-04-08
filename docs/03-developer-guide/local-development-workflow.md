@@ -51,9 +51,9 @@
 
 主要目录：
 
-- `solver_package/src/`
-- `solver_package/native/`
-- `solver_package/tests/`
+- `solver/src/`
+- `solver/native/`
+- `solver/tests/`
 
 ### 1.4 跨模块契约
 
@@ -143,7 +143,7 @@ cd ..
 跑测试：
 
 ```bash
-cd solver_package
+cd solver
 uv run pytest
 cd ..
 ```
@@ -151,15 +151,15 @@ cd ..
 构建包：
 
 ```bash
-cd solver_package
+cd solver
 uv build
 cd ..
 ```
 
 ### 4.2 什么时候至少跑这一层
 
-- 改了 `solver_package/src/`
-- 改了 `solver_package/native/`
+- 改了 `solver/src/`
+- 改了 `solver/native/`
 - 改了 solver 资产加载方式
 - 改了独立 API 或资源目录结构
 
@@ -170,10 +170,10 @@ cd ..
 | 只改开发者文档 | `git diff --check` |
 | 只改根仓库 Python | `uv run python -m unittest discover -s tests/python -p 'test_*.py'` |
 | 只改 Go 生成器 | `cd generator && GOCACHE=/tmp/sinan-go-build-cache go test ./...` |
-| 只改 `solver_package` | `cd solver_package && uv run pytest` |
+| 只改 `solver` | `cd solver && uv run pytest` |
 | 改发布链路 | 根仓库 Python 测试 + `uv run sinan release build --project-dir .` |
 | 改交付包结构 | 根仓库 Python 测试 + 生成器构建 + `package-windows` 烟测 |
-| 改数据/资产交接合同 | 根仓库 Python 测试 + Go 测试 + `solver_package` 测试 |
+| 改数据/资产交接合同 | 根仓库 Python 测试 + Go 测试 + `solver` 测试 |
 
 ## 6. 改完后必须同步哪些文档
 
@@ -214,7 +214,7 @@ git status --short
 - `.venv/`
 - `dist/` 构建产物
 - `generator/dist/` 二进制
-- `solver_package/dist/` 构建产物
+- `solver/dist/` 构建产物
 - `runs/`
 - `reports/`
 - 本地缓存

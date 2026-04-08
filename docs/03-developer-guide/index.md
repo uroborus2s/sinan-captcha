@@ -16,7 +16,7 @@
   - 根仓库 wheel + sdist
   - `generator/` 下的 `sinan-generator` 二进制
   - 基于两者组装的 Windows 训练交付包
-- `solver_package/` 是独立 solver 包主线的迁移工程，当前可以本地编译和验证，但还不是根仓库主发布入口。
+- `solver/` 是独立 solver 包主线的迁移工程，当前可以本地编译和验证，但还不是根仓库主发布入口。
 
 ## 2. 本目录推荐阅读顺序
 
@@ -47,7 +47,7 @@
 | --- | --- | --- | --- | --- |
 | 训练 CLI | `.` | Python | `sinan`、训练、评估、自动训练、发布打包 | `uv run sinan release build --project-dir .` |
 | 生成器 | `generator/` | Go | `sinan-generator`、工作区、素材、数据集生成 | `go build -o dist/generator/<platform>/sinan-generator ./cmd/sinan-generator` |
-| 独立 solver 包 | `solver_package/` | Python + Rust | `sinanz` 迁移主线、公共 API、原生桥接骨架 | `cd solver_package && uv build` |
+| 独立 solver 包 | `solver/` | Python + Rust | `sinanz` 迁移主线、公共 API、原生桥接骨架 | `cd solver && uv build` |
 
 ## 5. 本目录的维护原则
 

@@ -46,7 +46,8 @@ sinan-captcha/
   docs/
   generator/
   core/
-  solver_package/
+  solver/
+  script/
   tests/
   configs/
   materials/
@@ -60,8 +61,9 @@ sinan-captcha/
 
 - `generator/`：Go 生成器工程
 - `core/`：Python 训练、评估、发布、自主训练与迁移期 solver 参考实现
-- `solver_package/`：独立 solver Python 项目过渡目录，后续可抽离为单独仓库
-- `solver_package/native/`：独立 solver 的 Rust 原生扩展工程
+- `solver/`：独立 solver Python 项目过渡目录，后续可抽离为单独仓库
+- `solver/native/`：独立 solver 的 Rust 原生扩展工程
+- `script/`：开发期辅助脚本目录，不属于正式运行时模块
 - `tests/`：Go 和 Python 测试
 - `configs/`：运行配置
 - `materials/`：素材或素材包构建结果
@@ -226,12 +228,12 @@ core/
   - 代码已存在
   - 不应继续被定义为最终公开产品边界
 
-### 5.10 `solver_package/`
+### 5.10 `solver/`
 
 - 目标目录：
 
 ```text
-solver_package/
+solver/
   Cargo.toml
   pyproject.toml
   native/
@@ -265,7 +267,7 @@ solver_package/
   - 第一阶段允许作为当前仓库内的独立 Python 子项目存在
   - 第二阶段可整体抽离为独立仓库，不改变包名和函数名
 
-### 5.11 `solver_package/native/sinanz_ext`
+### 5.11 `solver/native/sinanz_ext`
 
 - 职责：
   - Rust 原生扩展工程
@@ -386,9 +388,9 @@ solver_package/
 ### 7.5 独立 solver 包
 
 - 目标目录：
-  - `solver_package/`
+  - `solver/`
 - 正式打包：
-  - `cd solver_package && uv build`
+  - `cd solver && uv build`
 - 正式交付形态：
   - `sinanz-<version>-cp312-<platform>.whl`
 - 安装形态：
@@ -407,7 +409,7 @@ solver_package/
 | `core/train/*` | Python | wheel 内部模块 | Python 环境 |
 | `core/auto_train/*` | Python | wheel 内部模块 | Python 环境 |
 | `core/solve/*` | Python | 迁移参考实现 / 内部调试能力 | 训练仓库内部 |
-| `solver_package/src/sinanz/*` | Python | 独立 solver wheel（含内嵌推理资产） | 调用方 Python 环境 |
+| `solver/src/sinanz/*` | Python | 独立 solver wheel（含内嵌推理资产） | 调用方 Python 环境 |
 | `core/release/*` | Python | wheel 内部模块 | Python 环境 |
 | `materials/*` | 图片 / YAML | 素材包 | 训练机本地 |
 | `datasets/*` | 图片 / JSONL | 数据目录 | 训练机本地 |
@@ -424,7 +426,7 @@ solver_package/
 6. `core/evaluate`
 7. `core/auto_train`
 8. 训练仓库导出推理资产
-9. `solver_package/` 独立项目
+9. `solver/` 独立项目
 10. `core/solve` 运行时抽离 / 内部调试降级
 11. solver 发布链路与 PyPI 收口
 

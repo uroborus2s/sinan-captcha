@@ -237,7 +237,58 @@ Set-Location D:\sinan-captcha-generator
   --name group2-pack-v1
 ```
 
-### 5.3 生成数据时自动拉取素材
+### 5.3 把中转目录增量并入现有素材集
+
+如果你手上不是完整素材包，而是一批零散的新背景图、点选图标和透明缺口图，可以先放到一个中转目录，再用 `materials merge` 直接并进已有素材集根目录。
+
+中转目录结构：
+
+```text
+D:\incoming-materials\
+  backgrounds\
+    bg_001.jpg
+    bg_002.png
+  group1\
+    house.png
+    star.png
+  group2\
+    ticket-gap.png
+    star-gap.png
+```
+
+规则说明：
+
+- `backgrounds/`
+  - 每个文件都会追加到现有背景池。
+- `group1/`
+  - 当前按“1 张图 = 1 个新类别”处理。
+  - 类别名默认取文件名去扩展名后的结果，例如 `star.png -> star`。
+  - 如果现有素材集里已经有同名类别，会自动补成 `star_002`、`star_003`。
+- `group2/`
+  - 每个透明缺口图都会追加成 1 个新 shape。
+  - shape 名默认取文件名去扩展名后的结果。
+  - 合并时会自动：
+    - 按 alpha 裁掉四周透明边；
+    - 补成方形透明画布；
+    - 写入 `group2/shapes/<shape_name>/001.png`。
+  - 这一步是为了避免细长透明 gap 直接缩放后形状被压扁。
+
+命令示例：
+
+```powershell
+.\sinan-generator.exe materials merge `
+  --into D:\materials-pack `
+  --from D:\incoming-materials
+```
+
+合并后会自动：
+
+- 补齐 `manifests/materials.yaml`
+- 追加 `manifests/group1.classes.yaml`
+- 追加 `manifests/group2.shapes.yaml`
+- 运行当前素材校验
+
+### 5.4 生成数据时自动拉取素材
 
 如果当前工作区还没有激活素材集，可以在 `make-dataset` 里直接传 `--materials-source`：
 

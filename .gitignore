@@ -15,6 +15,7 @@ htmlcov/
 /build/
 *.egg-info/
 /generator/dist/
+target/
 
 # Go build artifacts
 /generator/build/*
@@ -32,13 +33,7 @@ htmlcov/
 !/generator/output/.gitkeep
 
 # Local materials that should not be pushed
-/materials/backgrounds/*
-!/materials/backgrounds/.gitkeep
-/materials/icons/*
-!/materials/icons/.gitkeep
-/materials/manifests/backgrounds.csv
-/materials/manifests/icons.csv
-/materials/quarantine/
+/materials/
 
 # Model and export artifacts
 *.pt

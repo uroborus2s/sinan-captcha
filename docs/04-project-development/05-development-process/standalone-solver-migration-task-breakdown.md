@@ -9,8 +9,8 @@
   - `docs/04-project-development/04-design/module-structure-and-delivery.md`
   - `docs/03-developer-guide/solver-bundle-and-integration.md`
 - 下游交付：
-  - `solver_package/` 独立 Python 项目
-  - `solver_package/native/sinanz_ext/` Rust 原生扩展工程
+  - `solver/` 独立 Python 项目
+  - `solver/native/sinanz_ext/` Rust 原生扩展工程
   - 训练仓库推理资产导出链路
   - PyPI 平台 wheel 发布与安装冒烟验证
 - 关联需求：`REQ-001`、`REQ-004`、`REQ-008`、`REQ-010`、`NFR-004`、`NFR-007`
@@ -65,7 +65,7 @@ from sinanz import sn_match_slider, sn_match_targets
 | TASK-SOLVER-MIG-001 | 冻结边界与弃用策略 | 项目维护者 | 最新业务澄清、现有 `core/solve` | 边界表、弃用表 | 边界冻结 | 0.5 天 |
 | TASK-SOLVER-MIG-002 | 冻结独立 solver API 与异常合同 | 架构负责人 | 业务语义、边界表 | API 字段表、示例代码、异常表 | API 冻结 | 0.5 天 |
 | TASK-SOLVER-MIG-003 | 冻结推理资产导出合同 | 训练链路负责人 | 现有训练产物、API 合同 | 导出目录规范、manifest 字段表 | 资产合同冻结 | 0.5 天 |
-| TASK-SOLVER-MIG-004 | 建立独立 solver 子项目骨架 | Python 实现者 | API 合同、资产合同 | `solver_package/` 工程骨架 | 子项目可构建 | 0.5 天 |
+| TASK-SOLVER-MIG-004 | 建立独立 solver 子项目骨架 | Python 实现者 | API 合同、资产合同 | `solver/` 工程骨架 | 子项目可构建 | 0.5 天 |
 | TASK-SOLVER-MIG-005 | 抽离共享运行时与 `group2` 过渡代码 | Python 实现者 | `core/solve`、`core/train/group2` | 独立加载层、group2 过渡 runtime | 训练依赖切断 | 1 天 |
 | TASK-SOLVER-MIG-006 | 冻结 `PT -> ONNX` 导出与命名合同 | 架构负责人 | 训练产物、独立 solver 需求 | ONNX 命名、metadata、导出规则 | ONNX 合同冻结 | 0.5 天 |
 | TASK-SOLVER-MIG-007 | 建立 Rust 原生扩展工程与构建边界 | Rust 实现者 | ONNX 合同、子项目骨架 | `sinanz_ext` 工程、Cargo workspace | 原生工程可构建 | 0.5 天 |
@@ -135,9 +135,9 @@ from sinanz import sn_match_slider, sn_match_targets
 | 协作角色 | 发布维护者 |
 | 前置条件 | TASK-SOLVER-MIG-003 已通过 |
 | 主要输入 | API 合同、资产合同 |
-| 操作步骤 | 1. 新建 `solver_package/pyproject.toml`、`src/sinanz/`、`tests/`。<br>2. 固定独立依赖、包资源规则和测试入口。<br>3. 保证 `uv build` 可以独立执行，不依赖训练仓库根 `pyproject.toml`。 |
+| 操作步骤 | 1. 新建 `solver/pyproject.toml`、`src/sinanz/`、`tests/`。<br>2. 固定独立依赖、包资源规则和测试入口。<br>3. 保证 `uv build` 可以独立执行，不依赖训练仓库根 `pyproject.toml`。 |
 | 输出产物 | 子项目骨架、最小导入测试、最小构建测试 |
-| 验收标准 | `solver_package/` 可作为独立 Python 项目单独构建 |
+| 验收标准 | `solver/` 可作为独立 Python 项目单独构建 |
 | 阻断条件 | 子项目仍隐式依赖训练仓库根环境或根入口脚本 |
 | 失败处理 | 回补工程边界，不进入运行时代码迁移 |
 | 预计工时 | 0.5 天 |
@@ -186,7 +186,7 @@ from sinanz import sn_match_slider, sn_match_targets
 | 协作角色 | Python 实现者、发布维护者 |
 | 前置条件 | TASK-SOLVER-MIG-006 已通过 |
 | 主要输入 | ONNX 合同、独立 solver 子项目 |
-| 操作步骤 | 1. 新建 `solver_package/Cargo.toml` workspace。<br>2. 新建 `solver_package/native/sinanz_ext/Cargo.toml` 和 `src/lib.rs`。<br>3. 固定 crate 类型、扩展入口、未来 `pyo3 + ort` 的接入位置和构建说明。 |
+| 操作步骤 | 1. 新建 `solver/Cargo.toml` workspace。<br>2. 新建 `solver/native/sinanz_ext/Cargo.toml` 和 `src/lib.rs`。<br>3. 固定 crate 类型、扩展入口、未来 `pyo3 + ort` 的接入位置和构建说明。 |
 | 输出产物 | Rust 工程骨架、Cargo workspace、原生扩展说明 |
 | 验收标准 | Rust 子项目可以独立被 Cargo 识别，且目录边界清晰可维护 |
 | 阻断条件 | Rust 工程仍散落在 Python 包根目录，或未来 `pyo3` / wheel 构建位置不清晰 |

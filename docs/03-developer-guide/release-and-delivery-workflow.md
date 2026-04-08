@@ -58,7 +58,7 @@
 
 当前目录：
 
-- `solver_package/`
+- `solver/`
 
 说明：
 
@@ -88,7 +88,7 @@ git diff --check
 如果这次还改了独立 solver 包，再加：
 
 ```bash
-cd solver_package
+cd solver
 uv run pytest
 cd ..
 ```
@@ -230,10 +230,10 @@ uv run sinan release package-windows \
 
 ## 8. 独立 solver 包当前怎么编译
 
-如果你这次维护的是 `solver_package/`，用它自己的构建链路：
+如果你这次维护的是 `solver/`，用它自己的构建链路：
 
 ```bash
-cd solver_package
+cd solver
 uv run pytest
 uv build
 cd ..
@@ -249,7 +249,7 @@ cd ..
 1. 修改 `core/_version.py`
 2. 跑根仓库 Python 测试
 3. 跑 Go 生成器测试
-4. 如有需要，跑 `solver_package` 测试
+4. 如有需要，跑 `solver` 测试
 5. 构建根仓库 Python 包
 6. 构建 `sinan-generator.exe`
 7. 如有需要，导出 solver 资产

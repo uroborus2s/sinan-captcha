@@ -307,12 +307,14 @@ class AutoTrainController:
 
     def _stage_test(self, trial_id: str) -> StageExecution:
         input_record = storage.read_trial_input_record(self.paths.input_file(trial_id))
+        model_path = self._resolve_test_model_path(trial_id, input_record.train_name)
         result = self.dependencies.test_runner(
             runners.test.TestRunnerRequest(
                 task=self.request.task,
                 train_root=self.request.train_root,
                 dataset_version=input_record.dataset_version,
                 train_name=input_record.train_name,
+                model_path=model_path,
                 imgsz=_int_value(input_record.params, "imgsz", default=self.request.effective_imgsz),
                 device=_string_value(input_record.params, "device", default=self.request.device) or self.request.device,
             )
@@ -774,11 +776,7 @@ class AutoTrainController:
                         agent=contracts.AgentRef(provider="system", name="leaderboard"),
                     )
                 )
-                candidate_business = (
-                    storage.read_business_eval_record(self.paths.business_eval_file(candidate_trial_id))
-                    if self.paths.business_eval_file(candidate_trial_id).exists()
-                    else None
-                )
+                candidate_business = self._safe_read_business_eval_record(candidate_trial_id)
                 entry = self._build_leaderboard_entry(
                     summary_record=candidate_summary,
                     decision=candidate_decision,
@@ -805,6 +803,28 @@ class AutoTrainController:
             )
         self._prune_model_runs(record)
         return record
+
+    def _resolve_test_model_path(self, trial_id: str, train_name: str) -> Path | None:
+        train_path = self.paths.train_file(trial_id)
+        if not train_path.exists():
+            return None
+        train_record = storage.read_train_record(train_path)
+        best_path = Path(train_record.best_weights)
+        if best_path.exists():
+            return best_path
+        last_path = Path(train_record.last_weights)
+        if last_path.exists():
+            return last_path
+        return best_path
+
+    def _safe_read_business_eval_record(self, trial_id: str) -> contracts.BusinessEvalRecord | None:
+        path = self.paths.business_eval_file(trial_id)
+        if not path.exists():
+            return None
+        try:
+            return storage.read_business_eval_record(path)
+        except (OSError, ValueError):
+            return None
 
     def _prune_model_runs(self, leaderboard: contracts.LeaderboardRecord) -> None:
         prune_names = {

@@ -4,7 +4,7 @@
 - 当前阶段：IMPLEMENTATION
 - 目标读者：维护仓库、调整 CLI、整理交付物的开发者
 - 负责人：Codex
-- 最近更新：2026-04-05
+- 最近更新：2026-04-09
 
 ## 0. 这页解决什么问题
 
@@ -29,6 +29,8 @@
 
 - `generator/`
 - `core/`
+- `solver/`
+- `script/`
 - `configs/`
 - `docs/`
 - `.factory/`
@@ -177,9 +179,20 @@ D:\sinan-solver\
 
 - `generator/`
 - `core/`
+- `solver/`
+- `script/`
 - `docs/`
 - `.factory/`
 - `configs/`
+
+补充边界：
+
+- `solver/` 是独立 solver 项目的源码目录。
+- `script/` 只放开发期辅助脚本，不进入正式 CLI / SDK 运行时边界。
+- `script/crawl/ctrip_login.py` 当前用于开发阶段采集携程验证码素材：
+  - 点选模式输出到 `materials/group1/`
+  - 滑块模式输出到 `materials/result/`
+  - `两者都保存` 模式会连续保存滑块组，直到切到点选后再保存一组点选图并结束当前浏览器会话
 
 ### 3.2 可以出现样例或占位，但不应把运行结果当源码维护的目录
 

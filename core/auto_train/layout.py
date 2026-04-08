@@ -28,6 +28,16 @@ def parse_trial_id(trial_id: str) -> int:
     return int(match.group(1))
 
 
+def format_generated_dataset_version(study_name: str, trial_id: str) -> str:
+    """Return the auto-generated dataset version for a study trial."""
+
+    normalized_study_name = study_name.strip()
+    if not normalized_study_name:
+        raise ValueError("study_name must not be empty")
+    parse_trial_id(trial_id)
+    return f"{normalized_study_name}_{trial_id}"
+
+
 @dataclass(frozen=True)
 class StudyPaths:
     studies_root: Path

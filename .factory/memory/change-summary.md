@@ -1,5 +1,105 @@
 # 变更摘要
 
+## 2026-04-09 目录更名：`sript/ -> script/`
+
+- 已更新：
+  - `script/README.md`
+  - `script/crawl/ctrip_login.py`
+  - `tests/python/test_ctrip_login_script.py`
+  - `docs/03-developer-guide/repository-structure-and-boundaries.md`
+  - `docs/04-project-development/04-design/module-structure-and-delivery.md`
+  - `.factory/memory/current-state.md`
+  - `.factory/memory/change-summary.md`
+- 当前已完成的目标：
+  - 开发期脚本目录当前已从 `sript/` 正式更名为 `script/`
+  - 脚本源码、README、测试动态导入路径和文档目录说明当前已统一改名
+  - `Ctrip Login` 调试配置当前使用的 `script.crawl.ctrip_login` 已与实际目录名一致
+- 已运行验证：
+  - `uv run python -m unittest tests.python.test_ctrip_login_script`
+  - `uv run python -m py_compile script/crawl/ctrip_login.py`
+  - `git diff --check`
+
+## 2026-04-09 调整 `script/crawl/ctrip_login.py`：`两者都保存` 会连续保存滑块，直到点选出现
+
+- 已更新：
+  - `script/crawl/ctrip_login.py`
+  - `tests/python/test_ctrip_login_script.py`
+  - `script/README.md`
+  - `docs/03-developer-guide/repository-structure-and-boundaries.md`
+  - `.factory/memory/current-state.md`
+  - `.factory/memory/change-summary.md`
+- 当前已完成的目标：
+  - `两者都保存` 当前不再只是“保存一次滑块再去点选”
+  - 当前会先保存一组滑块图
+  - 每次随机拖动后如果仍是滑块，当前会继续保存一组新的滑块图
+  - 一旦切到点选模式，当前会保存一组点选图并结束本轮浏览器会话
+  - 滑块图当前仍输出到 `materials/result/<timestamp>_<index>/`
+  - 点选图当前仍输出到 `materials/group1/<timestamp>_<index>/`
+  - 新增 `capture_both_mode(...)` 状态机，统一管理滑块连续保存、拖动次数和点选收口
+- 已运行验证：
+  - `uv run python -m unittest tests.python.test_ctrip_login_script`
+  - `uv run python -m py_compile script/crawl/ctrip_login.py`
+
+## 2026-04-08 扩展 `script/crawl/ctrip_login.py`：启动时可选“点选 / 滑块 / 两者都保存”
+
+- 已更新：
+  - `script/crawl/ctrip_login.py`
+  - `tests/python/test_ctrip_login_script.py`
+  - `script/README.md`
+  - `docs/03-developer-guide/repository-structure-and-boundaries.md`
+  - `.factory/memory/current-state.md`
+  - `.factory/memory/change-summary.md`
+- 当前已完成的目标：
+  - 脚本当前启动时会先让用户选择：
+    - `点选`
+    - `滑块`
+    - `两者都保存`
+  - 当前会在发送验证码后按模式执行：
+    - 滑块模式：直接保存滑块图片
+    - 点选模式：循环随机拖动 `.cpt-drop-btn` 后保存点选图片
+    - 两者都保存：先保存滑块，再切换到点选后继续保存
+  - 当前检测 `.icon-image-container / .big-icon-image / .small-icon-img` 进入点选模式
+  - 当前会把点选背景图保存为 `bg.<ext>`
+  - 当前会把点选小图保存为 `icon.<ext>`
+  - 当前会把滑块背景图保存为 `master.<ext>`
+  - 当前会把滑块拼图块保存为 `tile.<ext>`
+  - 当前输出目录已切到：
+    - 点选：`materials/group1/<timestamp>_<index>/`
+    - 滑块：`materials/result/<timestamp>_<index>/`
+  - 当前把 `data:image` 解码、目录创建、保存逻辑拆成可测试辅助函数，避免脚本完全不可验证
+  - 当前开发者文档已明确该脚本属于 `script/` 开发期边界，并会产出 `materials/group1/` 与 `materials/result/`
+- 已运行验证：
+  - `uv run python -m unittest tests.python.test_ctrip_login_script`
+  - `uv run python -m py_compile script/crawl/ctrip_login.py`
+
+## 2026-04-08 收口目录结构：`solver_package/ -> solver/`，并把 crawl 脚本迁到 `script/`
+
+- 已更新：
+  - `.gitignore`
+  - `script/README.md`
+  - `script/crawl/ctrip_login.py`
+  - `docs/03-developer-guide/index.md`
+  - `docs/03-developer-guide/maintainer-quickstart.md`
+  - `docs/03-developer-guide/local-development-workflow.md`
+  - `docs/03-developer-guide/release-and-delivery-workflow.md`
+  - `docs/03-developer-guide/repository-structure-and-boundaries.md`
+  - `docs/04-project-development/04-design/technical-selection.md`
+  - `docs/04-project-development/04-design/module-structure-and-delivery.md`
+  - `docs/04-project-development/05-development-process/standalone-solver-migration-task-breakdown.md`
+  - `.factory/memory/current-state.md`
+  - `.factory/memory/change-summary.md`
+- 当前已完成的目标：
+  - 独立 solver 子项目当前统一以 `solver/` 作为项目根目录
+  - 开发者与设计文档当前已同步从 `solver_package/` 切换到 `solver/`
+  - `core/` 当前不再保留 crawl 采集脚本，避免 dev-only 脚本继续进入正式 Python 包边界
+  - 当前新增 `script/` 目录说明，明确该目录只承载开发阶段辅助脚本
+  - `.gitignore` 当前已补充 Rust `target/` 目录忽略规则
+- 已运行验证：
+  - `cargo test`（cwd=`solver/`）
+  - `PYTHONPATH=src .venv/bin/python -m unittest discover -s tests -p 'test_*.py'`（cwd=`solver/`）
+  - `PYTHONPYCACHEPREFIX=/tmp/pycache python3 -m py_compile script/crawl/ctrip_login.py`
+  - `git diff --check`
+
 ## 2026-04-08 调整 `group2` 商业检测与排行榜：改为“轮廓重合率主判 + 综合评分排名 + 前 3 模型保留”
 
 - 已更新：

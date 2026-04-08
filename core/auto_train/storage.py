@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 from pathlib import Path
+from uuid import uuid4
 
 from core.auto_train import contracts
 from core.common.jsonl import read_jsonl
@@ -126,8 +127,7 @@ def read_jsonl_records(path: Path) -> list[dict[str, contracts.JsonValue]]:
 
 
 def write_json_payload(path: Path, payload: dict[str, object]) -> None:
-    path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_text(json.dumps(payload, ensure_ascii=False, indent=2), encoding="utf-8")
+    _atomic_write_text(path, json.dumps(payload, ensure_ascii=False, indent=2))
 
 
 def append_text(path: Path, text: str) -> None:
@@ -137,17 +137,18 @@ def append_text(path: Path, text: str) -> None:
 
 
 def write_text(path: Path, text: str) -> None:
-    path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_text(text, encoding="utf-8")
+    _atomic_write_text(path, text)
 
 
 def _write_json(path: Path, payload: dict[str, contracts.JsonValue]) -> None:
-    path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_text(json.dumps(payload, ensure_ascii=False, indent=2), encoding="utf-8")
+    _atomic_write_text(path, json.dumps(payload, ensure_ascii=False, indent=2))
 
 
 def _read_json(path: Path) -> dict[str, contracts.JsonValue]:
-    payload = json.loads(path.read_text(encoding="utf-8"))
+    try:
+        payload = json.loads(path.read_text(encoding="utf-8"))
+    except json.JSONDecodeError as exc:
+        raise ValueError(f"Invalid JSON at {path}: {exc.msg}") from exc
     if not isinstance(payload, dict):
         raise ValueError(f"Expected object JSON at {path}")
     return payload
@@ -158,3 +159,10 @@ def _append_jsonl(path: Path, payload: dict[str, contracts.JsonValue]) -> None:
     with path.open("a", encoding="utf-8") as handle:
         handle.write(json.dumps(payload, ensure_ascii=False))
         handle.write("\n")
+
+
+def _atomic_write_text(path: Path, text: str) -> None:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    temp_path = path.with_name(f".{path.name}.{uuid4().hex}.tmp")
+    temp_path.write_text(text, encoding="utf-8")
+    temp_path.replace(path)

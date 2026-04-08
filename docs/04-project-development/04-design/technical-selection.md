@@ -205,8 +205,8 @@
 - Python 侧正式入口：`sinan`
 - solver 侧正式能力归属：
   - 当前迁移参考实现在 `core/solve`
-  - 正式公开入口应在 `solver_package/src/sinanz/`
-  - 正式运行时扩展应在 `solver_package/native/sinanz_ext/`
+  - 正式公开入口应在 `solver/src/sinanz/`
+  - 正式运行时扩展应在 `solver/native/sinanz_ext/`
 - 不再允许 `scripts/*` 成为正式对外入口。
 
 ### 4.3 默认质量门槛

@@ -168,7 +168,7 @@ class AutoTrainOpenCodeRuntimeTests(unittest.TestCase):
                 study_name="study_001",
                 task="group1",
                 trial_id="trial_0004",
-                dataset_version="firstpass_r0004",
+                dataset_version="study_001_trial_0004",
                 train_name="trial_0004",
                 primary_metric="map50_95",
                 files=[test_file],
@@ -177,7 +177,7 @@ class AutoTrainOpenCodeRuntimeTests(unittest.TestCase):
             command = captured["command"]
             self.assertEqual(command[0:6], ["opencode", "run", "--format", "json", "--agent", "build"])
             self.assertEqual(command[-2], "--")
-            self.assertIn("Summarize study_001 group1 trial_0004 firstpass_r0004 trial_0004 map50_95 and return only JSON.", command[-1])
+            self.assertIn("Summarize study_001 group1 trial_0004 study_001_trial_0004 trial_0004 map50_95 and return only JSON.", command[-1])
 
     def test_study_status_builds_expected_arguments(self) -> None:
         with tempfile.TemporaryDirectory() as tmpdir:

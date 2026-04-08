@@ -1337,11 +1337,15 @@ train = [
     { name = "optuna" },
     { name = "pandas" },
     { name = "pillow" },
-    { name = "playwright" },
     { name = "pyyaml" },
     { name = "scikit-image" },
     { name = "tqdm" },
     { name = "ultralytics" },
+]
+
+[package.dev-dependencies]
+dev = [
+    { name = "playwright" },
 ]
 
 [package.metadata]
@@ -1352,7 +1356,6 @@ requires-dist = [
     { name = "optuna", marker = "extra == 'train'" },
     { name = "pandas", marker = "extra == 'train'" },
     { name = "pillow", marker = "extra == 'train'" },
-    { name = "playwright", marker = "extra == 'train'" },
     { name = "pyyaml", marker = "extra == 'train'" },
     { name = "scikit-image", marker = "extra == 'train'" },
     { name = "tqdm", marker = "extra == 'train'" },
@@ -1361,7 +1364,7 @@ requires-dist = [
 provides-extras = ["train"]
 
 [package.metadata.requires-dev]
-dev = []
+dev = [{ name = "playwright" }]
 
 [[package]]
 name = "six"
