@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from dataclasses import replace
 from datetime import datetime, timedelta, timezone
 import json
 import tempfile
@@ -914,7 +915,8 @@ class AutoTrainControllerTests(unittest.TestCase):
                 ),
             )
 
-            self.assertEqual(ctrl._current_stage("trial_0001"), "BUILD_DATASET")
+            study = storage.read_study_record(ctrl.paths.study_file)
+            self.assertEqual(ctrl._current_stage(study, "trial_0001"), "BUILD_DATASET")
 
     def test_build_dataset_rebuilds_when_dataset_dir_exists_but_dataset_config_is_missing(self) -> None:
         with tempfile.TemporaryDirectory() as tmpdir:
@@ -2395,7 +2397,7 @@ class AutoTrainControllerTests(unittest.TestCase):
                 mode="full_auto",
                 train_root=str(train_root),
                 generator_workspace=str(generator_workspace),
-                judge=contracts.JudgeConfig(provider="rules", model=None),
+                    judge=contracts.JudgeConfig(provider="rules", model="policy-v1"),
                 budget=contracts.StudyBudget(max_trials=20, max_hours=24.0, max_new_datasets=None, max_no_improve_trials=4),
                 business_eval=contracts.BusinessEvalConfig(
                     cases_root=str(business_cases),
@@ -2428,7 +2430,7 @@ class AutoTrainControllerTests(unittest.TestCase):
             )
             storage.write_result_summary_record(
                 ctrl.paths.result_summary_file("trial_0008"),
-                _group2_result_summary("trial_0008", dataset_version="firstpass", train_name="trial_0008"),
+                _group2_trial_summary("trial_0008", score=1.0),
             )
             storage.write_decision_record(
                 ctrl.paths.decision_file("trial_0008"),
@@ -2439,7 +2441,7 @@ class AutoTrainControllerTests(unittest.TestCase):
                     reason="good_metrics",
                     next_action={"dataset_action": "reuse", "train_action": "from_run", "base_run": "trial_0008"},
                     evidence=["good_metrics"],
-                    agent="rules",
+                    agent=contracts.AgentRef(provider="rules", name="policy-judge", model="policy-v1"),
                 ),
             )
             (trial_dir / "STOP.ok").write_text("stop\n", encoding="utf-8")
@@ -2478,7 +2480,7 @@ class AutoTrainControllerTests(unittest.TestCase):
 
             ctrl.dependencies = replace(ctrl.dependencies, business_eval_runner=fake_business_eval)
 
-            result = ctrl.run(max_steps=0)
+            result = ctrl.run(max_steps=1)
 
             self.assertEqual(result.final_stage, "PLAN")
             self.assertEqual(len(observed_requests), 1)

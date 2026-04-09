@@ -620,13 +620,9 @@ class AutoTrainController:
 
     def _current_stage(self, study: contracts.StudyRecord, trial_id: str) -> str:
         trial_dir = self.paths.ensure_trial_dir(trial_id)
-        stage = state_machine.infer_resume_stage(trial_dir, stop_file=self.paths.stop_file)
-        if (
-            stage == "STOP"
-            and study.status == "running"
-            and study.final_reason == "business_eval_rerun_pending"
-        ):
+        if study.status == "running" and study.final_reason == "business_eval_rerun_pending":
             return "NEXT_ACTION"
+        stage = state_machine.infer_resume_stage(trial_dir, stop_file=self.paths.stop_file)
         if stage in {"TRAIN", "TEST"}:
             input_path = self.paths.input_file(trial_id)
             if input_path.exists():
