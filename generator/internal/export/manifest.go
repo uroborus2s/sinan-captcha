@@ -31,27 +31,29 @@ type TruthChecks struct {
 }
 
 type SampleRecord struct {
-	SampleID     string         `json:"sample_id"`
-	CaptchaType  string         `json:"captcha_type"`
-	Mode         string         `json:"mode"`
-	Backend      string         `json:"backend"`
-	QueryImage   string         `json:"query_image,omitempty"`
-	SceneImage   string         `json:"scene_image,omitempty"`
-	MasterImage  string         `json:"master_image,omitempty"`
-	TileImage    string         `json:"tile_image,omitempty"`
-	QueryTargets []ObjectRecord `json:"query_targets,omitempty"`
-	SceneTargets []ObjectRecord `json:"scene_targets,omitempty"`
-	Distractors  []ObjectRecord `json:"distractors,omitempty"`
-	TargetGap    *ObjectRecord  `json:"target_gap,omitempty"`
-	TileBBox     *[4]int        `json:"tile_bbox,omitempty"`
-	OffsetX      *int           `json:"offset_x,omitempty"`
-	OffsetY      *int           `json:"offset_y,omitempty"`
-	BackgroundID string         `json:"background_id"`
-	StyleID      string         `json:"style_id"`
-	LabelSource  string         `json:"label_source"`
-	TruthChecks  *TruthChecks   `json:"truth_checks,omitempty"`
-	SourceBatch  string         `json:"source_batch"`
-	Seed         int64          `json:"seed"`
+	SampleID        string         `json:"sample_id"`
+	CaptchaType     string         `json:"captcha_type"`
+	Mode            string         `json:"mode"`
+	Backend         string         `json:"backend"`
+	MaterialSet     string         `json:"material_set,omitempty"`
+	QueryImage      string         `json:"query_image,omitempty"`
+	SceneImage      string         `json:"scene_image,omitempty"`
+	MasterImage     string         `json:"master_image,omitempty"`
+	TileImage       string         `json:"tile_image,omitempty"`
+	QueryTargets    []ObjectRecord `json:"query_targets,omitempty"`
+	SceneTargets    []ObjectRecord `json:"scene_targets,omitempty"`
+	Distractors     []ObjectRecord `json:"distractors,omitempty"`
+	TargetGap       *ObjectRecord  `json:"target_gap,omitempty"`
+	TileBBox        *[4]int        `json:"tile_bbox,omitempty"`
+	OffsetX         *int           `json:"offset_x,omitempty"`
+	OffsetY         *int           `json:"offset_y,omitempty"`
+	BackgroundID    string         `json:"background_id"`
+	StyleID         string         `json:"style_id"`
+	SourceSignature string         `json:"source_signature,omitempty"`
+	LabelSource     string         `json:"label_source"`
+	TruthChecks     *TruthChecks   `json:"truth_checks,omitempty"`
+	SourceBatch     string         `json:"source_batch"`
+	Seed            int64          `json:"seed"`
 }
 
 type BatchLayout struct {
@@ -61,16 +63,18 @@ type BatchLayout struct {
 }
 
 type BatchManifest struct {
-	BatchID              string                     `json:"batch_id"`
-	GeneratedAt          string                     `json:"generated_at"`
-	Mode                 string                     `json:"mode"`
-	Backend              string                     `json:"backend"`
-	AssetDirs            map[string]string          `json:"asset_dirs"`
-	ConfigPath           string                     `json:"config_path"`
-	PlannedSampleCount   int                        `json:"planned_sample_count"`
-	GeneratedSampleCount int                        `json:"generated_sample_count"`
-	ConfigSnapshot       config.Config              `json:"config_snapshot"`
-	MaterialSummary      material.ValidationSummary `json:"material_summary"`
+	BatchID              string                       `json:"batch_id"`
+	GeneratedAt          string                       `json:"generated_at"`
+	Mode                 string                       `json:"mode"`
+	Backend              string                       `json:"backend"`
+	AssetDirs            map[string]string            `json:"asset_dirs"`
+	ConfigPath           string                       `json:"config_path"`
+	PlannedSampleCount   int                          `json:"planned_sample_count"`
+	GeneratedSampleCount int                          `json:"generated_sample_count"`
+	ConfigSnapshot       config.Config                `json:"config_snapshot"`
+	MaterialSummary      material.ValidationSummary   `json:"material_summary"`
+	MaterialSummaries    []material.ValidationSummary `json:"material_summaries,omitempty"`
+	MaterialSets         []string                     `json:"material_sets,omitempty"`
 }
 
 type Result struct {
@@ -89,7 +93,14 @@ type BatchWriter struct {
 	manifest BatchManifest
 }
 
-func NewBatchWriter(outputRoot string, configPath string, cfg config.Config, summary material.ValidationSummary, layout BatchLayout) (*BatchWriter, error) {
+func NewBatchWriter(
+	outputRoot string,
+	configPath string,
+	cfg config.Config,
+	summaries []material.ValidationSummary,
+	materialSets []string,
+	layout BatchLayout,
+) (*BatchWriter, error) {
 	batchRoot := filepath.Join(outputRoot, cfg.Project.BatchID)
 	result := Result{
 		BatchRoot: batchRoot,
@@ -125,7 +136,9 @@ func NewBatchWriter(outputRoot string, configPath string, cfg config.Config, sum
 			PlannedSampleCount:   cfg.Project.SampleCount,
 			GeneratedSampleCount: 0,
 			ConfigSnapshot:       cfg,
-			MaterialSummary:      summary,
+			MaterialSummary:      firstMaterialSummary(summaries),
+			MaterialSummaries:    append([]material.ValidationSummary(nil), summaries...),
+			MaterialSets:         append([]string(nil), materialSets...),
 		},
 	}
 	return writer, nil
@@ -192,4 +205,11 @@ func sortedPaths(assets map[string]image.Image) []string {
 	}
 	sort.Strings(paths)
 	return paths
+}
+
+func firstMaterialSummary(summaries []material.ValidationSummary) material.ValidationSummary {
+	if len(summaries) == 0 {
+		return material.ValidationSummary{}
+	}
+	return summaries[0]
 }

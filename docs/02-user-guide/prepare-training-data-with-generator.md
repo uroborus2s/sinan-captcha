@@ -187,6 +187,12 @@ Set-Location D:\sinan-captcha-generator
 
 导入后，素材会复制到工作区的 `materials/local/<name>/`，并自动设为当前激活素材集。
 
+说明：
+
+- `当前激活素材集` 只是一份工作区元数据，不再代表 `make-dataset` 默认只用这一套。
+- 如果工作区里同时存在多套兼容当前 `--task` 的素材包，`make-dataset` 默认会把它们全部纳入候选池。
+- 如果你只想锁定当前这一套，显式传 `--materials local/<name>`。
+
 ### 5.2 从 zip 包或 URL 下载素材
 
 适合素材由维护者打成 zip 或放到 HTTP 地址的情况：
@@ -217,6 +223,11 @@ Set-Location D:\sinan-captcha-generator
 | `--task` | 可选。只有当 zip 里只包含 `group1` 或只包含 `group2` 时才传；可选值是 `group1` 或 `group2`。 |
 
 下载后，素材会解压到工作区的 `materials/official/<name>/`，并自动设为当前激活素材集。
+
+说明：
+
+- 只要这套素材包通过当前任务校验，它后续就会参与 `make-dataset` 的默认候选池。
+- 如果你不想让其他 pack 一起参与采样，生成时要显式传 `--materials official/<name>`。
 
 例如，只导入 `group1` 点选素材包：
 
@@ -297,9 +308,9 @@ D:\incoming-materials\
   - 都可以正常执行。
 - 只有真正参与合并且写入后的素材内容损坏、manifest 非法，或没有任何可导入图片时，命令才会失败。
 
-### 5.4 生成数据时自动拉取素材
+### 5.4 生成数据时顺手导入素材
 
-如果当前工作区还没有激活素材集，可以在 `make-dataset` 里直接传 `--materials-source`：
+如果你想在这次 `make-dataset` 里顺手把一套新素材导入工作区，可以直接传 `--materials-source`：
 
 ```powershell
 .\sinan-generator.exe make-dataset `
@@ -311,11 +322,19 @@ D:\incoming-materials\
 
 注意：
 
-- `--materials-source` 只在当前工作区还没有激活素材集时才会参与拉取。
-- 如果你想显式切换到某个已导入素材集，优先用 `--materials local/<name>` 或 `--materials official/<name>`。
+- `--materials-source` 会先把这次传入的目录、zip 或 URL 导入工作区，再参与当前任务的候选素材池。
+- 如果你想显式锁定某个已导入素材集，优先用 `--materials local/<name>` 或 `--materials official/<name>`。
 - 如果 `--materials-source` 指向的是单任务素材包，`make-dataset` 会按当前 `--task` 自动做 task-scoped 校验。
 
 ## 6. 生成训练数据
+
+### 6.0 默认采样规则
+
+- 如果不传 `--materials`，`make-dataset` 会从工作区里所有通过当前 `--task` 校验的 `local/*` 和 `official/*` 素材集中随机抽样。
+- 每生成 `1` 条样本，都会先随机选 `1` 个 `pack_name`，再从该 pack 内随机选背景图和图标或 shape。
+- 每次执行 `make-dataset` 都会自动生成新的运行 seed，所以同一套 preset 连续重跑时，素材来源序列不会固定不变。
+- 如果你想复现某一次生成结果，可以把那次 `.sinan/job.json` 里的 `seed` 取出来，再用 `--runtime-seed <seed>` 重跑。
+- 如果你想只用某一套素材包，显式传 `--materials local/<name>` 或 `--materials official/<name>`。
 
 ### 6.1 生成 `group1`
 
@@ -343,8 +362,9 @@ D:\incoming-materials\
 | `--task` | 否 | 数据集任务类型，`group1` 或 `group2`，默认 `group1`。 |
 | `--preset` | 否 | 预设名，`smoke`、`firstpass`、`hard`。默认 `firstpass`。 |
 | `--dataset-dir` | 是 | 生成后的数据集目录。目录不存在时会创建。 |
-| `--materials` | 否 | 显式选择一个已经导入到工作区的素材集，格式是 `official/<name>` 或 `local/<name>`。 |
-| `--materials-source` | 否 | 当前工作区没有激活素材集时，用这个参数自动从本地目录、zip、`file://` URL 或 `http(s)://` URL 获取素材。 |
+| `--materials` | 否 | 显式锁定一个已经导入到工作区的素材集，格式是 `official/<name>` 或 `local/<name>`。 |
+| `--materials-source` | 否 | 先把本地目录、zip、`file://` URL 或 `http(s)://` URL 导入工作区，再参与当前任务的候选素材池。 |
+| `--runtime-seed` | 否 | 可选运行 seed。默认每次运行都会自动生成新的 seed；只有你想复现某一次素材采样结果时才手工传。 |
 | `--override-file` | 否 | JSON 覆盖文件，用来临时改样本数量、采样范围和视觉扰动。 |
 | `--force` | 否 | 如果你要覆盖已有的 `dataset-dir`，必须显式加这个参数。 |
 

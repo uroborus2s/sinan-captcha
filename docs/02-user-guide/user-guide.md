@@ -112,8 +112,9 @@
 1. [训练者角色：训练机安装](./windows-bundle-install.md)
 2. [训练者角色：快速开始](./windows-quickstart.md)
 3. [训练者角色：使用生成器准备训练数据](./prepare-training-data-with-generator.md)
-4. [训练者角色：使用训练器完成训练、测试与评估](./from-base-model-to-training-guide.md)
-5. [训练者角色：使用自动化训练](./auto-train-on-training-machine.md)
+4. [训练者角色：用 X-AnyLabeling 制作商业测试试卷答案](./prepare-business-exam-with-x-anylabeling.md)
+5. [训练者角色：使用训练器完成训练、测试与评估](./from-base-model-to-training-guide.md)
+6. [训练者角色：使用自动化训练](./auto-train-on-training-machine.md)
 
 ## 5. 一句话结论
 

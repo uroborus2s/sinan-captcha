@@ -1,9 +1,13 @@
 package app
 
 import (
+	cryptorand "crypto/rand"
+	"encoding/binary"
 	"encoding/json"
 	"fmt"
+	"hash/fnv"
 	"io"
+	mathrand "math/rand"
 	"os"
 	"path/filepath"
 	"time"
@@ -29,32 +33,43 @@ type MakeDatasetRequest struct {
 	MaterialSource string
 	OverrideFile   string
 	Force          bool
+	RuntimeSeed    int64
 	Writer         io.Writer
 }
 
 type MakeDatasetResult struct {
-	WorkspaceRoot string                   `json:"workspace_root"`
-	DatasetDir    string                   `json:"dataset_dir"`
-	BatchRoot     string                   `json:"batch_root"`
-	DatasetConfig string                   `json:"dataset_config"`
-	JobPath       string                   `json:"job_path"`
-	Preset        string                   `json:"preset"`
-	Task          string                   `json:"task"`
-	Materials     workspace.MaterialSetRef `json:"materials"`
-	Generated     int                      `json:"generated"`
+	WorkspaceRoot string                     `json:"workspace_root"`
+	DatasetDir    string                     `json:"dataset_dir"`
+	BatchRoot     string                     `json:"batch_root"`
+	DatasetConfig string                     `json:"dataset_config"`
+	JobPath       string                     `json:"job_path"`
+	Preset        string                     `json:"preset"`
+	Task          string                     `json:"task"`
+	MaterialSets  []workspace.MaterialSetRef `json:"material_sets"`
+	Seed          int64                      `json:"seed"`
+	Generated     int                        `json:"generated"`
 }
 
 type jobRecord struct {
-	JobID         string                   `json:"job_id"`
-	CreatedAt     string                   `json:"created_at"`
-	Task          string                   `json:"task"`
-	Preset        string                   `json:"preset"`
-	WorkspaceRoot string                   `json:"workspace_root"`
-	DatasetDir    string                   `json:"dataset_dir"`
-	Materials     workspace.MaterialSetRef `json:"materials"`
-	BatchRoot     string                   `json:"batch_root"`
-	DatasetConfig string                   `json:"dataset_config"`
-	Generated     int                      `json:"generated"`
+	JobID         string                     `json:"job_id"`
+	CreatedAt     string                     `json:"created_at"`
+	Task          string                     `json:"task"`
+	Preset        string                     `json:"preset"`
+	WorkspaceRoot string                     `json:"workspace_root"`
+	DatasetDir    string                     `json:"dataset_dir"`
+	MaterialSets  []workspace.MaterialSetRef `json:"material_sets"`
+	BatchRoot     string                     `json:"batch_root"`
+	DatasetConfig string                     `json:"dataset_config"`
+	Seed          int64                      `json:"seed"`
+	Generated     int                        `json:"generated"`
+}
+
+type materialPoolEntry struct {
+	Ref        workspace.MaterialSetRef
+	Root       string
+	Validation material.ValidationSummary
+	Catalog    material.Catalog
+	Selector   string
 }
 
 func MakeDataset(request MakeDatasetRequest) (MakeDatasetResult, error) {
@@ -76,11 +91,15 @@ func MakeDataset(request MakeDatasetRequest) (MakeDatasetResult, error) {
 		return MakeDatasetResult{}, err
 	}
 
-	materials, err := materialset.ResolveOrAcquire(state, request.Materials, request.MaterialSource, task)
+	materials, err := materialset.ResolveOrAcquirePool(state, request.Materials, request.MaterialSource, task)
 	if err != nil {
 		return MakeDatasetResult{}, err
 	}
-	notify(request.Writer, "materials ready: %s/%s\n", materials.Ref.Scope, materials.Ref.Name)
+	materialPool, err := loadMaterialPool(task, materials)
+	if err != nil {
+		return MakeDatasetResult{}, err
+	}
+	notify(request.Writer, "materials ready: %d packs\n", len(materialPool))
 
 	selectedPreset, err := preset.ResolveForWorkspace(state.Layout.PresetsDir, task, request.Preset)
 	if err != nil {
@@ -98,7 +117,11 @@ func MakeDataset(request MakeDatasetRequest) (MakeDatasetResult, error) {
 			return MakeDatasetResult{}, err
 		}
 	}
-	cfg = runtimeConfig(cfg, task, selectedPreset.Name)
+	runSeed, err := resolveRuntimeSeed(cfg.Project.Seed, request.RuntimeSeed)
+	if err != nil {
+		return MakeDatasetResult{}, err
+	}
+	cfg = runtimeConfig(cfg, task, selectedPreset.Name, runSeed)
 	if request.OverrideFile != "" {
 		configPath = filepath.Join(request.DatasetDir, ".sinan", "effective-config.yaml")
 		if err := os.WriteFile(configPath, []byte(config.Format(cfg)), 0o644); err != nil {
@@ -110,11 +133,6 @@ func MakeDataset(request MakeDatasetRequest) (MakeDatasetResult, error) {
 	if err != nil {
 		return MakeDatasetResult{}, err
 	}
-	catalog, err := material.LoadCatalog(materials.Root, task)
-	if err != nil {
-		return MakeDatasetResult{}, err
-	}
-
 	rawRoot := filepath.Join(request.DatasetDir, ".sinan", "raw")
 	if err := os.MkdirAll(rawRoot, 0o755); err != nil {
 		return MakeDatasetResult{}, err
@@ -123,7 +141,8 @@ func MakeDataset(request MakeDatasetRequest) (MakeDatasetResult, error) {
 		rawRoot,
 		configPath,
 		cfg,
-		materials.Validation,
+		poolValidationSummaries(materialPool),
+		poolSelectors(materialPool),
 		export.BatchLayout{
 			Mode:      string(generatorSpec.Mode),
 			Backend:   string(generatorSpec.Backend),
@@ -135,13 +154,22 @@ func MakeDataset(request MakeDatasetRequest) (MakeDatasetResult, error) {
 	}
 
 	notify(request.Writer, "generating %d samples...\n", cfg.Project.SampleCount)
+	poolRng := mathrand.New(mathrand.NewSource(cfg.Project.Seed))
 	for index := 0; index < cfg.Project.SampleCount; index++ {
-		record, assets, err := generatorInstance.Generate(index, cfg, catalog)
+		selectedMaterial := materialPool[poolRng.Intn(len(materialPool))]
+		sampleCfg := cfg
+		sampleCfg.Project.Seed = materialSeed(cfg.Project.Seed, selectedMaterial.Selector)
+
+		record, assets, err := generatorInstance.Generate(index, sampleCfg, selectedMaterial.Catalog)
 		if err != nil {
 			return MakeDatasetResult{}, err
 		}
+		annotateMaterialSource(&record, selectedMaterial.Selector)
 		checks, err := truth.Validate(record, generatorSpec, cfg.Canvas, func() (export.SampleRecord, error) {
-			replayed, _, replayErr := generatorInstance.Generate(index, cfg, catalog)
+			replayed, _, replayErr := generatorInstance.Generate(index, sampleCfg, selectedMaterial.Catalog)
+			if replayErr == nil {
+				annotateMaterialSource(&replayed, selectedMaterial.Selector)
+			}
 			return replayed, replayErr
 		})
 		if err != nil {
@@ -187,9 +215,10 @@ func MakeDataset(request MakeDatasetRequest) (MakeDatasetResult, error) {
 		Preset:        selectedPreset.Name,
 		WorkspaceRoot: state.Layout.Root,
 		DatasetDir:    request.DatasetDir,
-		Materials:     materials.Ref,
+		MaterialSets:  poolRefs(materialPool),
 		BatchRoot:     batchResult.BatchRoot,
 		DatasetConfig: datasetResult.DatasetConfig,
+		Seed:          cfg.Project.Seed,
 		Generated:     batchResult.GeneratedCount,
 	}
 	if err := writeJSON(jobPath, job); err != nil {
@@ -205,7 +234,8 @@ func MakeDataset(request MakeDatasetRequest) (MakeDatasetResult, error) {
 		JobPath:       jobPath,
 		Preset:        selectedPreset.Name,
 		Task:          task,
-		Materials:     materials.Ref,
+		MaterialSets:  poolRefs(materialPool),
+		Seed:          cfg.Project.Seed,
 		Generated:     batchResult.GeneratedCount,
 	}, nil
 }
@@ -221,12 +251,13 @@ func normalizeTask(task string) (string, string, error) {
 	}
 }
 
-func runtimeConfig(base config.Config, task string, presetName string) config.Config {
+func runtimeConfig(base config.Config, task string, presetName string, runSeed int64) config.Config {
 	cfg := base
 	now := time.Now().UTC()
 	cfg.Project.BatchID = fmt.Sprintf("%s_%s_%s", task, presetName, now.Format("20060102_150405"))
 	cfg.Project.DatasetName = fmt.Sprintf("sinan_%s_%s", task, presetName)
 	cfg.Project.Split = "train"
+	cfg.Project.Seed = runSeed
 	return cfg
 }
 
@@ -271,6 +302,82 @@ func writeJSON(path string, value any) error {
 		return err
 	}
 	return os.WriteFile(path, append(content, '\n'), 0o644)
+}
+
+func loadMaterialPool(task string, results []materialset.SyncResult) ([]materialPoolEntry, error) {
+	pool := make([]materialPoolEntry, 0, len(results))
+	for _, result := range results {
+		catalog, err := material.LoadCatalog(result.Root, task)
+		if err != nil {
+			return nil, err
+		}
+		pool = append(pool, materialPoolEntry{
+			Ref:        result.Ref,
+			Root:       result.Root,
+			Validation: result.Validation,
+			Catalog:    catalog,
+			Selector:   fmt.Sprintf("%s/%s", result.Ref.Scope, result.Ref.Name),
+		})
+	}
+	return pool, nil
+}
+
+func poolValidationSummaries(pool []materialPoolEntry) []material.ValidationSummary {
+	summaries := make([]material.ValidationSummary, 0, len(pool))
+	for _, entry := range pool {
+		summaries = append(summaries, entry.Validation)
+	}
+	return summaries
+}
+
+func poolSelectors(pool []materialPoolEntry) []string {
+	selectors := make([]string, 0, len(pool))
+	for _, entry := range pool {
+		selectors = append(selectors, entry.Selector)
+	}
+	return selectors
+}
+
+func poolRefs(pool []materialPoolEntry) []workspace.MaterialSetRef {
+	refs := make([]workspace.MaterialSetRef, 0, len(pool))
+	for _, entry := range pool {
+		refs = append(refs, entry.Ref)
+	}
+	return refs
+}
+
+func resolveRuntimeSeed(baseSeed int64, override int64) (int64, error) {
+	if override != 0 {
+		return override, nil
+	}
+	var raw [8]byte
+	if _, err := cryptorand.Read(raw[:]); err != nil {
+		return 0, err
+	}
+	randomSeed := int64(binary.LittleEndian.Uint64(raw[:]) & 0x7fffffffffffffff)
+	if randomSeed == 0 {
+		randomSeed = time.Now().UTC().UnixNano()
+	}
+	return baseSeed ^ randomSeed ^ time.Now().UTC().UnixNano(), nil
+}
+
+func materialSeed(baseSeed int64, selector string) int64 {
+	hasher := fnv.New64a()
+	_, _ = hasher.Write([]byte(selector))
+	mixed := baseSeed ^ int64(hasher.Sum64()&0x7fffffffffffffff)
+	if mixed == 0 {
+		return baseSeed + 1
+	}
+	return mixed
+}
+
+func annotateMaterialSource(record *export.SampleRecord, selector string) {
+	record.MaterialSet = selector
+	if record.SourceSignature == "" {
+		record.SourceSignature = selector
+		return
+	}
+	record.SourceSignature = selector + "|" + record.SourceSignature
 }
 
 func copyFile(source string, destination string) error {

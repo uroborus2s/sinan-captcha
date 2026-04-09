@@ -17,10 +17,11 @@
 1. [训练者角色：训练机安装](./windows-bundle-install.md)
 2. [训练者角色：快速开始](./windows-quickstart.md)
 3. [训练者角色：使用生成器准备训练数据](./prepare-training-data-with-generator.md)
-4. [训练者角色：使用训练器完成训练、测试与评估](./from-base-model-to-training-guide.md)
-5. [训练者角色：使用自动化训练](./auto-train-on-training-machine.md)
-6. [训练者角色：训练后结果验收](./use-and-test-trained-models.md)
-7. [训练者角色：CUDA 版本检查](./how-to-check-cuda-version.md)
+4. [训练者角色：用 X-AnyLabeling 制作商业测试试卷答案](./prepare-business-exam-with-x-anylabeling.md)
+5. [训练者角色：使用训练器完成训练、测试与评估](./from-base-model-to-training-guide.md)
+6. [训练者角色：使用自动化训练](./auto-train-on-training-machine.md)
+7. [训练者角色：训练后结果验收](./use-and-test-trained-models.md)
+8. [训练者角色：CUDA 版本检查](./how-to-check-cuda-version.md)
 
 ## 如果你想看状态、范围或审核结论
 

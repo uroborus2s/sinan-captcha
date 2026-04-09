@@ -4,6 +4,10 @@
 
 - 模型训练完以后，训练者应该先看什么、怎么验收。
 
+如果你现在还没有商业测试试卷答案，先不要直接验收训练结果，先读：
+
+- [训练者角色：用 X-AnyLabeling 制作商业测试试卷答案](./prepare-business-exam-with-x-anylabeling.md)
+
 ## 1. 先看训练产物是否完整
 
 ### `group1`

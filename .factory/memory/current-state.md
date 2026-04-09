@@ -17,6 +17,24 @@
 
 ## 当前事实
 
+- 2026-04-09 当前 `sinan-generator make-dataset` 已改为“多 pack 随机采样 + 每次运行自动新 seed”：
+  - 当前默认不再只依赖工作区里的 `active_material_set`
+  - 如果不传 `--materials`，会从当前工作区所有通过当前 `task` 校验的 `materials/local/*` 和 `materials/official/*` 构建候选池
+  - 当前每生成 `1` 条样本，都会先随机选 `1` 个 `pack_name`，再从该 pack 内随机抽背景图和图标或 shape
+  - 当前每次运行 `make-dataset` 都会自动生成新的 `seed`，并写入：
+    - `.sinan/job.json`
+    - `.sinan/manifest.json` 的 `config_snapshot.project.seed`
+    - `labels.jsonl` 每条记录的 `seed`
+  - 当前每条样本也会额外记录：
+    - `material_set`
+    - `source_signature`
+  - 当前如果要强制只用一套素材包，必须显式传：
+    - `--materials local/<name>`
+    - 或 `--materials official/<name>`
+  - 当前如果要复现某一次生成结果，可以显式传：
+    - `--runtime-seed <seed>`
+  - 当前已验证：
+    - `env GOCACHE=/tmp/go-build go test ./...`（cwd=`generator/`）
 - 2026-04-09 当前 `sinan-generator materials merge` 已修复“增量合并被缺失背景图阻塞”的问题：
   - 之前 `materials merge` 在合并完成后会沿用完整素材包校验
   - 当目标素材根目录里没有背景图时，即使本次只想追加 `group1/` 或 `group2/`，也会直接报 `no background images found`

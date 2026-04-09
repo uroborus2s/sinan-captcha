@@ -5,6 +5,7 @@ import (
 	"math"
 	"math/rand"
 	"path/filepath"
+	"strings"
 
 	"sinan-captcha/generator/internal/config"
 	"sinan-captcha/generator/internal/export"
@@ -122,17 +123,18 @@ func BuildPlan(index int, cfg config.Config, catalog material.Catalog) (SamplePl
 
 	plan = SamplePlan{
 		Record: export.SampleRecord{
-			SampleID:     sampleID,
-			CaptchaType:  "group1_multi_icon_match",
-			QueryImage:   filepath.ToSlash(filepath.Join("query", sampleID+".png")),
-			SceneImage:   filepath.ToSlash(filepath.Join("scene", sampleID+".png")),
-			SceneTargets: recordsFromPlaced(targets),
-			Distractors:  recordsFromPlaced(distractors),
-			BackgroundID: background.ID,
-			StyleID:      "default",
-			LabelSource:  "gold",
-			SourceBatch:  cfg.Project.BatchID,
-			Seed:         sampleSeed,
+			SampleID:        sampleID,
+			CaptchaType:     "group1_multi_icon_match",
+			QueryImage:      filepath.ToSlash(filepath.Join("query", sampleID+".png")),
+			SceneImage:      filepath.ToSlash(filepath.Join("scene", sampleID+".png")),
+			SceneTargets:    recordsFromPlaced(targets),
+			Distractors:     recordsFromPlaced(distractors),
+			BackgroundID:    background.ID,
+			StyleID:         "default",
+			SourceSignature: buildClickSourceSignature(background.ID, targets, distractors),
+			LabelSource:     "gold",
+			SourceBatch:     cfg.Project.BatchID,
+			Seed:            sampleSeed,
 		},
 		BackgroundPath: background.Path,
 		Targets:        targets,
@@ -232,6 +234,17 @@ func recordsFromPlaced(objects []PlacedObject) []export.ObjectRecord {
 		records = append(records, object.ObjectRecord)
 	}
 	return records
+}
+
+func buildClickSourceSignature(backgroundID string, targets []PlacedObject, distractors []PlacedObject) string {
+	parts := []string{backgroundID}
+	for _, target := range targets {
+		parts = append(parts, fmt.Sprintf("t:%s:%s", target.Class, filepath.Base(target.IconPath)))
+	}
+	for _, distractor := range distractors {
+		parts = append(parts, fmt.Sprintf("d:%s:%s", distractor.Class, filepath.Base(distractor.IconPath)))
+	}
+	return strings.Join(parts, "|")
 }
 
 func between(rng *rand.Rand, minValue int, maxValue int) int {

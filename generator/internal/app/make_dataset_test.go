@@ -1,6 +1,7 @@
 package app
 
 import (
+	"encoding/json"
 	"image"
 	"image/color"
 	"image/png"
@@ -10,6 +11,8 @@ import (
 	"testing"
 
 	"sinan-captcha/generator/internal/config"
+	"sinan-captcha/generator/internal/export"
+	"sinan-captcha/generator/internal/materialset"
 	"sinan-captcha/generator/internal/workspace"
 )
 
@@ -246,6 +249,118 @@ func TestMakeDatasetBuildsGroup2FromGroup2OnlyMaterials(t *testing.T) {
 	}
 }
 
+func TestMakeDatasetRandomlyUsesMultipleMaterialSetsForGroup2(t *testing.T) {
+	workspaceRoot := filepath.Join(t.TempDir(), "workspace")
+	state, err := workspace.Ensure(workspaceRoot)
+	if err != nil {
+		t.Fatalf("ensure workspace: %v", err)
+	}
+
+	if _, err := materialset.ImportLocal(state, createNamedGroup2MaterialsPack(t, "alpha"), "alpha", "group2"); err != nil {
+		t.Fatalf("import alpha materials: %v", err)
+	}
+	if _, err := materialset.ImportLocal(state, createNamedGroup2MaterialsPack(t, "beta"), "beta", "group2"); err != nil {
+		t.Fatalf("import beta materials: %v", err)
+	}
+
+	trainingDir := filepath.Join(t.TempDir(), "train-group2")
+	result, err := MakeDataset(MakeDatasetRequest{
+		Task:          "group2",
+		Preset:        "smoke",
+		WorkspaceRoot: workspaceRoot,
+		DatasetDir:    trainingDir,
+		RuntimeSeed:   20260409,
+	})
+	if err != nil {
+		t.Fatalf("make dataset with multiple materials: %v", err)
+	}
+
+	records := readBatchRecords(t, filepath.Join(result.BatchRoot, "labels.jsonl"))
+	seenSets := map[string]struct{}{}
+	for _, record := range records {
+		seenSets[record.MaterialSet] = struct{}{}
+	}
+	if len(seenSets) < 2 {
+		t.Fatalf("expected multiple material sets to be used, got %v", seenSets)
+	}
+}
+
+func TestMakeDatasetUsesDifferentSourceSignaturesAcrossRuns(t *testing.T) {
+	workspaceRoot := filepath.Join(t.TempDir(), "workspace")
+	state, err := workspace.Ensure(workspaceRoot)
+	if err != nil {
+		t.Fatalf("ensure workspace: %v", err)
+	}
+
+	if _, err := materialset.ImportLocal(state, createNamedGroup1MaterialsPack(t, "alpha"), "alpha", "group1"); err != nil {
+		t.Fatalf("import alpha materials: %v", err)
+	}
+	if _, err := materialset.ImportLocal(state, createNamedGroup1MaterialsPack(t, "beta"), "beta", "group1"); err != nil {
+		t.Fatalf("import beta materials: %v", err)
+	}
+
+	runA, err := MakeDataset(MakeDatasetRequest{
+		Task:          "group1",
+		Preset:        "smoke",
+		WorkspaceRoot: workspaceRoot,
+		DatasetDir:    filepath.Join(t.TempDir(), "train-group1-a"),
+		RuntimeSeed:   111,
+	})
+	if err != nil {
+		t.Fatalf("make dataset run A: %v", err)
+	}
+	runB, err := MakeDataset(MakeDatasetRequest{
+		Task:          "group1",
+		Preset:        "smoke",
+		WorkspaceRoot: workspaceRoot,
+		DatasetDir:    filepath.Join(t.TempDir(), "train-group1-b"),
+		RuntimeSeed:   222,
+	})
+	if err != nil {
+		t.Fatalf("make dataset run B: %v", err)
+	}
+
+	signaturesA := readSourceSignatures(t, filepath.Join(runA.BatchRoot, "labels.jsonl"))
+	signaturesB := readSourceSignatures(t, filepath.Join(runB.BatchRoot, "labels.jsonl"))
+	if strings.Join(signaturesA, "\n") == strings.Join(signaturesB, "\n") {
+		t.Fatalf("expected different source signatures across runs, got identical sequences")
+	}
+}
+
+func TestMakeDatasetUsesExplicitMaterialSelectorAsSinglePack(t *testing.T) {
+	workspaceRoot := filepath.Join(t.TempDir(), "workspace")
+	state, err := workspace.Ensure(workspaceRoot)
+	if err != nil {
+		t.Fatalf("ensure workspace: %v", err)
+	}
+
+	if _, err := materialset.ImportLocal(state, createNamedGroup2MaterialsPack(t, "alpha"), "alpha", "group2"); err != nil {
+		t.Fatalf("import alpha materials: %v", err)
+	}
+	if _, err := materialset.ImportLocal(state, createNamedGroup2MaterialsPack(t, "beta"), "beta", "group2"); err != nil {
+		t.Fatalf("import beta materials: %v", err)
+	}
+
+	result, err := MakeDataset(MakeDatasetRequest{
+		Task:          "group2",
+		Preset:        "smoke",
+		WorkspaceRoot: workspaceRoot,
+		DatasetDir:    filepath.Join(t.TempDir(), "train-group2"),
+		Materials:     "local/alpha",
+		RuntimeSeed:   20260410,
+	})
+	if err != nil {
+		t.Fatalf("make dataset with explicit selector: %v", err)
+	}
+
+	records := readBatchRecords(t, filepath.Join(result.BatchRoot, "labels.jsonl"))
+	for _, record := range records {
+		if record.MaterialSet != "local/alpha" {
+			t.Fatalf("expected all records to use local/alpha, got %s", record.MaterialSet)
+		}
+	}
+}
+
 func createMaterialsPack(t *testing.T) string {
 	t.Helper()
 	root := filepath.Join(t.TempDir(), "materials")
@@ -282,6 +397,30 @@ func createGroup2OnlyMaterialsPack(t *testing.T) string {
 	writePNG(t, filepath.Join(root, "backgrounds", "bg_002.png"), 320, 180)
 	writeMaskIconPNG(t, filepath.Join(root, "group2", "shapes", "shape_ticket", "001.png"), 48, 48)
 	writeMaskIconPNG(t, filepath.Join(root, "group2", "shapes", "shape_cloud", "001.png"), 48, 48)
+	return root
+}
+
+func createNamedGroup1MaterialsPack(t *testing.T, name string) string {
+	t.Helper()
+	root := filepath.Join(t.TempDir(), "materials-"+name)
+	writeMaterialsManifest(t, filepath.Join(root, "manifests", "materials.yaml"))
+	writeNamedGroup1Manifest(t, filepath.Join(root, "manifests", "group1.classes.yaml"), name)
+	writePNG(t, filepath.Join(root, "backgrounds", name+"_bg_001.png"), 320, 180)
+	writePNG(t, filepath.Join(root, "backgrounds", name+"_bg_002.png"), 320, 180)
+	writeMaskIconPNG(t, filepath.Join(root, "group1", "icons", name+"_icon_house", name+"_house_001.png"), 48, 48)
+	writeMaskIconPNG(t, filepath.Join(root, "group1", "icons", name+"_icon_leaf", name+"_leaf_001.png"), 48, 48)
+	return root
+}
+
+func createNamedGroup2MaterialsPack(t *testing.T, name string) string {
+	t.Helper()
+	root := filepath.Join(t.TempDir(), "materials-"+name)
+	writeMaterialsManifest(t, filepath.Join(root, "manifests", "materials.yaml"))
+	writeNamedGroup2Manifest(t, filepath.Join(root, "manifests", "group2.shapes.yaml"), name)
+	writePNG(t, filepath.Join(root, "backgrounds", name+"_bg_001.png"), 320, 180)
+	writePNG(t, filepath.Join(root, "backgrounds", name+"_bg_002.png"), 320, 180)
+	writeMaskIconPNG(t, filepath.Join(root, "group2", "shapes", name+"_shape_ticket", name+"_ticket_001.png"), 48, 48)
+	writeMaskIconPNG(t, filepath.Join(root, "group2", "shapes", name+"_shape_cloud", name+"_cloud_001.png"), 48, 48)
 	return root
 }
 
@@ -329,6 +468,46 @@ func writeGroup2Manifest(t *testing.T, path string) {
 		"  - id: 1",
 		"    name: shape_cloud",
 		"    zh_name: 云形缺口",
+		"",
+	}, "\n")
+	if err := os.WriteFile(path, []byte(content), 0o644); err != nil {
+		t.Fatalf("write manifest: %v", err)
+	}
+}
+
+func writeNamedGroup1Manifest(t *testing.T, path string, name string) {
+	t.Helper()
+	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+		t.Fatalf("mkdir manifest dir: %v", err)
+	}
+	content := strings.Join([]string{
+		"classes:",
+		"  - id: 0",
+		"    name: " + name + "_icon_house",
+		"    zh_name: " + name + "_房子",
+		"  - id: 1",
+		"    name: " + name + "_icon_leaf",
+		"    zh_name: " + name + "_叶子",
+		"",
+	}, "\n")
+	if err := os.WriteFile(path, []byte(content), 0o644); err != nil {
+		t.Fatalf("write manifest: %v", err)
+	}
+}
+
+func writeNamedGroup2Manifest(t *testing.T, path string, name string) {
+	t.Helper()
+	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+		t.Fatalf("mkdir manifest dir: %v", err)
+	}
+	content := strings.Join([]string{
+		"shapes:",
+		"  - id: 0",
+		"    name: " + name + "_shape_ticket",
+		"    zh_name: " + name + "_票形缺口",
+		"  - id: 1",
+		"    name: " + name + "_shape_cloud",
+		"    zh_name: " + name + "_云形缺口",
 		"",
 	}, "\n")
 	if err := os.WriteFile(path, []byte(content), 0o644); err != nil {
@@ -453,4 +632,35 @@ func assertDatasetJSONReferencesPairedSplits(t *testing.T, path string) {
 			t.Fatalf("dataset json missing %s:\n%s", expected, text)
 		}
 	}
+}
+
+func readBatchRecords(t *testing.T, path string) []export.SampleRecord {
+	t.Helper()
+	content, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatalf("read labels %s: %v", path, err)
+	}
+	lines := strings.Split(strings.TrimSpace(string(content)), "\n")
+	records := make([]export.SampleRecord, 0, len(lines))
+	for _, line := range lines {
+		if strings.TrimSpace(line) == "" {
+			continue
+		}
+		var record export.SampleRecord
+		if err := json.Unmarshal([]byte(line), &record); err != nil {
+			t.Fatalf("parse labels row: %v", err)
+		}
+		records = append(records, record)
+	}
+	return records
+}
+
+func readSourceSignatures(t *testing.T, path string) []string {
+	t.Helper()
+	records := readBatchRecords(t, path)
+	signatures := make([]string, 0, len(records))
+	for _, record := range records {
+		signatures = append(signatures, record.SourceSignature)
+	}
+	return signatures
 }

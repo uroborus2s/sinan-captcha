@@ -11,6 +11,7 @@ import (
 	"math/rand"
 	"os"
 	"path/filepath"
+	"strings"
 
 	"sinan-captcha/generator/internal/config"
 	"sinan-captcha/generator/internal/export"
@@ -118,9 +119,13 @@ func Generate(index int, cfg config.Config, catalog material.Catalog) (export.Sa
 		OffsetY:      &offsetY,
 		BackgroundID: background.ID,
 		StyleID:      shapeClass.Name,
-		LabelSource:  "gold",
-		SourceBatch:  cfg.Project.BatchID,
-		Seed:         sampleSeed,
+		SourceSignature: strings.Join(
+			[]string{background.ID, shapeClass.Name, filepath.Base(shapeIcon.Path)},
+			"|",
+		),
+		LabelSource: "gold",
+		SourceBatch: cfg.Project.BatchID,
+		Seed:        sampleSeed,
 	}
 
 	return record, map[string]image.Image{

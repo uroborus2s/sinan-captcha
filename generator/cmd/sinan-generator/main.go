@@ -67,6 +67,8 @@ func usage() string {
 		"  Presets: firstpass=200 samples, hard=200 samples, smoke=20 samples.\n" +
 		"  make-dataset --preset accepts firstpass, hard, or smoke.\n" +
 		"  make-dataset also accepts --override-file with JSON overrides for sample_count, sampling, and effects.\n" +
+		"  Without --materials, make-dataset samples from every task-compatible pack in the workspace.\n" +
+		"  Pass --runtime-seed to reproduce one specific generation run.\n" +
 		"  Optional preset overrides are loaded from workspace\\presets\\smoke.yaml, group1.<preset>.yaml, or group2.<preset>.yaml.\n" +
 		"  Materials can come from a local directory, a local zip, or an http(s) zip URL.\n" +
 		"  materials import/fetch also accept --task group1|group2 when the materials pack only contains one task.\n" +
@@ -196,6 +198,7 @@ func runMakeDataset(args []string) error {
 	workspaceRoot := fs.String("workspace", "", "override workspace root")
 	materialsSelector := fs.String("materials", "", "materials selector in the form official/name or local/name")
 	materialSource := fs.String("materials-source", "", "optional local dir, local zip, file URL, or http(s) URL")
+	runtimeSeed := fs.Int64("runtime-seed", 0, "optional run seed; omit to auto-generate a new seed each run")
 	overrideFile := fs.String("override-file", "", "optional JSON override file for sample_count, sampling, and effects")
 	force := fs.Bool("force", false, "overwrite generated files in the training directory")
 	if err := fs.Parse(args); err != nil {
@@ -209,6 +212,7 @@ func runMakeDataset(args []string) error {
 		DatasetDir:     *datasetDir,
 		Materials:      *materialsSelector,
 		MaterialSource: *materialSource,
+		RuntimeSeed:    *runtimeSeed,
 		OverrideFile:   *overrideFile,
 		Force:          *force,
 		Writer:         os.Stdout,

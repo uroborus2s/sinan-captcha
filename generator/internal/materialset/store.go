@@ -8,6 +8,7 @@ import (
 	"net/url"
 	"os"
 	"path/filepath"
+	"sort"
 	"strings"
 	"time"
 
@@ -57,6 +58,59 @@ func Resolve(state workspace.State, selector string, task string) (SyncResult, e
 		return SyncResult{}, err
 	}
 	return SyncResult{Ref: ref, Root: root, Validation: summary}, nil
+}
+
+func ResolveOrAcquirePool(state workspace.State, selector string, source string, task string) ([]SyncResult, error) {
+	if strings.TrimSpace(selector) != "" {
+		result, err := Resolve(state, selector, task)
+		if err != nil {
+			return nil, err
+		}
+		return []SyncResult{result}, nil
+	}
+	if source == "" {
+		source = state.Metadata.DefaultMaterialSource
+	}
+	if source != "" {
+		if _, err := Sync(state, source, "", task); err != nil {
+			return nil, err
+		}
+	}
+	results, err := ListAvailable(state, task)
+	if err != nil {
+		return nil, err
+	}
+	if len(results) == 0 {
+		return nil, fmt.Errorf("no materials available in workspace %s; import local materials or provide --materials-source", state.Layout.Root)
+	}
+	return results, nil
+}
+
+func ListAvailable(state workspace.State, task string) ([]SyncResult, error) {
+	refs := append(
+		listMaterialSetRefs(state.Layout.LocalMaterialsDir, "local"),
+		listMaterialSetRefs(state.Layout.OfficialMaterialsDir, "official")...,
+	)
+	sort.Slice(refs, func(left int, right int) bool {
+		if refs[left].Scope != refs[right].Scope {
+			return refs[left].Scope < refs[right].Scope
+		}
+		return refs[left].Name < refs[right].Name
+	})
+
+	results := make([]SyncResult, 0, len(refs))
+	for _, ref := range refs {
+		root, err := workspace.MaterialSetPath(state.Layout, ref)
+		if err != nil {
+			return nil, err
+		}
+		summary, err := validateMaterials(root, task)
+		if err != nil {
+			continue
+		}
+		results = append(results, SyncResult{Ref: ref, Root: root, Validation: summary})
+	}
+	return results, nil
 }
 
 func Sync(state workspace.State, source string, name string, task string) (SyncResult, error) {
@@ -374,4 +428,23 @@ func sanitizeName(name string) string {
 		return "materials"
 	}
 	return name
+}
+
+func listMaterialSetRefs(baseDir string, scope string) []workspace.MaterialSetRef {
+	entries, err := os.ReadDir(baseDir)
+	if err != nil {
+		return nil
+	}
+	refs := make([]workspace.MaterialSetRef, 0, len(entries))
+	for _, entry := range entries {
+		if !entry.IsDir() {
+			continue
+		}
+		refs = append(refs, workspace.MaterialSetRef{
+			Scope:        scope,
+			Name:         entry.Name(),
+			RelativePath: filepath.ToSlash(filepath.Join("materials", scope, entry.Name())),
+		})
+	}
+	return refs
 }

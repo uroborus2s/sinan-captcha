@@ -16,6 +16,8 @@ func TestUsageIncludesCurrentUserGuidance(t *testing.T) {
 		"Optional preset overrides are loaded from workspace\\presets\\smoke.yaml, group1.<preset>.yaml, or group2.<preset>.yaml.",
 		"make-dataset --preset accepts firstpass, hard, or smoke.",
 		"make-dataset also accepts --override-file with JSON overrides for sample_count, sampling, and effects.",
+		"Without --materials, make-dataset samples from every task-compatible pack in the workspace.",
+		"Pass --runtime-seed to reproduce one specific generation run.",
 		"materials import/fetch also accept --task group1|group2 when the materials pack only contains one task.",
 		"Re-running make-dataset with --force overwrites the same dataset directory.",
 		"sinan-generator materials merge --into D:\\materials-pack --from D:\\incoming-materials",

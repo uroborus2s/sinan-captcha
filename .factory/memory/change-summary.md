@@ -1,5 +1,38 @@
 # 变更摘要
 
+## 2026-04-09 重构 `sinan-generator make-dataset`：按样本随机选择 pack，并让多次运行素材来源显著变化
+
+- 已更新：
+  - `generator/internal/app/make_dataset.go`
+  - `generator/internal/app/make_dataset_test.go`
+  - `generator/internal/export/manifest.go`
+  - `generator/internal/materialset/store.go`
+  - `generator/internal/sampler/sample.go`
+  - `generator/internal/slide/slide.go`
+  - `generator/cmd/sinan-generator/main.go`
+  - `generator/cmd/sinan-generator/main_test.go`
+  - `docs/02-user-guide/prepare-training-data-with-generator.md`
+  - `.factory/memory/current-state.md`
+  - `.factory/memory/change-summary.md`
+- 当前已完成的目标：
+  - `make-dataset` 当前默认会扫描工作区内所有通过当前任务校验的素材包，而不是只用单一 `active_material_set`
+  - 当前每生成 `1` 条样本，都会先随机选择 `1` 个 `pack_name`
+  - 当前每次运行 `make-dataset` 都会自动生成新的运行 seed，因此同一 preset 多次重跑时，源文件和图标选择序列会显著变化
+  - 当前样本标签已补充：
+    - `material_set`
+    - `source_signature`
+  - 当前批次与作业元数据已补充：
+    - `material_sets`
+    - `seed`
+  - 当前仍保留显式锁定单 pack 的能力：
+    - `--materials local/<name>`
+    - `--materials official/<name>`
+  - 当前新增可选复现开关：
+    - `--runtime-seed <seed>`
+- 已运行验证：
+  - `env GOCACHE=/tmp/go-build go test ./internal/app`（cwd=`generator/`）
+  - `env GOCACHE=/tmp/go-build go test ./...`（cwd=`generator/`）
+
 ## 2026-04-09 修复 `sinan-generator materials merge`：支持缺失背景图时的增量合并
 
 - 已更新：
