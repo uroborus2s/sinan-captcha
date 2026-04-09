@@ -17,6 +17,34 @@
 
 ## 当前事实
 
+- 2026-04-10 当前 `sinan-generator` 的 `group1 query` 渲染已改为“透明背景为主，少量混入彩色/灰黑面板”：
+  - 当前新增可配置字段：
+    - `effects.click.query_background_transparent_ratio`
+  - 当前内置预设默认值：
+    - `group1 firstpass = 0.90`
+    - `group1 hard = 0.82`
+  - 当前读取旧工作区 `group1.*.yaml` 时，如果缺少这个新字段，也会自动继承对应内置默认值
+  - 当前透明模式下会直接输出透明 `query` 画布，不再叠加旧浅灰面板和分隔线
+  - 当前非透明模式下会从少量固定调色板中抽样：
+    - 浅灰
+    - 深灰/近黑
+    - 冷灰
+    - 蓝灰
+    - 暖灰
+  - 当前这一步是为了让生成器更接近真实 `materials/business_exams/group1/reviewed-v1/import/query` 的透明 PNG 分布
+  - 当前已验证：
+    - `env GOCACHE=/tmp/go-build go test ./internal/app ./internal/config ./internal/preset ./internal/render`（cwd=`generator/`）
+- 2026-04-10 当前 `env setup-train` 已修复“安装依赖前因预加载 `PIL` 而提前崩溃”的问题：
+  - 之前 `core.ops.setup_train` 会经由 `core.auto_train.__init__` 触发整包 eager import
+  - 后续导入链会落到 `core.train.group2.service` 顶层的 `from PIL import Image`
+  - 当训练机环境还未安装 `Pillow` 时，现场会直接报：
+    - `ModuleNotFoundError: No module named 'PIL'`
+  - 当前已改为：
+    - `core.auto_train.__init__` 不再整包 eager import 子模块
+    - `core.ops.setup_train` 直接引用 `core.auto_train.opencode_assets`
+    - `core.train.group2.service` 只在需要检查混尺寸图片时再延迟导入 `PIL`
+  - 当前已验证：
+    - `.venv/bin/python -m unittest tests.python.test_setup_train tests.python.test_training_jobs tests.python.test_auto_train_business_eval tests.python.test_auto_train_controller`
 - 2026-04-10 当前 `group2` 通用预测服务也已兼容“紧边界透明 tile PNG + 混尺寸样本”：
   - 当前 `run_group2_prediction_job()` 会先检查预测输入里的 `master/tile` 原始尺寸组合
   - 当同一批 source 中存在不同尺寸组合时，当前不会再把整批样本一次性交给 `core.train.group2.runner predict`

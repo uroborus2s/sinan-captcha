@@ -391,8 +391,8 @@ D:\incoming-materials\
 | 预设 | 内置样本数 | 适合场景 |
 | --- | --- | --- |
 | `smoke` | 20 | 验证命令、目录和训练链路是否能跑通。 |
-| `firstpass` | 200 | 第一轮正式训练数据。 |
-| `hard` | 200 | 样本量与 `firstpass` 接近，但会加更强的阴影、模糊和遮挡。 |
+| `firstpass` | 200 | 第一轮正式训练数据；`group1 query` 默认以透明背景为主，少量混入深灰/黑/杂色面板。 |
+| `hard` | 200 | 样本量与 `firstpass` 接近，但会加更强的阴影、模糊和遮挡；`group1 query` 仍保持透明背景占多数。 |
 
 例如：
 
@@ -446,7 +446,8 @@ D:\incoming-materials\
       "icon_shadow_offset_y_min": 3,
       "icon_shadow_offset_y_max": 4,
       "icon_edge_blur_radius_min": 1,
-      "icon_edge_blur_radius_max": 2
+      "icon_edge_blur_radius_max": 2,
+      "query_background_transparent_ratio": 0.85
     }
   }
 }
@@ -464,6 +465,7 @@ D:\incoming-materials\
 | `effects.click.icon_shadow_alpha_min/max` | `group1` 图标阴影透明度范围。 |
 | `effects.click.icon_shadow_offset_x/y_min/max` | `group1` 图标阴影偏移范围。 |
 | `effects.click.icon_edge_blur_radius_min/max` | `group1` 图标边缘模糊范围。 |
+| `effects.click.query_background_transparent_ratio` | `group1 query` 使用透明背景的比例；`1.0` 表示全透明，`0.0` 表示全部走彩色/灰黑面板。 |
 | `effects.slide.gap_shadow_alpha_min/max` | `group2` 缺口阴影透明度范围。 |
 | `effects.slide.gap_shadow_offset_x/y_min/max` | `group2` 缺口阴影偏移范围。 |
 | `effects.slide.tile_edge_blur_radius_min/max` | `group2` 拼图块边缘模糊范围。 |
@@ -474,6 +476,7 @@ D:\incoming-materials\
 - `sampling.*` 主要影响 `group1`。
 - `effects.click.*` 只影响 `group1`。
 - `effects.slide.*` 只影响 `group2`。
+- 如果你之前已经在工作区里生成过旧版 `group1.firstpass.yaml` 或 `group1.hard.yaml`，新版本会先继承内置默认值；如果你想显式改透明比例，再手动补 `query_background_transparent_ratio` 即可。
 - 覆盖文件只接受已知字段，写错字段名会直接报错。
 - 传了 `--override-file` 后，最终生效配置会额外写到 `<dataset-dir>\.sinan\effective-config.yaml`，方便你复盘。
 

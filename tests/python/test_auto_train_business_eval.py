@@ -353,10 +353,65 @@ class BusinessEvalExamTests(unittest.TestCase):
         rendered = business_eval.markdown_from_business_eval(record)
 
         self.assertIn("### case_0007", rendered)
-        self.assertIn("delta_x_px", rendered)
-        self.assertIn("delta_y_px", rendered)
-        self.assertIn("failed_checks", rendered)
-        self.assertIn("point_miss_and_low_iou", rendered)
+        self.assertIn("X 方向偏差：向右偏 6.0000px", rendered)
+        self.assertIn("Y 方向偏差：向上偏 4.0000px", rendered)
+        self.assertIn("未通过项：中心点误差、IoU", rendered)
+        self.assertIn("标准答案中心点：", rendered)
+        self.assertIn("模型预测中心点：", rendered)
+        self.assertIn("计划抽取 50 组进行商业测试，实际完成判卷 50 组", rendered)
+
+    def test_business_eval_log_includes_chinese_group2_case_summary(self) -> None:
+        record = contracts.BusinessEvalRecord(
+            trial_id="trial_0010",
+            task="group2",
+            train_name="trial_0010",
+            cases_root="/tmp/business-cases",
+            available_cases=50,
+            total_cases=50,
+            passed_cases=49,
+            success_rate=49 / 50,
+            success_threshold=0.95,
+            min_cases=50,
+            sample_size=50,
+            commercial_ready=True,
+            point_tolerance_px=5,
+            iou_threshold=0.5,
+            sampled_source="/tmp/business-eval/_sampled_source/labels.jsonl",
+            report_dir="/tmp/business-eval",
+            prediction_dir="/tmp/business-eval/modeltest/predict",
+            evaluation_report_dir="/tmp/business-eval/evaluation",
+            case_results=[
+                contracts.BusinessEvalCaseRecord(
+                    case_id="case_0008",
+                    sample_id="case_0008",
+                    success=False,
+                    reason_code="point_miss",
+                    reason_cn="预测中心点超出允许像素容差。",
+                    input_images={"master_image": "/tmp/master/case_0008.png", "tile_image": "/tmp/tile/case_0008.png"},
+                    metrics={
+                        "point_tolerance_px": 5,
+                        "iou_threshold": 0.5,
+                        "center_error_px": 6.0,
+                        "delta_x_px": -3.0,
+                        "delta_y_px": 5.0,
+                        "iou": 0.66,
+                        "point_hit": False,
+                        "iou_hit": True,
+                        "failed_checks": ["point_tolerance"],
+                    },
+                    prediction={"target_gap": {"bbox": [12, 20, 36, 44], "center": [24, 32]}},
+                    reference={"target_gap": {"bbox": [15, 15, 39, 39], "center": [27, 27]}},
+                    evidence=[],
+                )
+            ],
+            evidence=["commercial_ready=true"],
+        )
+
+        rendered = business_eval.log_from_business_eval(record)
+
+        self.assertIn("summary_cn=", rendered)
+        self.assertIn("标准答案中心点为 [27, 27]", rendered)
+        self.assertIn("模型预测中心点为 [24, 32]", rendered)
 
 
 class BusinessEvalControllerTests(unittest.TestCase):

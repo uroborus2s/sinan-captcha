@@ -1,5 +1,54 @@
 # 变更摘要
 
+## 2026-04-10 调整 `sinan-generator group1 query` 背景策略：改为透明背景为主，少量混入灰黑/彩色面板
+
+- 已更新：
+  - `generator/internal/config/load.go`
+  - `generator/internal/config/load_test.go`
+  - `generator/internal/preset/preset.go`
+  - `generator/internal/preset/preset_test.go`
+  - `generator/internal/render/render.go`
+  - `generator/internal/render/render_test.go`
+  - `docs/02-user-guide/prepare-training-data-with-generator.md`
+  - `.factory/memory/current-state.md`
+  - `.factory/memory/change-summary.md`
+- 当前已完成的目标：
+  - 当前为 `group1 query` 新增配置字段：
+    - `effects.click.query_background_transparent_ratio`
+  - 当前内置预设默认值已调整为：
+    - `firstpass = 0.90`
+    - `hard = 0.82`
+  - 当前旧工作区 preset 如果尚未写入这个新字段，也会自动继承对应内置默认值
+  - 当前透明模式下不再绘制旧浅灰 query 面板和分隔线
+  - 当前非透明模式下会稳定随机抽样少量固定面板调色板，覆盖：
+    - 浅灰
+    - 深灰/近黑
+    - 冷灰
+    - 蓝灰
+    - 暖灰
+  - 当前这修复了真实 `group1 query` 为透明 PNG，而生成器长期输出固定浅灰面板的域偏差
+- 已运行验证：
+  - `env GOCACHE=/tmp/go-build go test ./internal/config ./internal/preset ./internal/render`（cwd=`generator/`）
+  - `env GOCACHE=/tmp/go-build go test ./internal/app ./internal/config ./internal/preset ./internal/render`（cwd=`generator/`）
+
+## 2026-04-10 修复 `env setup-train`：避免在安装依赖前因 `PIL` 预加载崩溃
+
+- 已更新：
+  - `core/auto_train/__init__.py`
+  - `core/ops/setup_train.py`
+  - `core/train/group2/service.py`
+  - `tests/python/test_setup_train.py`
+  - `.factory/memory/current-state.md`
+  - `.factory/memory/change-summary.md`
+- 当前已完成的目标：
+  - `core.auto_train` 当前不再通过 `__init__` 整包 eager import 所有子模块
+  - `setup_train` 当前直接引用 `opencode_assets` 子模块，不再无关地拉起 `business_eval/modeltest/group2 service`
+  - `group2 service` 当前只在真正检查混尺寸图片时才延迟导入 `PIL`
+  - 这修复了训练机首次执行 `uvx --from sinan-captcha==... sinan env setup-train ...` 时可能出现的：
+    - `ModuleNotFoundError: No module named 'PIL'`
+- 已运行验证：
+  - `.venv/bin/python -m unittest tests.python.test_setup_train tests.python.test_training_jobs tests.python.test_auto_train_business_eval tests.python.test_auto_train_controller`
+
 ## 2026-04-10 修复 `group2 predict / modeltest / business_eval`：兼容紧边界透明 tile PNG 的混尺寸输入
 
 - 已更新：

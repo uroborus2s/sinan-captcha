@@ -9,8 +9,6 @@ from pathlib import Path
 import shutil
 import subprocess
 
-from PIL import Image
-
 from core.common.jsonl import read_jsonl, write_jsonl
 from core.train.group2.dataset import load_group2_dataset_config, load_group2_rows, resolve_group2_path
 
@@ -216,6 +214,8 @@ def _requires_per_sample_prediction(
     job: Group2PredictionJob,
     source_rows: list[dict[str, object]],
 ) -> bool:
+    from PIL import Image
+
     if len(source_rows) <= 1:
         return False
 

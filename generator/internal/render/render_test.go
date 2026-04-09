@@ -153,8 +153,9 @@ func TestBuildQueryIsDeterministicForSameSeed(t *testing.T) {
 				BackgroundBlurRadiusMax: 0,
 			},
 			Click: config.ClickEffectsConfig{
-				IconEdgeBlurRadiusMin: 1,
-				IconEdgeBlurRadiusMax: 1,
+				IconEdgeBlurRadiusMin:           1,
+				IconEdgeBlurRadiusMax:           1,
+				QueryBackgroundTransparentRatio: 0.82,
 			},
 		},
 	}
@@ -170,6 +171,127 @@ func TestBuildQueryIsDeterministicForSameSeed(t *testing.T) {
 
 	if got, want := imageChecksum(queryA), imageChecksum(queryB); got != want {
 		t.Fatalf("expected deterministic query rendering for same seed, got %d want %d", got, want)
+	}
+}
+
+func TestBuildQueryUsesTransparentBackgroundWhenRatioIsOne(t *testing.T) {
+	root := t.TempDir()
+	backgroundPath := filepath.Join(root, "background.png")
+	iconPath := filepath.Join(root, "icon.png")
+	writeScenePNG(t, backgroundPath, 240, 140)
+	writeIconPNG(t, iconPath, 56, 56)
+
+	plan := sampler.SamplePlan{
+		Record: export.SampleRecord{
+			SampleID:   "g1_000002",
+			QueryImage: "query/g1_000002.png",
+			SceneImage: "scene/g1_000002.png",
+			Seed:       20260411,
+		},
+		BackgroundPath: backgroundPath,
+		Targets: []sampler.PlacedObject{
+			{
+				ObjectRecord: export.ObjectRecord{Order: 1, Class: "icon_house", ClassID: 0},
+				IconPath:     iconPath,
+				BaseWidth:    48,
+				BaseHeight:   48,
+			},
+			{
+				ObjectRecord: export.ObjectRecord{Order: 2, Class: "icon_house", ClassID: 0},
+				IconPath:     iconPath,
+				BaseWidth:    48,
+				BaseHeight:   48,
+			},
+		},
+	}
+	cfg := config.Config{
+		Canvas: config.CanvasConfig{
+			SceneWidth:  180,
+			SceneHeight: 100,
+			QueryWidth:  120,
+			QueryHeight: 36,
+		},
+		Effects: config.EffectsConfig{
+			Common: config.CommonEffectsConfig{
+				SceneVeilStrength:       1.0,
+				BackgroundBlurRadiusMin: 0,
+				BackgroundBlurRadiusMax: 0,
+			},
+			Click: config.ClickEffectsConfig{
+				IconEdgeBlurRadiusMin:           0,
+				IconEdgeBlurRadiusMax:           0,
+				QueryBackgroundTransparentRatio: 1.0,
+			},
+		},
+	}
+
+	queryImage, _, _, err := Build(plan, cfg)
+	if err != nil {
+		t.Fatalf("build query: %v", err)
+	}
+	query := asRGBA(t, queryImage)
+
+	if got := query.RGBAAt(0, 0).A; got != 0 {
+		t.Fatalf("expected transparent corner alpha, got %d", got)
+	}
+	if got := query.RGBAAt(60, 18).A; got != 0 {
+		t.Fatalf("expected transparent mode to omit divider pixels, got alpha %d", got)
+	}
+}
+
+func TestBuildQueryUsesOpaquePanelWhenRatioIsZero(t *testing.T) {
+	root := t.TempDir()
+	backgroundPath := filepath.Join(root, "background.png")
+	iconPath := filepath.Join(root, "icon.png")
+	writeScenePNG(t, backgroundPath, 240, 140)
+	writeIconPNG(t, iconPath, 56, 56)
+
+	plan := sampler.SamplePlan{
+		Record: export.SampleRecord{
+			SampleID:   "g1_000003",
+			QueryImage: "query/g1_000003.png",
+			SceneImage: "scene/g1_000003.png",
+			Seed:       20260412,
+		},
+		BackgroundPath: backgroundPath,
+		Targets: []sampler.PlacedObject{
+			{
+				ObjectRecord: export.ObjectRecord{Order: 1, Class: "icon_house", ClassID: 0},
+				IconPath:     iconPath,
+				BaseWidth:    48,
+				BaseHeight:   48,
+			},
+		},
+	}
+	cfg := config.Config{
+		Canvas: config.CanvasConfig{
+			SceneWidth:  180,
+			SceneHeight: 100,
+			QueryWidth:  120,
+			QueryHeight: 36,
+		},
+		Effects: config.EffectsConfig{
+			Common: config.CommonEffectsConfig{
+				SceneVeilStrength:       1.0,
+				BackgroundBlurRadiusMin: 0,
+				BackgroundBlurRadiusMax: 0,
+			},
+			Click: config.ClickEffectsConfig{
+				IconEdgeBlurRadiusMin:           0,
+				IconEdgeBlurRadiusMax:           0,
+				QueryBackgroundTransparentRatio: 0.0,
+			},
+		},
+	}
+
+	queryImage, _, _, err := Build(plan, cfg)
+	if err != nil {
+		t.Fatalf("build query: %v", err)
+	}
+	query := asRGBA(t, queryImage)
+
+	if got := query.RGBAAt(0, 0).A; got == 0 {
+		t.Fatalf("expected opaque panel background at corner")
 	}
 }
 
@@ -226,4 +348,13 @@ func imageChecksum(img image.Image) uint64 {
 		}
 	}
 	return hasher.Sum64()
+}
+
+func asRGBA(t *testing.T, img image.Image) *image.RGBA {
+	t.Helper()
+	rgba, ok := img.(*image.RGBA)
+	if !ok {
+		t.Fatalf("expected RGBA image, got %T", img)
+	}
+	return rgba
 }

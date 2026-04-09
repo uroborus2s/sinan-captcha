@@ -17,21 +17,68 @@ import (
 )
 
 var (
-	queryOuterBackground = color.RGBA{236, 240, 245, 255}
-	queryPanelBackground = color.RGBA{248, 250, 252, 255}
-	queryBorder          = color.RGBA{214, 221, 230, 255}
-	queryDivider         = color.RGBA{228, 233, 240, 255}
-	iconTint             = color.RGBA{26, 40, 58, 255}
+	queryTransparentBackground = queryBackgroundStyle{Transparent: true}
+	queryPanelStyles           = []queryBackgroundStyle{
+		{
+			Outer:     color.RGBA{236, 240, 245, 255},
+			Panel:     color.RGBA{248, 250, 252, 255},
+			Border:    color.RGBA{214, 221, 230, 255},
+			Divider:   color.RGBA{228, 233, 240, 255},
+			Highlight: color.RGBA{255, 255, 255, 100},
+		},
+		{
+			Outer:     color.RGBA{20, 22, 26, 255},
+			Panel:     color.RGBA{34, 38, 44, 255},
+			Border:    color.RGBA{64, 72, 84, 255},
+			Divider:   color.RGBA{54, 62, 74, 255},
+			Highlight: color.RGBA{255, 255, 255, 22},
+		},
+		{
+			Outer:     color.RGBA{58, 62, 70, 255},
+			Panel:     color.RGBA{86, 92, 102, 255},
+			Border:    color.RGBA{124, 131, 144, 255},
+			Divider:   color.RGBA{112, 119, 132, 255},
+			Highlight: color.RGBA{255, 255, 255, 28},
+		},
+		{
+			Outer:     color.RGBA{42, 50, 68, 255},
+			Panel:     color.RGBA{63, 76, 102, 255},
+			Border:    color.RGBA{96, 110, 138, 255},
+			Divider:   color.RGBA{88, 102, 130, 255},
+			Highlight: color.RGBA{255, 255, 255, 30},
+		},
+		{
+			Outer:     color.RGBA{70, 66, 64, 255},
+			Panel:     color.RGBA{98, 92, 88, 255},
+			Border:    color.RGBA{132, 125, 120, 255},
+			Divider:   color.RGBA{120, 114, 110, 255},
+			Highlight: color.RGBA{255, 255, 255, 24},
+		},
+	}
+	iconTint = color.RGBA{26, 40, 58, 255}
 )
 
 const (
-	queryIconScaleMin = 0.78
-	queryIconScaleMax = 0.90
-	queryIconAlphaMin = 0.88
-	queryIconAlphaMax = 0.98
-	queryIconJitterX  = 1
-	queryIconJitterY  = 1
+	queryIconScaleMin            = 0.78
+	queryIconScaleMax            = 0.90
+	queryIconAlphaMin            = 0.88
+	queryIconAlphaMax            = 0.98
+	queryIconJitterX             = 1
+	queryIconJitterY             = 1
+	queryPanelInset              = 2
+	queryPanelPadding            = 8
+	queryTransparentArtifactBase = 0.14
+	queryPanelArtifactBase       = 0.28
 )
+
+type queryBackgroundStyle struct {
+	Transparent bool
+	Outer       color.RGBA
+	Panel       color.RGBA
+	Border      color.RGBA
+	Divider     color.RGBA
+	Highlight   color.RGBA
+}
 
 func Build(plan sampler.SamplePlan, cfg config.Config) (image.Image, image.Image, []export.ObjectRecord, error) {
 	scene, err := buildScene(plan, cfg)
@@ -91,17 +138,20 @@ func buildScene(plan sampler.SamplePlan, cfg config.Config) (image.Image, error)
 func buildQuery(plan sampler.SamplePlan, cfg config.Config) (image.Image, []export.ObjectRecord, error) {
 	canvas := cfg.Canvas
 	query := image.NewRGBA(image.Rect(0, 0, canvas.QueryWidth, canvas.QueryHeight))
-	draw.Draw(query, query.Bounds(), &image.Uniform{C: queryOuterBackground}, image.Point{}, draw.Src)
-	drawPanel(query)
+	backgroundStyle := pickQueryBackgroundStyle(plan.Record.Seed, cfg.Effects.Click.QueryBackgroundTransparentRatio)
+	applyQueryBackground(query, backgroundStyle)
 
 	if len(plan.Targets) == 0 {
 		return query, nil, nil
 	}
 
-	padding := 8
+	padding := queryPanelPadding
 	availableWidth := canvas.QueryWidth - padding*(len(plan.Targets)+1)
 	cellWidth := max(16, availableWidth/len(plan.Targets))
-	cellHeight := canvas.QueryHeight - padding*2 - 2
+	cellHeight := canvas.QueryHeight - padding*2
+	if !backgroundStyle.Transparent {
+		cellHeight -= queryPanelInset
+	}
 	queryTargets := make([]export.ObjectRecord, 0, len(plan.Targets))
 	rng := rand.New(rand.NewSource(plan.Record.Seed + 17))
 
@@ -125,7 +175,10 @@ func buildQuery(plan sampler.SamplePlan, cfg config.Config) (image.Image, []expo
 		cellX2 := cellX1 + cellWidth
 		x1 := cellX1 + (cellWidth-iconWidth)/2 + imagefx.IntRange(rng, -queryIconJitterX, queryIconJitterX)
 		x1 = clamp(x1, cellX1, cellX2-iconWidth)
-		yMin := padding + 1
+		yMin := padding
+		if !backgroundStyle.Transparent {
+			yMin++
+		}
 		yMax := yMin + cellHeight - iconHeight
 		y1 := yMin + (cellHeight-iconHeight)/2 + imagefx.IntRange(rng, -queryIconJitterY, queryIconJitterY)
 		y1 = clamp(y1, yMin, yMax)
@@ -145,14 +198,18 @@ func buildQuery(plan sampler.SamplePlan, cfg config.Config) (image.Image, []expo
 			Alpha:       1,
 			Scale:       math.Round(scale*100) / 100,
 		})
-		if index < len(plan.Targets)-1 {
+		if !backgroundStyle.Transparent && index < len(plan.Targets)-1 {
 			dividerX := cellX1 + cellWidth + padding/2
 			for y := 8; y < canvas.QueryHeight-8; y++ {
-				query.SetRGBA(dividerX, y, queryDivider)
+				query.SetRGBA(dividerX, y, backgroundStyle.Divider)
 			}
 		}
 	}
-	queryArtifactStrength := 0.28 + maxFloat(0, cfg.Effects.Common.SceneVeilStrength-1.0)*0.65
+	queryArtifactStrength := queryTransparentArtifactBase
+	if !backgroundStyle.Transparent {
+		queryArtifactStrength = queryPanelArtifactBase
+	}
+	queryArtifactStrength += maxFloat(0, cfg.Effects.Common.SceneVeilStrength-1.0) * 0.65
 	if cfg.Effects.Click.IconEdgeBlurRadiusMax > 0 {
 		queryArtifactStrength += 0.18
 	}
@@ -160,22 +217,35 @@ func buildQuery(plan sampler.SamplePlan, cfg config.Config) (image.Image, []expo
 	return query, queryTargets, nil
 }
 
-func drawPanel(img *image.RGBA) {
+func applyQueryBackground(img *image.RGBA, style queryBackgroundStyle) {
+	if style.Transparent {
+		return
+	}
+
+	draw.Draw(img, img.Bounds(), &image.Uniform{C: style.Outer}, image.Point{}, draw.Src)
 	bounds := img.Bounds()
-	panel := image.Rect(2, 2, bounds.Max.X-2, bounds.Max.Y-2)
-	draw.Draw(img, panel, &image.Uniform{C: queryPanelBackground}, image.Point{}, draw.Src)
+	panel := image.Rect(queryPanelInset, queryPanelInset, bounds.Max.X-queryPanelInset, bounds.Max.Y-queryPanelInset)
+	draw.Draw(img, panel, &image.Uniform{C: style.Panel}, image.Point{}, draw.Src)
 	for x := panel.Min.X; x < panel.Max.X; x++ {
-		img.SetRGBA(x, panel.Min.Y, queryBorder)
-		img.SetRGBA(x, panel.Max.Y-1, queryBorder)
+		img.SetRGBA(x, panel.Min.Y, style.Border)
+		img.SetRGBA(x, panel.Max.Y-1, style.Border)
 	}
 	for y := panel.Min.Y; y < panel.Max.Y; y++ {
-		img.SetRGBA(panel.Min.X, y, queryBorder)
-		img.SetRGBA(panel.Max.X-1, y, queryBorder)
+		img.SetRGBA(panel.Min.X, y, style.Border)
+		img.SetRGBA(panel.Max.X-1, y, style.Border)
 	}
 
 	for x := 4; x < bounds.Max.X-4; x++ {
-		img.SetRGBA(x, 3, color.RGBA{255, 255, 255, 100})
+		img.SetRGBA(x, 3, style.Highlight)
 	}
+}
+
+func pickQueryBackgroundStyle(seed int64, transparentRatio float64) queryBackgroundStyle {
+	rng := rand.New(rand.NewSource(seed + 7))
+	if rng.Float64() < transparentRatio {
+		return queryTransparentBackground
+	}
+	return queryPanelStyles[rng.Intn(len(queryPanelStyles))]
 }
 
 func loadImage(path string) (image.Image, error) {

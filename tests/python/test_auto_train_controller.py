@@ -2355,6 +2355,142 @@ class AutoTrainControllerTests(unittest.TestCase):
             self.assertEqual(study.final_reason, "commercial_gate_passed")
             self.assertTrue(study.goal_only_stop)
 
+    def test_completed_study_reruns_business_eval_when_business_threshold_changes(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            root = Path(tmpdir)
+            train_root = root / "train-root"
+            generator_workspace = root / "generator-workspace"
+            dataset_dir = train_root / "datasets" / "group2" / "firstpass"
+            gold_dir = root / "gold"
+            prediction_dir = root / "predictions"
+            business_cases = root / "business-cases"
+            for path in (generator_workspace, dataset_dir, gold_dir, prediction_dir, business_cases):
+                path.mkdir(parents=True, exist_ok=True)
+            (gold_dir / "labels.jsonl").write_text("", encoding="utf-8")
+            (prediction_dir / "labels.jsonl").write_text("", encoding="utf-8")
+            _write_dataset_config(train_root, "group2", "firstpass")
+
+            ctrl = controller.AutoTrainController(
+                request=controller.AutoTrainRequest(
+                    task="group2",
+                    study_name="study_001",
+                    train_root=train_root,
+                    generator_workspace=generator_workspace,
+                    studies_root=root / "studies",
+                    dataset_version="firstpass",
+                    gold_dir=gold_dir,
+                    prediction_dir=prediction_dir,
+                    business_eval_dir=business_cases,
+                    business_eval_sample_size=50,
+                    business_eval_min_cases=50,
+                    point_tolerance_px=3,
+                    goal_only_stop=True,
+                )
+            )
+
+            study = contracts.StudyRecord(
+                study_name="study_001",
+                task="group2",
+                status="completed",
+                mode="full_auto",
+                train_root=str(train_root),
+                generator_workspace=str(generator_workspace),
+                judge=contracts.JudgeConfig(provider="rules", model=None),
+                budget=contracts.StudyBudget(max_trials=20, max_hours=24.0, max_new_datasets=None, max_no_improve_trials=4),
+                business_eval=contracts.BusinessEvalConfig(
+                    cases_root=str(business_cases),
+                    success_threshold=0.95,
+                    min_cases=30,
+                    sample_size=30,
+                    point_tolerance_px=12,
+                    iou_threshold=0.5,
+                ),
+                started_at="2026-04-10T00:00:00+00:00",
+                current_trial_id="trial_0008",
+                best_trial_id="trial_0008",
+                final_reason="commercial_gate_passed",
+                final_detail="1.0000/0.9500",
+                goal_only_stop=True,
+            )
+            storage.write_study_record(ctrl.paths.study_file, study)
+            trial_dir = ctrl.paths.ensure_trial_dir("trial_0008")
+            storage.write_trial_input_record(
+                ctrl.paths.input_file("trial_0008"),
+                contracts.TrialInputRecord(
+                    trial_id="trial_0008",
+                    task="group2",
+                    dataset_version="firstpass",
+                    train_name="trial_0008",
+                    train_mode="from_run",
+                    base_run="prelabel_g2_v1",
+                    params={"epochs": 100, "batch": 16, "imgsz": 192, "device": "0"},
+                ),
+            )
+            storage.write_result_summary_record(
+                ctrl.paths.result_summary_file("trial_0008"),
+                _group2_result_summary("trial_0008", dataset_version="firstpass", train_name="trial_0008"),
+            )
+            storage.write_decision_record(
+                ctrl.paths.decision_file("trial_0008"),
+                contracts.DecisionRecord(
+                    trial_id="trial_0008",
+                    decision="PROMOTE_BRANCH",
+                    confidence=0.95,
+                    reason="good_metrics",
+                    next_action={"dataset_action": "reuse", "train_action": "from_run", "base_run": "trial_0008"},
+                    evidence=["good_metrics"],
+                    agent="rules",
+                ),
+            )
+            (trial_dir / "STOP.ok").write_text("stop\n", encoding="utf-8")
+
+            observed_requests: list[controller.runners.business_eval.BusinessEvalRunnerRequest] = []
+
+            def fake_business_eval(
+                request: controller.runners.business_eval.BusinessEvalRunnerRequest,
+            ) -> controller.runners.business_eval.BusinessEvalRunnerResult:
+                observed_requests.append(request)
+                return controller.runners.business_eval.BusinessEvalRunnerResult(
+                    record=contracts.BusinessEvalRecord(
+                        trial_id="trial_0008",
+                        task="group2",
+                        train_name="trial_0008",
+                        cases_root=str(business_cases),
+                        available_cases=257,
+                        total_cases=50,
+                        passed_cases=40,
+                        success_rate=0.8,
+                        success_threshold=0.95,
+                        min_cases=50,
+                        sample_size=50,
+                        commercial_ready=False,
+                        point_tolerance_px=3,
+                        iou_threshold=0.5,
+                        sampled_source=str(ctrl.paths.business_eval_root("trial_0008") / "_sampled_source" / "labels.jsonl"),
+                        report_dir=str(ctrl.paths.business_eval_root("trial_0008")),
+                        prediction_dir=str(ctrl.paths.business_eval_root("trial_0008") / "modeltest"),
+                        evaluation_report_dir=str(ctrl.paths.business_eval_root("trial_0008") / "evaluation"),
+                        case_results=[],
+                        evidence=["commercial_ready=false"],
+                    ),
+                    command="uv run sinan business-eval group2",
+                )
+
+            ctrl.dependencies = replace(ctrl.dependencies, business_eval_runner=fake_business_eval)
+
+            result = ctrl.run(max_steps=0)
+
+            self.assertEqual(result.final_stage, "PLAN")
+            self.assertEqual(len(observed_requests), 1)
+            self.assertEqual(observed_requests[0].sample_size, 50)
+            self.assertEqual(observed_requests[0].point_tolerance_px, 3)
+            updated_study = storage.read_study_record(ctrl.paths.study_file)
+            self.assertEqual(updated_study.status, "running")
+            self.assertEqual(updated_study.current_trial_id, "trial_0009")
+            business_record = storage.read_business_eval_record(ctrl.paths.business_eval_file("trial_0008"))
+            self.assertEqual(business_record.sample_size, 50)
+            self.assertEqual(business_record.point_tolerance_px, 3)
+
     def test_run_completes_one_trial_when_rule_judge_promotes(self) -> None:
         with tempfile.TemporaryDirectory() as tmpdir:
             root = Path(tmpdir)

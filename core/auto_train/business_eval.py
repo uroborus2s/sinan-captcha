@@ -224,6 +224,10 @@ def markdown_from_business_eval(record: contracts.BusinessEvalRecord) -> str:
         f"- evaluation_report_dir: {record.evaluation_report_dir}",
         f"- verdict_cn: {verdict}",
         "",
+        "## 商业测试结论",
+        "",
+        _business_test_conclusion_cn(record),
+        "",
         "## 判卷规则",
         "",
         _business_rule_cn(record),
@@ -657,6 +661,9 @@ def _render_case_line(item: contracts.BusinessEvalCaseRecord, prefix: str | None
     if item.evidence:
         line += f" evidence={json.dumps(item.evidence, ensure_ascii=False)}"
     line += f" reason_cn={item.reason_cn}"
+    summary_cn = _case_summary_cn(item)
+    if summary_cn:
+        line += f" summary_cn={json.dumps(summary_cn, ensure_ascii=False)}"
     if prefix is None:
         return line
     return f"{prefix} {line}"
@@ -666,19 +673,17 @@ def _render_case_markdown(item: contracts.BusinessEvalCaseRecord) -> list[str]:
     lines = [
         f"### {item.case_id}",
         "",
-        f"- sample_id: {item.sample_id}",
-        f"- status: {'PASS' if item.success else 'FAIL'}",
-        f"- reason_code: {item.reason_code}",
-        f"- reason_cn: {item.reason_cn}",
-        f"- metrics: {_render_mapping(item.metrics)}",
-        f"- input_images: {_render_mapping(item.input_images)}",
+        f"- 样本编号：{item.sample_id}",
+        f"- 判定结果：{'通过' if item.success else '未通过'}",
+        f"- 失败代码：{item.reason_code}",
+        f"- 结论说明：{item.reason_cn}",
     ]
-    if item.prediction is not None:
-        lines.append(f"- prediction: {_render_mapping(item.prediction)}")
-    if item.reference is not None:
-        lines.append(f"- reference: {_render_mapping(item.reference)}")
+    lines.extend(_case_input_lines(item))
+    lines.extend(_case_reference_lines(item))
+    lines.extend(_case_prediction_lines(item))
+    lines.extend(_case_metric_lines(item))
     if item.evidence:
-        lines.append(f"- evidence: {json.dumps(item.evidence, ensure_ascii=False)}")
+        lines.append(f"- 辅助证据：{json.dumps(item.evidence, ensure_ascii=False)}")
     lines.append("")
     return lines
 
@@ -737,11 +742,124 @@ def _offline_promotion_conclusion_cn(
 
 def _business_test_conclusion_cn(record: contracts.BusinessEvalRecord) -> str:
     return (
-        f"- 本轮从 {record.available_cases} 组 reviewed 试卷中抽取 {record.total_cases} 组进行商业测试。\n"
+        f"- 本轮试卷池共有 {record.available_cases} 组 reviewed 试题。\n"
+        f"- 本轮计划抽取 {record.sample_size} 组进行商业测试，实际完成判卷 {record.total_cases} 组。\n"
         f"- 其中通过 {record.passed_cases} 组，通过率为 {record.success_rate:.2%}。\n"
         f"- 当前商用门要求 success_rate >= {record.success_threshold:.0%}。\n"
         f"- {_business_rule_cn(record)}"
     )
+
+
+def _case_input_lines(item: contracts.BusinessEvalCaseRecord) -> list[str]:
+    if not item.input_images:
+        return []
+    if "master_image" in item.input_images:
+        return [
+            f"- 输入背景图：{item.input_images.get('master_image')}",
+            f"- 输入缺口图：{item.input_images.get('tile_image')}",
+        ]
+    if "query_image" in item.input_images:
+        return [
+            f"- 输入查询图：{item.input_images.get('query_image')}",
+            f"- 输入场景图：{item.input_images.get('scene_image')}",
+        ]
+    return [f"- 输入图片：{_render_mapping(item.input_images)}"]
+
+
+def _case_reference_lines(item: contracts.BusinessEvalCaseRecord) -> list[str]:
+    if item.reference is None:
+        return []
+    target_gap = item.reference.get("target_gap")
+    if isinstance(target_gap, dict):
+        return [
+            f"- 标准答案框：{target_gap.get('bbox')}",
+            f"- 标准答案中心点：{target_gap.get('center')}",
+        ]
+    scene_targets = item.reference.get("scene_targets")
+    if isinstance(scene_targets, list):
+        return [f"- 标准答案目标序列：{json.dumps(scene_targets, ensure_ascii=False)}"]
+    return [f"- 标准答案：{_render_mapping(item.reference)}"]
+
+
+def _case_prediction_lines(item: contracts.BusinessEvalCaseRecord) -> list[str]:
+    if item.prediction is None:
+        return ["- 模型输出：未输出该题结果"]
+    target_gap = item.prediction.get("target_gap")
+    if isinstance(target_gap, dict):
+        return [
+            f"- 模型预测框：{target_gap.get('bbox')}",
+            f"- 模型预测中心点：{target_gap.get('center')}",
+        ]
+    scene_targets = item.prediction.get("scene_targets")
+    if isinstance(scene_targets, list):
+        return [f"- 模型预测目标序列：{json.dumps(scene_targets, ensure_ascii=False)}"]
+    return [f"- 模型输出：{_render_mapping(item.prediction)}"]
+
+
+def _case_metric_lines(item: contracts.BusinessEvalCaseRecord) -> list[str]:
+    if item.reference is None or item.prediction is None:
+        return [f"- 指标明细：{_render_mapping(item.metrics)}"]
+    if "target_gap" in item.reference and "target_gap" in item.prediction:
+        metrics = item.metrics
+        failed_checks = metrics.get("failed_checks")
+        failed_checks_cn = _failed_checks_cn(failed_checks if isinstance(failed_checks, list) else [])
+        return [
+            f"- 中心点总误差：{metrics.get('center_error_px')}px，允许阈值 {metrics.get('point_tolerance_px')}px",
+            f"- X 方向偏差：{_delta_axis_cn(metrics.get('delta_x_px'), 'x')}",
+            f"- Y 方向偏差：{_delta_axis_cn(metrics.get('delta_y_px'), 'y')}",
+            f"- IoU 重合度：{metrics.get('iou')}，要求不低于 {metrics.get('iou_threshold')}",
+            f"- 未通过项：{failed_checks_cn}",
+        ]
+    return [f"- 指标明细：{_render_mapping(item.metrics)}"]
+
+
+def _case_summary_cn(item: contracts.BusinessEvalCaseRecord) -> str | None:
+    if item.reference is None or item.prediction is None:
+        return None
+    if "target_gap" in item.reference and "target_gap" in item.prediction:
+        metrics = item.metrics
+        return (
+            f"该题标准答案中心点为 {item.reference['target_gap'].get('center')}，"
+            f"模型预测中心点为 {item.prediction['target_gap'].get('center')}；"
+            f"中心点总误差 {metrics.get('center_error_px')}px，"
+            f"X 方向偏差 {metrics.get('delta_x_px')}px，"
+            f"Y 方向偏差 {metrics.get('delta_y_px')}px，"
+            f"IoU 为 {metrics.get('iou')}，"
+            f"最终判定为{'通过' if item.success else '未通过'}。"
+        )
+    return None
+
+
+def _delta_axis_cn(value: Any, axis: str) -> str:
+    try:
+        number = float(value)
+    except (TypeError, ValueError):
+        return str(value)
+    if axis == "x":
+        if number > 0:
+            return f"向右偏 {abs(number):.4f}px"
+        if number < 0:
+            return f"向左偏 {abs(number):.4f}px"
+        return "无偏移"
+    if number > 0:
+        return f"向下偏 {abs(number):.4f}px"
+    if number < 0:
+        return f"向上偏 {abs(number):.4f}px"
+    return "无偏移"
+
+
+def _failed_checks_cn(items: list[Any]) -> str:
+    if not items:
+        return "无，全部达标"
+    labels: list[str] = []
+    for item in items:
+        if item == "point_tolerance":
+            labels.append("中心点误差")
+        elif item == "iou":
+            labels.append("IoU")
+        else:
+            labels.append(str(item))
+    return "、".join(labels)
 
 
 def _final_reason_cn(reason: str | None, detail: str | None) -> str:

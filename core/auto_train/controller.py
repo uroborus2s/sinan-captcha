@@ -177,7 +177,7 @@ class AutoTrainController:
 
         study = self._load_or_create_study()
         trial_id = self._ensure_current_trial(study)
-        current_stage = normalize_stage_name(force_stage) if force_stage is not None else self._current_stage(trial_id)
+        current_stage = normalize_stage_name(force_stage) if force_stage is not None else self._current_stage(study, trial_id)
         executed: list[StageExecution] = []
 
         steps_run = 0
@@ -570,8 +570,15 @@ class AutoTrainController:
             changes: dict[str, object] = {}
             if record.started_at is None:
                 changes["started_at"] = self._now_utc().isoformat()
-            if record.business_eval is None and requested_business_eval is not None:
-                changes["business_eval"] = requested_business_eval
+            if requested_business_eval is not None:
+                if record.business_eval is None:
+                    changes["business_eval"] = requested_business_eval
+                elif record.business_eval != requested_business_eval:
+                    changes["business_eval"] = requested_business_eval
+                    if record.current_trial_id is not None:
+                        changes["status"] = "running"
+                        changes["final_reason"] = "business_eval_rerun_pending"
+                        changes["final_detail"] = None
             if not record.goal_only_stop and self.request.goal_only_stop:
                 changes["goal_only_stop"] = True
             if changes:
@@ -611,9 +618,15 @@ class AutoTrainController:
         storage.write_study_record(self.paths.study_file, updated)
         return trial_id
 
-    def _current_stage(self, trial_id: str) -> str:
+    def _current_stage(self, study: contracts.StudyRecord, trial_id: str) -> str:
         trial_dir = self.paths.ensure_trial_dir(trial_id)
         stage = state_machine.infer_resume_stage(trial_dir, stop_file=self.paths.stop_file)
+        if (
+            stage == "STOP"
+            and study.status == "running"
+            and study.final_reason == "business_eval_rerun_pending"
+        ):
+            return "NEXT_ACTION"
         if stage in {"TRAIN", "TEST"}:
             input_path = self.paths.input_file(trial_id)
             if input_path.exists():

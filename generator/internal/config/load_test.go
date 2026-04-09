@@ -49,6 +49,7 @@ func TestLoadParsesEffectsSections(t *testing.T) {
 		"    icon_shadow_offset_y_max: 4\n" +
 		"    icon_edge_blur_radius_min: 1\n" +
 		"    icon_edge_blur_radius_max: 2\n" +
+		"    query_background_transparent_ratio: 0.85\n" +
 		"  slide:\n" +
 		"    gap_shadow_alpha_min: 0.14\n" +
 		"    gap_shadow_alpha_max: 0.24\n" +
@@ -78,6 +79,9 @@ func TestLoadParsesEffectsSections(t *testing.T) {
 	}
 	if got, want := cfg.Effects.Click.IconEdgeBlurRadiusMax, 2; got != want {
 		t.Fatalf("unexpected click edge blur radius max: got %d want %d", got, want)
+	}
+	if got, want := cfg.Effects.Click.QueryBackgroundTransparentRatio, 0.85; got != want {
+		t.Fatalf("unexpected query transparent ratio: got %.2f want %.2f", got, want)
 	}
 	if got, want := cfg.Effects.Slide.GapShadowOffsetYMax, 3; got != want {
 		t.Fatalf("unexpected slide shadow offset y max: got %d want %d", got, want)
@@ -118,6 +122,9 @@ func TestValidateRejectsInvalidEffectsRanges(t *testing.T) {
 				SceneVeilStrength:       1.0,
 				BackgroundBlurRadiusMin: 2,
 				BackgroundBlurRadiusMax: 1,
+			},
+			Click: ClickEffectsConfig{
+				QueryBackgroundTransparentRatio: 1.20,
 			},
 		},
 	}

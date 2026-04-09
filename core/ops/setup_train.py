@@ -11,7 +11,7 @@ import shutil
 import subprocess
 import textwrap
 
-from core.auto_train import opencode_assets
+from core.auto_train.opencode_assets import copy_opencode_assets
 from core.project_metadata import get_runtime_version
 
 
@@ -148,7 +148,7 @@ def prepare_training_root(plan: TrainingSetupPlan) -> None:
         "reports/group2",
     ):
         (plan.train_root / relative).mkdir(parents=True, exist_ok=True)
-    opencode_assets.copy_opencode_assets(plan.train_root)
+    copy_opencode_assets(plan.train_root)
 
     (plan.train_root / ".python-version").write_text(f"{plan.python_version}\n", encoding="utf-8")
     (plan.train_root / "pyproject.toml").write_text(render_train_pyproject(plan), encoding="utf-8")

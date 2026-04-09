@@ -46,7 +46,7 @@ func ResolveForWorkspace(dir string, task string, name string) (Preset, error) {
 	}
 
 	path := filepath.Join(dir, selected.FileName)
-	cfg, err := config.Load(path)
+	cfg, err := config.LoadWithDefaults(path, selected.Config)
 	if err != nil {
 		if os.IsNotExist(err) {
 			return selected, nil
@@ -183,14 +183,15 @@ func defaultEffects() config.EffectsConfig {
 			BackgroundBlurRadiusMax: 0,
 		},
 		Click: config.ClickEffectsConfig{
-			IconShadowAlphaMin:    0.24,
-			IconShadowAlphaMax:    0.24,
-			IconShadowOffsetXMin:  2,
-			IconShadowOffsetXMax:  2,
-			IconShadowOffsetYMin:  3,
-			IconShadowOffsetYMax:  3,
-			IconEdgeBlurRadiusMin: 0,
-			IconEdgeBlurRadiusMax: 0,
+			IconShadowAlphaMin:              0.24,
+			IconShadowAlphaMax:              0.24,
+			IconShadowOffsetXMin:            2,
+			IconShadowOffsetXMax:            2,
+			IconShadowOffsetYMin:            3,
+			IconShadowOffsetYMax:            3,
+			IconEdgeBlurRadiusMin:           0,
+			IconEdgeBlurRadiusMax:           0,
+			QueryBackgroundTransparentRatio: 0.90,
 		},
 		Slide: config.SlideEffectsConfig{
 			GapShadowAlphaMin:     0.00,
@@ -213,14 +214,15 @@ func hardEffects() config.EffectsConfig {
 			BackgroundBlurRadiusMax: 2,
 		},
 		Click: config.ClickEffectsConfig{
-			IconShadowAlphaMin:    0.22,
-			IconShadowAlphaMax:    0.34,
-			IconShadowOffsetXMin:  1,
-			IconShadowOffsetXMax:  3,
-			IconShadowOffsetYMin:  2,
-			IconShadowOffsetYMax:  4,
-			IconEdgeBlurRadiusMin: 1,
-			IconEdgeBlurRadiusMax: 2,
+			IconShadowAlphaMin:              0.22,
+			IconShadowAlphaMax:              0.34,
+			IconShadowOffsetXMin:            1,
+			IconShadowOffsetXMax:            3,
+			IconShadowOffsetYMin:            2,
+			IconShadowOffsetYMax:            4,
+			IconEdgeBlurRadiusMin:           1,
+			IconEdgeBlurRadiusMax:           2,
+			QueryBackgroundTransparentRatio: 0.82,
 		},
 		Slide: config.SlideEffectsConfig{
 			GapShadowAlphaMin:     0.14,

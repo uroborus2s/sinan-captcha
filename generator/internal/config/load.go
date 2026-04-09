@@ -57,14 +57,15 @@ type CommonEffectsConfig struct {
 }
 
 type ClickEffectsConfig struct {
-	IconShadowAlphaMin    float64 `yaml:"icon_shadow_alpha_min"`
-	IconShadowAlphaMax    float64 `yaml:"icon_shadow_alpha_max"`
-	IconShadowOffsetXMin  int     `yaml:"icon_shadow_offset_x_min"`
-	IconShadowOffsetXMax  int     `yaml:"icon_shadow_offset_x_max"`
-	IconShadowOffsetYMin  int     `yaml:"icon_shadow_offset_y_min"`
-	IconShadowOffsetYMax  int     `yaml:"icon_shadow_offset_y_max"`
-	IconEdgeBlurRadiusMin int     `yaml:"icon_edge_blur_radius_min"`
-	IconEdgeBlurRadiusMax int     `yaml:"icon_edge_blur_radius_max"`
+	IconShadowAlphaMin              float64 `yaml:"icon_shadow_alpha_min"`
+	IconShadowAlphaMax              float64 `yaml:"icon_shadow_alpha_max"`
+	IconShadowOffsetXMin            int     `yaml:"icon_shadow_offset_x_min"`
+	IconShadowOffsetXMax            int     `yaml:"icon_shadow_offset_x_max"`
+	IconShadowOffsetYMin            int     `yaml:"icon_shadow_offset_y_min"`
+	IconShadowOffsetYMax            int     `yaml:"icon_shadow_offset_y_max"`
+	IconEdgeBlurRadiusMin           int     `yaml:"icon_edge_blur_radius_min"`
+	IconEdgeBlurRadiusMax           int     `yaml:"icon_edge_blur_radius_max"`
+	QueryBackgroundTransparentRatio float64 `yaml:"query_background_transparent_ratio"`
 }
 
 type SlideEffectsConfig struct {
@@ -79,7 +80,11 @@ type SlideEffectsConfig struct {
 }
 
 func Load(path string) (Config, error) {
-	var cfg Config
+	return LoadWithDefaults(path, Config{})
+}
+
+func LoadWithDefaults(path string, defaults Config) (Config, error) {
+	cfg := defaults
 	content, err := os.ReadFile(path)
 	if err != nil {
 		return cfg, err
@@ -125,6 +130,9 @@ func (c Config) Validate() error {
 			return err
 		}
 		if err := validateIntRange("effects.click.icon_edge_blur_radius", c.Effects.Click.IconEdgeBlurRadiusMin, c.Effects.Click.IconEdgeBlurRadiusMax); err != nil {
+			return err
+		}
+		if err := validateFloatRange("effects.click.query_background_transparent_ratio", c.Effects.Click.QueryBackgroundTransparentRatio, c.Effects.Click.QueryBackgroundTransparentRatio, 0, 1); err != nil {
 			return err
 		}
 		if err := validateFloatRange("effects.slide.gap_shadow_alpha", c.Effects.Slide.GapShadowAlphaMin, c.Effects.Slide.GapShadowAlphaMax, 0, 1); err != nil {
@@ -374,6 +382,12 @@ func assignClickEffectsField(click *ClickEffectsConfig, key string, value string
 			return err
 		}
 		click.IconEdgeBlurRadiusMax = parsed
+	case "query_background_transparent_ratio":
+		parsed, err := strconv.ParseFloat(value, 64)
+		if err != nil {
+			return err
+		}
+		click.QueryBackgroundTransparentRatio = parsed
 	default:
 		return fmt.Errorf("unsupported key: %s", key)
 	}
@@ -490,6 +504,7 @@ func Format(cfg Config) string {
 		fmt.Sprintf("    icon_shadow_offset_y_max: %d", cfg.Effects.Click.IconShadowOffsetYMax),
 		fmt.Sprintf("    icon_edge_blur_radius_min: %d", cfg.Effects.Click.IconEdgeBlurRadiusMin),
 		fmt.Sprintf("    icon_edge_blur_radius_max: %d", cfg.Effects.Click.IconEdgeBlurRadiusMax),
+		fmt.Sprintf("    query_background_transparent_ratio: %.2f", cfg.Effects.Click.QueryBackgroundTransparentRatio),
 		"  slide:",
 		fmt.Sprintf("    gap_shadow_alpha_min: %.2f", cfg.Effects.Slide.GapShadowAlphaMin),
 		fmt.Sprintf("    gap_shadow_alpha_max: %.2f", cfg.Effects.Slide.GapShadowAlphaMax),
