@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"io"
 	"os"
 )
@@ -65,10 +66,20 @@ func LoadOverride(path string) (Override, error) {
 	if err != nil {
 		return override, err
 	}
+	trimmed := bytes.TrimSpace(bytes.TrimPrefix(content, []byte{0xEF, 0xBB, 0xBF}))
+	if len(trimmed) == 0 {
+		return override, errors.New("override file is empty; expected one JSON object")
+	}
+	if trimmed[0] != '{' {
+		return override, fmt.Errorf(
+			"override file must be a JSON object starting with '{'; found %q as the first non-whitespace character",
+			string(trimmed[0]),
+		)
+	}
 	decoder := json.NewDecoder(bytes.NewReader(content))
 	decoder.DisallowUnknownFields()
 	if err := decoder.Decode(&override); err != nil {
-		return override, err
+		return override, fmt.Errorf("invalid override JSON: %w", err)
 	}
 	if err := decoder.Decode(&struct{}{}); err != io.EOF {
 		if err == nil {
