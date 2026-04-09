@@ -203,8 +203,8 @@ async def save_slider_captcha_images(page: Any, group_folder: Path) -> tuple[Pat
 
     bg_src = await page.locator(SLIDER_BG_SELECTOR).get_attribute("src")
     tile_src = await page.locator(SLIDER_TILE_SELECTOR).get_attribute("src")
-    bg_path = save_inline_image(bg_src, group_folder, "master")
-    tile_path = save_inline_image(tile_src, group_folder, "tile")
+    bg_path = save_inline_image(bg_src, group_folder, "bg")
+    tile_path = save_inline_image(tile_src, group_folder, "gap")
 
     if bg_path is None or tile_path is None:
         raise RuntimeError("滑块模式图片不存在或不是 data:image。")

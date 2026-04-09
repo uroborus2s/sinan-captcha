@@ -189,10 +189,16 @@ D:\sinan-solver\
 
 - `solver/` 是独立 solver 项目的源码目录。
 - `script/` 只放开发期辅助脚本，不进入正式 CLI / SDK 运行时边界。
-- `script/crawl/ctrip_login.py` 当前用于开发阶段采集携程验证码素材：
+- `scripts/crawl/ctrip_login.py` 当前用于开发阶段采集携程验证码素材：
   - 点选模式输出到 `materials/group1/`
   - 滑块模式输出到 `materials/result/`
+  - 滑块图片当前保存为 `bg.jpg` 和 `gap.jpg`
   - `两者都保存` 模式会连续保存滑块组，直到切到点选后再保存一组点选图并结束当前浏览器会话
+- `scripts/organize_group2_gap_shapes.py` 当前用于整理 `materials/result/*/gap.jpg`：
+  - 按轮廓特征做稳定去重
+  - 自动生成如 `heart_sticker.png`、`rounded_badge.png` 这类泛化语义名
+  - 代表图输出到 `materials/incoming/group2/`
+  - 同一轮廓特征只保留一个代表图，并写出 `manifest.json`
 
 ### 3.2 可以出现样例或占位，但不应把运行结果当源码维护的目录
 

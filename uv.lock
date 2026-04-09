@@ -1345,6 +1345,7 @@ train = [
 
 [package.dev-dependencies]
 dev = [
+    { name = "pillow" },
     { name = "playwright" },
 ]
 
@@ -1364,7 +1365,10 @@ requires-dist = [
 provides-extras = ["train"]
 
 [package.metadata.requires-dev]
-dev = [{ name = "playwright" }]
+dev = [
+    { name = "pillow" },
+    { name = "playwright" },
+]
 
 [[package]]
 name = "six"

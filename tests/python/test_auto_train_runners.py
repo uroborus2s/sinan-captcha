@@ -155,6 +155,39 @@ class AutoTrainTrainRunnerTests(unittest.TestCase):
             self.assertEqual(ctx.exception.reason, "invalid_request")
             self.assertFalse(ctx.exception.retryable)
 
+    def test_train_runner_group2_from_run_falls_back_to_last_weights_when_best_is_missing(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            train_root = Path(tmpdir)
+            dataset_config = train_root / "datasets" / "group2" / "study_trial_0004" / "dataset.json"
+            dataset_config.parent.mkdir(parents=True)
+            dataset_config.write_text(
+                '{"task":"group2","format":"sinan.group2.paired.v1","splits":{"train":"splits/train.jsonl","val":"splits/val.jsonl","test":"splits/test.jsonl"}}',
+                encoding="utf-8",
+            )
+            last_weights = train_root / "runs" / "group2" / "trial_0003" / "weights" / "last.pt"
+            last_weights.parent.mkdir(parents=True)
+            last_weights.write_text("weights", encoding="utf-8")
+
+            captured_jobs: list[object] = []
+            result = train.run_training_request(
+                train.TrainRunnerRequest(
+                    task="group2",
+                    train_root=train_root,
+                    dataset_version="study_trial_0004",
+                    train_name="trial_0004",
+                    train_mode="from_run",
+                    base_run="trial_0003",
+                    epochs=120,
+                    batch=16,
+                ),
+                executor=lambda job: captured_jobs.append(job) or 0,
+            )
+
+            self.assertEqual(result.record.task, "group2")
+            self.assertEqual(result.record.resumed_from, "trial_0003")
+            self.assertIn(str(last_weights), result.command)
+            self.assertEqual(len(captured_jobs), 1)
+
 
 class AutoTrainTestRunnerTests(unittest.TestCase):
     def test_test_runner_converts_model_test_result_into_test_record(self) -> None:

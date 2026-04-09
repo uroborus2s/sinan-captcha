@@ -63,5 +63,6 @@ warn_unused_configs = true
 
 [dependency-groups]
 dev = [
+    "pillow",
     "playwright"
 ]

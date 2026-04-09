@@ -17,6 +17,30 @@
 
 ## 当前事实
 
+- 2026-04-09 当前 `scripts/crawl/ctrip_login.py` 已把滑块素材命名收口为 `bg.jpg` / `gap.jpg`：
+  - 当前滑块模式新采集结果输出到 `materials/result/<timestamp>_<index>/bg.jpg`
+  - 当前滑块拼图块新采集结果输出到 `materials/result/<timestamp>_<index>/gap.jpg`
+  - 当前已同步兼容仓库现状中的 `scripts/` 目录，而不是旧的 `script/`
+  - 当前已对历史采集目录执行过一次批量重命名：
+    - `master.jpg -> bg.jpg`
+    - `tile.jpg -> gap.jpg`
+  - 当前新增验证：
+    - `uv run python -m unittest tests.python.test_ctrip_login_script`
+    - `uv run python -m py_compile scripts/crawl/ctrip_login.py`
+- 2026-04-09 当前仓库已新增 `script/organize_group2_gap_shapes.py`，用于整理 `group2` 滑块拼图形状素材：
+  - 当前脚本会扫描 `materials/result/*/gap.jpg`
+  - 当前会基于图块轮廓特征提取稳定指纹，并对相同轮廓做去重
+  - 当前会尝试输出较泛化但稳定的语义名，例如：
+    - `heart_sticker.png`
+    - `round_badge.png`
+    - `rounded_badge.png`
+    - `shield_badge.png`
+  - 当前同一轮廓特征只保留一个代表图，代表图输出到 `materials/incoming/group2/`
+  - 当前会同时写出 `materials/incoming/group2/manifest.json`，记录来源路径、重复来源和轮廓特征
+  - 当前已新增验证：
+    - `uv run python -m unittest tests.python.test_organize_group2_gap_shapes_script`
+    - `uv run python -m py_compile script/organize_group2_gap_shapes.py`
+    - `uv run python -m script.organize_group2_gap_shapes`
 - 2026-04-09 已准备发布 Python 训练 CLI 包 `sinan-captcha==0.1.28`：
   - 当前版本收口了 `group2 auto-train` 的两类现场问题：
     - leaderboard 重建时读到半写入的 `business_eval.json` 导致崩溃
@@ -28,6 +52,15 @@
   - 当前已验证：
     - `uv run python -m unittest discover -s tests/python`
     - `git diff --check`
+- 2026-04-09 当前仓库已继续补强 `group2 auto-train` 的续训权重回退：
+  - `core/auto_train/runners/train.py` 当前在 `train_mode=from_run` 时：
+    - 优先继承上一轮 `best.pt`
+    - `best.pt` 缺失时自动回退到上一轮 `last.pt`
+  - `group1` 的 scene/query 组件当前也同样支持 `best -> last` 的回退
+  - 这修复了训练机现场这类错误：
+    - `未找到训练检查点: ...\\runs\\group2\\trial_0003\\weights\\best.pt`
+  - 当前已验证：
+    - `uv run python -m unittest tests.python.test_auto_train_runners tests.python.test_auto_train_controller tests.python.test_auto_train_business_eval`
 - 2026-04-08 当前仓库已补强 `group2 auto-train` 的恢复与商业检测稳定性：
   - `core/auto_train/storage.py` 当前改为原子写 JSON / 文本工件，避免 `business_eval.json`、`study_status.json` 等文件在写入中途被读取到半截内容
   - `core/auto_train/controller.py` 当前在读取历史 `business_eval.json` 构建 leaderboard 时，会容忍单个 trial 的坏 JSON，避免整个 study 因一份损坏工件直接崩掉

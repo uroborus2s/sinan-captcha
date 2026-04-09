@@ -9,7 +9,7 @@ import unittest
 from pathlib import Path
 from unittest.mock import AsyncMock, patch
 
-MODULE_PATH = Path(__file__).resolve().parents[2] / "script" / "crawl" / "ctrip_login.py"
+MODULE_PATH = Path(__file__).resolve().parents[2] / "scripts" / "crawl" / "ctrip_login.py"
 MODULE_NAME = "tests._ctrip_login_script"
 
 MODULE_SPEC = importlib.util.spec_from_file_location(MODULE_NAME, MODULE_PATH)
@@ -77,6 +77,40 @@ class CtripLoginScriptTests(unittest.TestCase):
             self.assertIsNotNone(path)
             assert path is not None
             self.assertEqual(path.read_bytes(), payload)
+
+    def test_save_slider_captcha_images_uses_bg_and_gap_file_names(self) -> None:
+        payload = b"fake-jpeg"
+        src = "data:image/jpeg;base64," + base64.b64encode(payload).decode("ascii")
+
+        class _FakeLocator:
+            def __init__(self, value: str) -> None:
+                self._value = value
+
+            async def get_attribute(self, name: str) -> str:
+                self.last_name = name
+                return self._value
+
+        class _FakePage:
+            def __init__(self, bg_value: str, tile_value: str) -> None:
+                self.wait_for_timeout = AsyncMock()
+                self._locators = {
+                    ctrip_login.SLIDER_BG_SELECTOR: _FakeLocator(bg_value),
+                    ctrip_login.SLIDER_TILE_SELECTOR: _FakeLocator(tile_value),
+                }
+
+            def locator(self, selector: str) -> _FakeLocator:
+                return self._locators[selector]
+
+        page = _FakePage(src, src)
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            folder = Path(tmpdir)
+            bg_path, gap_path = asyncio.run(ctrip_login.save_slider_captcha_images(page, folder))
+
+            self.assertEqual(bg_path, folder / "bg.jpg")
+            self.assertEqual(gap_path, folder / "gap.jpg")
+            self.assertEqual(bg_path.read_bytes(), payload)
+            self.assertEqual(gap_path.read_bytes(), payload)
 
     def test_choose_drag_distance_stays_inside_track(self) -> None:
         distance = ctrip_login.choose_drag_distance(track_width=288.0, button_width=44.0)

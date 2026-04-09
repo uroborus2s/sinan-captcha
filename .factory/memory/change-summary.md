@@ -1,5 +1,56 @@
 # 变更摘要
 
+## 2026-04-09 修复 `scripts/crawl/ctrip_login.py`：滑块采集统一保存为 `bg.jpg` / `gap.jpg`
+
+- 已更新：
+  - `scripts/crawl/ctrip_login.py`
+  - `tests/python/test_ctrip_login_script.py`
+  - `scripts/README.md`
+  - `docs/03-developer-guide/repository-structure-and-boundaries.md`
+  - `.factory/memory/current-state.md`
+  - `.factory/memory/change-summary.md`
+- 当前已完成的目标：
+  - 滑块模式当前不再保存 `master.<ext>` / `tile.<ext>`
+  - 当前统一保存为：
+    - `bg.<ext>`
+    - `gap.<ext>`
+  - 当前测试动态导入路径已与仓库现状中的 `scripts/` 目录对齐
+  - 当前已对已有 `materials/result/*/master.jpg` 和 `tile.jpg` 做一次批量重命名：
+    - `master.jpg -> bg.jpg`
+    - `tile.jpg -> gap.jpg`
+- 已运行验证：
+  - `uv run python -m unittest tests.python.test_ctrip_login_script`
+  - `uv run python -m py_compile scripts/crawl/ctrip_login.py`
+  - `git diff --check`
+
+## 2026-04-09 新增 `script/organize_group2_gap_shapes.py`：按轮廓特征去重并整理 `group2` 滑块拼图图块
+
+- 已更新：
+  - `script/organize_group2_gap_shapes.py`
+  - `tests/python/test_organize_group2_gap_shapes_script.py`
+  - `script/README.md`
+  - `docs/03-developer-guide/repository-structure-and-boundaries.md`
+  - `pyproject.toml`
+  - `uv.lock`
+  - `.factory/memory/current-state.md`
+  - `.factory/memory/change-summary.md`
+- 当前已完成的目标：
+  - 当前会扫描 `materials/result/*/gap.jpg`
+  - 当前会基于透明轮廓提取稳定特征并生成稳定指纹
+  - 当前相同轮廓特征只保留一个代表图，不重复输出
+  - 当前会生成较泛化但稳定的语义名：
+    - `heart_sticker`
+    - `diamond_badge`
+    - `round_badge`
+    - `shield_badge`
+    - 以及 `rounded_badge` 等回退名
+  - 当前代表图会输出到 `materials/incoming/group2/`
+  - 当前会写出 `materials/incoming/group2/manifest.json`，记录来源图、重复来源和轮廓特征摘要
+- 已运行验证：
+  - `uv run python -m unittest tests.python.test_organize_group2_gap_shapes_script`
+  - `uv run python -m py_compile script/organize_group2_gap_shapes.py`
+  - `uv run python -m script.organize_group2_gap_shapes`
+
 ## 2026-04-09 发布准备 `sinan-captcha==0.1.28`
 
 - 已更新：
@@ -16,6 +67,21 @@
 - 已运行验证：
   - `uv run python -m unittest discover -s tests/python`
   - `git diff --check`
+
+## 2026-04-09 修复 `group2 auto-train`：`from_run` 续训时缺少 `best.pt` 会回退到 `last.pt`
+
+- 已更新：
+  - `core/auto_train/runners/train.py`
+  - `tests/python/test_auto_train_runners.py`
+  - `.factory/memory/current-state.md`
+  - `.factory/memory/change-summary.md`
+- 当前已完成的目标：
+  - `train_mode=from_run` 当前不再死拿上一轮 `best.pt`
+  - 当上一轮只有 `last.pt` 时，当前会自动回退到 `last.pt` 继续训练
+  - `group1` 的 scene/query 组件当前也做了同样的 `best -> last` 回退
+  - 这修复了训练机现场的 `未找到训练检查点` 崩溃
+- 已运行验证：
+  - `uv run python -m unittest tests.python.test_auto_train_runners tests.python.test_auto_train_controller tests.python.test_auto_train_business_eval`
 
 ## 2026-04-08 修复 `group2 auto-train` 恢复崩溃，并放宽商业检测到“局部最优 + 10px 容差”
 
