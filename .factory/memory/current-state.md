@@ -17,6 +17,57 @@
 
 ## 当前事实
 
+- 2026-04-09 当前根仓库 Python 包版本事实源已从 `core/_version.py` 迁到根目录 `pyproject.toml`：
+  - 当前版本号只保留在 `[project].version`
+  - 当前 `core._version.py` 已删除
+  - 当前 `core.__version__`、`release publish`、`env setup-train` 都改为从 `pyproject.toml` 读取或派生
+  - 当前已验证：
+    - `uv run python -m unittest tests.python.test_project_metadata tests.python.test_release_cli tests.python.test_release_service tests.python.test_setup_train tests.python.test_root_cli`
+    - `uv run sinan release build-all --project-dir . --goos windows --goarch amd64`
+- 2026-04-09 当前根目录发布入口已补齐统一编译命令：
+  - 当前可直接执行 `uv run sinan release build-all --project-dir .`
+  - 当前会按固定目录分别产出：
+    - 训练 CLI -> `dist/`
+    - 生成器 CLI -> `generator/dist/<goos>-<goarch>/`
+    - solver 包 -> `solver/dist/`
+  - 当前编译前会先清理对应输出目录：
+    - `dist/`
+    - `generator/dist/<goos>-<goarch>/`
+    - `solver/dist/`
+  - 当前会保留 `.gitignore`，避免把输出目录本身从仓库约定里抹掉
+  - 当前单模块入口也已补齐：
+    - `uv run sinan release build --project-dir .`
+    - `uv run sinan release build-generator --project-dir . [--goos ... --goarch ...]`
+    - `uv run sinan release build-solver --project-dir .`
+  - 当前根 CLI 上传 PyPI 仍统一走：
+    - `uv run sinan release publish --project-dir . --token-env <TOKEN_ENV>`
+  - 当前已验证：
+    - `uv run python -m unittest tests.python.test_release_cli tests.python.test_release_service tests.python.test_root_cli`
+    - `uv run sinan release build-all --project-dir . --goos windows --goarch amd64`
+- 2026-04-09 当前 `build-generator` 已修复相对路径写错目录的问题：
+  - 之前错误地把 Windows 二进制写到 `generator/generator/dist/windows-amd64/sinan-generator.exe`
+  - 当前已改为只写到 `generator/dist/windows-amd64/sinan-generator.exe`
+  - 当前在构建后会显式校验目标二进制存在，避免“命令成功但目标目录为空”的静默失败
+  - 当前已清理错误路径下的历史产物：
+    - `generator/generator/dist/`
+- 2026-04-09 当前 `scripts/organize_group2_gap_shapes.py` 已把输出命名进一步压缩为“短家族名 + 短特征码”：
+  - 当前不再输出 `_alt_001` 这类数字后缀文件名
+  - 当前默认输出示例：
+    - `badge_pmpoppek.png`
+    - `shield_hhndmmbl.png`
+  - 当前文件基名控制在 `20` 个字符以内
+  - 当前文件名保持纯字母和下划线，不含数字
+  - 当短特征码碰撞时，当前会自动拉长字母特征码，但仍保持 `<= 20` 个字符
+  - 当前已在真实 `materials/result/*/gap.jpg` 上完成一次重跑：
+    - 扫描 `257` 张 `gap.jpg`
+    - 保留 `160` 个唯一轮廓
+    - 去重 `97` 张重复图
+    - 当前输出文件名已确认 `0` 个含数字
+    - 当前输出文件基名最大长度是 `15`
+  - 当前新增验证：
+    - `uv run python -m unittest tests.python.test_organize_group2_gap_shapes_script`
+    - `PYTHONPYCACHEPREFIX=/tmp/pycache python3 -m py_compile scripts/organize_group2_gap_shapes.py`
+    - `uv run python -m scripts.organize_group2_gap_shapes`
 - 2026-04-09 当前 `scripts/crawl/ctrip_login.py` 已把滑块素材命名收口为 `bg.jpg` / `gap.jpg`：
   - 当前滑块模式新采集结果输出到 `materials/result/<timestamp>_<index>/bg.jpg`
   - 当前滑块拼图块新采集结果输出到 `materials/result/<timestamp>_<index>/gap.jpg`
@@ -418,8 +469,9 @@
   - OpenCode prompt 当前不再要求“加载本地 skill”，而是直接内联 skill 指南并明确禁止调用任何 skill tool
   - 这修复了训练机上 `opencode` 把 `dataset-planner` / `training-judge` 误解释成 `skill:skill` 无效工具调用的问题
   - `opencode_commands.render_prompt(...)` 当前会剥离 skill frontmatter，并以 `Inline guidance` 方式嵌入规则
-  - Python 包版本当前只保留 `core/_version.py` 这一处事实源
-  - `pyproject.toml` 当前改为 `dynamic = ["version"]`，通过 `tool.setuptools.dynamic.version = { attr = "core._version.VERSION" }` 读取版本
+  - 当时 Python 包版本只保留 `core/_version.py` 这一处事实源
+  - 当时 `pyproject.toml` 通过 setuptools dynamic version 读取 `core._version.VERSION`
+  - 该版本方案已在 `2026-04-09` 迁移为根目录 `pyproject.toml` 静态 `[project].version`
   - `setup-train` 默认包规格和训练目录模板当前都会读取同一份版本常量，不再分别写死
   - 相关测试当前已改为从版本常量派生断言，不再手写 wheel 文件名或包版本
   - 已验证 `python3 -m build` 成功构建 `sinan_captcha-0.1.15.tar.gz` 与 `sinan_captcha-0.1.15-py3-none-any.whl`

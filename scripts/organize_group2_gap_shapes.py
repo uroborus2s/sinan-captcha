@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import argparse
-from collections import defaultdict
 import hashlib
 import json
 import math
@@ -17,7 +16,18 @@ ROOT_DIR = Path(__file__).resolve().parents[1]
 DEFAULT_INPUT_ROOT = ROOT_DIR / "materials" / "result"
 DEFAULT_OUTPUT_DIR = ROOT_DIR / "materials" / "incoming" / "group2"
 DEFAULT_MANIFEST_NAME = "manifest.json"
-PROFILE_ALPHABET = "abcdefghijklm"
+SHORT_CODE_LENGTH = 8
+LONG_CODE_LENGTH = 12
+FAMILY_ALIASES = {
+    "heart_sticker": "heart",
+    "diamond_badge": "diamond",
+    "round_badge": "round",
+    "shield_badge": "shield",
+    "rounded_rectangle_badge": "rect",
+    "tall_badge": "tall",
+    "rounded_square_badge": "square",
+    "rounded_badge": "badge",
+}
 
 
 @dataclass(frozen=True)
@@ -314,140 +324,17 @@ def suggest_shape_family(features: ShapeFeatures) -> str:
     return "rounded_badge"
 
 
-def _unique_tokens(tokens: list[str]) -> list[str]:
-    seen: set[str] = set()
-    unique: list[str] = []
-    for token in tokens:
-        if not token or token in seen:
-            continue
-        seen.add(token)
-        unique.append(token)
-    return unique
-
-
-def _aspect_label(features: ShapeFeatures) -> str:
-    if features.aspect_ratio <= 0.78:
-        return "tall"
-    if features.aspect_ratio >= 1.30:
-        return "wide"
-    return "square"
-
-
-def _density_label(features: ShapeFeatures) -> str:
-    if features.fill_ratio <= 0.52:
-        return "airy"
-    if features.fill_ratio <= 0.68:
-        return "balanced"
-    if features.fill_ratio <= 0.82:
-        return "dense"
-    return "solid"
-
-
-def _edge_label(features: ShapeFeatures) -> str:
-    if features.compactness <= 0.58:
-        return "soft_edge"
-    if features.compactness <= 0.74:
-        return "compact_edge"
-    return "crisp_edge"
-
-
-def _top_label(features: ShapeFeatures) -> str:
-    if features.top_width_ratio <= 0.24:
-        return "pin_top"
-    if features.top_width_ratio <= 0.42:
-        return "narrow_top"
-    if features.top_width_ratio <= 0.68:
-        return "arched_top"
-    return "flat_top"
-
-
-def _core_label(features: ShapeFeatures) -> str:
-    if features.middle_width_ratio <= 0.40:
-        return "slim_core"
-    if features.middle_width_ratio <= 0.60:
-        return "balanced_core"
-    if features.middle_width_ratio <= 0.78:
-        return "full_core"
-    return "wide_core"
-
-
-def _bottom_label(features: ShapeFeatures) -> str:
-    if features.bottom_width_ratio <= 0.16:
-        return "point_tail"
-    if features.bottom_width_ratio <= 0.34:
-        return "narrow_tail"
-    if features.bottom_width_ratio <= 0.58:
-        return "balanced_tail"
-    return "full_tail"
-
-
-def _crown_label(features: ShapeFeatures) -> str:
-    if features.upper_max_segments >= 2 and features.center_top_fill_ratio <= 0.50:
-        return "split_crown"
-    if features.upper_max_segments >= 2:
-        return "arched_crown"
-    if features.center_top_fill_ratio <= 0.45:
-        return "notched_crown"
-    if features.center_top_fill_ratio >= 0.82:
-        return "filled_crown"
-    return "soft_crown"
-
-
-def _symmetry_label(features: ShapeFeatures) -> str:
-    if features.vertical_symmetry >= 0.95 and features.horizontal_symmetry >= 0.90:
-        return "mirror"
-    if features.vertical_symmetry >= 0.88 and features.horizontal_symmetry >= 0.80:
-        return "balanced"
-    return "offset"
-
-
-def build_semantic_name(features: ShapeFeatures) -> str:
-    shape_family = suggest_shape_family(features)
-    tokens = _unique_tokens(
-        [
-            shape_family,
-            _aspect_label(features),
-            _density_label(features),
-            _edge_label(features),
-            _top_label(features),
-            _core_label(features),
-            _bottom_label(features),
-            _crown_label(features),
-            _symmetry_label(features),
-        ]
-    )
-    return "_".join(tokens)
-
-
-def _encode_bucket(value: int) -> str:
-    clamped = min(len(PROFILE_ALPHABET) - 1, max(0, value))
-    return PROFILE_ALPHABET[clamped]
-
-
-def _encode_profile(profile: tuple[int, ...]) -> str:
-    return "".join(_encode_bucket(value) for value in profile)
-
-
-def _encode_metric_signature(features: ShapeFeatures) -> str:
-    buckets = [
-        int(round(features.fill_ratio * 12.0)),
-        int(round(features.compactness * 12.0)),
-        int(round(features.top_width_ratio * 12.0)),
-        int(round(features.middle_width_ratio * 12.0)),
-        int(round(features.bottom_width_ratio * 12.0)),
-        int(round(features.vertical_symmetry * 12.0)),
-        int(round(features.horizontal_symmetry * 12.0)),
-        min(12, features.upper_max_segments * 4),
-        int(round(features.center_top_fill_ratio * 12.0)),
-    ]
-    return "".join(_encode_bucket(value) for value in buckets)
-
-
 def _encode_fingerprint_alpha(fingerprint: str, length: int = 10) -> str:
     digest = hashlib.sha1(fingerprint.encode("utf-8")).hexdigest()
     alphabet = "abcdefghijklmnop"
     letters = [alphabet[int(char, 16)] for char in digest[:length]]
     return "".join(letters)
+
+
+def build_semantic_name(shape_family: str, fingerprint: str, *, code_length: int = SHORT_CODE_LENGTH) -> str:
+    family_alias = FAMILY_ALIASES.get(shape_family, "badge")
+    feature_code = _encode_fingerprint_alpha(fingerprint, length=code_length)
+    return f"{family_alias}_{feature_code}"
 
 
 def _candidate_from_gap(path: Path) -> ShapeCandidate:
@@ -459,11 +346,13 @@ def _candidate_from_gap(path: Path) -> ShapeCandidate:
     bbox = _mask_bbox(full_mask)
     cropped_mask = _crop_mask(full_mask, bbox)
     features = extract_shape_features(cropped_mask)
+    shape_family = suggest_shape_family(features)
+    fingerprint = build_shape_fingerprint(features)
     return ShapeCandidate(
         source_path=path,
-        shape_family=suggest_shape_family(features),
-        semantic_name=build_semantic_name(features),
-        fingerprint=build_shape_fingerprint(features),
+        shape_family=shape_family,
+        semantic_name=build_semantic_name(shape_family, fingerprint),
+        fingerprint=fingerprint,
         features=features,
         mask=cropped_mask,
     )
@@ -487,55 +376,23 @@ def build_output_plan(
     duplicates: dict[str, list[str]],
 ) -> list[ShapeRecord]:
     sorted_candidates = sorted(candidates, key=lambda item: str(item.source_path))
-    grouped: dict[str, list[ShapeCandidate]] = defaultdict(list)
-    for candidate in sorted_candidates:
-        grouped[candidate.semantic_name].append(candidate)
-
     assigned_names: dict[str, str] = {}
-    for semantic_name, items in grouped.items():
-        if len(items) == 1:
-            assigned_names[items[0].fingerprint] = semantic_name
-            continue
-
-        row_col_names: dict[str, list[ShapeCandidate]] = defaultdict(list)
-        for candidate in items:
-            expanded_name = (
-                f"{candidate.semantic_name}_"
-                f"row_{_encode_profile(candidate.features.row_profile)}_"
-                f"col_{_encode_profile(candidate.features.column_profile)}"
+    used_names: set[str] = set()
+    for candidate in sorted_candidates:
+        short_name = build_semantic_name(candidate.shape_family, candidate.fingerprint, code_length=SHORT_CODE_LENGTH)
+        semantic_name = short_name
+        if semantic_name in used_names:
+            semantic_name = build_semantic_name(
+                candidate.shape_family,
+                candidate.fingerprint,
+                code_length=LONG_CODE_LENGTH,
             )
-            row_col_names[expanded_name].append(candidate)
-
-        for expanded_name, expanded_items in row_col_names.items():
-            if len(expanded_items) == 1:
-                assigned_names[expanded_items[0].fingerprint] = expanded_name
-                continue
-
-            metric_names: dict[str, list[ShapeCandidate]] = defaultdict(list)
-            for candidate in expanded_items:
-                metric_name = (
-                    f"{expanded_name}_metric_{_encode_metric_signature(candidate.features)}"
-                )
-                metric_names[metric_name].append(candidate)
-
-            for metric_name, metric_items in metric_names.items():
-                if len(metric_items) == 1:
-                    assigned_names[metric_items[0].fingerprint] = metric_name
-                    continue
-
-                final_names: dict[str, list[ShapeCandidate]] = defaultdict(list)
-                for candidate in metric_items:
-                    final_name = (
-                        f"{metric_name}_trace_{_encode_fingerprint_alpha(candidate.fingerprint)}"
-                    )
-                    final_names[final_name].append(candidate)
-
-                for final_name, final_items in final_names.items():
-                    if len(final_items) != 1:
-                        raise RuntimeError(
-                            f"语义命名冲突，无法为 {final_items[0].source_path} 生成唯一文件名：{final_name}"
-                        )
-                    assigned_names[final_items[0].fingerprint] = final_name
+        if semantic_name in used_names:
+            raise RuntimeError(
+                f"语义命名冲突，无法为 {candidate.source_path} 生成唯一文件名：{semantic_name}"
+            )
+        used_names.add(semantic_name)
+        assigned_names[candidate.fingerprint] = semantic_name
 
     records: list[ShapeRecord] = []
     output_names: set[str] = set()

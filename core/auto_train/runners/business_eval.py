@@ -14,14 +14,17 @@ class BusinessEvalRunnerRequest:
     trial_id: str
     task: str
     train_root: Path
+    dataset_version: str
     train_name: str
     cases_root: Path
     report_dir: Path
     device: str = "0"
-    success_threshold: float = 0.98
-    min_cases: int = 100
-    sample_size: int = 100
-    occlusion_threshold: float = 0.78
+    imgsz: int = 640
+    success_threshold: float = 0.95
+    min_cases: int = 30
+    sample_size: int = 30
+    point_tolerance_px: int = 12
+    iou_threshold: float = 0.5
 
 
 @dataclass(frozen=True)
@@ -31,27 +34,23 @@ class BusinessEvalRunnerResult:
 
 
 def run_business_eval_request(request: BusinessEvalRunnerRequest) -> BusinessEvalRunnerResult:
-    if request.task != "group2":
-        raise RunnerExecutionError(
-            stage="BUSINESS_EVAL",
-            reason="invalid_request",
-            message=f"business eval 目前仅支持 group2，收到：{request.task}",
-            retryable=False,
-        )
-
     require_existing_path(request.cases_root, stage="BUSINESS_EVAL", label="business eval 样本目录")
     try:
-        record = business_eval.run_group2_business_eval(
+        record = business_eval.run_reviewed_business_eval(
             trial_id=request.trial_id,
+            task=request.task,
             train_root=request.train_root,
+            dataset_version=request.dataset_version,
             train_name=request.train_name,
             cases_root=request.cases_root,
             report_dir=request.report_dir,
             device=request.device,
+            imgsz=request.imgsz,
             success_threshold=request.success_threshold,
             min_cases=request.min_cases,
             sample_size=request.sample_size,
-            occlusion_threshold=request.occlusion_threshold,
+            point_tolerance_px=request.point_tolerance_px,
+            iou_threshold=request.iou_threshold,
         )
     except RuntimeError as exc:
         raise classify_runtime_error("BUSINESS_EVAL", str(exc)) from exc

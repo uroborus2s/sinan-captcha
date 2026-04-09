@@ -4,10 +4,10 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "sinan-captcha"
+version = "0.1.28"
 description = "Training and data engineering workspace for graphical captcha models."
 readme = "README.md"
 requires-python = ">=3.12"
-dynamic = ["version"]
 dependencies = []
 
 [project.optional-dependencies]
@@ -29,9 +29,6 @@ sinan = "core.cli:main"
 
 [tool.setuptools]
 include-package-data = true
-
-[tool.setuptools.dynamic]
-version = { attr = "core._version.VERSION" }
 
 [tool.setuptools.packages.find]
 where = ["."]

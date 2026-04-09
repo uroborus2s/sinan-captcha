@@ -3,7 +3,7 @@
 - 文档状态：生效
 - 当前阶段：IMPLEMENTATION
 - 目标读者：会在本仓库内改代码、改文档、改发布流程的开发者
-- 最近更新：2026-04-06
+- 最近更新：2026-04-09
 
 ## 0. 这页解决什么问题
 
@@ -71,6 +71,32 @@
 - 对应用户指南
 - `.factory/memory/`
 
+### 1.5 根目录统一编译入口
+
+如果你这次同时改了训练 CLI、生成器或 solver 的发布边界，优先直接在仓库根目录执行：
+
+```bash
+uv run sinan release build-all --project-dir .
+```
+
+如果要顺手产出 Windows 版生成器：
+
+```bash
+uv run sinan release build-all --project-dir . --goos windows --goarch amd64
+```
+
+输出目录固定为：
+
+- `dist/`
+- `generator/dist/<goos>-<goarch>/`
+- `solver/dist/`
+
+当前行为：
+
+- 编译前会先清理对应输出目录
+- `.gitignore` 会保留
+- 生成器构建后会校验目标二进制是否真的生成
+
 ## 2. 根仓库 Python 模块工作流
 
 ### 2.1 常用命令
@@ -112,21 +138,22 @@ GOCACHE=/tmp/sinan-go-build-cache go test ./...
 cd ..
 ```
 
-本机构建：
+从根目录构建当前 Go 目标：
 
 ```bash
-cd generator
-go build ./cmd/sinan-generator
-cd ..
+uv run sinan release build-generator --project-dir .
 ```
+
+输出进入：
+
+- `generator/dist/<goos>-<goarch>/`
+
+当前会先清空该目标目录，再写入新的二进制。
 
 目标平台构建：
 
 ```bash
-cd generator
-mkdir -p dist/generator/windows-amd64
-GOOS=windows GOARCH=amd64 go build -o dist/generator/windows-amd64/sinan-generator.exe ./cmd/sinan-generator
-cd ..
+uv run sinan release build-generator --project-dir . --goos windows --goarch amd64
 ```
 
 ### 3.2 什么时候至少跑这一层
@@ -151,9 +178,7 @@ cd ..
 构建包：
 
 ```bash
-cd solver
-uv build
-cd ..
+uv run sinan release build-solver --project-dir .
 ```
 
 ### 4.2 什么时候至少跑这一层

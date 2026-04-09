@@ -135,32 +135,34 @@ class StudyBudget:
 @dataclass(frozen=True)
 class BusinessEvalConfig:
     cases_root: str
-    success_threshold: float = 0.98
-    min_cases: int = 100
-    sample_size: int = 100
-    occlusion_threshold: float = 0.78
+    success_threshold: float = 0.95
+    min_cases: int = 30
+    sample_size: int = 30
+    point_tolerance_px: int = 12
+    iou_threshold: float = 0.5
 
     def __post_init__(self) -> None:
         _require_non_empty(self.cases_root, "cases_root")
         _require_ratio(self.success_threshold, "success_threshold")
         _require_positive_int(self.min_cases, "min_cases")
         _require_positive_int(self.sample_size, "sample_size")
-        if self.sample_size < self.min_cases:
-            raise ValueError("sample_size must be greater than or equal to min_cases")
-        _require_ratio(self.occlusion_threshold, "occlusion_threshold")
+        if self.min_cases < self.sample_size:
+            raise ValueError("min_cases must be greater than or equal to sample_size")
+        _require_positive_int(self.point_tolerance_px, "point_tolerance_px")
+        _require_ratio(self.iou_threshold, "iou_threshold")
 
     def to_dict(self) -> dict[str, JsonValue]:
         return asdict(self)
 
     @classmethod
     def from_dict(cls, payload: dict[str, JsonValue]) -> "BusinessEvalConfig":
-        min_cases = _int(payload, "min_cases")
         return cls(
             cases_root=_string(payload, "cases_root"),
             success_threshold=_float(payload, "success_threshold"),
-            min_cases=min_cases,
-            sample_size=_optional_int(payload, "sample_size") or min_cases,
-            occlusion_threshold=_float(payload, "occlusion_threshold"),
+            min_cases=_int(payload, "min_cases"),
+            sample_size=_int(payload, "sample_size"),
+            point_tolerance_px=_int(payload, "point_tolerance_px"),
+            iou_threshold=_float(payload, "iou_threshold"),
         )
 
 
@@ -810,91 +812,34 @@ class ResultSummaryRecord:
 @dataclass(frozen=True)
 class BusinessEvalCaseRecord:
     case_id: str
-    master_image: str
-    tile_image: str
-    predicted_bbox: list[int]
-    predicted_center: list[int]
-    inference_ms: float
-    boundary_before: float
-    boundary_after: float
-    fill_score: float
-    seam_score: float
-    occlusion_score: float
+    sample_id: str
     success: bool
+    reason_code: str
     reason_cn: str
-    overlay_path: str
-    diff_path: str
-    result_cn: str | None = None
-    final_score: float | None = None
-    required_score: float | None = None
-    failed_checks_cn: list[str] | None = None
-    best_local_bbox: list[int] | None = None
-    best_local_offset_px: float | None = None
-    best_local_clean_score: float | None = None
-    contour_overlap_ratio: float | None = None
-    exposed_gap_edge_ratio: float | None = None
-    double_contour_ratio: float | None = None
-    tile_residue_ratio: float | None = None
-    double_edge_score: float | None = None
-    overflow_edge_score: float | None = None
-    reference_bbox: list[int] | None = None
-    reference_center: list[int] | None = None
-    position_error_px: float | None = None
-    bbox_edge_error_px: float | None = None
+    input_images: dict[str, JsonValue]
+    metrics: dict[str, JsonValue]
+    prediction: dict[str, JsonValue] | None = None
+    reference: dict[str, JsonValue] | None = None
+    evidence: list[str] | None = None
 
     def __post_init__(self) -> None:
         _require_non_empty(self.case_id, "case_id")
-        _require_non_empty(self.master_image, "master_image")
-        _require_non_empty(self.tile_image, "tile_image")
+        _require_non_empty(self.sample_id, "sample_id")
+        _require_non_empty(self.reason_code, "reason_code")
         _require_non_empty(self.reason_cn, "reason_cn")
-        if self.result_cn is not None:
-            _require_non_empty(self.result_cn, "result_cn")
-        _require_non_empty(self.overlay_path, "overlay_path")
-        _require_non_empty(self.diff_path, "diff_path")
-        _require_bbox(self.predicted_bbox, "predicted_bbox")
-        _require_point(self.predicted_center, "predicted_center")
-        if self.best_local_bbox is not None:
-            _require_bbox(self.best_local_bbox, "best_local_bbox")
-        if self.best_local_offset_px is not None and self.best_local_offset_px < 0:
-            raise ValueError("best_local_offset_px must not be negative")
-        if self.best_local_clean_score is not None:
-            _require_ratio(self.best_local_clean_score, "best_local_clean_score")
-        if self.contour_overlap_ratio is not None:
-            _require_ratio(self.contour_overlap_ratio, "contour_overlap_ratio")
-        if self.exposed_gap_edge_ratio is not None:
-            _require_ratio(self.exposed_gap_edge_ratio, "exposed_gap_edge_ratio")
-        if self.double_contour_ratio is not None:
-            _require_ratio(self.double_contour_ratio, "double_contour_ratio")
-        if self.tile_residue_ratio is not None:
-            _require_ratio(self.tile_residue_ratio, "tile_residue_ratio")
-        if self.double_edge_score is not None:
-            _require_ratio(self.double_edge_score, "double_edge_score")
-        if self.overflow_edge_score is not None:
-            _require_ratio(self.overflow_edge_score, "overflow_edge_score")
-        if self.reference_bbox is not None:
-            _require_bbox(self.reference_bbox, "reference_bbox")
-        if self.reference_center is not None:
-            _require_point(self.reference_center, "reference_center")
-        if self.position_error_px is not None and self.position_error_px < 0:
-            raise ValueError("position_error_px must not be negative")
-        if self.bbox_edge_error_px is not None and self.bbox_edge_error_px < 0:
-            raise ValueError("bbox_edge_error_px must not be negative")
-        if self.final_score is not None:
-            _require_ratio(self.final_score, "final_score")
-        if self.required_score is not None:
-            _require_ratio(self.required_score, "required_score")
-        if self.failed_checks_cn is not None:
-            if not isinstance(self.failed_checks_cn, list):
-                raise ValueError("failed_checks_cn must be a list")
-            for item in self.failed_checks_cn:
-                _require_non_empty(item, "failed_checks_cn")
-        if self.inference_ms < 0:
-            raise ValueError("inference_ms must not be negative")
-        _require_ratio(self.boundary_before, "boundary_before")
-        _require_ratio(self.boundary_after, "boundary_after")
-        _require_ratio(self.fill_score, "fill_score")
-        _require_ratio(self.seam_score, "seam_score")
-        _require_ratio(self.occlusion_score, "occlusion_score")
+        if not self.input_images:
+            raise ValueError("input_images must not be empty")
+        for key, value in self.input_images.items():
+            _require_non_empty(key, "input_images key")
+            if not isinstance(value, str) or not value.strip():
+                raise ValueError("input_images values must be non-empty strings")
+        if any(not isinstance(key, str) or not key.strip() for key in self.metrics):
+            raise ValueError("metrics keys must be non-empty strings")
+        if self.evidence is not None:
+            if not isinstance(self.evidence, list):
+                raise ValueError("evidence must be a list or null")
+            if any(not isinstance(item, str) or not item.strip() for item in self.evidence):
+                raise ValueError("evidence entries must be non-empty strings")
 
     def to_dict(self) -> dict[str, JsonValue]:
         return asdict(self)
@@ -903,37 +848,15 @@ class BusinessEvalCaseRecord:
     def from_dict(cls, payload: dict[str, JsonValue]) -> "BusinessEvalCaseRecord":
         return cls(
             case_id=_string(payload, "case_id"),
-            master_image=_string(payload, "master_image"),
-            tile_image=_string(payload, "tile_image"),
-            predicted_bbox=_int_list(payload, "predicted_bbox", expected_length=4),
-            predicted_center=_int_list(payload, "predicted_center", expected_length=2),
-            best_local_bbox=_optional_int_list(payload, "best_local_bbox", expected_length=4),
-            best_local_offset_px=_optional_float(payload, "best_local_offset_px"),
-            best_local_clean_score=_optional_float(payload, "best_local_clean_score"),
-            contour_overlap_ratio=_optional_float(payload, "contour_overlap_ratio"),
-            exposed_gap_edge_ratio=_optional_float(payload, "exposed_gap_edge_ratio"),
-            double_contour_ratio=_optional_float(payload, "double_contour_ratio"),
-            tile_residue_ratio=_optional_float(payload, "tile_residue_ratio"),
-            double_edge_score=_optional_float(payload, "double_edge_score"),
-            overflow_edge_score=_optional_float(payload, "overflow_edge_score"),
-            reference_bbox=_optional_int_list(payload, "reference_bbox", expected_length=4),
-            reference_center=_optional_int_list(payload, "reference_center", expected_length=2),
-            position_error_px=_optional_float(payload, "position_error_px"),
-            bbox_edge_error_px=_optional_float(payload, "bbox_edge_error_px"),
-            inference_ms=_float(payload, "inference_ms"),
-            boundary_before=_float(payload, "boundary_before"),
-            boundary_after=_float(payload, "boundary_after"),
-            fill_score=_float(payload, "fill_score"),
-            seam_score=_float(payload, "seam_score"),
-            occlusion_score=_float(payload, "occlusion_score"),
+            sample_id=_string(payload, "sample_id"),
             success=_bool(payload, "success"),
+            reason_code=_string(payload, "reason_code"),
             reason_cn=_string(payload, "reason_cn"),
-            result_cn=_optional_string(payload, "result_cn"),
-            final_score=_optional_float(payload, "final_score"),
-            required_score=_optional_float(payload, "required_score"),
-            failed_checks_cn=_optional_string_list(payload, "failed_checks_cn"),
-            overlay_path=_string(payload, "overlay_path"),
-            diff_path=_string(payload, "diff_path"),
+            input_images=_mapping(payload, "input_images"),
+            metrics=_mapping(payload, "metrics"),
+            prediction=_optional_mapping(payload, "prediction"),
+            reference=_optional_mapping(payload, "reference"),
+            evidence=_optional_string_list(payload, "evidence"),
         )
 
 
@@ -951,8 +874,12 @@ class BusinessEvalRecord:
     min_cases: int
     sample_size: int
     commercial_ready: bool
-    occlusion_threshold: float
+    point_tolerance_px: int
+    iou_threshold: float
+    sampled_source: str
     report_dir: str
+    prediction_dir: str
+    evaluation_report_dir: str
     case_results: list[BusinessEvalCaseRecord]
     evidence: list[str]
 
@@ -976,7 +903,11 @@ class BusinessEvalRecord:
         _require_ratio(self.success_threshold, "success_threshold")
         _require_positive_int(self.min_cases, "min_cases")
         _require_positive_int(self.sample_size, "sample_size")
-        _require_ratio(self.occlusion_threshold, "occlusion_threshold")
+        if self.min_cases < self.sample_size:
+            raise ValueError("min_cases must be greater than or equal to sample_size")
+        _require_positive_int(self.point_tolerance_px, "point_tolerance_px")
+        _require_ratio(self.iou_threshold, "iou_threshold")
+        _require_non_empty(self.sampled_source, "sampled_source")
         if any(not isinstance(item, str) or not item.strip() for item in self.evidence):
             raise ValueError("evidence entries must be non-empty strings")
 
@@ -994,8 +925,12 @@ class BusinessEvalRecord:
             "min_cases": self.min_cases,
             "sample_size": self.sample_size,
             "commercial_ready": self.commercial_ready,
-            "occlusion_threshold": self.occlusion_threshold,
+            "point_tolerance_px": self.point_tolerance_px,
+            "iou_threshold": self.iou_threshold,
+            "sampled_source": self.sampled_source,
             "report_dir": self.report_dir,
+            "prediction_dir": self.prediction_dir,
+            "evaluation_report_dir": self.evaluation_report_dir,
             "case_results": [item.to_dict() for item in self.case_results],
             "evidence": self.evidence,
         }
@@ -1006,7 +941,6 @@ class BusinessEvalRecord:
         if not isinstance(case_payload, list):
             raise ValueError("case_results must be a list")
         total_cases = _int(payload, "total_cases")
-        min_cases = _int(payload, "min_cases")
         return cls(
             trial_id=_string(payload, "trial_id"),
             task=_string(payload, "task"),
@@ -1017,11 +951,15 @@ class BusinessEvalRecord:
             passed_cases=_int(payload, "passed_cases"),
             success_rate=_float(payload, "success_rate"),
             success_threshold=_float(payload, "success_threshold"),
-            min_cases=min_cases,
-            sample_size=_optional_int(payload, "sample_size") or min_cases,
+            min_cases=_int(payload, "min_cases"),
+            sample_size=_int(payload, "sample_size"),
             commercial_ready=_bool(payload, "commercial_ready"),
-            occlusion_threshold=_float(payload, "occlusion_threshold"),
+            point_tolerance_px=_int(payload, "point_tolerance_px"),
+            iou_threshold=_float(payload, "iou_threshold"),
+            sampled_source=_string(payload, "sampled_source"),
             report_dir=_string(payload, "report_dir"),
+            prediction_dir=_string(payload, "prediction_dir"),
+            evaluation_report_dir=_string(payload, "evaluation_report_dir"),
             case_results=[BusinessEvalCaseRecord.from_dict(_coerce_mapping(item, "case_results")) for item in case_payload],
             evidence=_string_list(payload, "evidence"),
         )

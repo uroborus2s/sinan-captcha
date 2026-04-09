@@ -3,7 +3,7 @@
 - 文档状态：生效
 - 当前阶段：IMPLEMENTATION
 - 目标读者：第一次接手本仓库，或准备开始发版的维护者
-- 最近更新：2026-04-06
+- 最近更新：2026-04-09
 
 ## 0. 这页解决什么问题
 
@@ -123,6 +123,26 @@ git status --short
 
 ## 5. 各模块最快编译命令
 
+### 5.0 根目录统一编译
+
+```bash
+uv run sinan release build-all --project-dir .
+```
+
+如果要同时产出 Windows 版生成器：
+
+```bash
+uv run sinan release build-all --project-dir . --goos windows --goarch amd64
+```
+
+输出目录：
+
+- `dist/`
+- `generator/dist/<goos>-<goarch>/`
+- `solver/dist/`
+
+当前会先清理对应输出目录，再写入新的编译结果。
+
 ### 5.1 编译根仓库 Python 包
 
 ```bash
@@ -136,30 +156,22 @@ uv run sinan release build --project-dir .
 
 ### 5.2 编译 Go 生成器
 
-macOS arm64：
+当前目标：
 
 ```bash
-cd generator
-mkdir -p dist/generator/darwin-arm64
-GOOS=darwin GOARCH=arm64 go build -o dist/generator/darwin-arm64/sinan-generator ./cmd/sinan-generator
-cd ..
+uv run sinan release build-generator --project-dir .
 ```
 
 Windows amd64：
 
 ```bash
-cd generator
-mkdir -p dist/generator/windows-amd64
-GOOS=windows GOARCH=amd64 go build -o dist/generator/windows-amd64/sinan-generator.exe ./cmd/sinan-generator
-cd ..
+uv run sinan release build-generator --project-dir . --goos windows --goarch amd64
 ```
 
 ### 5.3 编译独立 solver 包
 
 ```bash
-cd solver
-uv build
-cd ..
+uv run sinan release build-solver --project-dir .
 ```
 
 构建结果：
@@ -169,10 +181,10 @@ cd ..
 
 ## 6. 最快发一版根仓库 Python 包
 
-如果版本号已经更新到 `core/_version.py`，最短路径是：
+如果版本号已经更新到根目录 `pyproject.toml`，最短路径是：
 
 ```bash
-uv run sinan release build --project-dir .
+uv run sinan release build-all --project-dir . --goos windows --goarch amd64
 uv run sinan release publish --project-dir . --token-env UV_PUBLISH_TOKEN
 ```
 
@@ -187,14 +199,14 @@ uv run sinan release publish --project-dir . --token-env PYPI_TOKEN
 前提：
 
 - 根仓库 wheel 已生成
-- `generator/dist/generator/windows-amd64/sinan-generator.exe` 已生成
+- `generator/dist/windows-amd64/sinan-generator.exe` 已生成
 
 命令：
 
 ```bash
 uv run sinan release package-windows \
   --project-dir . \
-  --generator-exe generator/dist/generator/windows-amd64/sinan-generator.exe \
+  --generator-exe generator/dist/windows-amd64/sinan-generator.exe \
   --output-dir dist/windows-bundle-<version>
 ```
 
@@ -203,7 +215,7 @@ uv run sinan release package-windows \
 ```bash
 uv run sinan release package-windows \
   --project-dir . \
-  --generator-exe generator/dist/generator/windows-amd64/sinan-generator.exe \
+  --generator-exe generator/dist/windows-amd64/sinan-generator.exe \
   --bundle-dir bundles/solver/current \
   --datasets-dir datasets \
   --materials-dir materials \

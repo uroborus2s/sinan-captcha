@@ -90,6 +90,34 @@ uv run sinan test group2 --dataset-version firstpass --train-name firstpass
 - `env setup-train` 当前会自动把 `.opencode/commands` 与 `.opencode/skills` 铺到训练目录
 - 统一求解与 bundle 已经是正式需求和代码方向，但仍需继续收口为正式对外交付主线
 
+## 根目录统一编译与发布
+
+如果你在维护源码仓库，现在可以直接在根目录执行统一编译命令：
+
+```bash
+uv run sinan release build-all --project-dir .
+```
+
+如果要同时产出 Windows 版生成器：
+
+```bash
+uv run sinan release build-all --project-dir . --goos windows --goarch amd64
+```
+
+构建结果固定为：
+
+- 训练 CLI：`dist/`
+- 生成器 CLI：`generator/dist/<goos>-<goarch>/`
+- solver 包：`solver/dist/`
+
+这些构建命令当前都会先清理对应输出目录，再写入新的编译结果。
+
+上传根仓库 Python CLI 到 PyPI：
+
+```bash
+uv run sinan release publish --project-dir . --token-env PYPI_TOKEN
+```
+
 ## 文档入口
 
 - [入门说明概览](docs/01-getting-started/index.md)

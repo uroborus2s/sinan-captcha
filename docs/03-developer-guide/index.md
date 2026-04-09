@@ -46,8 +46,8 @@
 | 模块 | 目录 | 主要语言 | 当前职责 | 常用构建命令 |
 | --- | --- | --- | --- | --- |
 | 训练 CLI | `.` | Python | `sinan`、训练、评估、自动训练、发布打包 | `uv run sinan release build --project-dir .` |
-| 生成器 | `generator/` | Go | `sinan-generator`、工作区、素材、数据集生成 | `go build -o dist/generator/<platform>/sinan-generator ./cmd/sinan-generator` |
-| 独立 solver 包 | `solver/` | Python + Rust | `sinanz` 迁移主线、公共 API、原生桥接骨架 | `cd solver && uv build` |
+| 生成器 | `generator/` | Go | `sinan-generator`、工作区、素材、数据集生成 | `uv run sinan release build-generator --project-dir . --goos windows --goarch amd64` |
+| 独立 solver 包 | `solver/` | Python + Rust | `sinanz` 迁移主线、公共 API、原生桥接骨架 | `uv run sinan release build-solver --project-dir .` |
 
 ## 5. 本目录的维护原则
 

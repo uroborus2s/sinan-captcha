@@ -88,10 +88,9 @@ class AutoTrainRequest:
     point_tolerance_px: int = 12
     iou_threshold: float = 0.5
     business_eval_dir: Path | None = None
-    business_eval_success_threshold: float = 0.98
-    business_eval_min_cases: int = 100
-    business_eval_sample_size: int = 100
-    business_eval_occlusion_threshold: float = 0.78
+    business_eval_success_threshold: float = 0.95
+    business_eval_min_cases: int = 30
+    business_eval_sample_size: int = 30
     goal_only_stop: bool = False
 
     def __post_init__(self) -> None:
@@ -110,18 +109,14 @@ class AutoTrainRequest:
         if self.opencode_timeout_seconds <= 0:
             raise ValueError("opencode_timeout_seconds must be greater than 0")
         if self.business_eval_dir is not None:
-            if self.task != "group2":
-                raise ValueError("business_eval_dir is currently only supported for group2")
             if not 0.0 <= self.business_eval_success_threshold <= 1.0:
                 raise ValueError("business_eval_success_threshold must be between 0.0 and 1.0")
             if self.business_eval_min_cases <= 0:
                 raise ValueError("business_eval_min_cases must be greater than 0")
             if self.business_eval_sample_size <= 0:
                 raise ValueError("business_eval_sample_size must be greater than 0")
-            if self.business_eval_sample_size < self.business_eval_min_cases:
-                raise ValueError("business_eval_sample_size must be greater than or equal to business_eval_min_cases")
-            if not 0.0 <= self.business_eval_occlusion_threshold <= 1.0:
-                raise ValueError("business_eval_occlusion_threshold must be between 0.0 and 1.0")
+            if self.business_eval_min_cases < self.business_eval_sample_size:
+                raise ValueError("business_eval_min_cases must be greater than or equal to business_eval_sample_size")
 
     @property
     def effective_imgsz(self) -> int:
@@ -1043,7 +1038,8 @@ class AutoTrainController:
             success_threshold=self.request.business_eval_success_threshold,
             min_cases=self.request.business_eval_min_cases,
             sample_size=self.request.business_eval_sample_size,
-            occlusion_threshold=self.request.business_eval_occlusion_threshold,
+            point_tolerance_px=self.request.point_tolerance_px,
+            iou_threshold=self.request.iou_threshold,
         )
 
     def _business_eval_enabled(self, study: contracts.StudyRecord) -> bool:
@@ -1059,11 +1055,10 @@ class AutoTrainController:
         leaderboard: contracts.LeaderboardRecord,
     ) -> contracts.DecisionRecord:
         if (
-            self.request.task == "group2"
-            and self._business_eval_enabled(study)
+            self._business_eval_enabled(study)
             and not (business_record is not None and business_record.commercial_ready)
         ):
-            return self._regenerate_decision_for_group2_business_goal(
+            return self._regenerate_decision_for_business_goal(
                 summary_record=summary_record,
                 decision=decision,
                 business_record=business_record,
@@ -1093,14 +1088,17 @@ class AutoTrainController:
             trial_id=trial_id,
             task=self.request.task,
             train_root=self.request.train_root,
+            dataset_version=summary_record.dataset_version,
             train_name=summary_record.train_name,
             cases_root=Path(config.cases_root),
             report_dir=self.paths.business_eval_root(trial_id),
             device=self.request.device,
+            imgsz=self.request.effective_imgsz,
             success_threshold=config.success_threshold,
             min_cases=config.min_cases,
             sample_size=config.sample_size,
-            occlusion_threshold=config.occlusion_threshold,
+            point_tolerance_px=config.point_tolerance_px,
+            iou_threshold=config.iou_threshold,
         )
         try:
             result = self.dependencies.business_eval_runner(request)
@@ -1118,8 +1116,12 @@ class AutoTrainController:
                 min_cases=config.min_cases,
                 sample_size=config.sample_size,
                 commercial_ready=False,
-                occlusion_threshold=config.occlusion_threshold,
+                point_tolerance_px=config.point_tolerance_px,
+                iou_threshold=config.iou_threshold,
+                sampled_source=str(self.paths.business_eval_root(trial_id) / "_sampled_source" / "labels.jsonl"),
                 report_dir=str(self.paths.business_eval_root(trial_id)),
+                prediction_dir=str(self.paths.business_eval_root(trial_id) / "modeltest"),
+                evaluation_report_dir=str(self.paths.business_eval_root(trial_id) / "evaluation"),
                 case_results=[],
                 evidence=[f"runner_error={exc.reason}", str(exc)],
             )
@@ -1183,7 +1185,7 @@ class AutoTrainController:
             agent=decision.agent,
         )
 
-    def _regenerate_decision_for_group2_business_goal(
+    def _regenerate_decision_for_business_goal(
         self,
         *,
         summary_record: contracts.ResultSummaryRecord,

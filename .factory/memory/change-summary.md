@@ -1,5 +1,107 @@
 # 变更摘要
 
+## 2026-04-09 根仓库版本事实源迁移到 `pyproject.toml`
+
+- 已把根仓库版本单一事实源从 `core/_version.py` 迁到根目录 `pyproject.toml`
+- 已删除：
+  - `core/_version.py`
+- 已新增：
+  - `core/project_metadata.py`
+- 已改为从 `pyproject.toml` 读取版本的入口：
+  - `core.__version__`
+  - `core/release/service.py`
+  - `core/ops/setup_train.py`
+- 已同步更新：
+  - `tests/python/test_release_service.py`
+  - `tests/python/test_setup_train.py`
+  - `tests/python/test_project_metadata.py`
+  - `docs/03-developer-guide/release-and-delivery-workflow.md`
+  - `docs/03-developer-guide/maintainer-quickstart.md`
+  - `.factory/memory/current-state.md`
+- 已验证：
+  - `uv run python -m unittest tests.python.test_project_metadata tests.python.test_release_cli tests.python.test_release_service tests.python.test_setup_train tests.python.test_root_cli`
+  - `uv run sinan release build-all --project-dir . --goos windows --goarch amd64`
+
+## 2026-04-09 修复 `build-generator` 输出路径，并改为编译前清理输出目录
+
+- 已修复 `build-generator` 的相对路径问题：
+  - 之前会把产物误写到 `generator/generator/dist/<goos>-<goarch>/`
+  - 现在固定写到 `generator/dist/<goos>-<goarch>/`
+- 已把以下构建动作改为“编译前清理对应输出目录”：
+  - `uv run sinan release build --project-dir .`
+  - `uv run sinan release build-generator --project-dir . ...`
+  - `uv run sinan release build-solver --project-dir .`
+- 已保留：
+  - `dist/.gitignore`
+  - `solver/dist/.gitignore`
+- 已新增保护：
+  - `build-generator` 在 `go build` 返回后会检查目标二进制是否真的存在
+- 已清理历史错误产物：
+  - `generator/generator/dist/`
+- 已同步更新：
+  - `README.md`
+  - `docs/03-developer-guide/local-development-workflow.md`
+  - `docs/03-developer-guide/release-and-delivery-workflow.md`
+  - `docs/03-developer-guide/maintainer-quickstart.md`
+  - `.factory/memory/current-state.md`
+- 已验证：
+  - `uv run python -m unittest tests.python.test_release_service tests.python.test_release_cli tests.python.test_root_cli`
+  - `uv run sinan release build-generator --project-dir . --goos windows --goarch amd64`
+
+## 2026-04-09 根目录统一编译入口整理
+
+- 已把根目录 `release` 子命令扩成四段构建入口：
+  - `build`
+  - `build-generator`
+  - `build-solver`
+  - `build-all`
+- 已把统一构建路径固定为：
+  - 训练 CLI -> `dist/`
+  - 生成器 CLI -> `generator/dist/<goos>-<goarch>/`
+  - solver 包 -> `solver/dist/`
+- 已保留根仓库 PyPI 上传命令：
+  - `uv run sinan release publish --project-dir . --token-env <TOKEN_ENV>`
+- 已同步更新：
+  - `README.md`
+  - `docs/03-developer-guide/index.md`
+  - `docs/03-developer-guide/local-development-workflow.md`
+  - `docs/03-developer-guide/release-and-delivery-workflow.md`
+  - `docs/03-developer-guide/maintainer-quickstart.md`
+  - `.factory/memory/current-state.md`
+- 已新增发布链路单测并通过：
+  - `tests/python/test_release_cli.py`
+  - `tests/python/test_release_service.py`
+  - `tests/python/test_root_cli.py`
+- 已完成统一编译烟测：
+  - `uv run sinan release build-all --project-dir . --goos windows --goarch amd64`
+
+## 2026-04-09 收紧 `scripts/organize_group2_gap_shapes.py` 命名：去掉数字后缀，并压缩到 20 字符内
+
+- 已更新：
+  - `scripts/organize_group2_gap_shapes.py`
+  - `tests/python/test_organize_group2_gap_shapes_script.py`
+  - `scripts/README.md`
+  - `docs/03-developer-guide/repository-structure-and-boundaries.md`
+  - `.factory/memory/current-state.md`
+  - `.factory/memory/change-summary.md`
+- 当前已完成的目标：
+  - 当前不再输出 `_alt_001`、`_alt_002` 这类数字尾缀文件名
+  - 当前文件名已改为“短家族名 + 短特征码”
+  - 当前基名控制在 `20` 个字符以内
+  - 当前文件名保持纯字母和下划线，不含数字
+  - 当短特征码碰撞时，当前会自动拉长特征码，但仍保持 `<= 20` 个字符
+  - 当前同一指纹轮廓仍只保留一个代表图
+  - 当前已在真实 `materials/result/*/gap.jpg` 上重跑：
+    - `257` 张输入
+    - `160` 个唯一轮廓
+    - `97` 张重复图被去重
+    - 输出目录里确认 `0` 个文件名含数字
+    - 当前输出文件基名最大长度是 `15`
+- 已运行验证：
+  - `uv run python -m unittest tests.python.test_organize_group2_gap_shapes_script`
+  - `PYTHONPYCACHEPREFIX=/tmp/pycache python3 -m py_compile scripts/organize_group2_gap_shapes.py`
+  - `uv run python -m scripts.organize_group2_gap_shapes`
+
 ## 2026-04-09 修复 `scripts/crawl/ctrip_login.py`：滑块采集统一保存为 `bg.jpg` / `gap.jpg`
 
 - 已更新：

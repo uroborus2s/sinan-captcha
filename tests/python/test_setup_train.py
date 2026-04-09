@@ -1,15 +1,21 @@
 from __future__ import annotations
 
 import tempfile
+import tomllib
 import unittest
 from pathlib import Path
 from unittest.mock import patch
 
-from core._version import VERSION as PACKAGE_VERSION
 from core.ops import setup_train
 
 
 class SetupTrainTests(unittest.TestCase):
+    @staticmethod
+    def _repo_version() -> str:
+        return tomllib.loads(
+            (Path(__file__).resolve().parents[2] / "pyproject.toml").read_text(encoding="utf-8")
+        )["project"]["version"]
+
     def test_resolve_torch_backend_from_cuda_version(self) -> None:
         backend = setup_train.resolve_torch_backend("12.6", override="auto")
         self.assertEqual(backend.name, "cu126")
@@ -27,9 +33,10 @@ class SetupTrainTests(unittest.TestCase):
     def test_prepare_training_root_writes_runtime_project_files(self) -> None:
         with tempfile.TemporaryDirectory() as tmpdir:
             train_root = Path(tmpdir) / "sinan-captcha-work"
+            package_version = self._repo_version()
             plan = setup_train.TrainingSetupPlan(
                 train_root=train_root,
-                package_spec=f"sinan-captcha[train]=={PACKAGE_VERSION}",
+                package_spec=f"sinan-captcha[train]=={package_version}",
                 torch_backend=setup_train.resolve_torch_backend("12.6", override="auto"),
                 cuda_version="12.6",
                 python_version="3.12",
@@ -39,7 +46,7 @@ class SetupTrainTests(unittest.TestCase):
 
             self.assertTrue((train_root / ".python-version").exists())
             pyproject = (train_root / "pyproject.toml").read_text(encoding="utf-8")
-            self.assertIn(f'sinan-captcha[train]=={PACKAGE_VERSION}', pyproject)
+            self.assertIn(f'sinan-captcha[train]=={package_version}', pyproject)
             self.assertIn('torch', pyproject)
             self.assertIn('name = "pytorch-cu126"', pyproject)
             self.assertTrue((train_root / "datasets" / "group1").exists())
@@ -65,6 +72,7 @@ class SetupTrainTests(unittest.TestCase):
     def test_cli_supports_yes_mode_without_prompt(self) -> None:
         with tempfile.TemporaryDirectory() as tmpdir:
             train_root = Path(tmpdir) / "work"
+            package_version = self._repo_version()
             with patch("core.ops.setup_train.sync_training_root") as sync_training_root:
                 code = setup_train.main(
                     [
@@ -74,7 +82,7 @@ class SetupTrainTests(unittest.TestCase):
                         "--torch-backend",
                         "cpu",
                         "--package-spec",
-                        f"sinan-captcha[train]=={PACKAGE_VERSION}",
+                        f"sinan-captcha[train]=={package_version}",
                     ]
                 )
 

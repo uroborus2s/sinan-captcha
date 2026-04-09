@@ -6,11 +6,17 @@ import argparse
 from pathlib import Path
 
 from core.release.service import (
+    BuildAllReleaseRequest,
+    BuildGeneratorRequest,
     BuildReleaseRequest,
+    BuildSolverRequest,
     ExportGroup2SolverAssetsRequest,
     PackageWindowsRequest,
     PublishReleaseRequest,
+    build_all_distributions,
+    build_generator_distribution,
     build_distribution,
+    build_solver_distribution,
     export_group2_solver_assets,
     package_windows_bundle,
     publish_distribution,
@@ -23,6 +29,28 @@ def build_parser() -> argparse.ArgumentParser:
 
     build_parser_cmd = subparsers.add_parser("build", help="Build wheel and sdist into dist/.")
     build_parser_cmd.add_argument("--project-dir", type=Path, default=Path.cwd())
+
+    build_generator_parser_cmd = subparsers.add_parser(
+        "build-generator",
+        help="Build sinan-generator into generator/dist/<goos>-<goarch>/.",
+    )
+    build_generator_parser_cmd.add_argument("--project-dir", type=Path, default=Path.cwd())
+    build_generator_parser_cmd.add_argument("--goos", default=None)
+    build_generator_parser_cmd.add_argument("--goarch", default=None)
+
+    build_solver_parser_cmd = subparsers.add_parser(
+        "build-solver",
+        help="Build the standalone solver package into solver/dist/.",
+    )
+    build_solver_parser_cmd.add_argument("--project-dir", type=Path, default=Path.cwd())
+
+    build_all_parser_cmd = subparsers.add_parser(
+        "build-all",
+        help="Build root CLI, generator CLI, and solver package from the repository root.",
+    )
+    build_all_parser_cmd.add_argument("--project-dir", type=Path, default=Path.cwd())
+    build_all_parser_cmd.add_argument("--goos", default=None)
+    build_all_parser_cmd.add_argument("--goarch", default=None)
 
     publish_parser_cmd = subparsers.add_parser("publish", help="Publish dist/ artifacts to PyPI or TestPyPI.")
     publish_parser_cmd.add_argument("--project-dir", type=Path, default=Path.cwd())
@@ -63,6 +91,24 @@ def main(argv: list[str] | None = None) -> int:
     try:
         if args.command == "build":
             build_distribution(BuildReleaseRequest(project_dir=args.project_dir))
+        elif args.command == "build-generator":
+            build_generator_distribution(
+                BuildGeneratorRequest(
+                    project_dir=args.project_dir,
+                    goos=args.goos,
+                    goarch=args.goarch,
+                )
+            )
+        elif args.command == "build-solver":
+            build_solver_distribution(BuildSolverRequest(project_dir=args.project_dir))
+        elif args.command == "build-all":
+            build_all_distributions(
+                BuildAllReleaseRequest(
+                    project_dir=args.project_dir,
+                    goos=args.goos,
+                    goarch=args.goarch,
+                )
+            )
         elif args.command == "publish":
             publish_distribution(
                 PublishReleaseRequest(

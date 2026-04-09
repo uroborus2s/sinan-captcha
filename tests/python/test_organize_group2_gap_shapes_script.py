@@ -4,6 +4,7 @@ import importlib.util
 import sys
 import unittest
 from pathlib import Path
+from unittest.mock import patch
 
 MODULE_PATH = Path(__file__).resolve().parents[2] / "scripts" / "organize_group2_gap_shapes.py"
 MODULE_NAME = "tests._organize_group2_gap_shapes_script"
@@ -59,7 +60,7 @@ class OrganizeGroup2GapShapesScriptTests(unittest.TestCase):
 
         self.assertEqual(gap_shapes.suggest_shape_family(features), "heart_sticker")
 
-    def test_build_semantic_name_falls_back_to_generic_family_with_feature_words(self) -> None:
+    def test_build_semantic_name_returns_compact_name_within_20_chars(self) -> None:
         mask = _mask_from_rows(
             [
                 "..###..",
@@ -72,12 +73,14 @@ class OrganizeGroup2GapShapesScriptTests(unittest.TestCase):
         )
 
         features = gap_shapes.extract_shape_features(mask)
-        name = gap_shapes.build_semantic_name(features)
+        fingerprint = gap_shapes.build_shape_fingerprint(features)
+        name = gap_shapes.build_semantic_name("rounded_badge", fingerprint)
 
-        self.assertTrue(name.startswith("rounded_badge_"))
+        self.assertTrue(name.startswith("badge_"))
+        self.assertLessEqual(len(name), 20)
         self.assertNotRegex(name, r"\d")
 
-    def test_build_output_plan_uses_feature_words_instead_of_numeric_suffix(self) -> None:
+    def test_build_output_plan_uses_compact_names_without_numeric_suffix(self) -> None:
         wide_features = gap_shapes.ShapeFeatures(
             width=10,
             height=8,
@@ -113,7 +116,10 @@ class OrganizeGroup2GapShapesScriptTests(unittest.TestCase):
         candidate_a = gap_shapes.ShapeCandidate(
             source_path=Path("/tmp/a/gap.jpg"),
             shape_family="rounded_badge",
-            semantic_name=gap_shapes.build_semantic_name(wide_features),
+            semantic_name=gap_shapes.build_semantic_name(
+                "rounded_badge",
+                gap_shapes.build_shape_fingerprint(wide_features),
+            ),
             fingerprint="fp_a",
             features=wide_features,
             mask=((True,),),
@@ -121,7 +127,10 @@ class OrganizeGroup2GapShapesScriptTests(unittest.TestCase):
         candidate_b = gap_shapes.ShapeCandidate(
             source_path=Path("/tmp/b/gap.jpg"),
             shape_family="rounded_badge",
-            semantic_name=gap_shapes.build_semantic_name(tall_features),
+            semantic_name=gap_shapes.build_semantic_name(
+                "rounded_badge",
+                gap_shapes.build_shape_fingerprint(tall_features),
+            ),
             fingerprint="fp_b",
             features=tall_features,
             mask=((True,),),
@@ -132,15 +141,23 @@ class OrganizeGroup2GapShapesScriptTests(unittest.TestCase):
             {"fp_a": ["/tmp/a2/gap.jpg"], "fp_b": []},
         )
 
-        self.assertEqual(records[0].output_name, f"{candidate_a.semantic_name}.png")
-        self.assertEqual(records[1].output_name, f"{candidate_b.semantic_name}.png")
+        self.assertEqual(
+            records[0].output_name,
+            f"{gap_shapes.build_semantic_name(candidate_a.shape_family, candidate_a.fingerprint)}.png",
+        )
+        self.assertEqual(
+            records[1].output_name,
+            f"{gap_shapes.build_semantic_name(candidate_b.shape_family, candidate_b.fingerprint)}.png",
+        )
         self.assertNotEqual(records[0].output_name, records[1].output_name)
+        self.assertLessEqual(len(Path(records[0].output_name).stem), 20)
+        self.assertLessEqual(len(Path(records[1].output_name).stem), 20)
         self.assertNotRegex(records[0].output_name, r"\d")
         self.assertNotRegex(records[1].output_name, r"\d")
         self.assertEqual(records[0].duplicate_sources, ["/tmp/a2/gap.jpg"])
 
-    def test_build_output_plan_expands_colliding_semantic_names_with_row_and_col_words(self) -> None:
-        shared_name = "rounded_badge_square_balanced_compact_edge_arched_top_full_core_narrow_tail_soft_crown_offset"
+    def test_build_output_plan_resolves_short_name_collision_without_digits(self) -> None:
+        shared_name = "badge_abcdefgh"
         features_a = gap_shapes.ShapeFeatures(
             width=10,
             height=10,
@@ -190,16 +207,24 @@ class OrganizeGroup2GapShapesScriptTests(unittest.TestCase):
             mask=((True,),),
         )
 
-        records = gap_shapes.build_output_plan(
-            [candidate_a, candidate_b],
-            {"fp_c": [], "fp_d": []},
-        )
+        def _fake_build_semantic_name(shape_family: str, fingerprint: str, *, code_length: int = 8) -> str:
+            if code_length == gap_shapes.SHORT_CODE_LENGTH:
+                return "badge_abcdefgh"
+            if fingerprint == "fp_c":
+                return "badge_abcdefghijk"
+            return "badge_abcdefgjklm"
 
-        self.assertIn("_row_", records[0].output_name)
-        self.assertIn("_col_", records[0].output_name)
-        self.assertIn("_row_", records[1].output_name)
-        self.assertIn("_col_", records[1].output_name)
+        with patch.object(gap_shapes, "build_semantic_name", side_effect=_fake_build_semantic_name):
+            records = gap_shapes.build_output_plan(
+                [candidate_a, candidate_b],
+                {"fp_c": [], "fp_d": []},
+            )
+
+        self.assertTrue(Path(records[0].output_name).stem.startswith("badge_"))
+        self.assertTrue(Path(records[1].output_name).stem.startswith("badge_"))
         self.assertNotEqual(records[0].output_name, records[1].output_name)
+        self.assertLessEqual(len(Path(records[0].output_name).stem), 20)
+        self.assertLessEqual(len(Path(records[1].output_name).stem), 20)
         self.assertNotRegex(records[0].output_name, r"\d")
         self.assertNotRegex(records[1].output_name, r"\d")
 

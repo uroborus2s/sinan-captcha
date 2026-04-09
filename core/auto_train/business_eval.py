@@ -1,270 +1,159 @@
-"""Business-sample evaluation helpers for autonomous training."""
+"""Reviewed business-exam helpers for autonomous training."""
 
 from __future__ import annotations
 
-from dataclasses import dataclass
+import json
 import math
 from pathlib import Path
 import random
-import time
-from typing import Iterable
+from typing import Any, Callable
 
 from core.auto_train import contracts
-from core.solve import group2_runtime
-from core.train.base import default_best_weights
+from core.common.jsonl import read_jsonl, write_jsonl
+from core.dataset.validation import (
+    get_group1_scene_targets,
+    get_group2_target,
+    validate_group1_row,
+    validate_group2_row,
+)
+from core.evaluate.service import EvaluationRequest, EvaluationResult, evaluate_model
+from core.modeltest.service import ModelTestRequest, ModelTestResult, run_model_test
+from core.train.base import default_best_weights, default_dataset_config
+from core.train.group1.service import QUERY_COMPONENT, SCENE_COMPONENT, group1_component_best_weights
 
-_IMAGE_EXTENSIONS = (".png", ".jpg", ".jpeg", ".webp", ".bmp")
-_MASTER_IMAGE_STEMS = ("master", "bg", "background")
-_TILE_IMAGE_STEMS = ("tile", "gap", "piece", "puzzle_piece")
-_BBOX_EDGE_TOLERANCE_PX = 10.0
-_LOCAL_SEARCH_RADIUS_PX = 8
-
-
-@dataclass(frozen=True)
-class OcclusionScore:
-    boundary_before: float
-    boundary_after: float
-    fill_score: float
-    seam_score: float
-    occlusion_score: float
-    success: bool
-    best_local_bbox: list[int]
-    best_local_offset_px: float
-    best_local_clean_score: float
-    contour_overlap_ratio: float
-    exposed_gap_edge_ratio: float
-    double_contour_ratio: float
-    tile_residue_ratio: float
-    double_edge_score: float
-    overflow_edge_score: float
-    required_score: float
-    failed_checks_cn: list[str]
+ModelTestExecutor = Callable[[ModelTestRequest], ModelTestResult]
 
 
-@dataclass(frozen=True)
-class CaseSpec:
-    case_id: str
-    master_path: Path
-    tile_path: Path
+def load_reviewed_exam_rows(task: str, cases_root: Path) -> list[dict[str, Any]]:
+    labels_path = cases_root / "labels.jsonl"
+    if not labels_path.exists():
+        raise RuntimeError(f"未找到 reviewed 试卷 labels.jsonl：{labels_path}")
+    rows = read_jsonl(labels_path)
+    if task == "group1":
+        return [validate_group1_row(row) for row in rows]
+    if task == "group2":
+        return [validate_group2_row(row) for row in rows]
+    raise ValueError(f"unsupported business eval task: {task}")
 
 
-@dataclass(frozen=True)
-class OverlayArtifactMetrics:
-    contour_overlap_ratio: float
-    exposed_gap_edge_ratio: float
-    double_contour_ratio: float
-    tile_residue_ratio: float
-    double_edge_score: float
-    overflow_edge_score: float
-    artifact_score: float
-    clean_score: float
-
-
-@dataclass(frozen=True)
-class OverlayGateVerdict:
-    success: bool
-    required_score: float
-    failed_checks_cn: list[str]
-
-
-def score_occlusion_overlay(
+def select_exam_sample(
+    rows: list[dict[str, Any]],
     *,
-    master_luma: list[list[float]],
-    tile_luma: list[list[float]],
-    tile_alpha: list[list[float]],
-    x: int,
-    y: int,
-    success_threshold: float = 0.78,
-) -> OcclusionScore:
-    """Score whether overlaying the tile at ``(x, y)`` looks locally well-fitted."""
-
-    _validate_grids(master_luma=master_luma, tile_luma=tile_luma, tile_alpha=tile_alpha)
-    predicted_metrics = _overlay_artifact_metrics(
-        master_luma=master_luma,
-        tile_luma=tile_luma,
-        tile_alpha=tile_alpha,
-        x=x,
-        y=y,
-    )
-    best_local_bbox, best_local_metrics = _best_local_bbox(
-        master_luma=master_luma,
-        tile_luma=tile_luma,
-        tile_alpha=tile_alpha,
-        x=x,
-        y=y,
-    )
-    best_local_offset_px = _bbox_edge_error([x, y, x + len(tile_alpha[0]), y + len(tile_alpha)], best_local_bbox)
-    verdict = _overlay_gate_verdict(
-        local_metrics=best_local_metrics,
-        best_local_offset_px=best_local_offset_px,
-        success_threshold=success_threshold,
-    )
-    success = verdict.success
-    edge_clean_score = _clamp01(
-        1.0
-        - max(
-            predicted_metrics.exposed_gap_edge_ratio,
-            predicted_metrics.double_contour_ratio,
-            predicted_metrics.overflow_edge_score,
-        )
-    )
-    return OcclusionScore(
-        boundary_before=predicted_metrics.exposed_gap_edge_ratio,
-        boundary_after=predicted_metrics.overflow_edge_score,
-        fill_score=predicted_metrics.contour_overlap_ratio,
-        seam_score=edge_clean_score,
-        occlusion_score=predicted_metrics.clean_score,
-        success=success,
-        best_local_bbox=best_local_bbox,
-        best_local_offset_px=best_local_offset_px,
-        best_local_clean_score=best_local_metrics.clean_score,
-        contour_overlap_ratio=predicted_metrics.contour_overlap_ratio,
-        exposed_gap_edge_ratio=predicted_metrics.exposed_gap_edge_ratio,
-        double_contour_ratio=predicted_metrics.double_contour_ratio,
-        tile_residue_ratio=predicted_metrics.tile_residue_ratio,
-        double_edge_score=predicted_metrics.double_contour_ratio,
-        overflow_edge_score=predicted_metrics.overflow_edge_score,
-        required_score=verdict.required_score,
-        failed_checks_cn=verdict.failed_checks_cn,
-    )
+    sample_size: int,
+    sample_key: str,
+) -> list[dict[str, Any]]:
+    if sample_size <= 0:
+        raise ValueError("sample_size must be greater than 0")
+    if len(rows) <= sample_size:
+        return sorted(rows, key=lambda item: str(item["sample_id"]))
+    shuffled = list(rows)
+    random.Random(sample_key).shuffle(shuffled)
+    return sorted(shuffled[:sample_size], key=lambda item: str(item["sample_id"]))
 
 
-def discover_group2_cases(cases_root: Path) -> list[CaseSpec]:
-    master = _find_first_image(cases_root, stems=_MASTER_IMAGE_STEMS)
-    tile = _find_first_image(cases_root, stems=_TILE_IMAGE_STEMS)
-    if master is not None and tile is not None:
-        return [CaseSpec(case_id=cases_root.name or "case_0001", master_path=master, tile_path=tile)]
-
-    cases: list[CaseSpec] = []
-    for candidate in sorted(path for path in cases_root.iterdir() if path.is_dir()):
-        master = _find_first_image(candidate, stems=_MASTER_IMAGE_STEMS)
-        tile = _find_first_image(candidate, stems=_TILE_IMAGE_STEMS)
-        if master is None or tile is None:
-            continue
-        cases.append(CaseSpec(case_id=candidate.name, master_path=master, tile_path=tile))
-    return cases
+def materialize_sampled_source(
+    *,
+    task: str,
+    cases_root: Path,
+    sampled_rows: list[dict[str, Any]],
+    output_dir: Path,
+) -> Path:
+    output_dir.mkdir(parents=True, exist_ok=True)
+    labels_path = output_dir / "labels.jsonl"
+    rewritten_rows = [_rewrite_row_image_paths(task=task, cases_root=cases_root, row=row) for row in sampled_rows]
+    write_jsonl(labels_path, rewritten_rows)
+    return labels_path
 
 
-def run_group2_business_eval(
+def run_reviewed_business_eval(
     *,
     trial_id: str,
+    task: str,
     train_root: Path,
+    dataset_version: str,
     train_name: str,
     cases_root: Path,
     report_dir: Path,
     device: str,
+    imgsz: int,
     success_threshold: float,
     min_cases: int,
     sample_size: int,
-    occlusion_threshold: float,
+    point_tolerance_px: int,
+    iou_threshold: float,
+    modeltest_runner: ModelTestExecutor | None = None,
 ) -> contracts.BusinessEvalRecord:
-    try:
-        from PIL import Image, ImageChops
-    except Exception as exc:  # pragma: no cover - host env dependent
-        raise RuntimeError("当前环境缺少 `Pillow`，无法执行真实样本 business eval。") from exc
-
-    discovered_cases = discover_group2_cases(cases_root)
-    if not discovered_cases:
+    all_rows = load_reviewed_exam_rows(task, cases_root)
+    available_cases = len(all_rows)
+    if available_cases < min_cases:
         raise RuntimeError(
-            "未在 business_eval 样本目录中找到背景图/缺口块图片。"
-            f"当前支持 `master.* + tile.*` 或 `bg.* + gap.*`：{cases_root}"
+            "reviewed 试卷池样本不足，无法执行商业测试。"
+            f"要求至少 {min_cases} 组，实际只有 {available_cases} 组：{cases_root}"
         )
-    cases = select_case_sample(
-        discovered_cases,
+
+    sampled_rows = select_exam_sample(
+        all_rows,
         sample_size=sample_size,
-        sample_key=f"{trial_id}:{train_name}:{cases_root}",
+        sample_key=f"{trial_id}:{train_name}:{cases_root.resolve()}",
     )
+    sampled_source = materialize_sampled_source(
+        task=task,
+        cases_root=cases_root,
+        sampled_rows=sampled_rows,
+        output_dir=report_dir / "_sampled_source",
+    )
+    model_request = _build_business_model_test_request(
+        task=task,
+        train_root=train_root,
+        dataset_version=dataset_version,
+        train_name=train_name,
+        source=sampled_source,
+        report_dir=report_dir,
+        device=device,
+        imgsz=imgsz,
+    )
+    model_result = (modeltest_runner or run_model_test)(model_request)
 
-    weights_path = default_best_weights(train_root, "group2", train_name)
-    model, imgsz, torch_device = group2_runtime.load_model(weights_path, device)
-    case_results: list[contracts.BusinessEvalCaseRecord] = []
-
-    for case in cases:
-        master_tensor, tile_tensor, meta = group2_runtime.prepare_inputs(
-            master_path=case.master_path,
-            tile_path=case.tile_path,
-            imgsz=imgsz,
+    evaluation = evaluate_model(
+        EvaluationRequest(
+            task=task,
+            gold_dir=sampled_source.parent,
+            prediction_dir=model_result.predict_output_dir,
+            report_dir=report_dir / "evaluation",
+            point_tolerance_px=point_tolerance_px,
+            iou_threshold=iou_threshold,
         )
-        started = time.perf_counter()
-        with group2_runtime.torch_no_grad():
-            response = model(master_tensor.to(torch_device), tile_tensor.to(torch_device))[0]
-        inference_ms = (time.perf_counter() - started) * 1000.0
-        bbox = group2_runtime.decode_bbox(response, meta)
-        center = group2_runtime.bbox_center(bbox)
-
-        master_rgba = Image.open(case.master_path).convert("RGBA")
-        tile_rgba = group2_runtime.normalize_tile_rgba_image(Image.open(case.tile_path))
-        score = score_occlusion_overlay(
-            master_luma=_image_to_luma_grid(master_rgba.convert("L")),
-            tile_luma=_image_to_luma_grid(tile_rgba.convert("L")),
-            tile_alpha=_image_to_alpha_grid(tile_rgba),
-            x=bbox[0],
-            y=bbox[1],
-            success_threshold=occlusion_threshold,
-        )
-
-        case_dir = report_dir / case.case_id
-        case_dir.mkdir(parents=True, exist_ok=True)
-        overlay_path = case_dir / "overlay.png"
-        diff_path = case_dir / "diff.png"
-        overlay = master_rgba.copy()
-        overlay.paste(tile_rgba, (bbox[0], bbox[1]), tile_rgba)
-        overlay.save(overlay_path)
-        ImageChops.difference(master_rgba, overlay).save(diff_path)
-
-        case_results.append(
-            contracts.BusinessEvalCaseRecord(
-                case_id=case.case_id,
-                master_image=str(case.master_path),
-                tile_image=str(case.tile_path),
-                predicted_bbox=bbox,
-                predicted_center=center,
-                inference_ms=round(inference_ms, 4),
-                boundary_before=round(score.boundary_before, 6),
-                boundary_after=round(score.boundary_after, 6),
-                fill_score=round(score.fill_score, 6),
-                seam_score=round(score.seam_score, 6),
-                occlusion_score=round(score.occlusion_score, 6),
-                success=score.success,
-                reason_cn=_reason_cn(score),
-                overlay_path=str(overlay_path),
-                diff_path=str(diff_path),
-                result_cn="成功" if score.success else "失败",
-                final_score=round(score.best_local_clean_score, 6),
-                required_score=round(score.required_score, 6),
-                failed_checks_cn=score.failed_checks_cn,
-                best_local_bbox=score.best_local_bbox,
-                best_local_offset_px=round(score.best_local_offset_px, 4),
-                best_local_clean_score=round(score.best_local_clean_score, 6),
-                contour_overlap_ratio=round(score.contour_overlap_ratio, 6),
-                exposed_gap_edge_ratio=round(score.exposed_gap_edge_ratio, 6),
-                double_contour_ratio=round(score.double_contour_ratio, 6),
-                tile_residue_ratio=round(score.tile_residue_ratio, 6),
-                double_edge_score=round(score.double_edge_score, 6),
-                overflow_edge_score=round(score.overflow_edge_score, 6),
-            )
-        )
-
+    )
+    prediction_rows = _load_prediction_rows(task, model_result.predict_output_dir / "labels.jsonl")
+    case_results = build_case_results(
+        task=task,
+        gold_rows=sampled_rows,
+        prediction_rows=prediction_rows,
+        point_tolerance_px=point_tolerance_px,
+        iou_threshold=iou_threshold,
+    )
     passed_cases = sum(1 for item in case_results if item.success)
     total_cases = len(case_results)
     success_rate = 0.0 if total_cases == 0 else passed_cases / float(total_cases)
-    commercial_ready = total_cases >= min_cases and success_rate >= success_threshold
+    commercial_ready = success_rate >= success_threshold
     evidence = [
-        f"available_cases={len(discovered_cases)}",
+        f"available_cases={available_cases}",
         f"sample_size={sample_size}",
         f"total_cases={total_cases}",
         f"passed_cases={passed_cases}",
         f"success_rate={success_rate:.4f}",
         f"success_threshold={success_threshold:.4f}",
-        f"occlusion_threshold={occlusion_threshold:.4f}",
+        f"point_tolerance_px={point_tolerance_px}",
+        f"iou_threshold={iou_threshold:.4f}",
+        f"evaluation_failure_count={evaluation.failure_count}",
         f"commercial_ready={str(commercial_ready).lower()}",
     ]
     return contracts.BusinessEvalRecord(
         trial_id=trial_id,
-        task="group2",
+        task=task,
         train_name=train_name,
         cases_root=str(cases_root),
-        available_cases=len(discovered_cases),
+        available_cases=available_cases,
         total_cases=total_cases,
         passed_cases=passed_cases,
         success_rate=success_rate,
@@ -272,32 +161,46 @@ def run_group2_business_eval(
         min_cases=min_cases,
         sample_size=sample_size,
         commercial_ready=commercial_ready,
-        occlusion_threshold=occlusion_threshold,
+        point_tolerance_px=point_tolerance_px,
+        iou_threshold=iou_threshold,
+        sampled_source=str(sampled_source),
         report_dir=str(report_dir),
+        prediction_dir=str(model_result.predict_output_dir),
+        evaluation_report_dir=str(evaluation.report_dir),
         case_results=case_results,
         evidence=evidence,
     )
 
 
-def select_case_sample(
-    cases: list[CaseSpec],
+def build_case_results(
     *,
-    sample_size: int,
-    sample_key: str,
-) -> list[CaseSpec]:
-    if sample_size <= 0:
-        raise ValueError("sample_size must be greater than 0")
-    if len(cases) <= sample_size:
-        return sorted(cases, key=lambda item: item.case_id)
-    shuffled = list(cases)
-    random.Random(sample_key).shuffle(shuffled)
-    return sorted(shuffled[:sample_size], key=lambda item: item.case_id)
+    task: str,
+    gold_rows: list[dict[str, Any]],
+    prediction_rows: list[dict[str, Any]],
+    point_tolerance_px: int,
+    iou_threshold: float,
+) -> list[contracts.BusinessEvalCaseRecord]:
+    prediction_by_id = {str(row["sample_id"]): row for row in prediction_rows}
+    if task == "group1":
+        return _build_group1_case_results(
+            gold_rows=gold_rows,
+            prediction_by_id=prediction_by_id,
+            point_tolerance_px=point_tolerance_px,
+        )
+    if task == "group2":
+        return _build_group2_case_results(
+            gold_rows=gold_rows,
+            prediction_by_id=prediction_by_id,
+            point_tolerance_px=point_tolerance_px,
+            iou_threshold=iou_threshold,
+        )
+    raise ValueError(f"unsupported business eval task: {task}")
 
 
 def markdown_from_business_eval(record: contracts.BusinessEvalRecord) -> str:
     verdict = "通过" if record.commercial_ready else "未通过"
     lines = [
-        f"# {record.trial_id} Business Eval",
+        f"# {record.trial_id} Business Exam",
         "",
         f"- task: {record.task}",
         f"- train_name: {record.train_name}",
@@ -308,35 +211,16 @@ def markdown_from_business_eval(record: contracts.BusinessEvalRecord) -> str:
         f"- passed_cases: {record.passed_cases}",
         f"- success_rate: {record.success_rate:.4f}",
         f"- success_threshold: {record.success_threshold:.4f}",
-        f"- main_score_threshold: {record.occlusion_threshold:.4f}",
+        f"- point_tolerance_px: {record.point_tolerance_px}",
+        f"- iou_threshold: {record.iou_threshold:.4f}",
+        f"- sampled_source: {record.sampled_source}",
+        f"- prediction_dir: {record.prediction_dir}",
+        f"- evaluation_report_dir: {record.evaluation_report_dir}",
         f"- verdict_cn: {verdict}",
         "",
-        "## 字段说明",
+        "## 判卷规则",
         "",
-        "- available_cases: business_eval 目录下发现的全部候选样本数。",
-        "- sample_size: 本轮配置允许抽样的最大样本数。",
-        "- total_cases: 本轮实际参与商业测试的样本数。",
-        "- passed_cases: 单样本轮廓重合率、overlay 痕迹检测与局部 10px 容差同时达标的通过数。",
-        "- success_rate: passed_cases / total_cases，表示本轮商业测试通过率。",
-        "- success_threshold: 判定达到商用门所需的最小通过率。",
-        "- main_score_threshold: 单样本参考 clean_score 阈值；它是参考分，不是唯一硬门。",
-        "- predicted_bbox: 求解模块输出的缺口框坐标，格式为 [x1, y1, x2, y2]。",
-        "- predicted_center: 求解模块输出的缺口中心点，格式为 [cx, cy]。",
-        "- best_local_bbox: 在模型输出位置附近小范围搜索后，痕迹最干净的候选框。",
-        "- best_local_offset_px: predicted_bbox 与 best_local_bbox 四条边偏差的最大值；<= 10px 视为定位正常。",
-        "- best_local_clean_score: 邻域内最优贴合位置的 clean_score，越高越好。",
-        "- contour_overlap_ratio: 缺口图块轮廓与背景缺口轮廓的重合程度，越高越好。",
-        "- exposed_gap_edge_ratio: overlay 后仍然露在外面的缺口边缘比例，越低越好。",
-        "- double_contour_ratio: overlay 后出现双轮廓/重影边缘的比例，越低越好。",
-        "- result_cn: 当前样本最终中文结论，成功或失败。",
-        "- final_score: 当前样本 overlay 的参考 clean_score，越高越好。",
-        "- required_score: 当前样本参考 clean_score 阈值；真正通过还要看轮廓重合、露边、双轮廓、越界和图块残留这些分项硬门。",
-        "- failed_checks_cn: 当前样本未通过的中文原因列表；通过时显示为无。",
-        "- inference_ms: 求解模块本次推理耗时，单位毫秒。",
-        "- tile_residue_ratio: overlay 中仍然保留大面积图块主体痕迹的程度，越低越好。",
-        "- double_edge_score: 兼容旧字段名；现与 double_contour_ratio 一致。",
-        "- overflow_edge_score: overlay 中出现越界边缘的程度，越低越好。",
-        "- clean_score(occlusion): 兼容旧字段 occlusion_score，表示当前模型输出位置的整体干净程度，越高越好。",
+        _business_rule_cn(record),
         "",
         "## 样本结果",
         "",
@@ -344,52 +228,15 @@ def markdown_from_business_eval(record: contracts.BusinessEvalRecord) -> str:
     if not record.case_results:
         lines.append("- 当前 trial 没有写入样本明细。")
     for item in record.case_results:
-        status = "PASS" if item.success else "FAIL"
-        lines.append(
-            f"- {item.case_id}: {status}, predicted_bbox={item.predicted_bbox}, "
-            f"predicted_center={item.predicted_center}, best_local_bbox={item.best_local_bbox}, "
-            f"best_local_offset_px={_format_optional_float(item.best_local_offset_px)}, "
-            f"best_local_clean_score={_format_optional_float(item.best_local_clean_score)}, "
-            f"contour_overlap_ratio={_format_optional_float(item.contour_overlap_ratio)}, "
-            f"exposed_gap_edge_ratio={_format_optional_float(item.exposed_gap_edge_ratio)}, "
-            f"double_contour_ratio={_format_optional_float(item.double_contour_ratio)}, "
-            f"result_cn={item.result_cn or ('成功' if item.success else '失败')}, "
-            f"final_score={_format_optional_float(item.final_score)}, "
-            f"required_score={_format_optional_float(item.required_score)}, "
-            f"failed_checks_cn={_format_failed_checks(item.failed_checks_cn)}, "
-            f"inference_ms={item.inference_ms:.4f}, clean_score={item.occlusion_score:.4f}, "
-            f"tile_residue_ratio={_format_optional_float(item.tile_residue_ratio)}, "
-            f"double_edge_score={_format_optional_float(item.double_edge_score)}, "
-            f"overflow_edge_score={_format_optional_float(item.overflow_edge_score)}, "
-            f"reason_cn={item.reason_cn}"
-        )
+        lines.append(f"- {_render_case_line(item)}")
     return "\n".join(lines) + "\n"
 
 
 def log_from_business_eval(record: contracts.BusinessEvalRecord) -> str:
     lines = [
-        "# 字段说明",
-        "# predicted_bbox: 模型输出的背景图坐标框 [x1, y1, x2, y2]。",
-        "# predicted_center: 模型输出的缺口中心点 [cx, cy]。",
-        "# best_local_bbox: 在模型输出位置附近做局部搜索后，痕迹最干净的候选框。",
-        "# best_local_offset_px: predicted_bbox 与 best_local_bbox 四条边偏差的最大值，<= 10px 视为定位正常。",
-        "# best_local_clean_score: 邻域内最优贴合位置的 clean_score，越高越好。",
-        "# contour_overlap_ratio: 缺口图块轮廓与背景缺口轮廓的重合程度，越高越好。",
-        "# exposed_gap_edge_ratio: overlay 后仍露出的缺口边缘比例，越低越好。",
-        "# double_contour_ratio: overlay 后出现双轮廓/重影边缘的比例，越低越好。",
-        "# result_cn: 当前样本最终中文结论，成功或失败。",
-        "# final_score: 当前样本 overlay 的参考 clean_score，越高越好。",
-        "# required_score: 当前样本参考 clean_score 阈值；真正通过还要看各项痕迹硬门。",
-        "# failed_checks_cn: 当前样本未通过的中文原因列表；通过时显示为无。",
-        "# inference_ms: 求解模块单次推理耗时，单位毫秒。",
-        "# tile_residue_ratio: overlay 中仍保留明显图块痕迹的程度，越低越好。",
-        "# double_edge_score: 兼容旧字段名；现与 double_contour_ratio 一致。",
-        "# overflow_edge_score: overlay 中出现越界边缘的程度，越低越好。",
-        "# clean_score(occlusion): 当前模型输出位置的整体干净程度，越高越好。",
-        "# success_rate: 当前批次通过率，即 passed_cases / total_cases。",
-        "# commercial_ready: 当前批次是否达到最终商用门。",
-        "",
+        "# reviewed exam business eval",
         f"trial_id={record.trial_id}",
+        f"task={record.task}",
         f"train_name={record.train_name}",
         f"cases_root={record.cases_root}",
         f"available_cases={record.available_cases}",
@@ -398,30 +245,16 @@ def log_from_business_eval(record: contracts.BusinessEvalRecord) -> str:
         f"passed_cases={record.passed_cases}",
         f"success_rate={record.success_rate:.4f}",
         f"success_threshold={record.success_threshold:.4f}",
-        f"main_score_threshold={record.occlusion_threshold:.4f}",
+        f"point_tolerance_px={record.point_tolerance_px}",
+        f"iou_threshold={record.iou_threshold:.4f}",
+        f"sampled_source={record.sampled_source}",
+        f"prediction_dir={record.prediction_dir}",
+        f"evaluation_report_dir={record.evaluation_report_dir}",
         f"commercial_ready={str(record.commercial_ready).lower()}",
         "",
     ]
     for item in record.case_results:
-        status = "PASS" if item.success else "FAIL"
-        lines.append(
-            f"{status} case_id={item.case_id} predicted_bbox={item.predicted_bbox} "
-            f"predicted_center={item.predicted_center} best_local_bbox={item.best_local_bbox} "
-            f"best_local_offset_px={_format_optional_float(item.best_local_offset_px)} "
-            f"best_local_clean_score={_format_optional_float(item.best_local_clean_score)} "
-            f"contour_overlap_ratio={_format_optional_float(item.contour_overlap_ratio)} "
-            f"exposed_gap_edge_ratio={_format_optional_float(item.exposed_gap_edge_ratio)} "
-            f"double_contour_ratio={_format_optional_float(item.double_contour_ratio)} "
-            f"result_cn={item.result_cn or ('成功' if item.success else '失败')} "
-            f"final_score={_format_optional_float(item.final_score)} "
-            f"required_score={_format_optional_float(item.required_score)} "
-            f"failed_checks_cn={_format_failed_checks(item.failed_checks_cn)} "
-            f"inference_ms={item.inference_ms:.4f} clean_score={item.occlusion_score:.4f} "
-            f"tile_residue_ratio={_format_optional_float(item.tile_residue_ratio)} "
-            f"double_edge_score={_format_optional_float(item.double_edge_score)} "
-            f"overflow_edge_score={_format_optional_float(item.overflow_edge_score)} "
-            f"reason_cn={item.reason_cn}"
-        )
+        lines.append(_render_case_line(item, prefix="CASE"))
     return "\n".join(lines) + "\n"
 
 
@@ -435,23 +268,19 @@ def commercial_report_markdown(
     business_record: contracts.BusinessEvalRecord,
 ) -> str:
     best_entry = leaderboard.best_entry
-    process_conclusion = _process_conclusion_cn(study=study, business_record=business_record)
-    final_conclusion = _final_conclusion_cn(study=study, business_record=business_record)
-    offline_promotion = _offline_promotion_conclusion_cn(raw_decision=raw_decision, business_record=business_record)
-    business_test_conclusion = _business_test_conclusion_cn(business_record)
     lines = [
         f"# {study.study_name} 商业可用性结论",
         "",
         "## 最终结论",
         "",
-        final_conclusion,
+        _final_conclusion_cn(study=study, business_record=business_record),
         "",
         "## 流程状态",
         "",
         f"- study_status: {study.status}",
         f"- final_reason: {study.final_reason}",
         f"- final_detail: {study.final_detail}",
-        f"- 流程结论: {process_conclusion}",
+        f"- 流程结论: {_process_conclusion_cn(study=study, business_record=business_record)}",
         "",
         "## 训练过程结论",
         "",
@@ -459,90 +288,331 @@ def commercial_report_markdown(
         f"- 已完成 trial 数: {len(leaderboard.entries)}",
         f"- best_trial_id: {None if best_entry is None else best_entry.trial_id}",
         f"- best_primary_score: {None if best_entry is None else best_entry.primary_score}",
-        f"- best_dataset_version: {None if best_entry is None else best_entry.dataset_version}",
-        f"- point_hit_rate: {_metric_value(best_entry, 'point_hit_rate')}",
-        f"- mean_iou: {_metric_value(best_entry, 'mean_iou')}",
-        f"- mean_center_error_px: {_metric_value(best_entry, 'mean_center_error_px')}",
-        f"- mean_inference_ms: {_metric_value(best_entry, 'mean_inference_ms')}",
-        "- point_hit_rate: 预测中心点落入容差范围的比例，越高越好。",
-        "- mean_iou: 预测框与目标框重叠程度的均值，越高越好。",
-        "- mean_center_error_px: 预测中心与真实中心的平均像素误差，越低越好。",
-        "- mean_inference_ms: 单次推理平均耗时，越低越好。",
-        "",
-        "## 晋级结论",
-        "",
-        f"- 离线晋级判定: {raw_decision.decision}",
-        f"- 离线晋级说明: {offline_promotion}",
-        f"- 最终动作判定: {effective_decision.decision}",
-        f"- 最终动作原因: {effective_decision.reason}",
-        "- group2 离线晋级门: point_hit_rate >= 0.93、mean_iou >= 0.85、mean_center_error_px <= 8.0。",
-        "",
-        "## 商业测试结论",
-        "",
-        business_test_conclusion,
-        "",
-        "## 真实业务样本 Gate",
-        "",
-        f"- cases_root: {business_record.cases_root}",
-        f"- available_cases: {business_record.available_cases}",
-        f"- sample_size: {business_record.sample_size}",
-        f"- total_cases: {business_record.total_cases}",
-        f"- passed_cases: {business_record.passed_cases}",
-        f"- success_rate: {business_record.success_rate:.4f}",
-        f"- success_threshold: {business_record.success_threshold:.4f}",
-        f"- main_score_threshold: {business_record.occlusion_threshold:.4f}",
-        f"- commercial_ready: {business_record.commercial_ready}",
-        "",
-        "## 商业测试字段说明",
-        "",
-        "- predicted_bbox / predicted_center / inference_ms: 直接来自 group2 求解模块的推理输出。",
-        "- best_local_bbox: 在模型输出位置附近做局部搜索后，痕迹最干净的候选框。",
-        "- best_local_offset_px: predicted_bbox 与 best_local_bbox 四条边偏差的最大值；当前 <= 10px 视为定位正常。",
-        "- best_local_clean_score: 邻域内最优贴合位置的 clean_score，越高越好。",
-        "- contour_overlap_ratio: 缺口图块轮廓与背景缺口轮廓的重合程度，越高越好。",
-        "- exposed_gap_edge_ratio: overlay 后仍然露在外面的缺口边缘比例，越低越好。",
-        "- double_contour_ratio: overlay 后出现双轮廓/重影边缘的比例，越低越好。",
-        "- result_cn: 当前样本最终中文结论，成功或失败。",
-        "- final_score: 当前样本 overlay 的参考 clean_score，越高越好。",
-        "- required_score: 当前样本参考 clean_score 阈值；真正通过还要看轮廓重合、露边、双轮廓、越界和图块残留这些分项硬门。",
-        "- failed_checks_cn: 当前样本未通过的中文原因列表；通过时显示为无。",
-        "- tile_residue_ratio: overlay 中仍然保留大面积图块痕迹的程度，越低越好。",
-        "- double_edge_score: 兼容旧字段名；现与 double_contour_ratio 一致。",
-        "- overflow_edge_score: overlay 中出现越界边缘的程度，越低越好。",
-        "- fill_score: 兼容旧字段名；现表示 contour_overlap_ratio。",
-        "- seam_score: 兼容旧字段名；现表示边缘干净度，即 1 - max(exposed_gap_edge_ratio, double_contour_ratio, overflow_edge_score)。",
-        "- occlusion_score: 兼容旧字段名；现表示当前模型输出位置的 clean_score，越高越好。",
-        "- boundary_before / boundary_after: 兼容旧辅诊断字段；现分别记录 exposed_gap_edge_ratio 与 overflow_edge_score。",
-        "- success_rate: 本轮商业测试通过率，即 passed_cases / total_cases。",
-        "- commercial_ready: success_rate 是否达到 success_threshold，且样本数满足 min_cases。",
-        "",
-        "## 失败样本",
-        "",
     ]
+    lines.extend(_task_metric_lines(task=business_record.task, best_entry=best_entry))
+    lines.extend(
+        [
+            "",
+            "## 晋级结论",
+            "",
+            f"- 离线晋级判定: {raw_decision.decision}",
+            f"- 最终动作判定: {effective_decision.decision}",
+            f"- 最终动作原因: {effective_decision.reason}",
+            f"- 离线晋级说明: {_offline_promotion_conclusion_cn(raw_decision=raw_decision, business_record=business_record)}",
+            "",
+            "## 商业测试结论",
+            "",
+            _business_test_conclusion_cn(business_record),
+            "",
+            "## 真实业务试卷 Gate",
+            "",
+            f"- cases_root: {business_record.cases_root}",
+            f"- available_cases: {business_record.available_cases}",
+            f"- sample_size: {business_record.sample_size}",
+            f"- total_cases: {business_record.total_cases}",
+            f"- passed_cases: {business_record.passed_cases}",
+            f"- success_rate: {business_record.success_rate:.4f}",
+            f"- success_threshold: {business_record.success_threshold:.4f}",
+            f"- point_tolerance_px: {business_record.point_tolerance_px}",
+            f"- iou_threshold: {business_record.iou_threshold:.4f}",
+            f"- commercial_ready: {business_record.commercial_ready}",
+            "",
+            "## 失败样本",
+            "",
+        ]
+    )
     failed_cases = [item for item in business_record.case_results if not item.success]
     if not failed_cases:
         lines.append("- 无")
     for item in failed_cases[:20]:
-        lines.append(
-            f"- {item.case_id}: predicted_bbox={item.predicted_bbox}, "
-            f"predicted_center={item.predicted_center}, best_local_bbox={item.best_local_bbox}, "
-            f"best_local_offset_px={_format_optional_float(item.best_local_offset_px)}, "
-            f"best_local_clean_score={_format_optional_float(item.best_local_clean_score)}, "
-            f"contour_overlap_ratio={_format_optional_float(item.contour_overlap_ratio)}, "
-            f"exposed_gap_edge_ratio={_format_optional_float(item.exposed_gap_edge_ratio)}, "
-            f"double_contour_ratio={_format_optional_float(item.double_contour_ratio)}, "
-            f"result_cn={item.result_cn or ('成功' if item.success else '失败')}, "
-            f"final_score={_format_optional_float(item.final_score)}, "
-            f"required_score={_format_optional_float(item.required_score)}, "
-            f"failed_checks_cn={_format_failed_checks(item.failed_checks_cn)}, "
-            f"clean_score={item.occlusion_score:.4f}, tile_residue_ratio={_format_optional_float(item.tile_residue_ratio)}, "
-            f"double_edge_score={_format_optional_float(item.double_edge_score)}, "
-            f"overflow_edge_score={_format_optional_float(item.overflow_edge_score)}, reason_cn={item.reason_cn}"
-        )
+        lines.append(f"- {_render_case_line(item)}")
     return "\n".join(lines) + "\n"
 
 
-def _metric_value(entry: contracts.LeaderboardEntry | None, key: str) -> str:
+def _build_business_model_test_request(
+    *,
+    task: str,
+    train_root: Path,
+    dataset_version: str,
+    train_name: str,
+    source: Path,
+    report_dir: Path,
+    device: str,
+    imgsz: int,
+) -> ModelTestRequest:
+    dataset_config = default_dataset_config(train_root, task, dataset_version)
+    if task == "group1":
+        return ModelTestRequest(
+            task=task,
+            dataset_version=dataset_version,
+            train_name=train_name,
+            dataset_config=dataset_config,
+            model_path=group1_component_best_weights(train_root, train_name, SCENE_COMPONENT),
+            query_model_path=group1_component_best_weights(train_root, train_name, QUERY_COMPONENT),
+            source=source,
+            project_dir=report_dir / "modeltest",
+            report_dir=report_dir / "modeltest-report",
+            predict_name=f"predict_{train_name}_business_exam",
+            val_name=f"val_{train_name}_business_exam",
+            device=device,
+            imgsz=imgsz,
+        )
+    return ModelTestRequest(
+        task=task,
+        dataset_version=dataset_version,
+        train_name=train_name,
+        dataset_config=dataset_config,
+        model_path=default_best_weights(train_root, task, train_name),
+        query_model_path=None,
+        source=source,
+        project_dir=report_dir / "modeltest",
+        report_dir=report_dir / "modeltest-report",
+        predict_name=f"predict_{train_name}_business_exam",
+        val_name=f"val_{train_name}_business_exam",
+        device=device,
+        imgsz=imgsz,
+    )
+
+
+def _load_prediction_rows(task: str, labels_path: Path) -> list[dict[str, Any]]:
+    if not labels_path.exists():
+        raise RuntimeError(f"商业测试预测输出缺少 labels.jsonl：{labels_path}")
+    rows = read_jsonl(labels_path)
+    if task == "group1":
+        return [validate_group1_row(row) for row in rows]
+    if task == "group2":
+        return [validate_group2_row(row) for row in rows]
+    raise ValueError(f"unsupported business eval task: {task}")
+
+
+def _rewrite_row_image_paths(*, task: str, cases_root: Path, row: dict[str, Any]) -> dict[str, Any]:
+    rewritten = json.loads(json.dumps(row, ensure_ascii=False))
+    if task == "group1":
+        rewritten["query_image"] = str(_resolve_case_image(cases_root, Path(str(row["query_image"]))))
+        rewritten["scene_image"] = str(_resolve_case_image(cases_root, Path(str(row["scene_image"]))))
+        return rewritten
+    if task == "group2":
+        rewritten["master_image"] = str(_resolve_case_image(cases_root, Path(str(row["master_image"]))))
+        rewritten["tile_image"] = str(_resolve_case_image(cases_root, Path(str(row["tile_image"]))))
+        return rewritten
+    raise ValueError(f"unsupported business eval task: {task}")
+
+
+def _resolve_case_image(cases_root: Path, candidate: Path) -> Path:
+    if candidate.is_absolute():
+        return candidate
+    return (cases_root / candidate).resolve()
+
+
+def _build_group1_case_results(
+    *,
+    gold_rows: list[dict[str, Any]],
+    prediction_by_id: dict[str, dict[str, Any]],
+    point_tolerance_px: int,
+) -> list[contracts.BusinessEvalCaseRecord]:
+    results: list[contracts.BusinessEvalCaseRecord] = []
+    for gold in sorted(gold_rows, key=lambda item: str(item["sample_id"])):
+        sample_id = str(gold["sample_id"])
+        gold_targets = get_group1_scene_targets(gold)
+        prediction = prediction_by_id.get(sample_id)
+        if prediction is None:
+            results.append(
+                contracts.BusinessEvalCaseRecord(
+                    case_id=sample_id,
+                    sample_id=sample_id,
+                    success=False,
+                    reason_code="missing_prediction",
+                    reason_cn="模型未输出该题结果。",
+                    input_images=_group1_input_images(gold),
+                    metrics={
+                        "target_count": len(gold_targets),
+                        "predicted_target_count": 0,
+                        "matched_target_count": 0,
+                        "point_tolerance_px": point_tolerance_px,
+                    },
+                    prediction=None,
+                    reference={"scene_targets": gold_targets},
+                    evidence=["missing_prediction"],
+                )
+            )
+            continue
+
+        predicted_targets = get_group1_scene_targets(prediction)
+        matched_target_count = 0
+        order_ok = len(gold_targets) == len(predicted_targets)
+        sequence_ok = order_ok
+        center_errors: list[float] = []
+        for index, gold_target in enumerate(gold_targets):
+            if index >= len(predicted_targets):
+                sequence_ok = False
+                continue
+            predicted_target = predicted_targets[index]
+            if predicted_target.get("order") != gold_target.get("order"):
+                order_ok = False
+            if predicted_target.get("class_id") != gold_target.get("class_id"):
+                sequence_ok = False
+                order_ok = False
+                continue
+            center_error = _distance(gold_target["center"], predicted_target["center"])
+            center_errors.append(center_error)
+            if center_error <= point_tolerance_px:
+                matched_target_count += 1
+            else:
+                sequence_ok = False
+        success = sequence_ok and matched_target_count == len(gold_targets)
+        reason_code = "pass" if success else ("order_mismatch" if not order_ok else "sequence_mismatch")
+        reason_cn = (
+            "点击序列、类别和中心点误差均达标。"
+            if success
+            else (
+                "输出目标顺序或类别与标准答案不一致。"
+                if reason_code == "order_mismatch"
+                else "输出目标数量、类别或点击中心未全部达标。"
+            )
+        )
+        results.append(
+            contracts.BusinessEvalCaseRecord(
+                case_id=sample_id,
+                sample_id=sample_id,
+                success=success,
+                reason_code=reason_code,
+                reason_cn=reason_cn,
+                input_images=_group1_input_images(gold),
+                metrics={
+                    "target_count": len(gold_targets),
+                    "predicted_target_count": len(predicted_targets),
+                    "matched_target_count": matched_target_count,
+                    "point_tolerance_px": point_tolerance_px,
+                    "mean_center_error_px": _rounded_or_none(_mean(center_errors), 4),
+                    "order_ok": order_ok,
+                },
+                prediction={
+                    "scene_targets": predicted_targets,
+                    "inference_ms": prediction.get("inference_ms"),
+                },
+                reference={"scene_targets": gold_targets},
+                evidence=[f"status={prediction.get('status', 'unknown')}"],
+            )
+        )
+    return results
+
+
+def _build_group2_case_results(
+    *,
+    gold_rows: list[dict[str, Any]],
+    prediction_by_id: dict[str, dict[str, Any]],
+    point_tolerance_px: int,
+    iou_threshold: float,
+) -> list[contracts.BusinessEvalCaseRecord]:
+    results: list[contracts.BusinessEvalCaseRecord] = []
+    for gold in sorted(gold_rows, key=lambda item: str(item["sample_id"])):
+        sample_id = str(gold["sample_id"])
+        gold_target = get_group2_target(gold)
+        prediction = prediction_by_id.get(sample_id)
+        if prediction is None:
+            results.append(
+                contracts.BusinessEvalCaseRecord(
+                    case_id=sample_id,
+                    sample_id=sample_id,
+                    success=False,
+                    reason_code="missing_prediction",
+                    reason_cn="模型未输出该题结果。",
+                    input_images=_group2_input_images(gold),
+                    metrics={
+                        "point_tolerance_px": point_tolerance_px,
+                        "iou_threshold": iou_threshold,
+                    },
+                    prediction=None,
+                    reference={"target_gap": gold_target},
+                    evidence=["missing_prediction"],
+                )
+            )
+            continue
+        predicted_target = get_group2_target(prediction)
+        center_error = _distance(gold_target["center"], predicted_target["center"])
+        iou = _iou(gold_target["bbox"], predicted_target["bbox"])
+        point_hit = center_error <= point_tolerance_px
+        iou_hit = iou >= iou_threshold
+        success = point_hit and iou_hit
+        if success:
+            reason_code = "pass"
+            reason_cn = "中心点误差和 IoU 均达标。"
+        elif not point_hit:
+            reason_code = "point_miss"
+            reason_cn = "预测中心点超出允许像素容差。"
+        else:
+            reason_code = "low_iou"
+            reason_cn = "预测框与标准答案重合度不足。"
+        results.append(
+            contracts.BusinessEvalCaseRecord(
+                case_id=sample_id,
+                sample_id=sample_id,
+                success=success,
+                reason_code=reason_code,
+                reason_cn=reason_cn,
+                input_images=_group2_input_images(gold),
+                metrics={
+                    "point_tolerance_px": point_tolerance_px,
+                    "iou_threshold": iou_threshold,
+                    "center_error_px": round(center_error, 4),
+                    "iou": round(iou, 6),
+                    "point_hit": point_hit,
+                    "inference_ms": prediction.get("inference_ms"),
+                },
+                prediction={"target_gap": predicted_target},
+                reference={"target_gap": gold_target},
+                evidence=[],
+            )
+        )
+    return results
+
+
+def _group1_input_images(row: dict[str, Any]) -> dict[str, Any]:
+    return {
+        "query_image": str(row["query_image"]),
+        "scene_image": str(row["scene_image"]),
+    }
+
+
+def _group2_input_images(row: dict[str, Any]) -> dict[str, Any]:
+    return {
+        "master_image": str(row["master_image"]),
+        "tile_image": str(row["tile_image"]),
+    }
+
+
+def _business_rule_cn(record: contracts.BusinessEvalRecord) -> str:
+    if record.task == "group1":
+        return (
+            f"group1 单题必须整题序列正确，且所有点击目标中心点误差不超过 {record.point_tolerance_px}px。"
+        )
+    return (
+        f"group2 单题必须同时满足中心点误差不超过 {record.point_tolerance_px}px，"
+        f"且 IoU 不低于 {record.iou_threshold:.2f}。"
+    )
+
+
+def _task_metric_lines(*, task: str, best_entry: contracts.LeaderboardEntry | None) -> list[str]:
+    metric_keys = (
+        ("full_sequence_hit_rate", "full_sequence_hit_rate"),
+        ("single_target_hit_rate", "single_target_hit_rate"),
+        ("mean_center_error_px", "mean_center_error_px"),
+        ("order_error_rate", "order_error_rate"),
+    )
+    if task == "group2":
+        metric_keys = (
+            ("point_hit_rate", "point_hit_rate"),
+            ("mean_iou", "mean_iou"),
+            ("mean_center_error_px", "mean_center_error_px"),
+            ("mean_inference_ms", "mean_inference_ms"),
+        )
+    lines: list[str] = []
+    for key, label in metric_keys:
+        lines.append(f"- {label}: {_leaderboard_metric(best_entry, key)}")
+    return lines
+
+
+def _leaderboard_metric(entry: contracts.LeaderboardEntry | None, key: str) -> str:
     if entry is None:
         return "None"
     value = entry.metrics.get(key)
@@ -551,6 +621,29 @@ def _metric_value(entry: contracts.LeaderboardEntry | None, key: str) -> str:
     if isinstance(value, float):
         return f"{value:.4f}"
     return str(value)
+
+
+def _render_case_line(item: contracts.BusinessEvalCaseRecord, prefix: str | None = None) -> str:
+    line = (
+        f"case_id={item.case_id} sample_id={item.sample_id} "
+        f"status={'PASS' if item.success else 'FAIL'} reason_code={item.reason_code} "
+        f"metrics={_render_mapping(item.metrics)} "
+        f"input_images={_render_mapping(item.input_images)}"
+    )
+    if item.prediction is not None:
+        line += f" prediction={_render_mapping(item.prediction)}"
+    if item.reference is not None:
+        line += f" reference={_render_mapping(item.reference)}"
+    if item.evidence:
+        line += f" evidence={json.dumps(item.evidence, ensure_ascii=False)}"
+    line += f" reason_cn={item.reason_cn}"
+    if prefix is None:
+        return line
+    return f"{prefix} {line}"
+
+
+def _render_mapping(value: dict[str, Any]) -> str:
+    return json.dumps(value, ensure_ascii=False, sort_keys=True)
 
 
 def _process_conclusion_cn(*, study: contracts.StudyRecord, business_record: contracts.BusinessEvalRecord) -> str:
@@ -563,12 +656,9 @@ def _process_conclusion_cn(*, study: contracts.StudyRecord, business_record: con
 
 def _final_conclusion_cn(*, study: contracts.StudyRecord, business_record: contracts.BusinessEvalRecord) -> str:
     if business_record.commercial_ready:
-        return "达到商用门。本次最佳候选已经通过真实业务样本 gate，可以结束自动训练并进入交付/复核阶段。"
+        return "达到商用门。本次最佳候选已经通过 reviewed 试卷集商业测试，可以结束自动训练并进入交付/复核阶段。"
     if study.status == "stopped":
-        return (
-            "未达到商用门。本次自动训练虽然正常执行完毕，但最终因为停止规则触发而结束，"
-            "不是因为商业测试通过。"
-        )
+        return "未达到商用门。本次自动训练因为停止规则触发而结束，不是因为商业测试通过。"
     return "未达到商用门。当前应继续迭代训练并优先修复商业测试失败样本。"
 
 
@@ -579,24 +669,23 @@ def _offline_promotion_conclusion_cn(
 ) -> str:
     if raw_decision.decision == "PROMOTE_BRANCH":
         if business_record.commercial_ready:
-            return "离线指标已达到候选晋级区间，且商业测试通过。"
-        return "离线指标已达到候选晋级区间，但商业测试未通过，因此不能认定为最终商用成功。"
+            return "离线指标已达到候选晋级区间，且 reviewed 试卷集商业测试通过。"
+        return "离线指标已达到候选晋级区间，但 reviewed 试卷集商业测试未通过，因此不能认定为最终商用成功。"
     return f"离线指标未进入候选晋级区间，judge 返回 {raw_decision.decision}。"
 
 
 def _business_test_conclusion_cn(record: contracts.BusinessEvalRecord) -> str:
     return (
-        f"- 本轮从 {record.available_cases} 组真实样本中抽取 {record.total_cases} 组进行商业测试。\n"
+        f"- 本轮从 {record.available_cases} 组 reviewed 试卷中抽取 {record.total_cases} 组进行商业测试。\n"
         f"- 其中通过 {record.passed_cases} 组，通过率为 {record.success_rate:.2%}。\n"
-        f"- 当前商用门要求 success_rate >= {record.success_threshold:.0%}，"
-        f"单样本主判看轮廓重合、露边、双轮廓、越界、图块残留和 {int(_BBOX_EDGE_TOLERANCE_PX)}px 容差；"
-        f"clean_score 只作为参考分，不再单独决定通过。"
+        f"- 当前商用门要求 success_rate >= {record.success_threshold:.0%}。\n"
+        f"- {_business_rule_cn(record)}"
     )
 
 
 def _final_reason_cn(reason: str | None, detail: str | None) -> str:
     if reason == "commercial_gate_passed":
-        return "真实业务样本 gate 已通过"
+        return "真实业务试卷 gate 已通过"
     if reason == "offline_promotion_ready":
         return "离线晋级门已通过"
     if reason == "abandon_branch":
@@ -622,561 +711,35 @@ def _final_reason_cn(reason: str | None, detail: str | None) -> str:
     return "未记录最终原因"
 
 
-def _validate_grids(
-    *,
-    master_luma: list[list[float]],
-    tile_luma: list[list[float]],
-    tile_alpha: list[list[float]],
-) -> None:
-    if not master_luma or not master_luma[0]:
-        raise ValueError("master_luma must not be empty")
-    if not tile_luma or not tile_luma[0]:
-        raise ValueError("tile_luma must not be empty")
-    if len(tile_luma) != len(tile_alpha) or len(tile_luma[0]) != len(tile_alpha[0]):
-        raise ValueError("tile_luma and tile_alpha shapes must match")
+def _distance(a: list[int], b: list[int]) -> float:
+    return math.sqrt((float(a[0]) - float(b[0])) ** 2 + (float(a[1]) - float(b[1])) ** 2)
 
 
-def _boundary_diffs(
-    *,
-    image: list[list[float]],
-    tile_alpha: list[list[float]],
-    x: int,
-    y: int,
-) -> list[float]:
-    diffs: list[float] = []
-    height = len(image)
-    width = len(image[0])
-    tile_height = len(tile_alpha)
-    tile_width = len(tile_alpha[0])
-    for tile_y in range(tile_height):
-        for tile_x in range(tile_width):
-            if tile_alpha[tile_y][tile_x] <= 0.0:
-                continue
-            inside_x = x + tile_x
-            inside_y = y + tile_y
-            if inside_x < 0 or inside_x >= width or inside_y < 0 or inside_y >= height:
-                continue
-            for delta_x, delta_y in ((1, 0), (-1, 0), (0, 1), (0, -1)):
-                neighbor_tile_x = tile_x + delta_x
-                neighbor_tile_y = tile_y + delta_y
-                neighbor_is_mask = (
-                    0 <= neighbor_tile_x < tile_width
-                    and 0 <= neighbor_tile_y < tile_height
-                    and tile_alpha[neighbor_tile_y][neighbor_tile_x] > 0.0
-                )
-                if neighbor_is_mask:
-                    continue
-                outside_x = inside_x + delta_x
-                outside_y = inside_y + delta_y
-                if outside_x < 0 or outside_x >= width or outside_y < 0 or outside_y >= height:
-                    continue
-                diffs.append(abs(image[inside_y][inside_x] - image[outside_y][outside_x]))
-    return diffs
-
-
-def _composite_luma_grid(
-    *,
-    master_luma: list[list[float]],
-    tile_luma: list[list[float]],
-    tile_alpha: list[list[float]],
-    x: int,
-    y: int,
-) -> list[list[float]]:
-    composite = [list(row) for row in master_luma]
-    height = len(master_luma)
-    width = len(master_luma[0])
-    for tile_y, (tile_row, alpha_row) in enumerate(zip(tile_luma, tile_alpha, strict=False)):
-        for tile_x, (tile_pixel, alpha) in enumerate(zip(tile_row, alpha_row, strict=False)):
-            target_x = x + tile_x
-            target_y = y + tile_y
-            if target_x < 0 or target_x >= width or target_y < 0 or target_y >= height:
-                continue
-            master_pixel = composite[target_y][target_x]
-            composite[target_y][target_x] = master_pixel * (1.0 - alpha) + tile_pixel * alpha
-    return composite
-
-
-def _image_to_luma_grid(image: object) -> list[list[float]]:
-    width, height = image.size
-    pixels = list(image.getdata())
-    return [
-        [float(pixels[row * width + column]) for column in range(width)]
-        for row in range(height)
-    ]
-
-
-def _image_to_alpha_grid(image: object) -> list[list[float]]:
-    alpha_image = image.getchannel("A")
-    width, height = alpha_image.size
-    pixels = list(alpha_image.getdata())
-    return [
-        [float(pixels[row * width + column]) / 255.0 for column in range(width)]
-        for row in range(height)
-    ]
-
-
-def _overlay_artifact_metrics(
-    *,
-    master_luma: list[list[float]],
-    tile_luma: list[list[float]],
-    tile_alpha: list[list[float]],
-    x: int,
-    y: int,
-) -> OverlayArtifactMetrics:
-    composite = _composite_luma_grid(master_luma=master_luma, tile_luma=tile_luma, tile_alpha=tile_alpha, x=x, y=y)
-    master_edges = _edge_strength_grid(master_luma)
-    overlay_edges = _edge_strength_grid(composite)
-    mask_coords, boundary_coords, outer_ring_coords = _mask_regions(tile_alpha)
-    contour_overlap_ratio = _normalized_region_mean(
-        source=master_edges,
-        coords=boundary_coords,
-        x=x,
-        y=y,
-    )
-    exposed_gap_edge_ratio = _normalized_region_mean(
-        source=master_edges,
-        coords=outer_ring_coords,
-        x=x,
-        y=y,
-    )
-    double_contour_ratio = _normalized_positive_region_diff(
-        baseline=master_edges,
-        candidate=overlay_edges,
-        coords=outer_ring_coords,
-        x=x,
-        y=y,
-    )
-    tile_residue_ratio = _normalized_region_diff(
-        original=master_luma,
-        overlay=composite,
-        coords=mask_coords,
-        x=x,
-        y=y,
-    )
-    double_edge_score = _normalized_region_diff(
-        original=master_luma,
-        overlay=composite,
-        coords=boundary_coords,
-        x=x,
-        y=y,
-    )
-    overflow_edge_score = _normalized_region_diff(
-        original=master_luma,
-        overlay=composite,
-        coords=outer_ring_coords,
-        x=x,
-        y=y,
-    )
-    artifact_score = _clamp01(
-        (1.0 - contour_overlap_ratio) * 0.45
-        + exposed_gap_edge_ratio * 0.20
-        + double_contour_ratio * 0.15
-        + overflow_edge_score * 0.10
-        + tile_residue_ratio * 0.10
-    )
-    return OverlayArtifactMetrics(
-        contour_overlap_ratio=contour_overlap_ratio,
-        exposed_gap_edge_ratio=exposed_gap_edge_ratio,
-        double_contour_ratio=double_contour_ratio,
-        tile_residue_ratio=tile_residue_ratio,
-        double_edge_score=double_contour_ratio,
-        overflow_edge_score=overflow_edge_score,
-        artifact_score=artifact_score,
-        clean_score=_clamp01(1.0 - artifact_score),
-    )
-
-
-def _best_local_bbox(
-    *,
-    master_luma: list[list[float]],
-    tile_luma: list[list[float]],
-    tile_alpha: list[list[float]],
-    x: int,
-    y: int,
-) -> tuple[list[int], OverlayArtifactMetrics]:
-    height = len(master_luma)
-    width = len(master_luma[0])
-    tile_height = len(tile_alpha)
-    tile_width = len(tile_alpha[0])
-    max_x = max(0, width - tile_width)
-    max_y = max(0, height - tile_height)
-
-    best_x = min(max(x, 0), max_x)
-    best_y = min(max(y, 0), max_y)
-    best_metrics = _overlay_artifact_metrics(
-        master_luma=master_luma,
-        tile_luma=tile_luma,
-        tile_alpha=tile_alpha,
-        x=best_x,
-        y=best_y,
-    )
-    for candidate_y in range(max(0, y - _LOCAL_SEARCH_RADIUS_PX), min(max_y, y + _LOCAL_SEARCH_RADIUS_PX) + 1, 2):
-        for candidate_x in range(max(0, x - _LOCAL_SEARCH_RADIUS_PX), min(max_x, x + _LOCAL_SEARCH_RADIUS_PX) + 1, 2):
-            metrics = _overlay_artifact_metrics(
-                master_luma=master_luma,
-                tile_luma=tile_luma,
-                tile_alpha=tile_alpha,
-                x=candidate_x,
-                y=candidate_y,
-            )
-            if metrics.artifact_score < best_metrics.artifact_score:
-                best_x = candidate_x
-                best_y = candidate_y
-                best_metrics = metrics
-
-    refine_radius = 2
-    for candidate_y in range(max(0, best_y - refine_radius), min(max_y, best_y + refine_radius) + 1):
-        for candidate_x in range(max(0, best_x - refine_radius), min(max_x, best_x + refine_radius) + 1):
-            metrics = _overlay_artifact_metrics(
-                master_luma=master_luma,
-                tile_luma=tile_luma,
-                tile_alpha=tile_alpha,
-                x=candidate_x,
-                y=candidate_y,
-            )
-            if metrics.artifact_score < best_metrics.artifact_score:
-                best_x = candidate_x
-                best_y = candidate_y
-                best_metrics = metrics
-
-    return [best_x, best_y, best_x + tile_width, best_y + tile_height], best_metrics
-
-
-def _mask_regions(
-    tile_alpha: list[list[float]],
-) -> tuple[list[tuple[int, int]], list[tuple[int, int]], list[tuple[int, int]]]:
-    tile_height = len(tile_alpha)
-    tile_width = len(tile_alpha[0])
-    mask_coords: list[tuple[int, int]] = []
-    boundary_coords: list[tuple[int, int]] = []
-    outer_ring: set[tuple[int, int]] = set()
-
-    for tile_y in range(tile_height):
-        for tile_x in range(tile_width):
-            if tile_alpha[tile_y][tile_x] <= 0.0:
-                continue
-            mask_coords.append((tile_x, tile_y))
-            is_boundary = False
-            for delta_x, delta_y in ((1, 0), (-1, 0), (0, 1), (0, -1)):
-                neighbor_x = tile_x + delta_x
-                neighbor_y = tile_y + delta_y
-                neighbor_is_mask = (
-                    0 <= neighbor_x < tile_width
-                    and 0 <= neighbor_y < tile_height
-                    and tile_alpha[neighbor_y][neighbor_x] > 0.0
-                )
-                if neighbor_is_mask:
-                    continue
-                is_boundary = True
-                outer_ring.add((neighbor_x, neighbor_y))
-            if is_boundary:
-                boundary_coords.append((tile_x, tile_y))
-
-    outer_ring_coords = [
-        (tile_x, tile_y)
-        for tile_x, tile_y in sorted(outer_ring)
-        if 0 <= tile_x < tile_width and 0 <= tile_y < tile_height and tile_alpha[tile_y][tile_x] <= 0.0
-    ]
-    return mask_coords, boundary_coords, outer_ring_coords
-
-
-def _normalized_region_diff(
-    *,
-    original: list[list[float]],
-    overlay: list[list[float]],
-    coords: list[tuple[int, int]],
-    x: int,
-    y: int,
-) -> float:
-    if not coords:
+def _iou(box_a: list[int], box_b: list[int]) -> float:
+    ax1, ay1, ax2, ay2 = [float(value) for value in box_a]
+    bx1, by1, bx2, by2 = [float(value) for value in box_b]
+    inter_x1 = max(ax1, bx1)
+    inter_y1 = max(ay1, by1)
+    inter_x2 = min(ax2, bx2)
+    inter_y2 = min(ay2, by2)
+    inter_w = max(0.0, inter_x2 - inter_x1)
+    inter_h = max(0.0, inter_y2 - inter_y1)
+    inter_area = inter_w * inter_h
+    area_a = max(0.0, ax2 - ax1) * max(0.0, ay2 - ay1)
+    area_b = max(0.0, bx2 - bx1) * max(0.0, by2 - by1)
+    union = area_a + area_b - inter_area
+    if union <= 0.0:
         return 0.0
-    height = len(original)
-    width = len(original[0])
-    values: list[float] = []
-    for offset_x, offset_y in coords:
-        target_x = x + offset_x
-        target_y = y + offset_y
-        if target_x < 0 or target_x >= width or target_y < 0 or target_y >= height:
-            continue
-        values.append(abs(overlay[target_y][target_x] - original[target_y][target_x]))
+    return inter_area / union
+
+
+def _mean(values: list[float]) -> float | None:
     if not values:
-        return 1.0
-    return _clamp01(_mean(values) / 255.0)
+        return None
+    return sum(values) / float(len(values))
 
 
-def _normalized_region_mean(
-    *,
-    source: list[list[float]],
-    coords: list[tuple[int, int]],
-    x: int,
-    y: int,
-) -> float:
-    if not coords:
-        return 0.0
-    height = len(source)
-    width = len(source[0])
-    hits = 0
-    total = 0
-    threshold = 0.12
-    for offset_x, offset_y in coords:
-        target_x = x + offset_x
-        target_y = y + offset_y
-        if target_x < 0 or target_x >= width or target_y < 0 or target_y >= height:
-            continue
-        total += 1
-        if source[target_y][target_x] >= threshold:
-            hits += 1
-    if total == 0:
-        return 0.0
-    return _clamp01(hits / float(total))
-
-
-def _normalized_positive_region_diff(
-    *,
-    baseline: list[list[float]],
-    candidate: list[list[float]],
-    coords: list[tuple[int, int]],
-    x: int,
-    y: int,
-) -> float:
-    if not coords:
-        return 0.0
-    height = len(baseline)
-    width = len(baseline[0])
-    values: list[float] = []
-    for offset_x, offset_y in coords:
-        target_x = x + offset_x
-        target_y = y + offset_y
-        if target_x < 0 or target_x >= width or target_y < 0 or target_y >= height:
-            continue
-        values.append(max(0.0, candidate[target_y][target_x] - baseline[target_y][target_x]))
-    if not values:
-        return 0.0
-    return _clamp01(_mean(values))
-
-
-def _edge_strength_grid(image: list[list[float]]) -> list[list[float]]:
-    height = len(image)
-    width = len(image[0])
-    output: list[list[float]] = []
-    for y in range(height):
-        row: list[float] = []
-        for x in range(width):
-            left = image[y][max(0, x - 1)]
-            right = image[y][min(width - 1, x + 1)]
-            up = image[max(0, y - 1)][x]
-            down = image[min(height - 1, y + 1)][x]
-            gradient = (
-                abs(right - left)
-                + abs(down - up)
-                + abs(image[y][x] - left)
-                + abs(image[y][x] - up)
-            ) / (4.0 * 255.0)
-            row.append(_clamp01(gradient))
-        output.append(row)
-    return output
-
-
-def _reason_cn(score: OcclusionScore) -> str:
-    if score.success:
-        return "模型输出位置与附近最佳轮廓重合位置的边框偏差在 10px 以内，且轮廓重合率与 overlay 痕迹检测都达标，判定通过。"
-    if score.failed_checks_cn:
-        return "；".join(score.failed_checks_cn)
-    return "当前位置附近虽有可接受轮廓候选，但仍有一项或多项视觉贴合硬门未达标，建议结合 overlay/diff 继续人工复核。"
-
-
-def _overlay_gate_verdict(
-    *,
-    local_metrics: OverlayArtifactMetrics,
-    best_local_offset_px: float,
-    success_threshold: float,
-) -> OverlayGateVerdict:
-    required_score = _effective_clean_threshold(success_threshold)
-    checks: list[str] = []
-    if best_local_offset_px > _BBOX_EDGE_TOLERANCE_PX:
-        checks.append(f"边框偏差超限（{best_local_offset_px:.1f}px > {int(_BBOX_EDGE_TOLERANCE_PX)}px）")
-    if local_metrics.contour_overlap_ratio < 0.55:
-        checks.append(f"轮廓重合率不足（{local_metrics.contour_overlap_ratio:.3f} < 0.550）")
-    if local_metrics.double_contour_ratio > 0.45:
-        checks.append(f"双轮廓/重影过多（{local_metrics.double_contour_ratio:.3f} > 0.450）")
-    if local_metrics.overflow_edge_score > 0.40:
-        checks.append(f"越界边缘过多（{local_metrics.overflow_edge_score:.3f} > 0.400）")
-    if local_metrics.clean_score < required_score:
-        checks.append(f"参考 clean_score 不足（{local_metrics.clean_score:.3f} < {required_score:.3f}）")
-    return OverlayGateVerdict(
-        success=not checks,
-        required_score=required_score,
-        failed_checks_cn=checks,
-    )
-
-
-def _effective_clean_threshold(success_threshold: float) -> float:
-    return max(0.72, success_threshold - 0.06)
-
-
-def _format_failed_checks(values: list[str] | None) -> str:
-    if not values:
-        return "无"
-    return "；".join(values)
-
-
-def _find_image(root: Path, *, stem: str) -> Path | None:
-    for suffix in _IMAGE_EXTENSIONS:
-        candidate = root / f"{stem}{suffix}"
-        if candidate.exists():
-            return candidate
-    return None
-
-
-def _find_first_image(root: Path, *, stems: tuple[str, ...]) -> Path | None:
-    for stem in stems:
-        candidate = _find_image(root, stem=stem)
-        if candidate is not None:
-            return candidate
-    return None
-
-
-def _mean(values: Iterable[float]) -> float:
-    items = list(values)
-    if not items:
-        return 0.0
-    return sum(items) / float(len(items))
-
-
-def _clamp01(value: float) -> float:
-    return max(0.0, min(float(value), 1.0))
-
-
-def _estimate_reference_bbox(
-    *,
-    master_luma: list[list[float]],
-    tile_alpha: list[list[float]],
-) -> tuple[list[int], list[int], float]:
-    height = len(master_luma)
-    width = len(master_luma[0])
-    tile_height = len(tile_alpha)
-    tile_width = len(tile_alpha[0])
-    max_x = max(0, width - tile_width)
-    max_y = max(0, height - tile_height)
-    search_space = (max_x + 1) * (max_y + 1)
-    coarse_step = 2 if search_space > 4096 else 1
-
-    best_x = 0
-    best_y = 0
-    best_score = -1.0
-    for candidate_y in range(0, max_y + 1, coarse_step):
-        for candidate_x in range(0, max_x + 1, coarse_step):
-            score = _slot_signal_score(master_luma=master_luma, tile_alpha=tile_alpha, x=candidate_x, y=candidate_y)
-            if score > best_score:
-                best_x = candidate_x
-                best_y = candidate_y
-                best_score = score
-
-    refine_radius = max(1, coarse_step)
-    for candidate_y in range(max(0, best_y - refine_radius), min(max_y, best_y + refine_radius) + 1):
-        for candidate_x in range(max(0, best_x - refine_radius), min(max_x, best_x + refine_radius) + 1):
-            score = _slot_signal_score(master_luma=master_luma, tile_alpha=tile_alpha, x=candidate_x, y=candidate_y)
-            if score > best_score:
-                best_x = candidate_x
-                best_y = candidate_y
-                best_score = score
-
-    bbox = [best_x, best_y, best_x + tile_width, best_y + tile_height]
-    return bbox, _bbox_center(bbox), best_score
-
-
-def _slot_signal_score(
-    *,
-    master_luma: list[list[float]],
-    tile_alpha: list[list[float]],
-    x: int,
-    y: int,
-) -> float:
-    inside_values, boundary_diffs = _mask_patch_values(image=master_luma, tile_alpha=tile_alpha, x=x, y=y)
-    if not inside_values:
-        return 0.0
-    inside_mean = _mean(inside_values) / 255.0
-    inside_std = _stddev(inside_values) / 255.0
-    bright_ratio = sum(1 for value in inside_values if value >= 180.0) / float(len(inside_values))
-    boundary_score = _clamp01(_mean(boundary_diffs) / 96.0)
-    brightness_score = _clamp01((inside_mean - 0.55) / 0.30)
-    uniformity_score = 1.0 - _clamp01(inside_std / 0.12)
-    bright_ratio_score = _clamp01(bright_ratio / 0.75)
-    return _clamp01(
-        boundary_score * 0.35
-        + brightness_score * 0.25
-        + uniformity_score * 0.20
-        + bright_ratio_score * 0.20
-    )
-
-
-def _mask_patch_values(
-    *,
-    image: list[list[float]],
-    tile_alpha: list[list[float]],
-    x: int,
-    y: int,
-) -> tuple[list[float], list[float]]:
-    inside_values: list[float] = []
-    boundary_diffs: list[float] = []
-    height = len(image)
-    width = len(image[0])
-    tile_height = len(tile_alpha)
-    tile_width = len(tile_alpha[0])
-    for tile_y in range(tile_height):
-        for tile_x in range(tile_width):
-            if tile_alpha[tile_y][tile_x] <= 0.0:
-                continue
-            target_x = x + tile_x
-            target_y = y + tile_y
-            if target_x < 0 or target_x >= width or target_y < 0 or target_y >= height:
-                continue
-            inside_values.append(image[target_y][target_x])
-            for delta_x, delta_y in ((1, 0), (-1, 0), (0, 1), (0, -1)):
-                neighbor_tile_x = tile_x + delta_x
-                neighbor_tile_y = tile_y + delta_y
-                neighbor_is_mask = (
-                    0 <= neighbor_tile_x < tile_width
-                    and 0 <= neighbor_tile_y < tile_height
-                    and tile_alpha[neighbor_tile_y][neighbor_tile_x] > 0.0
-                )
-                if neighbor_is_mask:
-                    continue
-                outside_x = target_x + delta_x
-                outside_y = target_y + delta_y
-                if outside_x < 0 or outside_x >= width or outside_y < 0 or outside_y >= height:
-                    continue
-                boundary_diffs.append(abs(image[target_y][target_x] - image[outside_y][outside_x]))
-    return inside_values, boundary_diffs
-
-
-def _stddev(values: Iterable[float]) -> float:
-    items = list(values)
-    if not items:
-        return 0.0
-    avg = _mean(items)
-    return math.sqrt(sum((value - avg) ** 2 for value in items) / float(len(items)))
-
-
-def _bbox_center(bbox: list[int]) -> list[int]:
-    return [int((bbox[0] + bbox[2]) / 2), int((bbox[1] + bbox[3]) / 2)]
-
-
-def _position_tolerance_px(tile_alpha: list[list[float]]) -> float:
-    tile_height = len(tile_alpha)
-    tile_width = len(tile_alpha[0])
-    return max(10.0, min(tile_width, tile_height) * 0.5)
-
-
-def _point_distance(lhs: list[int], rhs: list[int]) -> float:
-    return math.sqrt(float((lhs[0] - rhs[0]) ** 2 + (lhs[1] - rhs[1]) ** 2))
-
-
-def _bbox_edge_error(lhs: list[int], rhs: list[int]) -> float:
-    return float(max(abs(lhs[index] - rhs[index]) for index in range(4)))
-
-
-def _format_optional_float(value: float | None) -> str:
+def _rounded_or_none(value: float | None, digits: int) -> float | None:
     if value is None:
-        return "None"
-    return f"{value:.4f}"
+        return None
+    return round(value, digits)

@@ -62,7 +62,6 @@ def main(argv: list[str] | None = None) -> int:
         business_eval_success_threshold=args.business_eval_success_threshold,
         business_eval_min_cases=args.business_eval_min_cases,
         business_eval_sample_size=args.business_eval_sample_size,
-        business_eval_occlusion_threshold=args.business_eval_occlusion_threshold,
         goal_only_stop=goal_only_stop,
     )
     ctrl = controller.AutoTrainController(request=request)
@@ -111,10 +110,9 @@ def _add_common_arguments(parser: argparse.ArgumentParser) -> None:
     parser.add_argument("--point-tolerance-px", type=int, default=12)
     parser.add_argument("--iou-threshold", type=float, default=0.5)
     parser.add_argument("--business-eval-dir", type=Path, default=None)
-    parser.add_argument("--business-eval-success-threshold", type=float, default=0.98)
-    parser.add_argument("--business-eval-min-cases", type=int, default=100)
-    parser.add_argument("--business-eval-sample-size", type=int, default=100)
-    parser.add_argument("--business-eval-occlusion-threshold", type=float, default=0.78)
+    parser.add_argument("--business-eval-success-threshold", type=float, default=0.95)
+    parser.add_argument("--business-eval-min-cases", type=int, default=30)
+    parser.add_argument("--business-eval-sample-size", type=int, default=30)
     parser.add_argument("--goal-only-stop", action="store_true")
 
 

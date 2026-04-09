@@ -8,6 +8,54 @@ from core.release import cli
 
 
 class ReleaseCliTests(unittest.TestCase):
+    def test_dispatches_build_generator(self) -> None:
+        with patch("core.release.cli.build_generator_distribution") as handler:
+            code = cli.main(
+                [
+                    "build-generator",
+                    "--project-dir",
+                    ".",
+                    "--goos",
+                    "windows",
+                    "--goarch",
+                    "amd64",
+                ]
+            )
+
+        self.assertEqual(code, 0)
+        request = handler.call_args.args[0]
+        self.assertEqual(request.project_dir, Path("."))
+        self.assertEqual(request.goos, "windows")
+        self.assertEqual(request.goarch, "amd64")
+
+    def test_dispatches_build_solver(self) -> None:
+        with patch("core.release.cli.build_solver_distribution") as handler:
+            code = cli.main(["build-solver", "--project-dir", "."])
+
+        self.assertEqual(code, 0)
+        request = handler.call_args.args[0]
+        self.assertEqual(request.project_dir, Path("."))
+
+    def test_dispatches_build_all(self) -> None:
+        with patch("core.release.cli.build_all_distributions") as handler:
+            code = cli.main(
+                [
+                    "build-all",
+                    "--project-dir",
+                    ".",
+                    "--goos",
+                    "windows",
+                    "--goarch",
+                    "amd64",
+                ]
+            )
+
+        self.assertEqual(code, 0)
+        request = handler.call_args.args[0]
+        self.assertEqual(request.project_dir, Path("."))
+        self.assertEqual(request.goos, "windows")
+        self.assertEqual(request.goarch, "amd64")
+
     def test_dispatches_export_solver_assets(self) -> None:
         with patch("core.release.cli.export_group2_solver_assets") as handler:
             code = cli.main(

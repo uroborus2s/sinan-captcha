@@ -13,5 +13,7 @@
   - `两者都保存` 模式会连续保存滑块组，直到切到点选后再保存一组点选图并结束当前浏览器会话
 - `scripts/organize_group2_gap_shapes.py` 当前用于整理 `materials/result/*/gap.jpg`：
   - 按轮廓特征自动去重
-  - 自动生成如 `heart_sticker.png` 这类语义名
+  - 文件名按“短家族名 + 短特征码”生成
+  - 基名当前控制在 `20` 个字符以内，且不含数字
+  - 例如会输出 `heart_abcdwxyz.png`、`badge_abcdwxyz.png`
   - 输出到 `materials/incoming/group2/`

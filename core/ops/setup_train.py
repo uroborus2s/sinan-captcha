@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import argparse
-import importlib.metadata
 from dataclasses import dataclass
 from pathlib import Path
 import platform
@@ -12,8 +11,8 @@ import shutil
 import subprocess
 import textwrap
 
-from core._version import VERSION as PACKAGE_VERSION
 from core.auto_train import opencode_assets
+from core.project_metadata import get_runtime_version
 
 
 @dataclass(frozen=True)
@@ -205,11 +204,12 @@ def render_setup_summary(plan: TrainingSetupPlan) -> str:
 
 
 def render_train_pyproject(plan: TrainingSetupPlan) -> str:
+    package_version = get_runtime_version()
     return textwrap.dedent(
         f"""
         [project]
         name = "sinan-captcha-train"
-        version = "{PACKAGE_VERSION}"
+        version = "{package_version}"
         requires-python = ">={plan.python_version},<{int(plan.python_version.split('.')[0])}.{int(plan.python_version.split('.')[1]) + 1}"
         dependencies = [
           "{plan.package_spec}",
@@ -271,10 +271,7 @@ def _confirm() -> bool:
 
 
 def _default_package_spec() -> str:
-    try:
-        version = importlib.metadata.version("sinan-captcha")
-    except importlib.metadata.PackageNotFoundError:
-        version = PACKAGE_VERSION
+    version = get_runtime_version()
     return f"sinan-captcha[train]=={version}"
 
 

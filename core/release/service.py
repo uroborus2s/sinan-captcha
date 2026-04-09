@@ -9,13 +9,32 @@ import shutil
 import subprocess
 import textwrap
 
-from core._version import VERSION as PACKAGE_VERSION
+from core.project_metadata import read_project_version
 from core.release.solver_export import ExportGroup2SolverAssetsRequest, export_group2_solver_assets
 
 
 @dataclass(frozen=True)
 class BuildReleaseRequest:
     project_dir: Path
+
+
+@dataclass(frozen=True)
+class BuildGeneratorRequest:
+    project_dir: Path
+    goos: str | None = None
+    goarch: str | None = None
+
+
+@dataclass(frozen=True)
+class BuildSolverRequest:
+    project_dir: Path
+
+
+@dataclass(frozen=True)
+class BuildAllReleaseRequest:
+    project_dir: Path
+    goos: str | None = None
+    goarch: str | None = None
 
 
 @dataclass(frozen=True)
@@ -36,7 +55,55 @@ class PackageWindowsRequest:
 
 
 def build_distribution(request: BuildReleaseRequest) -> None:
-    subprocess.run(["uv", "build"], check=True, cwd=request.project_dir)
+    project_dir = request.project_dir.resolve()
+    _clean_output_dir(project_dir / "dist")
+    subprocess.run(["uv", "build", "--out-dir", "dist"], check=True, cwd=project_dir)
+
+
+def build_generator_distribution(request: BuildGeneratorRequest) -> None:
+    project_dir = request.project_dir.resolve()
+    generator_dir = project_dir / "generator"
+    if not (generator_dir / "go.mod").exists():
+        raise ValueError(f"generator module not found: {generator_dir}")
+
+    goos, goarch, env = _resolve_go_build_target(
+        generator_dir=generator_dir,
+        requested_goos=request.goos,
+        requested_goarch=request.goarch,
+    )
+    output_dir = generator_dir / "dist" / f"{goos}-{goarch}"
+    _clean_output_dir(output_dir)
+    output_path = output_dir / _generator_binary_name(goos)
+    subprocess.run(
+        ["go", "build", "-o", str(output_path.resolve()), "./cmd/sinan-generator"],
+        check=True,
+        cwd=generator_dir,
+        env=env,
+    )
+    if not output_path.exists():
+        raise ValueError(f"expected generator binary was not created: {output_path}")
+
+
+def build_solver_distribution(request: BuildSolverRequest) -> None:
+    project_dir = request.project_dir.resolve()
+    solver_dir = project_dir / "solver"
+    if not (solver_dir / "pyproject.toml").exists():
+        raise ValueError(f"solver project not found: {solver_dir}")
+    _clean_output_dir(solver_dir / "dist")
+    subprocess.run(["uv", "build", "--out-dir", "dist"], check=True, cwd=solver_dir)
+
+
+def build_all_distributions(request: BuildAllReleaseRequest) -> None:
+    project_dir = request.project_dir.resolve()
+    build_distribution(BuildReleaseRequest(project_dir=project_dir))
+    build_generator_distribution(
+        BuildGeneratorRequest(
+            project_dir=project_dir,
+            goos=request.goos,
+            goarch=request.goarch,
+        )
+    )
+    build_solver_distribution(BuildSolverRequest(project_dir=project_dir))
 
 
 def publish_distribution(request: PublishReleaseRequest) -> None:
@@ -47,7 +114,7 @@ def publish_distribution(request: PublishReleaseRequest) -> None:
     publish_url, check_url = _resolve_repository_urls(request.repository)
     env = os.environ.copy()
     env["UV_PUBLISH_TOKEN"] = token
-    distribution_files = _current_distribution_files(request.project_dir / "dist")
+    distribution_files = _current_distribution_files(request.project_dir)
     subprocess.run(
         args=[
             "uv",
@@ -127,9 +194,11 @@ def _latest_wheel(dist_dir: Path) -> Path:
     return wheels[-1]
 
 
-def _current_distribution_files(dist_dir: Path) -> list[Path]:
-    wheel = dist_dir / f"sinan_captcha-{PACKAGE_VERSION}-py3-none-any.whl"
-    sdist = dist_dir / f"sinan_captcha-{PACKAGE_VERSION}.tar.gz"
+def _current_distribution_files(project_dir: Path) -> list[Path]:
+    version = read_project_version(project_dir)
+    dist_dir = project_dir / "dist"
+    wheel = dist_dir / f"sinan_captcha-{version}-py3-none-any.whl"
+    sdist = dist_dir / f"sinan_captcha-{version}.tar.gz"
     missing = [path for path in (wheel, sdist) if not path.exists()]
     if missing:
         missing_text = ", ".join(str(path) for path in missing)
@@ -143,3 +212,48 @@ def _resolve_repository_urls(repository: str) -> tuple[str, str]:
     if repository == "testpypi":
         return ("https://test.pypi.org/legacy/", "https://test.pypi.org/simple")
     raise ValueError(f"unsupported repository: {repository}")
+
+
+def _clean_output_dir(output_dir: Path) -> None:
+    output_dir.mkdir(parents=True, exist_ok=True)
+    for entry in output_dir.iterdir():
+        if entry.name == ".gitignore":
+            continue
+        if entry.is_dir():
+            shutil.rmtree(entry)
+        else:
+            entry.unlink()
+
+
+def _resolve_go_build_target(
+    generator_dir: Path,
+    requested_goos: str | None,
+    requested_goarch: str | None,
+) -> tuple[str, str, dict[str, str]]:
+    env = os.environ.copy()
+    if requested_goos:
+        env["GOOS"] = requested_goos
+    if requested_goarch:
+        env["GOARCH"] = requested_goarch
+
+    resolved = subprocess.run(
+        ["go", "env", "GOOS", "GOARCH"],
+        check=True,
+        cwd=generator_dir,
+        capture_output=True,
+        text=True,
+        env=env,
+    )
+    values = [line.strip() for line in resolved.stdout.splitlines() if line.strip()]
+    if len(values) != 2:
+        raise ValueError(f"unable to resolve Go target from go env output: {resolved.stdout!r}")
+    goos, goarch = values
+    env["GOOS"] = goos
+    env["GOARCH"] = goarch
+    return goos, goarch, env
+
+
+def _generator_binary_name(goos: str) -> str:
+    if goos == "windows":
+        return "sinan-generator.exe"
+    return "sinan-generator"

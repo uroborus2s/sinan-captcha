@@ -196,7 +196,9 @@ D:\sinan-solver\
   - `两者都保存` 模式会连续保存滑块组，直到切到点选后再保存一组点选图并结束当前浏览器会话
 - `scripts/organize_group2_gap_shapes.py` 当前用于整理 `materials/result/*/gap.jpg`：
   - 按轮廓特征做稳定去重
-  - 自动生成如 `heart_sticker.png`、`rounded_badge.png` 这类泛化语义名
+  - 文件名按“短家族名 + 短特征码”生成，不再依赖 `_alt_001` 这类数字补丁名
+  - 基名当前控制在 `20` 个字符以内，且保持无数字命名
+  - 当短特征码碰撞时，当前会自动拉长特征码，但仍不超过 `20` 个字符
   - 代表图输出到 `materials/incoming/group2/`
   - 同一轮廓特征只保留一个代表图，并写出 `manifest.json`
 
