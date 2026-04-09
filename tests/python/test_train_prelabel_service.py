@@ -1,0 +1,394 @@
+from __future__ import annotations
+
+import json
+import os
+import struct
+import tempfile
+import unittest
+from pathlib import Path
+from unittest.mock import patch
+import zlib
+
+from core.common.jsonl import read_jsonl
+from core.train.group1.service import Group1PredictionResult
+from core.train.group2.service import Group2PredictionResult
+from core.train.prelabel import (
+    Group1PrelabelRequest,
+    Group2PrelabelRequest,
+    _resolve_sample_asset,
+    run_group1_prelabel,
+    run_group2_prelabel,
+)
+
+
+def _write_png(path: Path, width: int, height: int, color: tuple[int, int, int]) -> None:
+    raw_rows = []
+    pixel = bytes(color)
+    for _ in range(height):
+        raw_rows.append(b"\x00" + pixel * width)
+    payload = zlib.compress(b"".join(raw_rows))
+
+    def chunk(kind: bytes, data: bytes) -> bytes:
+        return (
+            struct.pack("!I", len(data))
+            + kind
+            + data
+            + struct.pack("!I", zlib.crc32(kind + data) & 0xFFFFFFFF)
+        )
+
+    png = b"".join(
+        [
+            b"\x89PNG\r\n\x1a\n",
+            chunk(b"IHDR", struct.pack("!IIBBBBB", width, height, 8, 2, 0, 0, 0)),
+            chunk(b"IDAT", payload),
+            chunk(b"IEND", b""),
+        ]
+    )
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_bytes(png)
+
+
+class TrainPrelabelServiceTests(unittest.TestCase):
+    def test_resolve_sample_asset_normalizes_relative_exam_root_to_absolute_file_path(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            root = Path(tmpdir)
+            exam_root = root / "business-exams" / "group1" / "reviewed-v1"
+            image_path = exam_root / "import" / "query" / "sample_0001.png"
+            _write_png(image_path, 120, 36, (10, 10, 10))
+
+            previous_cwd = Path.cwd()
+            os.chdir(root)
+            try:
+                resolved = _resolve_sample_asset(
+                    Path("business-exams/group1/reviewed-v1"),
+                    {"query_image": "import/query/sample_0001.png"},
+                    "query_image",
+                )
+            finally:
+                os.chdir(previous_cwd)
+
+            self.assertTrue(resolved.is_absolute())
+            self.assertEqual(resolved, image_path.resolve())
+
+    def test_group1_prelabel_copies_images_and_writes_xany_json(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            root = Path(tmpdir)
+            exam_root = root / "business-exams" / "group1" / "reviewed-v1"
+            query_image = exam_root / "import" / "query" / "sample_0001.png"
+            scene_image = exam_root / "import" / "scene" / "sample_0001.png"
+            _write_png(query_image, 120, 36, (10, 10, 10))
+            _write_png(scene_image, 320, 160, (220, 220, 220))
+            (exam_root / "manifest.json").write_text(
+                json.dumps(
+                    {
+                        "task": "group1",
+                        "sample_count": 1,
+                        "samples": [
+                            {
+                                "sample_id": "sample_0001",
+                                "query_image": "import/query/sample_0001.png",
+                                "scene_image": "import/scene/sample_0001.png",
+                            }
+                        ],
+                    },
+                    ensure_ascii=False,
+                    indent=2,
+                ),
+                encoding="utf-8",
+            )
+
+            prediction_dir = root / "reports" / "group1" / "prelabel"
+
+            def _fake_predict(job) -> Group1PredictionResult:
+                output_dir = job.output_dir()
+                output_dir.mkdir(parents=True, exist_ok=True)
+                labels_path = output_dir / "labels.jsonl"
+                labels_path.write_text(
+                    json.dumps(
+                        {
+                            "sample_id": "sample_0001",
+                            "query_image": str(query_image),
+                            "scene_image": str(scene_image),
+                            "query_targets": [
+                                {
+                                    "order": 1,
+                                    "class": "icon_lock",
+                                    "class_id": 0,
+                                    "bbox": [5, 8, 29, 30],
+                                    "center": [17, 19],
+                                }
+                            ],
+                            "scene_targets": [
+                                {
+                                    "order": 1,
+                                    "class": "icon_lock",
+                                    "class_id": 0,
+                                    "bbox": [100, 40, 132, 72],
+                                    "center": [116, 56],
+                                }
+                            ],
+                            "distractors": [],
+                            "label_source": "pred",
+                            "source_batch": "reviewed-v1",
+                        },
+                        ensure_ascii=False,
+                    )
+                    + "\n",
+                    encoding="utf-8",
+                )
+                return Group1PredictionResult(
+                    output_dir=output_dir,
+                    labels_path=labels_path,
+                    sample_count=1,
+                    command="uv run python -m core.train.group1.runner predict ...",
+                )
+
+            with patch("core.train.prelabel.run_group1_prediction_job", side_effect=_fake_predict):
+                result = run_group1_prelabel(
+                    Group1PrelabelRequest(
+                        exam_root=exam_root,
+                        dataset_config=root / "datasets" / "group1" / "v1" / "dataset.json",
+                        scene_model_path=root / "runs" / "group1" / "demo" / "scene-detector" / "weights" / "best.pt",
+                        query_model_path=root / "runs" / "group1" / "demo" / "query-parser" / "weights" / "best.pt",
+                        project_dir=prediction_dir,
+                    )
+                )
+
+            self.assertEqual(result.sample_count, 1)
+            self.assertEqual(result.annotation_count, 2)
+            self.assertTrue((exam_root / "reviewed" / "query" / "sample_0001.png").exists())
+            self.assertTrue((exam_root / "reviewed" / "scene" / "sample_0001.png").exists())
+            self.assertFalse((exam_root / "reviewed" / "labels.jsonl").exists())
+
+            query_payload = json.loads((exam_root / "reviewed" / "query" / "sample_0001.json").read_text(encoding="utf-8"))
+            self.assertEqual(query_payload["imagePath"], "sample_0001.png")
+            self.assertEqual(query_payload["shapes"][0]["label"], "icon_lock")
+
+            scene_payload = json.loads((exam_root / "reviewed" / "scene" / "sample_0001.json").read_text(encoding="utf-8"))
+            self.assertEqual(scene_payload["shapes"][0]["label"], "01|icon_lock")
+            source_rows = read_jsonl(result.source_labels_path)
+            self.assertEqual(source_rows[0]["label_source"], "seed")
+
+    def test_group1_prelabel_refuses_to_overwrite_existing_reviewed_json_by_default(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            root = Path(tmpdir)
+            exam_root = root / "business-exams" / "group1" / "reviewed-v1"
+            _write_png(exam_root / "import" / "query" / "sample_0001.png", 120, 36, (10, 10, 10))
+            _write_png(exam_root / "import" / "scene" / "sample_0001.png", 320, 160, (220, 220, 220))
+            (exam_root / "reviewed" / "query").mkdir(parents=True, exist_ok=True)
+            (exam_root / "reviewed" / "scene").mkdir(parents=True, exist_ok=True)
+            (exam_root / "reviewed" / "query" / "sample_0001.json").write_text("{}", encoding="utf-8")
+            (exam_root / "manifest.json").write_text(
+                json.dumps(
+                    {
+                        "task": "group1",
+                        "sample_count": 1,
+                        "samples": [
+                            {
+                                "sample_id": "sample_0001",
+                                "query_image": "import/query/sample_0001.png",
+                                "scene_image": "import/scene/sample_0001.png",
+                            }
+                        ],
+                    },
+                    ensure_ascii=False,
+                    indent=2,
+                ),
+                encoding="utf-8",
+            )
+
+            with self.assertRaisesRegex(RuntimeError, "--overwrite"):
+                run_group1_prelabel(
+                    Group1PrelabelRequest(
+                        exam_root=exam_root,
+                        dataset_config=root / "datasets" / "group1" / "v1" / "dataset.json",
+                        scene_model_path=root / "runs" / "group1" / "demo" / "scene-detector" / "weights" / "best.pt",
+                        query_model_path=root / "runs" / "group1" / "demo" / "query-parser" / "weights" / "best.pt",
+                        project_dir=root / "reports" / "group1",
+                    )
+                )
+
+    def test_group2_prelabel_copies_assets_and_writes_master_annotation(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            root = Path(tmpdir)
+            exam_root = root / "business-exams" / "group2" / "reviewed-v1"
+            master_image = exam_root / "import" / "master" / "sample_0001.png"
+            tile_image = exam_root / "import" / "tile" / "sample_0001.png"
+            _write_png(master_image, 320, 160, (220, 220, 220))
+            _write_png(tile_image, 52, 52, (10, 10, 10))
+            (exam_root / "manifest.json").write_text(
+                json.dumps(
+                    {
+                        "task": "group2",
+                        "sample_count": 1,
+                        "samples": [
+                            {
+                                "sample_id": "sample_0001",
+                                "master_image": "import/master/sample_0001.png",
+                                "tile_image": "import/tile/sample_0001.png",
+                            }
+                        ],
+                    },
+                    ensure_ascii=False,
+                    indent=2,
+                ),
+                encoding="utf-8",
+            )
+
+            prediction_dir = root / "reports" / "group2" / "prelabel"
+
+            def _fake_predict(job) -> Group2PredictionResult:
+                output_dir = job.output_dir()
+                output_dir.mkdir(parents=True, exist_ok=True)
+                labels_path = output_dir / "labels.jsonl"
+                labels_path.write_text(
+                    json.dumps(
+                        {
+                            "sample_id": "sample_0001",
+                            "master_image": str(master_image),
+                            "tile_image": str(tile_image),
+                            "target_gap": {
+                                "class": "slider_gap",
+                                "class_id": 0,
+                                "bbox": [118, 46, 170, 98],
+                                "center": [144, 72],
+                            },
+                            "tile_bbox": [0, 0, 52, 52],
+                            "offset_x": 118,
+                            "offset_y": 46,
+                            "label_source": "predicted",
+                            "source_batch": "reviewed-v1",
+                        },
+                        ensure_ascii=False,
+                    )
+                    + "\n",
+                    encoding="utf-8",
+                )
+                return Group2PredictionResult(
+                    output_dir=output_dir,
+                    labels_path=labels_path,
+                    sample_count=1,
+                    command="uv run python -m core.train.group2.runner predict ...",
+                )
+
+            with patch("core.train.prelabel.run_group2_prediction_job", side_effect=_fake_predict):
+                result = run_group2_prelabel(
+                    Group2PrelabelRequest(
+                        exam_root=exam_root,
+                        dataset_config=root / "datasets" / "group2" / "v1" / "dataset.json",
+                        model_path=root / "runs" / "group2" / "demo" / "weights" / "best.pt",
+                        project_dir=prediction_dir,
+                    )
+                )
+
+            self.assertEqual(result.sample_count, 1)
+            self.assertEqual(result.annotation_count, 1)
+            self.assertTrue((exam_root / "reviewed" / "master" / "sample_0001.png").exists())
+            self.assertTrue((exam_root / "reviewed" / "tile" / "sample_0001.png").exists())
+            payload = json.loads((exam_root / "reviewed" / "master" / "sample_0001.json").read_text(encoding="utf-8"))
+            self.assertEqual(payload["shapes"][0]["label"], "slider_gap")
+            self.assertEqual(payload["shapes"][0]["points"], [[118, 46], [170, 98]])
+
+    def test_group2_prelabel_runs_prediction_per_sample_for_mixed_tile_sizes(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            root = Path(tmpdir)
+            exam_root = root / "business-exams" / "group2" / "reviewed-v1"
+            master_a = exam_root / "import" / "master" / "sample_0001.png"
+            master_b = exam_root / "import" / "master" / "sample_0002.png"
+            tile_a = exam_root / "import" / "tile" / "sample_0001.png"
+            tile_b = exam_root / "import" / "tile" / "sample_0002.png"
+            _write_png(master_a, 320, 160, (220, 220, 220))
+            _write_png(master_b, 320, 160, (220, 220, 220))
+            _write_png(tile_a, 25, 55, (10, 10, 10))
+            _write_png(tile_b, 26, 54, (10, 10, 10))
+            (exam_root / "manifest.json").write_text(
+                json.dumps(
+                    {
+                        "task": "group2",
+                        "sample_count": 2,
+                        "samples": [
+                            {
+                                "sample_id": "sample_0001",
+                                "master_image": "import/master/sample_0001.png",
+                                "tile_image": "import/tile/sample_0001.png",
+                            },
+                            {
+                                "sample_id": "sample_0002",
+                                "master_image": "import/master/sample_0002.png",
+                                "tile_image": "import/tile/sample_0002.png",
+                            },
+                        ],
+                    },
+                    ensure_ascii=False,
+                    indent=2,
+                ),
+                encoding="utf-8",
+            )
+
+            prediction_dir = root / "reports" / "group2" / "prelabel"
+            observed_sources: list[tuple[str, Path]] = []
+
+            def _fake_predict(job) -> Group2PredictionResult:
+                source_rows = read_jsonl(job.source)
+                self.assertEqual(len(source_rows), 1)
+                sample_id = str(source_rows[0]["sample_id"])
+                observed_sources.append((sample_id, job.source))
+                output_dir = job.output_dir()
+                output_dir.mkdir(parents=True, exist_ok=True)
+                labels_path = output_dir / "labels.jsonl"
+                if sample_id == "sample_0001":
+                    bbox = [118, 46, 143, 101]
+                    tile_image = tile_a
+                else:
+                    bbox = [120, 44, 146, 98]
+                    tile_image = tile_b
+                labels_path.write_text(
+                    json.dumps(
+                        {
+                            "sample_id": sample_id,
+                            "master_image": str(master_a if sample_id == "sample_0001" else master_b),
+                            "tile_image": str(tile_image),
+                            "target_gap": {
+                                "class": "slider_gap",
+                                "class_id": 0,
+                                "bbox": bbox,
+                                "center": [int((bbox[0] + bbox[2]) / 2), int((bbox[1] + bbox[3]) / 2)],
+                            },
+                            "tile_bbox": [0, 0, bbox[2] - bbox[0], bbox[3] - bbox[1]],
+                            "offset_x": bbox[0],
+                            "offset_y": bbox[1],
+                            "label_source": "predicted",
+                            "source_batch": "reviewed-v1",
+                        },
+                        ensure_ascii=False,
+                    )
+                    + "\n",
+                    encoding="utf-8",
+                )
+                return Group2PredictionResult(
+                    output_dir=output_dir,
+                    labels_path=labels_path,
+                    sample_count=1,
+                    command=f"uv run python -m core.train.group2.runner predict --source {job.source}",
+                )
+
+            with patch("core.train.prelabel.run_group2_prediction_job", side_effect=_fake_predict):
+                result = run_group2_prelabel(
+                    Group2PrelabelRequest(
+                        exam_root=exam_root,
+                        dataset_config=root / "datasets" / "group2" / "v1" / "dataset.json",
+                        model_path=root / "runs" / "group2" / "demo" / "weights" / "best.pt",
+                        project_dir=prediction_dir,
+                    )
+                )
+
+            self.assertEqual(result.sample_count, 2)
+            self.assertEqual(sorted(sample_id for sample_id, _ in observed_sources), ["sample_0001", "sample_0002"])
+            self.assertTrue(all(path.name.endswith(".jsonl") for _, path in observed_sources))
+            aggregated_rows = read_jsonl(result.prediction_labels_path)
+            self.assertEqual([str(row["sample_id"]) for row in aggregated_rows], ["sample_0001", "sample_0002"])
+            self.assertIn("per-sample", result.prediction_command)
+
+
+if __name__ == "__main__":
+    unittest.main()

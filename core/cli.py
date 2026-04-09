@@ -61,8 +61,8 @@ def _usage() -> str:
             "  evaluate                      Evaluate prediction JSONL files against gold data.",
             "  predict group1|group2         Run task-specific pipeline prediction with default model/source/project paths.",
             "  test group1|group2            Run task-specific predict + evaluate and export a beginner-friendly Chinese report.",
-            "  train group1                  Run group1 two-model pipeline training.",
-            "  train group2                  Run group2 paired-input training.",
+            "  train group1                  Run group1 training or reviewed-exam prelabel export.",
+            "  train group2                  Run group2 training or reviewed-exam prelabel export.",
             "  release <subcommand>          Build, publish, or package delivery artifacts.",
             "  solve <subcommand>            Build bundles and run unified local solver requests.",
             "",
@@ -75,6 +75,7 @@ def _usage() -> str:
             "  uv run sinan predict group1 --dataset-version firstpass --train-name firstpass",
             "  uv run sinan test group2 --dataset-version firstpass --train-name firstpass",
             "  uv run sinan train group1 --dataset-version v1 --name firstpass",
+            "  uv run sinan train group1 prelabel --exam-root materials/business_exams/group1/reviewed-v1 --train-name firstpass",
             "  uv run sinan release build-all --project-dir .",
             "  uv run sinan solve run --bundle-dir bundles/solver/current --request req.json",
         ]

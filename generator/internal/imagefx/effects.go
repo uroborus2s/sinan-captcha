@@ -32,6 +32,68 @@ func ApplySceneVeil(img *image.RGBA, strength float64) {
 	}
 }
 
+func ApplyQueryArtifacts(img *image.RGBA, seed int64, strength float64) {
+	if img == nil || strength <= 0 {
+		return
+	}
+
+	rng := rand.New(rand.NewSource(seed))
+	bounds := img.Bounds()
+	working := cloneRGBA(img)
+	blockSize := 2
+	blend := 0.18 + 0.20*strength
+	noiseRange := int(math.Round(4 * strength))
+
+	for blockY := bounds.Min.Y; blockY < bounds.Max.Y; blockY += blockSize {
+		for blockX := bounds.Min.X; blockX < bounds.Max.X; blockX += blockSize {
+			var redSum int
+			var greenSum int
+			var blueSum int
+			var alphaSum int
+			var count int
+
+			for y := blockY; y < minInt(bounds.Max.Y, blockY+blockSize); y++ {
+				for x := blockX; x < minInt(bounds.Max.X, blockX+blockSize); x++ {
+					pixel := working.RGBAAt(x, y)
+					redSum += int(pixel.R)
+					greenSum += int(pixel.G)
+					blueSum += int(pixel.B)
+					alphaSum += int(pixel.A)
+					count++
+				}
+			}
+			if count == 0 {
+				continue
+			}
+
+			average := color.RGBA{
+				R: uint8(redSum / count),
+				G: uint8(greenSum / count),
+				B: uint8(blueSum / count),
+				A: uint8(alphaSum / count),
+			}
+
+			for y := blockY; y < minInt(bounds.Max.Y, blockY+blockSize); y++ {
+				for x := blockX; x < minInt(bounds.Max.X, blockX+blockSize); x++ {
+					pixel := working.RGBAAt(x, y)
+					rowShift := int(math.Round(math.Sin(float64(y)*0.7) * strength * 2))
+					colShift := int(math.Round(math.Cos(float64(x)*0.4) * strength))
+					jitter := 0
+					if noiseRange > 0 {
+						jitter = rng.Intn(noiseRange*2+1) - noiseRange
+					}
+					img.SetRGBA(x, y, color.RGBA{
+						R: uint8(clampInt(blendChannel(int(pixel.R), int(average.R), blend)+rowShift+jitter, 0, 255)),
+						G: uint8(clampInt(blendChannel(int(pixel.G), int(average.G), blend)+colShift+jitter/2, 0, 255)),
+						B: uint8(clampInt(blendChannel(int(pixel.B), int(average.B), blend)+rowShift+2+jitter/2, 0, 255)),
+						A: pixel.A,
+					})
+				}
+			}
+		}
+	}
+}
+
 func BlurRGBA(src *image.RGBA, radius int) *image.RGBA {
 	if src == nil || radius <= 0 {
 		return src
@@ -129,6 +191,10 @@ func clampInt(value int, lower int, upper int) int {
 		return upper
 	}
 	return value
+}
+
+func blendChannel(base int, average int, factor float64) int {
+	return int(math.Round(float64(base)*(1-factor) + float64(average)*factor))
 }
 
 func minInt(left int, right int) int {

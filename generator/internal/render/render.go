@@ -24,12 +24,21 @@ var (
 	iconTint             = color.RGBA{26, 40, 58, 255}
 )
 
+const (
+	queryIconScaleMin = 0.78
+	queryIconScaleMax = 0.90
+	queryIconAlphaMin = 0.88
+	queryIconAlphaMax = 0.98
+	queryIconJitterX  = 1
+	queryIconJitterY  = 1
+)
+
 func Build(plan sampler.SamplePlan, cfg config.Config) (image.Image, image.Image, []export.ObjectRecord, error) {
 	scene, err := buildScene(plan, cfg)
 	if err != nil {
 		return nil, nil, nil, err
 	}
-	query, queryTargets, err := buildQuery(plan, cfg.Canvas)
+	query, queryTargets, err := buildQuery(plan, cfg)
 	if err != nil {
 		return nil, nil, nil, err
 	}
@@ -79,7 +88,8 @@ func buildScene(plan sampler.SamplePlan, cfg config.Config) (image.Image, error)
 	return scene, nil
 }
 
-func buildQuery(plan sampler.SamplePlan, canvas config.CanvasConfig) (image.Image, []export.ObjectRecord, error) {
+func buildQuery(plan sampler.SamplePlan, cfg config.Config) (image.Image, []export.ObjectRecord, error) {
+	canvas := cfg.Canvas
 	query := image.NewRGBA(image.Rect(0, 0, canvas.QueryWidth, canvas.QueryHeight))
 	draw.Draw(query, query.Bounds(), &image.Uniform{C: queryOuterBackground}, image.Point{}, draw.Src)
 	drawPanel(query)
@@ -93,6 +103,7 @@ func buildQuery(plan sampler.SamplePlan, canvas config.CanvasConfig) (image.Imag
 	cellWidth := max(16, availableWidth/len(plan.Targets))
 	cellHeight := canvas.QueryHeight - padding*2 - 2
 	queryTargets := make([]export.ObjectRecord, 0, len(plan.Targets))
+	rng := rand.New(rand.NewSource(plan.Record.Seed + 17))
 
 	for index, object := range plan.Targets {
 		icon, err := loadImage(object.IconPath)
@@ -101,13 +112,23 @@ func buildQuery(plan sampler.SamplePlan, canvas config.CanvasConfig) (image.Imag
 		}
 		srcBounds := icon.Bounds()
 		scale := math.Min(float64(cellWidth)/float64(srcBounds.Dx()), float64(cellHeight)/float64(srcBounds.Dy()))
+		scale *= imagefx.FloatRange(rng, queryIconScaleMin, queryIconScaleMax)
 		iconWidth := max(12, int(math.Round(float64(srcBounds.Dx())*scale)))
 		iconHeight := max(12, int(math.Round(float64(srcBounds.Dy())*scale)))
-		sprite := tintAndResize(icon, iconWidth, iconHeight, 1.0)
+		sprite := tintAndResize(icon, iconWidth, iconHeight, imagefx.FloatRange(rng, queryIconAlphaMin, queryIconAlphaMax))
+		queryBlurRadius := imagefx.IntRange(rng, cfg.Effects.Click.IconEdgeBlurRadiusMin, cfg.Effects.Click.IconEdgeBlurRadiusMax)
+		if queryBlurRadius > 0 {
+			sprite = imagefx.BlurRGBA(sprite, queryBlurRadius)
+		}
 
 		cellX1 := padding + index*(cellWidth+padding)
-		x1 := cellX1 + (cellWidth-iconWidth)/2
-		y1 := padding + 1 + (cellHeight-iconHeight)/2
+		cellX2 := cellX1 + cellWidth
+		x1 := cellX1 + (cellWidth-iconWidth)/2 + imagefx.IntRange(rng, -queryIconJitterX, queryIconJitterX)
+		x1 = clamp(x1, cellX1, cellX2-iconWidth)
+		yMin := padding + 1
+		yMax := yMin + cellHeight - iconHeight
+		y1 := yMin + (cellHeight-iconHeight)/2 + imagefx.IntRange(rng, -queryIconJitterY, queryIconJitterY)
+		y1 = clamp(y1, yMin, yMax)
 		rect := image.Rect(x1, y1, x1+iconWidth, y1+iconHeight)
 		draw.Draw(query, rect, sprite, image.Point{}, draw.Over)
 		order := object.Order
@@ -131,6 +152,11 @@ func buildQuery(plan sampler.SamplePlan, canvas config.CanvasConfig) (image.Imag
 			}
 		}
 	}
+	queryArtifactStrength := 0.28 + maxFloat(0, cfg.Effects.Common.SceneVeilStrength-1.0)*0.65
+	if cfg.Effects.Click.IconEdgeBlurRadiusMax > 0 {
+		queryArtifactStrength += 0.18
+	}
+	imagefx.ApplyQueryArtifacts(query, plan.Record.Seed+31, minFloat(queryArtifactStrength, 0.85))
 	return query, queryTargets, nil
 }
 
@@ -278,6 +304,20 @@ func min(left int, right int) int {
 
 func max(left int, right int) int {
 	if left > right {
+		return left
+	}
+	return right
+}
+
+func maxFloat(left float64, right float64) float64 {
+	if left > right {
+		return left
+	}
+	return right
+}
+
+func minFloat(left float64, right float64) float64 {
+	if left < right {
 		return left
 	}
 	return right

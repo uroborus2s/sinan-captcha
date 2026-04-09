@@ -1,5 +1,152 @@
 # 变更摘要
 
+## 2026-04-10 修复 `group2 predict / modeltest / business_eval`：兼容紧边界透明 tile PNG 的混尺寸输入
+
+- 已更新：
+  - `core/train/group2/service.py`
+  - `tests/python/test_training_jobs.py`
+  - `docs/02-user-guide/prepare-business-exam-with-x-anylabeling.md`
+  - `.factory/memory/current-state.md`
+  - `.factory/memory/change-summary.md`
+- 当前已完成的目标：
+  - `run_group2_prediction_job()` 当前会先检查预测 source 内的 `master/tile` 尺寸组合
+  - 当 source 中存在混尺寸样本时，当前不会再整批调用一次 `group2.runner predict`
+  - 当前会自动回退为逐样本预测，再把结果聚合回主输出目录的 `labels.jsonl`
+  - 这修复了 reviewed exam 改成紧边界透明 `png` 后，`modeltest` / `business_eval` 仍可能触发的：
+    - `stack expects each tensor to be equal size`
+  - 当前这次修复会同时覆盖：
+    - `sinan predict group2`
+    - `modeltest`
+    - `auto-train` 的 `business_eval`
+- 已运行验证：
+  - `.venv/bin/python -m unittest tests.python.test_training_jobs`
+  - `.venv/bin/python -m unittest tests.python.test_train_prelabel_service tests.python.test_prediction_and_model_test tests.python.test_auto_train_business_eval tests.python.test_auto_train_controller`
+
+## 2026-04-10 调整 `auto-train` 商业测试门：改为 50 题、5px 容差，并补齐 `best -> last` 回退与逐题偏差报告
+
+- 已更新：
+  - `core/auto_train/business_eval.py`
+  - `core/auto_train/contracts.py`
+  - `core/auto_train/controller.py`
+  - `core/auto_train/cli.py`
+  - `core/auto_train/runners/business_eval.py`
+  - `core/auto_train/runners/evaluate.py`
+  - `tests/python/test_auto_train_business_eval.py`
+  - `tests/python/test_auto_train_cli.py`
+  - `docs/02-user-guide/auto-train-on-training-machine.md`
+  - `docs/02-user-guide/prepare-business-exam-with-x-anylabeling.md`
+  - `docs/04-project-development/05-development-process/autonomous-training-task-breakdown.md`
+  - `.factory/memory/current-state.md`
+  - `.factory/memory/change-summary.md`
+- 当前已完成的目标：
+  - 商业测试默认抽样题数已从 `30` 改为 `50`
+  - 商业测试默认门槛已改为：
+    - `business_eval_success_threshold = 0.95`
+    - `business_eval_min_cases = 50`
+    - `business_eval_sample_size = 50`
+    - `point_tolerance_px = 5`
+    - `iou_threshold = 0.5`
+  - 当前 `group2` 商业测试在找不到 `best.pt` 时，会自动回退到 `last.pt`
+  - 当前 `group1` 商业测试也同步支持组件级 `best -> last` 回退
+  - 当前 `group2` 单题判卷会显式记录：
+    - `center_error_px`
+    - `delta_x_px`
+    - `delta_y_px`
+    - `iou`
+    - `point_hit`
+    - `iou_hit`
+    - `failed_checks`
+  - 当前 `business_eval.md` 与 `business_eval.log` 已补成逐题明细格式
+- 已运行验证：
+  - `.venv/bin/python -m unittest tests.python.test_auto_train_business_eval`
+  - `.venv/bin/python -m unittest tests.python.test_auto_train_cli`
+  - `.venv/bin/python -m unittest tests.python.test_auto_train_controller`
+
+## 2026-04-10 修复 `group2 prelabel`：兼容紧边界透明 tile PNG，不再因混尺寸 batch 崩溃
+
+- 已更新：
+  - `core/train/prelabel.py`
+  - `tests/python/test_train_prelabel_service.py`
+  - `docs/02-user-guide/prepare-business-exam-with-x-anylabeling.md`
+  - `.factory/memory/current-state.md`
+  - `.factory/memory/change-summary.md`
+- 当前已完成的目标：
+  - `run_group2_prelabel()` 当前不再把整批样本一次性交给 `group2.runner predict`
+  - 当前会为每个 `sample_id` 单独写预测输入 JSONL，并逐样本调用预测 job
+  - 当前会把单样本预测结果重新聚合回固定的 `labels.jsonl`
+  - 这修复了 `import/tile` 改成紧边界透明 `png` 后，不同样本 `tile` tensor 尺寸不一致导致的：
+    - `stack expects each tensor to be equal size`
+  - 当前这次修复只覆盖 `group2 prelabel` 链路，不改变通用 `group2 predict` 的批处理默认行为
+- 已运行验证：
+  - `.venv/bin/python -m unittest tests.python.test_train_prelabel_service`
+
+## 2026-04-10 修复 `group2` business exam 导入：`gap.jpg` 改为输出紧边界透明 `png`
+
+- 已更新：
+  - `core/exam/service.py`
+  - `tests/python/test_exam_service.py`
+  - `docs/02-user-guide/prepare-business-exam-with-x-anylabeling.md`
+  - `docs/04-project-development/05-development-process/data-export-auto-labeling-checklist.md`
+  - `.factory/memory/current-state.md`
+  - `.factory/memory/change-summary.md`
+- 当前已完成的目标：
+  - `prepare_group2_exam_sources()` 当前不再把 `materials/result/*/gap.jpg` 原样复制到 `import/tile`
+  - 当前会先按现有 `group2` 轮廓归一化逻辑推导透明通道
+  - 当前会把图块裁到 alpha 非透明区域的最紧边界
+  - 当前导出文件固定为 `import/tile/<sample_id>.png`
+  - `manifest.json` 当前会记录新的 `.png` 相对路径
+- 已运行验证：
+  - `.venv/bin/python -m unittest tests.python.test_exam_service`
+
+## 2026-04-09 新增真实 `group1 query` 图标整理脚本，用于反向建设生成器图标池
+
+- 已更新：
+  - `scripts/organize_group1_query_icons.py`
+  - `tests/python/test_organize_group1_query_icons_script.py`
+  - `scripts/README.md`
+  - `.factory/memory/current-state.md`
+  - `.factory/memory/change-summary.md`
+- 当前已完成的目标：
+  - 新增脚本，把 `materials/business_exams/group1/reviewed-v1/import/query/*` 里的 query 条切成单个小图标
+  - 当前会按二值形状相似度做聚类，输出代表图、总览图和 `manifest.json`
+  - 当前已在真实 query 集上完成一次整理：
+    - `150` 张 query 图
+    - `483` 个切分图标
+    - `156` 个 cluster
+  - 当前输出目录固定为：
+    - `materials/incoming/group1_query_clusters/`
+  - 当前这一步主要服务于：
+    - 给 cluster 起语义名
+    - 从官方图标库补相近图标
+    - 后续把命名后的图标沉淀到 generator 的 `group1/icons/<class>/`
+- 已运行验证：
+  - `uv run python -m unittest tests.python.test_organize_group1_query_icons_script`
+  - `uv run python scripts/organize_group1_query_icons.py --input-root materials/business_exams/group1/reviewed-v1/import/query --output-dir materials/incoming/group1_query_clusters`
+
+## 2026-04-09 训练 CLI 新增 reviewed exam 预标注：预测结果直接导出为 X-AnyLabeling `json`
+
+- 已更新：
+  - `core/train/prelabel.py`
+  - `core/train/group1/cli.py`
+  - `core/train/group2/cli.py`
+  - `core/cli.py`
+  - `tests/python/test_train_prelabel_service.py`
+  - `tests/python/test_training_jobs.py`
+  - `docs/02-user-guide/prepare-business-exam-with-x-anylabeling.md`
+  - `docs/02-user-guide/use-and-test-trained-models.md`
+  - `.factory/memory/current-state.md`
+  - `.factory/memory/change-summary.md`
+- 当前已完成的目标：
+  - 新增 `uv run sinan train group1 prelabel --exam-root <exam_root> --train-name <run_name>`
+  - 新增 `uv run sinan train group2 prelabel --exam-root <exam_root> --train-name <run_name>`
+  - 当前 `prelabel` 会先从 `manifest.json` 构造预测输入，再调用现有训练产物跑预测
+  - 当前会把预测结果落成 `reviewed/query|scene|master/*.json`，可直接在 `X-AnyLabeling` 里人工复核
+  - 当前 `import/` 里的原始图片不会被改写；复核用图片副本和 `json` 会写到 `reviewed/`
+  - 当前不会直接生成最终 `reviewed/labels.jsonl`，仍需人工复核后执行 `uv run sinan exam export-reviewed`
+  - 当前默认会保护已有人工复核结果；若 `reviewed/*.json` 已存在，需要显式加 `--overwrite` 才会重跑
+- 已运行验证：
+  - `uv run python -m unittest tests.python.test_train_prelabel_service tests.python.test_training_jobs tests.python.test_root_cli`
+
 ## 2026-04-09 重构 `sinan-generator make-dataset`：按样本随机选择 pack，并让多次运行素材来源显著变化
 
 - 已更新：
@@ -3020,6 +3167,11 @@
   - 再给最短心智模型、最短流程和补充入口
 
 ## 2026-04-02
+
+- 2026-04-10：新增 `scripts/organize_group1_query_icons.py`，把真实 `group1` query 图切成单个小图标并按形状聚类；当前已在真实试卷集上整理出 `483` 个图标和 `156` 个 cluster。
+- 2026-04-10：新增 `materials/incoming/group1_query_clusters/semantic_candidates.json`，收口前 32 个高频 cluster 的候选语义名与外部图标来源；同步新增 `scripts/download_group1_candidate_icons.py`，并已下载 23 个高置信 Tabler 候选图标到 `materials/incoming/group1_icon_candidates/`。
+- 2026-04-10：新增 `scripts/build_group1_generator_icon_pack.py`，将候选图标继续扩展到 Lucide raw、Tabler outline/filled 变体，并把已确认语义的真实 query cluster 成员直接裁成透明 PNG 并入素材包；随后又把 `materials/incoming/old/` 纳入正式构建链，并把剩余模糊高频 cluster 拆分为 `icon_yen_shield`、`icon_letter_a_circle`、`icon_lantern`、`icon_knot`、`icon_seated_person`。最后一轮已让 old 扩类也能自动拉官方变体。当前 `materials/incoming/group1_icon_pack/` 已得到 47 个类、367 个 generator-ready PNG，其中 202 个来自真实 query 成员裁图，20 个来自旧图标目录；`cluster_025` 被确认为误切子部件，未纳入正式 class。
+- 2026-04-10：优化生成器 `group1 query` 渲染，新增轻缩放、轻透明度漂移、1px 级抖动，并让 query 图标复用现有 `click.icon_edge_blur_radius_*` 轻模糊参数；相关 Go 回归已通过。
 
 - 统一 Go 生成器接口，`generate` 命令新增 `--mode` 与 `--backend`
 - 新增 `click/native` 与 `slide/native` 两类原生 backend 路径

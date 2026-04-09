@@ -53,14 +53,14 @@
 2. `TASK-AT-EXAM-002`：在 `X-AnyLabeling-GPU` 中完成 `group1/group2` 原生模型预标注
 3. `TASK-AT-EXAM-003`：人工复核并导出 `reviewed/labels.jsonl`
 4. `TASK-AT-EXAM-004`：冻结 reviewed 试卷池版本，不回灌训练集
-5. `TASK-AT-EXAM-005`：把 `auto-train` 商业测试改成“从 reviewed 试卷池随机抽 30 题”
+5. `TASK-AT-EXAM-005`：把 `auto-train` 商业测试改成“从 reviewed 试卷池随机抽 50 题”
 6. `TASK-AT-EXAM-006`：删除旧 `group2 overlay` 商业 gate，统一为 reviewed exam 门禁
 
 本轮验收标准：
 
 - `group1` 和 `group2` 都支持 `--business-eval-dir <reviewed_exam_dir>`
 - 商业测试只接受 `labels.jsonl` 作为事实源
-- 每轮稳定随机抽 `30` 题
+- 每轮稳定随机抽 `50` 题
 - 只有抽样成功率达到门槛才允许 `commercial_gate_passed`
 
 ## 3. 执行角色定义

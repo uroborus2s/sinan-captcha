@@ -21,9 +21,9 @@ class BusinessEvalRunnerRequest:
     device: str = "0"
     imgsz: int = 640
     success_threshold: float = 0.95
-    min_cases: int = 30
-    sample_size: int = 30
-    point_tolerance_px: int = 12
+    min_cases: int = 50
+    sample_size: int = 50
+    point_tolerance_px: int = 5
     iou_threshold: float = 0.5
 
 

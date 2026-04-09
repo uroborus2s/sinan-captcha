@@ -107,12 +107,12 @@ def _add_common_arguments(parser: argparse.ArgumentParser) -> None:
     parser.add_argument("--device", default="0")
     parser.add_argument("--gold-dir", type=Path, default=None)
     parser.add_argument("--prediction-dir", type=Path, default=None)
-    parser.add_argument("--point-tolerance-px", type=int, default=12)
+    parser.add_argument("--point-tolerance-px", type=int, default=5)
     parser.add_argument("--iou-threshold", type=float, default=0.5)
     parser.add_argument("--business-eval-dir", type=Path, default=None)
     parser.add_argument("--business-eval-success-threshold", type=float, default=0.95)
-    parser.add_argument("--business-eval-min-cases", type=int, default=30)
-    parser.add_argument("--business-eval-sample-size", type=int, default=30)
+    parser.add_argument("--business-eval-min-cases", type=int, default=50)
+    parser.add_argument("--business-eval-sample-size", type=int, default=50)
     parser.add_argument("--goal-only-stop", action="store_true")
 
 

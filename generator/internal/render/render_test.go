@@ -88,11 +88,11 @@ func TestBuildAppliesEffectsWithoutChangingPlanTruth(t *testing.T) {
 	hardCfg.Effects.Click.IconEdgeBlurRadiusMin = 1
 	hardCfg.Effects.Click.IconEdgeBlurRadiusMax = 1
 
-	_, baseScene, queryTargets, err := Build(plan, baseCfg)
+	baseQuery, baseScene, queryTargets, err := Build(plan, baseCfg)
 	if err != nil {
 		t.Fatalf("build base scene: %v", err)
 	}
-	_, hardScene, _, err := Build(plan, hardCfg)
+	hardQuery, hardScene, _, err := Build(plan, hardCfg)
 	if err != nil {
 		t.Fatalf("build hard scene: %v", err)
 	}
@@ -100,11 +100,76 @@ func TestBuildAppliesEffectsWithoutChangingPlanTruth(t *testing.T) {
 	if got, want := imageChecksum(baseScene), imageChecksum(hardScene); got == want {
 		t.Fatalf("expected hard effects to change scene rendering")
 	}
+	if got, want := imageChecksum(baseQuery), imageChecksum(hardQuery); got == want {
+		t.Fatalf("expected hard effects to change query rendering")
+	}
 	if len(queryTargets) != 1 || queryTargets[0].Order != 1 || queryTargets[0].ClassID != 0 {
 		t.Fatalf("unexpected query targets: %+v", queryTargets)
 	}
 	if got, want := plan.Targets[0].BBox, [4]int{40, 28, 88, 76}; got != want {
 		t.Fatalf("render should not mutate plan truth, got %+v want %+v", got, want)
+	}
+}
+
+func TestBuildQueryIsDeterministicForSameSeed(t *testing.T) {
+	root := t.TempDir()
+	backgroundPath := filepath.Join(root, "background.png")
+	iconPath := filepath.Join(root, "icon.png")
+	writeScenePNG(t, backgroundPath, 240, 140)
+	writeIconPNG(t, iconPath, 56, 56)
+
+	plan := sampler.SamplePlan{
+		Record: export.SampleRecord{
+			SampleID:   "g1_000001",
+			QueryImage: "query/g1_000001.png",
+			SceneImage: "scene/g1_000001.png",
+			Seed:       20260410,
+		},
+		BackgroundPath: backgroundPath,
+		Targets: []sampler.PlacedObject{
+			{
+				ObjectRecord: export.ObjectRecord{
+					Order:   1,
+					Class:   "icon_house",
+					ClassID: 0,
+				},
+				IconPath:   iconPath,
+				BaseWidth:  48,
+				BaseHeight: 48,
+			},
+		},
+	}
+	cfg := config.Config{
+		Canvas: config.CanvasConfig{
+			SceneWidth:  180,
+			SceneHeight: 100,
+			QueryWidth:  120,
+			QueryHeight: 36,
+		},
+		Effects: config.EffectsConfig{
+			Common: config.CommonEffectsConfig{
+				SceneVeilStrength:       1.15,
+				BackgroundBlurRadiusMin: 0,
+				BackgroundBlurRadiusMax: 0,
+			},
+			Click: config.ClickEffectsConfig{
+				IconEdgeBlurRadiusMin: 1,
+				IconEdgeBlurRadiusMax: 1,
+			},
+		},
+	}
+
+	queryA, _, _, err := Build(plan, cfg)
+	if err != nil {
+		t.Fatalf("first build query: %v", err)
+	}
+	queryB, _, _, err := Build(plan, cfg)
+	if err != nil {
+		t.Fatalf("second build query: %v", err)
+	}
+
+	if got, want := imageChecksum(queryA), imageChecksum(queryB); got != want {
+		t.Fatalf("expected deterministic query rendering for same seed, got %d want %d", got, want)
 	}
 }
 

@@ -85,12 +85,12 @@ class AutoTrainRequest:
     device: str = "0"
     gold_dir: Path | None = None
     prediction_dir: Path | None = None
-    point_tolerance_px: int = 12
+    point_tolerance_px: int = 5
     iou_threshold: float = 0.5
     business_eval_dir: Path | None = None
     business_eval_success_threshold: float = 0.95
-    business_eval_min_cases: int = 30
-    business_eval_sample_size: int = 30
+    business_eval_min_cases: int = 50
+    business_eval_sample_size: int = 50
     goal_only_stop: bool = False
 
     def __post_init__(self) -> None:

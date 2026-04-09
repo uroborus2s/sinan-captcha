@@ -17,6 +17,83 @@
 
 ## 当前事实
 
+- 2026-04-10 当前 `group2` 通用预测服务也已兼容“紧边界透明 tile PNG + 混尺寸样本”：
+  - 当前 `run_group2_prediction_job()` 会先检查预测输入里的 `master/tile` 原始尺寸组合
+  - 当同一批 source 中存在不同尺寸组合时，当前不会再把整批样本一次性交给 `core.train.group2.runner predict`
+  - 当前会自动改为：
+    - 为每个 `sample_id` 单独写 `output/_per_sample_source/<sample_id>.jsonl`
+    - 逐样本调用 `group2.runner predict`
+    - 再把结果聚合回主输出目录的 `labels.jsonl`
+  - 当前这会同时覆盖：
+    - `sinan predict group2`
+    - `modeltest`
+    - `auto-train` 的 `business_eval`
+  - 当前已验证：
+    - `.venv/bin/python -m unittest tests.python.test_training_jobs`
+    - `.venv/bin/python -m unittest tests.python.test_train_prelabel_service tests.python.test_prediction_and_model_test tests.python.test_auto_train_business_eval tests.python.test_auto_train_controller`
+- 2026-04-10 当前 `auto-train` 商业测试默认门已继续收紧并补齐权重回退与逐题偏差报告：
+  - 当前默认商业抽样题数已从 `30` 改为 `50`
+  - 当前默认门槛已改为：
+    - `business_eval_success_threshold = 0.95`
+    - `business_eval_min_cases = 50`
+    - `business_eval_sample_size = 50`
+    - `point_tolerance_px = 5`
+    - `iou_threshold = 0.5`
+  - 当前 `group2` 商业测试构造模型测试请求时，不再硬找 `best.pt`
+  - 当前会优先读取：
+    - `runs/group2/<train_name>/weights/best.pt`
+    - `best.pt` 缺失时自动回退到 `runs/group2/<train_name>/weights/last.pt`
+  - 当前 `group1` 商业测试也同步支持组件级 `best -> last` 回退
+  - 当前 `business_eval.md` 已改为逐题详情格式，`business_eval.log` 也会写出逐题偏差明细
+  - 当前 `group2` 每题会明确记录：
+    - `center_error_px`
+    - `delta_x_px`
+    - `delta_y_px`
+    - `iou`
+    - `point_hit`
+    - `iou_hit`
+    - `failed_checks`
+  - 当前已验证：
+    - `.venv/bin/python -m unittest tests.python.test_auto_train_business_eval`
+    - `.venv/bin/python -m unittest tests.python.test_auto_train_cli`
+    - `.venv/bin/python -m unittest tests.python.test_auto_train_controller`
+- 2026-04-10 当前 `group2 prelabel` 已修复“紧边界 tile PNG 导致 batch stack 崩溃”的问题：
+  - 之前 `run_group2_prelabel()` 会把整批样本写进同一个 `source.jsonl`
+  - 后续 `core.train.group2.runner predict` 会在 DataLoader 的 `torch.stack` 阶段要求同批 `tile` tensor 形状完全一致
+  - 当 `business_exams/group2/import/tile/*.png` 改成紧边界透明图后，不同样本尺寸不再一致，现场会报：
+    - `stack expects each tensor to be equal size`
+  - 当前已改为：
+    - `group2 prelabel` 按单样本逐次调用预测 job
+    - 每个样本单独写 `per_sample/<sample_id>.jsonl`
+    - 再把预测结果聚合回固定的 `prediction/labels.jsonl`
+  - 当前已验证：
+    - `.venv/bin/python -m unittest tests.python.test_train_prelabel_service`
+- 2026-04-10 当前 `sinan exam prepare --task group2` 已把 `business_exams` 导入阶段的滑块小图收口为“紧边界透明 PNG”：
+  - `core/exam/service.py` 当前不再把 `materials/result/*/gap.jpg` 原样复制到 `import/tile/`
+  - 当前会先基于现有 `group2_runtime.normalize_tile_rgba_image(...)` 推导透明通道
+  - 当前会按 alpha 非透明区域裁到最紧边界
+  - 当前导出文件名固定为 `materials/business_exams/group2/reviewed-v1/import/tile/<sample_id>.png`
+  - `manifest.json` 中的 `tile_image` 当前也同步改为 `.png`
+  - 当前已验证：
+    - `.venv/bin/python -m unittest tests.python.test_exam_service`
+- 2026-04-09 当前仓库已新增 `scripts/organize_group1_query_icons.py`，用于整理真实 `group1 query` 图标类型：
+  - 当前脚本会扫描 `materials/business_exams/group1/reviewed-v1/import/query/*`
+  - 当前会自动切分 query 条里的单个小图标，并按形状相似度聚类
+  - 当前会输出：
+    - `materials/incoming/group1_query_clusters/representatives/*.png`
+    - `materials/incoming/group1_query_clusters/overview.png`
+    - `materials/incoming/group1_query_clusters/manifest.json`
+  - 当前已在真实 `reviewed-v1` query 集上跑过一次：
+    - `150` 张 query 图
+    - `483` 个切分出的单图标
+    - `156` 个聚类结果
+  - 当前这一步的目的不是直接给生成器喂整张 query 图，而是为后续：
+    - 人工命名图标语义
+    - 从官方图标库补相近图标
+    - 反向建设 `group1/icons/<class>/` 素材池
+  - 当前已验证：
+    - `uv run python -m unittest tests.python.test_organize_group1_query_icons_script`
+    - `uv run python scripts/organize_group1_query_icons.py --input-root materials/business_exams/group1/reviewed-v1/import/query --output-dir materials/incoming/group1_query_clusters`
 - 2026-04-09 当前 `sinan-generator make-dataset` 已改为“多 pack 随机采样 + 每次运行自动新 seed”：
   - 当前默认不再只依赖工作区里的 `active_material_set`
   - 如果不传 `--materials`，会从当前工作区所有通过当前 `task` 校验的 `materials/local/*` 和 `materials/official/*` 构建候选池
@@ -54,22 +131,34 @@
     - `uv run sinan exam prepare --task group1|group2 --materials-root materials --output-dir <exam_root>`
     - `uv run sinan exam export-reviewed --task group1|group2 --exam-root <exam_root>`
     - `uv run sinan exam build-group2-prelabel-yolo --source-dir <reviewed_dir> --output-dir <yolo_dir>`
+  - 当前新增训练 CLI 预标注入口：
+    - `uv run sinan train group1 prelabel --exam-root <exam_root> --train-name <run_name>`
+    - `uv run sinan train group2 prelabel --exam-root <exam_root> --train-name <run_name>`
+  - 当前这两条 `prelabel` 命令会：
+    - 从试卷 `manifest.json` 构造预测输入
+    - 调现有 `group1/group2` 预测链
+    - 把预测结果转换为 `X-AnyLabeling` 可编辑的单图 `json`
+    - 把复核用图片复制到 `reviewed/` 目录
+  - 当前预标注阶段不会直接生成最终 `reviewed/labels.jsonl`
+  - 当前 `import/` 里的原始图片不会被改写；人工复核默认也不会被覆盖，除非显式传 `--overwrite`
   - 当前商业试卷目录已固定到：
     - `materials/business_exams/group1/reviewed-v1/`
     - `materials/business_exams/group2/reviewed-v1/`
   - 当前 `X-AnyLabeling-GPU` 只作为预标注和人工复核工具，不参与最终 solver
   - 当前 `auto-train` 的 business gate 已不再分析 `overlay/diff`
   - 当前 `group1` 与 `group2` 都统一改为：
-    - 从 reviewed `labels.jsonl` 试卷池稳定随机抽 `30` 题
+    - 从 reviewed `labels.jsonl` 试卷池稳定随机抽 `50` 题
     - 物化 `_sampled_source/labels.jsonl`
     - 继续调用项目现有 solver 跑预测
     - 再按各自任务语义判卷
   - 当前默认商业门槛已改为：
     - `business_eval_success_threshold = 0.95`
-    - `business_eval_min_cases = 30`
-    - `business_eval_sample_size = 30`
+    - `business_eval_min_cases = 50`
+    - `business_eval_sample_size = 50`
+    - `point_tolerance_px = 5`
   - 当前已验证：
     - `uv run python -m unittest tests.python.test_exam_service tests.python.test_root_cli tests.python.test_auto_train_business_eval tests.python.test_auto_train_controller tests.python.test_auto_train_cli`
+    - `uv run python -m unittest tests.python.test_train_prelabel_service tests.python.test_training_jobs tests.python.test_root_cli`
 - 2026-04-09 当前根仓库 Python 包版本事实源已从 `core/_version.py` 迁到根目录 `pyproject.toml`：
   - 当前版本号只保留在 `[project].version`
   - 当前 `core._version.py` 已删除
@@ -1200,6 +1289,49 @@
 - 当前 Python 回归总数已提升到 86 个，新增覆盖 skill 注册表、`.opencode/skills` 文件、合法 decision 解析、非法 JSON fallback 和非法动作 fallback
 
 ## 最近条目
+
+- 任务：整理真实 `group1` query 图标类型并补首批外部候选素材
+- 变更：
+  - 已新增 `scripts/organize_group1_query_icons.py`，能从
+    `materials/business_exams/group1/reviewed-v1/import/query/`
+    自动切分单个小图标、按形状聚类，并输出代表图、总览图与 `manifest.json`
+  - 已在真实数据上完成一次整理：
+    - `150` 张 query 图
+    - `483` 个小图标
+    - `156` 个 cluster
+  - 已新增
+    `materials/incoming/group1_query_clusters/semantic_candidates.json`
+    记录前 32 个高频 cluster 的候选语义名、置信度与外部图标来源
+  - 已新增 `scripts/download_group1_candidate_icons.py`，当前可从 Tabler 图标页提取 SVG 并同步拷贝真实 cluster 代表图
+  - 已下载首批 `23` 个高置信相近图标到
+    `materials/incoming/group1_icon_candidates/`
+  - 已新增 `scripts/build_group1_generator_icon_pack.py`，会把候选图标继续扩充到 Lucide raw 与 Tabler filled 变体，并输出 generator 可直接导入的 `group1` 素材包
+  - 当前已构建实际素材包到
+    `materials/incoming/group1_icon_pack/`
+    - `47` 个 class
+    - `367` 个 generator-ready `png`
+    - 其中 `202` 个来自已确认真实 query cluster 的成员裁图
+    - 其中 `20` 个来自 `materials/incoming/old/` 的旧图标目录合并
+    - 最后一轮已把 old 扩类也接入官方变体下载链，弱类基本已补到 `3-5` 张；当前最低的是 `icon_lantern=2`
+    - 已同步生成 `manifests/materials.yaml` 与 `manifests/group1.classes.yaml`
+- 实测：
+  - `uv run python -m unittest tests.python.test_organize_group1_query_icons_script tests.python.test_download_group1_candidate_icons_script`
+  - `uv run python -m unittest tests.python.test_build_group1_generator_icon_pack_script tests.python.test_download_group1_candidate_icons_script tests.python.test_organize_group1_query_icons_script`
+  - 下载结果 `failure_count = 0`
+- 缺陷：
+  - `cluster_013 / 016 / 018` 已拆分后并入正式 class
+  - `cluster_025` 当前判断为误切子部件，不纳入正式 class
+  - 已确认 `qlmanage` 生成的是白底 PNG，因此构建脚本当前会额外做白底转透明与主体裁切；该链路目前依赖 macOS 本机 Quick Look
+
+- 任务：优化生成器 `group1 query` 生成效果，使其更接近真实 strip
+- 变更：
+  - `generator/internal/render/render.go` 的 `buildQuery(...)` 已补轻缩放、轻透明度漂移、1px 级抖动，并复用现有 `click.icon_edge_blur_radius_*` 作为 query 图标轻模糊来源
+  - `generator/internal/render/render_test.go` 已新增断言：hard preset 必须改变 query 渲染，而不改变 truth 结构
+- 实测：
+  - `go test ./internal/render`
+  - `go test ./internal/config ./internal/preset ./internal/app ./internal/render`
+- 缺陷：
+  - 当前只完成第一版 query 质感收口；尚未增加全局压缩噪声、边缘污染和素材池回灌
 
 - 任务：修复 `auto-train` 与 OpenCode 的真实集成回归
 - 变更：

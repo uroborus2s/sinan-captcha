@@ -17,3 +17,23 @@
   - 基名当前控制在 `20` 个字符以内，且不含数字
   - 例如会输出 `heart_abcdwxyz.png`、`badge_abcdwxyz.png`
   - 输出到 `materials/incoming/group2/`
+- `scripts/organize_group1_query_icons.py` 当前用于整理 `materials/business_exams/group1/reviewed-v1/import/query/*`：
+  - 自动切分 query 条里的单个小图标
+  - 按二值形状相似度聚类
+  - 输出代表图、总览图和 `manifest.json`
+  - 当前输出到 `materials/incoming/group1_query_clusters/`
+  - 用于后续人工命名 query 图标类型，并补齐生成器 `group1/icons/<class>/` 素材池
+- `scripts/download_group1_candidate_icons.py` 当前用于根据
+  `materials/incoming/group1_query_clusters/semantic_candidates.json`
+  下载首批官方开源相近图标：
+  - 当前支持从 Tabler 图标页提取 SVG
+  - 会按 `class_name` 落盘到 `materials/incoming/group1_icon_candidates/`
+  - 会同时拷贝 cluster 代表图，方便人工比对“真实 query 图标 vs 外部候选图标”
+- `scripts/build_group1_generator_icon_pack.py` 当前用于把
+  `materials/incoming/group1_icon_candidates/` 扩展并转换为 generator 可直接导入的 `group1` 素材包：
+  - 会为高置信类追加一批 Lucide 官方 raw SVG
+  - 会合并 `materials/incoming/old/` 中的旧图标目录
+  - 会通过 `qlmanage` 把 SVG 光栅化为 PNG
+  - 会把白底转透明、裁切主体并补透明留白
+  - 最终输出到 `materials/incoming/group1_icon_pack/`
+  - 会同步生成 `manifests/materials.yaml` 与 `manifests/group1.classes.yaml`

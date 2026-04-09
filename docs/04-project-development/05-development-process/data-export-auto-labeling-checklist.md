@@ -75,6 +75,7 @@ uv run sinan exam prepare --task group2 --materials-root materials --output-dir 
 
 - [ ] `group1` 试卷工作目录里已生成 `import/query` 和 `import/scene`
 - [ ] `group2` 试卷工作目录里已生成 `import/master` 和 `import/tile`
+- [ ] `group2/import/tile` 已把 `gap.jpg` 转成紧边界透明 `png`
 - [ ] 每个样本都保留稳定 `sample_id`
 - [ ] 试卷目录与正式训练集目录分开，不能回灌训练集
 

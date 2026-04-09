@@ -8,6 +8,13 @@
 
 - [训练者角色：用 X-AnyLabeling 制作商业测试试卷答案](./prepare-business-exam-with-x-anylabeling.md)
 
+如果你已经有 `reviewed-v1` 工作目录和训练好的预标模型，先执行：
+
+```powershell
+uv run sinan train group1 prelabel --exam-root materials/business_exams/group1/reviewed-v1 --train-name firstpass
+uv run sinan train group2 prelabel --exam-root materials/business_exams/group2/reviewed-v1 --train-name firstpass
+```
+
 ## 1. 先看训练产物是否完整
 
 ### `group1`

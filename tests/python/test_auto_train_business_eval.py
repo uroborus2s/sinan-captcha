@@ -3,6 +3,7 @@ from __future__ import annotations
 import tempfile
 import unittest
 from pathlib import Path
+from unittest.mock import patch
 
 from core.auto_train import business_eval, controller, contracts, storage
 from core.common.jsonl import write_jsonl
@@ -73,13 +74,13 @@ class BusinessEvalExamTests(unittest.TestCase):
     def test_select_exam_sample_limits_each_run_to_requested_size(self) -> None:
         rows = [
             {"sample_id": f"case_{index:04d}", "master_image": "master/a.jpg", "tile_image": "tile/a.jpg", "target_gap": {"bbox": [0, 0, 1, 1], "center": [0, 0]}, "tile_bbox": [0, 0, 1, 1], "offset_x": 0, "offset_y": 0, "label_source": "reviewed", "source_batch": "batch"}
-            for index in range(50)
+            for index in range(80)
         ]
 
-        sampled_a = business_eval.select_exam_sample(rows, sample_size=30, sample_key="trial_0007")
-        sampled_b = business_eval.select_exam_sample(rows, sample_size=30, sample_key="trial_0007")
+        sampled_a = business_eval.select_exam_sample(rows, sample_size=50, sample_key="trial_0007")
+        sampled_b = business_eval.select_exam_sample(rows, sample_size=50, sample_key="trial_0007")
 
-        self.assertEqual(len(sampled_a), 30)
+        self.assertEqual(len(sampled_a), 50)
         self.assertEqual([item["sample_id"] for item in sampled_a], [item["sample_id"] for item in sampled_b])
 
     def test_materialize_sampled_source_rewrites_group2_relative_paths_to_absolute(self) -> None:
@@ -116,7 +117,7 @@ class BusinessEvalExamTests(unittest.TestCase):
             self.assertTrue(Path(str(row["master_image"])).is_absolute())
             self.assertTrue(Path(str(row["tile_image"])).is_absolute())
 
-    def test_build_group2_case_results_requires_point_hit_and_iou(self) -> None:
+    def test_build_group2_case_results_records_detailed_deviation_and_failed_checks(self) -> None:
         gold_rows = [
             {
                 "sample_id": "case_0001",
@@ -135,7 +136,7 @@ class BusinessEvalExamTests(unittest.TestCase):
                 "sample_id": "case_0001",
                 "master_image": "/tmp/master/case_0001.jpg",
                 "tile_image": "/tmp/tile/case_0001.jpg",
-                "target_gap": {"class": "slider_gap", "class_id": 0, "bbox": [10, 18, 50, 58], "center": [30, 38]},
+                "target_gap": {"class": "slider_gap", "class_id": 0, "bbox": [14, 22, 54, 62], "center": [34, 42]},
                 "tile_bbox": [0, 0, 24, 24],
                 "offset_x": 10,
                 "offset_y": 18,
@@ -149,14 +150,113 @@ class BusinessEvalExamTests(unittest.TestCase):
             task="group2",
             gold_rows=gold_rows,
             prediction_rows=prediction_rows,
-            point_tolerance_px=12,
+            point_tolerance_px=5,
             iou_threshold=0.5,
         )
 
         self.assertEqual(len(cases), 1)
         self.assertFalse(cases[0].success)
-        self.assertEqual(cases[0].reason_code, "low_iou")
+        self.assertEqual(cases[0].reason_code, "point_miss_and_low_iou")
         self.assertIn("iou", cases[0].metrics)
+        self.assertEqual(cases[0].metrics["delta_x_px"], 12.0)
+        self.assertEqual(cases[0].metrics["delta_y_px"], 12.0)
+        self.assertEqual(cases[0].metrics["failed_checks"], ["point_tolerance", "iou"])
+        self.assertFalse(cases[0].metrics["point_hit"])
+        self.assertFalse(cases[0].metrics["iou_hit"])
+
+    def test_run_reviewed_business_eval_group2_falls_back_to_last_weights_when_best_missing(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            root = Path(tmpdir)
+            train_root = root / "train-root"
+            cases_root = root / "business-exams" / "group2" / "reviewed"
+            report_dir = root / "reports" / "business-eval"
+            weights_dir = train_root / "runs" / "group2" / "trial_0001" / "weights"
+            master_dir = cases_root / "master"
+            tile_dir = cases_root / "tile"
+            for path in (weights_dir, master_dir, tile_dir):
+                path.mkdir(parents=True, exist_ok=True)
+            (weights_dir / "last.pt").write_bytes(b"pt")
+            (master_dir / "case_0001.png").write_bytes(b"master")
+            (tile_dir / "case_0001.png").write_bytes(b"tile")
+            write_jsonl(
+                cases_root / "labels.jsonl",
+                [
+                    {
+                        "sample_id": "case_0001",
+                        "master_image": "master/case_0001.png",
+                        "tile_image": "tile/case_0001.png",
+                        "target_gap": {"class": "slider_gap", "class_id": 0, "bbox": [10, 18, 34, 42], "center": [22, 30]},
+                        "tile_bbox": [0, 0, 24, 24],
+                        "offset_x": 10,
+                        "offset_y": 18,
+                        "label_source": "reviewed",
+                        "source_batch": "batch",
+                    }
+                ],
+            )
+
+            observed_model_path: Path | None = None
+
+            def _fake_modeltest(request):
+                nonlocal observed_model_path
+                observed_model_path = request.model_path
+                predict_dir = report_dir / "modeltest" / request.predict_name
+                predict_dir.mkdir(parents=True, exist_ok=True)
+                write_jsonl(
+                    predict_dir / "labels.jsonl",
+                    [
+                        {
+                            "sample_id": "case_0001",
+                            "master_image": str(master_dir / "case_0001.png"),
+                            "tile_image": str(tile_dir / "case_0001.png"),
+                            "target_gap": {"class": "slider_gap", "class_id": 0, "bbox": [10, 18, 34, 42], "center": [22, 30]},
+                            "tile_bbox": [0, 0, 24, 24],
+                            "offset_x": 10,
+                            "offset_y": 18,
+                            "label_source": "predicted",
+                            "source_batch": "batch",
+                        }
+                    ],
+                )
+                return type(
+                    "Result",
+                    (),
+                    {
+                        "predict_output_dir": predict_dir,
+                    },
+                )()
+
+            with patch("core.auto_train.business_eval.evaluate_model") as evaluate_model:
+                evaluate_model.return_value = type(
+                    "EvalResult",
+                    (),
+                    {
+                        "failure_count": 0,
+                        "report_dir": report_dir / "evaluation",
+                    },
+                )()
+                record = business_eval.run_reviewed_business_eval(
+                    trial_id="trial_0001",
+                    task="group2",
+                    train_root=train_root,
+                    dataset_version="firstpass",
+                    train_name="trial_0001",
+                    cases_root=cases_root,
+                    report_dir=report_dir,
+                    device="0",
+                    imgsz=192,
+                    success_threshold=0.95,
+                    min_cases=1,
+                    sample_size=1,
+                    point_tolerance_px=5,
+                    iou_threshold=0.5,
+                    modeltest_runner=_fake_modeltest,
+                )
+
+            self.assertEqual(observed_model_path, weights_dir / "last.pt")
+            self.assertEqual(record.total_cases, 1)
+            self.assertEqual(record.passed_cases, 1)
+            self.assertTrue(record.commercial_ready)
 
     def test_business_eval_log_includes_group1_sequence_details(self) -> None:
         record = contracts.BusinessEvalRecord(
@@ -202,6 +302,61 @@ class BusinessEvalExamTests(unittest.TestCase):
         self.assertIn("\"matched_target_count\": 2", rendered)
         self.assertIn("\"scene_targets\"", rendered)
         self.assertIn("status=PASS", rendered)
+
+    def test_business_eval_markdown_lists_group2_case_deviation_and_failed_checks(self) -> None:
+        record = contracts.BusinessEvalRecord(
+            trial_id="trial_0009",
+            task="group2",
+            train_name="trial_0009",
+            cases_root="/tmp/business-cases",
+            available_cases=50,
+            total_cases=50,
+            passed_cases=49,
+            success_rate=49 / 50,
+            success_threshold=0.95,
+            min_cases=50,
+            sample_size=50,
+            commercial_ready=True,
+            point_tolerance_px=5,
+            iou_threshold=0.5,
+            sampled_source="/tmp/business-eval/_sampled_source/labels.jsonl",
+            report_dir="/tmp/business-eval",
+            prediction_dir="/tmp/business-eval/modeltest/predict",
+            evaluation_report_dir="/tmp/business-eval/evaluation",
+            case_results=[
+                contracts.BusinessEvalCaseRecord(
+                    case_id="case_0007",
+                    sample_id="case_0007",
+                    success=False,
+                    reason_code="point_miss_and_low_iou",
+                    reason_cn="预测中心点超出允许像素容差，且预测框与标准答案重合度不足。",
+                    input_images={"master_image": "/tmp/master/case_0007.png", "tile_image": "/tmp/tile/case_0007.png"},
+                    metrics={
+                        "point_tolerance_px": 5,
+                        "iou_threshold": 0.5,
+                        "center_error_px": 7.2111,
+                        "delta_x_px": 6.0,
+                        "delta_y_px": -4.0,
+                        "iou": 0.31,
+                        "point_hit": False,
+                        "iou_hit": False,
+                        "failed_checks": ["point_tolerance", "iou"],
+                    },
+                    prediction={"target_gap": {"bbox": [16, 12, 40, 36], "center": [28, 24]}},
+                    reference={"target_gap": {"bbox": [10, 16, 34, 40], "center": [22, 28]}},
+                    evidence=[],
+                )
+            ],
+            evidence=["commercial_ready=true"],
+        )
+
+        rendered = business_eval.markdown_from_business_eval(record)
+
+        self.assertIn("### case_0007", rendered)
+        self.assertIn("delta_x_px", rendered)
+        self.assertIn("delta_y_px", rendered)
+        self.assertIn("failed_checks", rendered)
+        self.assertIn("point_miss_and_low_iou", rendered)
 
 
 class BusinessEvalControllerTests(unittest.TestCase):

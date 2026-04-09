@@ -19,7 +19,7 @@ class EvaluateRunnerRequest:
     gold_dir: Path
     prediction_dir: Path
     report_dir: Path
-    point_tolerance_px: int = 12
+    point_tolerance_px: int = 5
     iou_threshold: float = 0.5
 
     def command(self) -> str:

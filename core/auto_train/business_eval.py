@@ -18,8 +18,13 @@ from core.dataset.validation import (
 )
 from core.evaluate.service import EvaluationRequest, evaluate_model
 from core.modeltest.service import ModelTestRequest, ModelTestResult, run_model_test
-from core.train.base import default_best_weights, default_dataset_config
-from core.train.group1.service import QUERY_COMPONENT, SCENE_COMPONENT, group1_component_best_weights
+from core.train.base import default_best_weights, default_dataset_config, default_last_weights
+from core.train.group1.service import (
+    QUERY_COMPONENT,
+    SCENE_COMPONENT,
+    group1_component_best_weights,
+    group1_component_last_weights,
+)
 
 ModelTestExecutor = Callable[[ModelTestRequest], ModelTestResult]
 
@@ -229,7 +234,7 @@ def markdown_from_business_eval(record: contracts.BusinessEvalRecord) -> str:
     if not record.case_results:
         lines.append("- 当前 trial 没有写入样本明细。")
     for item in record.case_results:
-        lines.append(f"- {_render_case_line(item)}")
+        lines.extend(_render_case_markdown(item))
     return "\n".join(lines) + "\n"
 
 
@@ -348,8 +353,8 @@ def _build_business_model_test_request(
             dataset_version=dataset_version,
             train_name=train_name,
             dataset_config=dataset_config,
-            model_path=group1_component_best_weights(train_root, train_name, SCENE_COMPONENT),
-            query_model_path=group1_component_best_weights(train_root, train_name, QUERY_COMPONENT),
+            model_path=_preferred_group1_component_weights(train_root, train_name, SCENE_COMPONENT),
+            query_model_path=_preferred_group1_component_weights(train_root, train_name, QUERY_COMPONENT),
             source=source,
             project_dir=report_dir / "modeltest",
             report_dir=report_dir / "modeltest-report",
@@ -363,7 +368,7 @@ def _build_business_model_test_request(
         dataset_version=dataset_version,
         train_name=train_name,
         dataset_config=dataset_config,
-        model_path=default_best_weights(train_root, task, train_name),
+        model_path=_preferred_group2_weights(train_root, train_name),
         query_model_path=None,
         source=source,
         project_dir=report_dir / "modeltest",
@@ -531,13 +536,23 @@ def _build_group2_case_results(
             continue
         predicted_target = get_group2_target(prediction)
         center_error = _distance(gold_target["center"], predicted_target["center"])
+        delta_x = float(predicted_target["center"][0]) - float(gold_target["center"][0])
+        delta_y = float(predicted_target["center"][1]) - float(gold_target["center"][1])
         iou = _iou(gold_target["bbox"], predicted_target["bbox"])
         point_hit = center_error <= point_tolerance_px
         iou_hit = iou >= iou_threshold
+        failed_checks: list[str] = []
+        if not point_hit:
+            failed_checks.append("point_tolerance")
+        if not iou_hit:
+            failed_checks.append("iou")
         success = point_hit and iou_hit
         if success:
             reason_code = "pass"
             reason_cn = "中心点误差和 IoU 均达标。"
+        elif not point_hit and not iou_hit:
+            reason_code = "point_miss_and_low_iou"
+            reason_cn = "预测中心点超出允许像素容差，且预测框与标准答案重合度不足。"
         elif not point_hit:
             reason_code = "point_miss"
             reason_cn = "预测中心点超出允许像素容差。"
@@ -556,8 +571,12 @@ def _build_group2_case_results(
                     "point_tolerance_px": point_tolerance_px,
                     "iou_threshold": iou_threshold,
                     "center_error_px": round(center_error, 4),
+                    "delta_x_px": round(delta_x, 4),
+                    "delta_y_px": round(delta_y, 4),
                     "iou": round(iou, 6),
                     "point_hit": point_hit,
+                    "iou_hit": iou_hit,
+                    "failed_checks": failed_checks,
                     "inference_ms": prediction.get("inference_ms"),
                 },
                 prediction={"target_gap": predicted_target},
@@ -643,8 +662,49 @@ def _render_case_line(item: contracts.BusinessEvalCaseRecord, prefix: str | None
     return f"{prefix} {line}"
 
 
+def _render_case_markdown(item: contracts.BusinessEvalCaseRecord) -> list[str]:
+    lines = [
+        f"### {item.case_id}",
+        "",
+        f"- sample_id: {item.sample_id}",
+        f"- status: {'PASS' if item.success else 'FAIL'}",
+        f"- reason_code: {item.reason_code}",
+        f"- reason_cn: {item.reason_cn}",
+        f"- metrics: {_render_mapping(item.metrics)}",
+        f"- input_images: {_render_mapping(item.input_images)}",
+    ]
+    if item.prediction is not None:
+        lines.append(f"- prediction: {_render_mapping(item.prediction)}")
+    if item.reference is not None:
+        lines.append(f"- reference: {_render_mapping(item.reference)}")
+    if item.evidence:
+        lines.append(f"- evidence: {json.dumps(item.evidence, ensure_ascii=False)}")
+    lines.append("")
+    return lines
+
+
 def _render_mapping(value: dict[str, Any]) -> str:
     return json.dumps(value, ensure_ascii=False, sort_keys=True)
+
+
+def _preferred_group2_weights(train_root: Path, train_name: str) -> Path:
+    best = default_best_weights(train_root, "group2", train_name)
+    if best.exists():
+        return best
+    last = default_last_weights(train_root, "group2", train_name)
+    if last.exists():
+        return last
+    return best
+
+
+def _preferred_group1_component_weights(train_root: Path, train_name: str, component: str) -> Path:
+    best = group1_component_best_weights(train_root, train_name, component)
+    if best.exists():
+        return best
+    last = group1_component_last_weights(train_root, train_name, component)
+    if last.exists():
+        return last
+    return best
 
 
 def _process_conclusion_cn(*, study: contracts.StudyRecord, business_record: contracts.BusinessEvalRecord) -> str:

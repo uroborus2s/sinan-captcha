@@ -9,7 +9,7 @@ from core.auto_train import cli, contracts, storage
 
 
 class AutoTrainCliTests(unittest.TestCase):
-    def test_run_command_forwards_business_eval_arguments(self) -> None:
+    def test_run_command_uses_updated_business_eval_defaults(self) -> None:
         with tempfile.TemporaryDirectory() as tmpdir:
             root = Path(tmpdir)
             train_root = root / "train-root"
@@ -81,12 +81,6 @@ class AutoTrainCliTests(unittest.TestCase):
                         str(generator_workspace),
                         "--business-eval-dir",
                         str(business_cases),
-                        "--business-eval-success-threshold",
-                        "0.95",
-                        "--business-eval-min-cases",
-                        "30",
-                        "--business-eval-sample-size",
-                        "30",
                     ]
                 )
 
@@ -95,8 +89,9 @@ class AutoTrainCliTests(unittest.TestCase):
             self.assertTrue(captured_request.goal_only_stop)
             self.assertEqual(captured_request.business_eval_dir, business_cases)
             self.assertEqual(captured_request.business_eval_success_threshold, 0.95)
-            self.assertEqual(captured_request.business_eval_min_cases, 30)
-            self.assertEqual(captured_request.business_eval_sample_size, 30)
+            self.assertEqual(captured_request.business_eval_min_cases, 50)
+            self.assertEqual(captured_request.business_eval_sample_size, 50)
+            self.assertEqual(captured_request.point_tolerance_px, 5)
             self.assertEqual(FakeController.max_steps, 0)
 
     def test_run_command_forwards_explicit_goal_only_stop_without_business_eval(self) -> None:

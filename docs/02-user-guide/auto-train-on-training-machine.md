@@ -431,8 +431,9 @@ uv run sinan auto-train run group2 `
   --generator-workspace D:\sinan-generator\workspace `
   --business-eval-dir D:\sinan-captcha-work\materials\business_exams\group2\reviewed-v1\reviewed `
   --business-eval-success-threshold 0.95 `
-  --business-eval-min-cases 30 `
-  --business-eval-sample-size 30
+  --business-eval-min-cases 50 `
+  --business-eval-sample-size 50 `
+  --point-tolerance-px 5
 ```
 
 `group1` 只需要把位置参数改成 `group1`，并把 `--business-eval-dir` 指向 `materials\business_exams\group1\reviewed-v1\reviewed`。
@@ -450,18 +451,19 @@ uv run sinan auto-train run group2 `
 启用后，控制器会在“当前候选被判为 `PROMOTE_BRANCH`”时额外执行一轮 reviewed exam gate：
 
 1. 从 `--business-eval-dir` 的 `labels.jsonl` 读取 reviewed 试卷
-2. 按 `trial_id + train_name + exam_dir` 稳定随机抽取 `30` 题
+2. 按 `trial_id + train_name + exam_dir` 稳定随机抽取 `50` 题
 3. 物化一份只含本轮样本的 `_sampled_source/labels.jsonl`
 4. 仍使用项目当前的最终 solver 跑预测
-5. 用标准评测链路对这 30 题判卷
+5. 用标准评测链路对这 50 题判卷
 6. 统计通过率
 7. 只有通过率达到阈值，study 才会真正 `STOP`
 
 当前默认门槛：
 
 - `business_eval_success_threshold = 0.95`
-- `business_eval_min_cases = 30`
-- `business_eval_sample_size = 30`
+- `business_eval_min_cases = 50`
+- `business_eval_sample_size = 50`
+- `point_tolerance_px = 5`
 
 单题判卷规则：
 
@@ -471,6 +473,9 @@ uv run sinan auto-train run group2 `
 - `group2`
   - 中心点误差必须在 `--point-tolerance-px` 之内
   - `IoU` 必须达到 `--iou-threshold`
+  - 当前默认等价于：
+    - `center_error_px <= 5`
+    - `IoU >= 0.5`
 
 这里还有一个重要变化：
 
@@ -487,7 +492,7 @@ uv run sinan auto-train run group2 `
 
 - 每个候选 `trial` 都会抽取一批样本
 - 同一个 `trial` 重跑时，抽中的样本保持一致，便于复盘
-- 新的 `trial` 会抽到不同的 30 题
+- 新的 `trial` 会抽到不同的 50 题
 
 当前会额外落盘：
 
@@ -503,6 +508,11 @@ uv run sinan auto-train run group2 `
 - `business_eval.md` 是中文摘要
 - `business_eval.log` 是逐 case 文本日志
 - `commercial_report.md` 是最终人类可读报告
+- `business_eval.md` 和 `business_eval.log` 当前都会逐题写出：
+  - 是否通过
+  - 标准答案与预测答案的中心点偏差
+  - `IoU`
+  - 未通过项，例如 `point_tolerance` / `iou`
 - `summary.md` / `study_status.json` 会额外写出：
   - `final_reason`
   - `final_detail`
@@ -565,8 +575,9 @@ uv run sinan auto-train run group2 `
   - 但控制器当前已把离线晋级和调参动作都收口为“服务于最终 business gate”
 - 当前商业验收默认门槛：
   - `business_eval_success_threshold = 0.95`
-  - `business_eval_min_cases = 30`
-  - `business_eval_sample_size = 30`
+  - `business_eval_min_cases = 50`
+  - `business_eval_sample_size = 50`
+  - `point_tolerance_px = 5`
 - 当 business gate 已启用时，当前默认不会因为：
   - `max_trials`
   - `max_hours`

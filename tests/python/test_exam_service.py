@@ -18,10 +18,21 @@ from core.exam.service import (
 
 
 def _write_png(path: Path, width: int, height: int, color: tuple[int, int, int]) -> None:
+    rows = [[color for _ in range(width)] for _ in range(height)]
+    _write_rgb_png(path, rows)
+
+
+def _write_rgb_png(path: Path, rows: list[list[tuple[int, int, int]]]) -> None:
+    height = len(rows)
+    width = len(rows[0]) if rows else 0
+    if width <= 0 or height <= 0:
+        raise ValueError("rows must not be empty")
+    if any(len(row) != width for row in rows):
+        raise ValueError("rows must have the same width")
+
     raw_rows = []
-    pixel = bytes(color)
-    for _ in range(height):
-        raw_rows.append(b"\x00" + pixel * width)
+    for row in rows:
+        raw_rows.append(b"\x00" + b"".join(bytes(pixel) for pixel in row))
     payload = zlib.compress(b"".join(raw_rows))
 
     def chunk(kind: bytes, data: bytes) -> bytes:
@@ -42,6 +53,17 @@ def _write_png(path: Path, width: int, height: int, color: tuple[int, int, int])
     )
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_bytes(png)
+
+
+def _read_png_ihdr(path: Path) -> tuple[int, int, int]:
+    payload = path.read_bytes()
+    if payload[:8] != b"\x89PNG\r\n\x1a\n":
+        raise AssertionError(f"{path} is not a PNG file")
+    if payload[12:16] != b"IHDR":
+        raise AssertionError(f"{path} does not contain a PNG IHDR chunk")
+    width, height = struct.unpack("!II", payload[16:24])
+    color_type = payload[25]
+    return width, height, color_type
 
 
 def _write_labelme_rectangle(
@@ -90,24 +112,37 @@ class ExamServicePrepareTests(unittest.TestCase):
             self.assertEqual(manifest["sample_count"], 1)
             self.assertEqual(manifest["samples"][0]["sample_id"], "20260409001414_1")
 
-    def test_prepare_group2_exam_sources_copies_bg_and_gap_into_stable_layout(self) -> None:
+    def test_prepare_group2_exam_sources_converts_gap_to_tight_cropped_png(self) -> None:
         with tempfile.TemporaryDirectory() as tmpdir:
             root = Path(tmpdir)
             materials_root = root / "materials"
             case_dir = materials_root / "result" / "20260409001414_2"
             _write_png(case_dir / "bg.jpg", 320, 160, (220, 220, 220))
-            _write_png(case_dir / "gap.jpg", 52, 52, (10, 10, 10))
+            _write_rgb_png(
+                case_dir / "gap.jpg",
+                [
+                    [(255, 255, 255)] * 7,
+                    [(255, 255, 255), (255, 255, 255), (10, 10, 10), (10, 10, 10), (10, 10, 10), (255, 255, 255), (255, 255, 255)],
+                    [(255, 255, 255), (255, 255, 255), (10, 10, 10), (10, 10, 10), (10, 10, 10), (255, 255, 255), (255, 255, 255)],
+                    [(255, 255, 255)] * 7,
+                    [(255, 255, 255)] * 7,
+                ],
+            )
 
             output_dir = root / "business-exams" / "group2" / "reviewed-v1"
             result = prepare_group2_exam_sources(materials_root=materials_root, output_dir=output_dir)
 
             self.assertEqual(result.sample_count, 1)
             self.assertTrue((output_dir / "import" / "master" / "20260409001414_2.jpg").exists())
-            self.assertTrue((output_dir / "import" / "tile" / "20260409001414_2.jpg").exists())
+            tile_path = output_dir / "import" / "tile" / "20260409001414_2.png"
+            self.assertTrue(tile_path.exists())
+            self.assertFalse((output_dir / "import" / "tile" / "20260409001414_2.jpg").exists())
+            self.assertEqual(_read_png_ihdr(tile_path), (3, 2, 6))
             manifest = json.loads((output_dir / "manifest.json").read_text(encoding="utf-8"))
             self.assertEqual(manifest["task"], "group2")
             self.assertEqual(manifest["sample_count"], 1)
             self.assertEqual(manifest["samples"][0]["sample_id"], "20260409001414_2")
+            self.assertEqual(manifest["samples"][0]["tile_image"], "import/tile/20260409001414_2.png")
 
 
 class ExamServiceExportTests(unittest.TestCase):

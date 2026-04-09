@@ -10,6 +10,7 @@ from typing import Any
 
 from core.common.images import get_image_size
 from core.common.jsonl import read_jsonl, write_jsonl
+from core.solve import group2_runtime
 
 
 @dataclass(frozen=True)
@@ -100,9 +101,9 @@ def prepare_group2_exam_sources(*, materials_root: Path, output_dir: Path) -> Ex
         if not master_path.exists() or not tile_path.exists():
             continue
         master_target = master_dir / f"{sample_id}{master_path.suffix.lower()}"
-        tile_target = tile_dir / f"{sample_id}{tile_path.suffix.lower()}"
+        tile_target = tile_dir / f"{sample_id}.png"
         shutil.copy2(master_path, master_target)
-        shutil.copy2(tile_path, tile_target)
+        _export_group2_tile_as_tight_png(source_path=tile_path, target_path=tile_target)
         samples.append(
             {
                 "sample_id": sample_id,
@@ -247,6 +248,48 @@ def _write_exam_manifest(*, task: str, output_dir: Path, samples: list[dict[str,
     }
     manifest_path.write_text(json.dumps(payload, ensure_ascii=False, indent=2), encoding="utf-8")
     return ExamPrepareResult(task=task, output_dir=output_dir, manifest_path=manifest_path, sample_count=len(samples))
+
+
+def _export_group2_tile_as_tight_png(*, source_path: Path, target_path: Path) -> None:
+    image_module = _load_pillow_image_module()
+    with image_module.open(source_path) as source:
+        normalized = group2_runtime.normalize_tile_rgba_image(source)
+        cropped = _tight_crop_rgba_image(normalized)
+        cropped.save(target_path)
+
+
+def _load_pillow_image_module() -> Any:
+    try:
+        from PIL import Image
+    except Exception as exc:  # pragma: no cover - host env dependent
+        raise RuntimeError("当前环境缺少 `Pillow`，无法导出 group2 试卷小图 PNG。") from exc
+    return Image
+
+
+def _tight_crop_rgba_image(image: Any) -> Any:
+    rgba = image.convert("RGBA")
+    alpha_values = rgba.getchannel("A").tobytes()
+    width, height = rgba.size
+    min_x = width
+    min_y = height
+    max_x = -1
+    max_y = -1
+    for index, value in enumerate(alpha_values):
+        if int(value) <= 0:
+            continue
+        x = index % width
+        y = index // width
+        if x < min_x:
+            min_x = x
+        if y < min_y:
+            min_y = y
+        if x > max_x:
+            max_x = x
+        if y > max_y:
+            max_y = y
+    if max_x < 0 or max_y < 0:
+        return rgba.copy()
+    return rgba.crop((min_x, min_y, max_x + 1, max_y + 1))
 
 
 def _group1_class_map(*, query_dir: Path, scene_dir: Path, sample_ids: list[str]) -> dict[str, int]:
@@ -395,4 +438,3 @@ def _yolo_bbox_line(*, class_id: int, bbox: list[int], image_width: int, image_h
 
 def _fmt_float(value: float) -> str:
     return f"{value:.6f}".rstrip("0").rstrip(".")
-

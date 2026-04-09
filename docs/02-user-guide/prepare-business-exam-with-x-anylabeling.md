@@ -81,11 +81,80 @@ materials/business_exams/group2/reviewed-v1/
 - `group2/import/master`
   - 存放滑块背景图
 - `group2/import/tile`
-  - 存放滑块小图，只用来参考
+  - 存放从 `gap.jpg` 转出来的紧边界透明 `png` 小图，只用来参考
 
 `manifest.json` 里会记录每个样本原来来自哪里，后面出问题时可以回查。
 
-## 3. 第二步：在训练机上启动 X-AnyLabeling
+## 3. 第二步：用训练 CLI 先生成预标注初稿
+
+如果你的 `group1` 和 `group2` 预标模型已经训练好，先不要直接打开 `import/` 目录手工框。
+
+先在训练机项目根目录执行：
+
+```bash
+uv run sinan train group1 prelabel --exam-root materials/business_exams/group1/reviewed-v1 --dataset-version firstpass --train-name firstpass
+uv run sinan train group2 prelabel --exam-root materials/business_exams/group2/reviewed-v1 --dataset-version firstpass --train-name firstpass
+```
+
+这两条命令会做 4 件事：
+
+1. 从 `manifest.json` 读取试卷样本。
+2. 用当前训练好的模型跑预测。
+3. 把预测结果转换成 `X-AnyLabeling` 可直接打开的 `json`。
+4. 把要复核的图片复制到 `reviewed/` 目录。
+
+执行后你会看到：
+
+### `group1`
+
+```text
+materials/business_exams/group1/reviewed-v1/
+  import/
+    query/
+    scene/
+  reviewed/
+    query/
+      *.jpg|png
+      *.json
+    scene/
+      *.jpg|png
+      *.json
+  .sinan/
+    prelabel/
+      group1/
+        source.jsonl
+        ...
+```
+
+### `group2`
+
+```text
+materials/business_exams/group2/reviewed-v1/
+  import/
+    master/
+    tile/
+  reviewed/
+    master/
+      *.jpg|png
+      *.json
+    tile/
+      *.jpg|png
+  .sinan/
+    prelabel/
+      group2/
+        source.jsonl
+        ...
+```
+
+这里要特别记住：
+
+- `import/` 里的原始图片不会被改。
+- `prelabel` 命令会把复核用副本写到 `reviewed/`。
+- `group2 prelabel` 当前会逐样本跑预测，因此 `import/tile` 里的紧边界透明 `png` 可以保留各自尺寸，不需要再人工补白到统一大小。
+- 这一步只会新增单图 `json` 标注文件，不会直接生成最终 `reviewed/labels.jsonl`。
+- 如果 `reviewed/*.json` 已经有人工复核结果，默认会拒绝覆盖；只有显式加 `--overwrite` 才会重跑。
+
+## 4. 第三步：在训练机上启动 X-AnyLabeling
 
 如果你以前没用过，先记住这几个最基本动作：
 
@@ -100,7 +169,7 @@ materials/business_exams/group2/reviewed-v1/
 2. `group1 scene`
 3. `group2 master`
 
-## 4. `group1 query` 的详细操作
+## 5. `group1 query` 的详细操作
 
 目标：
 
@@ -108,23 +177,22 @@ materials/business_exams/group2/reviewed-v1/
 
 目录：
 
-- `materials/business_exams/group1/reviewed-v1/import/query`
+- `materials/business_exams/group1/reviewed-v1/reviewed/query`
 
 操作步骤：
 
 1. 打开 `X-AnyLabeling-GPU`。
 2. 选择“打开目录”。
 3. 选中：
-   - `materials/business_exams/group1/reviewed-v1/import/query`
-4. 如果你已经准备好了可用于预标注的原生检测模型，就在软件里加载这个模型。
-5. 对当前目录执行预标注。
-6. 打开第一张图。
-7. 检查图里每个小图标是否都被框到了。
-8. 如果漏框，就新建一个矩形框。
-9. 如果框位置不准，就拖动框边修正。
-10. 如果标签错了，就修改标签名。
-11. 保存当前图片标注。
-12. 继续下一张。
+   - `materials/business_exams/group1/reviewed-v1/reviewed/query`
+4. 这时目录里已经有训练 CLI 生成的预标注 `json`。
+5. 打开第一张图。
+6. 检查图里每个小图标是否都被框到了。
+7. 如果漏框，就新建一个矩形框。
+8. 如果框位置不准，就拖动框边修正。
+9. 如果标签错了，就修改标签名。
+10. 保存当前图片标注。
+11. 继续下一张。
 
 ### `group1 query` 的标签规则
 
@@ -154,7 +222,7 @@ materials/business_exams/group2/reviewed-v1/
 - 没有漏框
 - 标签类别正确
 
-## 5. `group1 scene` 的详细操作
+## 6. `group1 scene` 的详细操作
 
 目标：
 
@@ -162,22 +230,20 @@ materials/business_exams/group2/reviewed-v1/
 
 目录：
 
-- `materials/business_exams/group1/reviewed-v1/import/scene`
+- `materials/business_exams/group1/reviewed-v1/reviewed/scene`
 
 操作步骤：
 
 1. 在 `X-AnyLabeling-GPU` 里打开目录：
-   - `materials/business_exams/group1/reviewed-v1/import/scene`
-2. 加载预标注模型。
-3. 执行当前目录的预标注。
-4. 打开第一张图。
-5. 找到题目里真正需要点击的目标。
-6. 检查这些目标是否都被框到。
-7. 删除干扰项上的错误框。
-8. 修正框位置。
-9. 修改标签为“顺序 + 类别名”。
-10. 保存。
-11. 继续下一张。
+   - `materials/business_exams/group1/reviewed-v1/reviewed/scene`
+2. 打开第一张图。
+3. 找到题目里真正需要点击的目标。
+4. 检查这些目标是否都被框到。
+5. 删除干扰项上的错误框。
+6. 修正框位置。
+7. 修改标签为“顺序 + 类别名”。
+8. 保存。
+9. 继续下一张。
 
 ### `group1 scene` 的标签规则
 
@@ -214,7 +280,7 @@ materials/business_exams/group2/reviewed-v1/
 4. 再看 `scene` 里是不是也有对应数量的 `01|...`、`02|...`
 5. 检查类别和顺序是否一致
 
-## 6. `group2 master` 的详细操作
+## 7. `group2 master` 的详细操作
 
 目标：
 
@@ -222,26 +288,24 @@ materials/business_exams/group2/reviewed-v1/
 
 目录：
 
-- `materials/business_exams/group2/reviewed-v1/import/master`
+- `materials/business_exams/group2/reviewed-v1/reviewed/master`
 
 参考图目录：
 
-- `materials/business_exams/group2/reviewed-v1/import/tile`
+- `materials/business_exams/group2/reviewed-v1/reviewed/tile`
 
 操作步骤：
 
 1. 在 `X-AnyLabeling-GPU` 里打开目录：
-   - `materials/business_exams/group2/reviewed-v1/import/master`
-2. 加载原生检测模型。
-3. 执行预标注。
-4. 打开第一张图。
-5. 找到真正的缺口位置。
-6. 如果软件给了多个框，只保留真正缺口那个。
-7. 如果框偏了，就拖动修正。
-8. 标签统一改成：
+   - `materials/business_exams/group2/reviewed-v1/reviewed/master`
+2. 打开第一张图。
+3. 找到真正的缺口位置。
+4. 如果软件给了多个框，只保留真正缺口那个。
+5. 如果框偏了，就拖动修正。
+6. 标签统一改成：
    - `slider_gap`
-9. 保存。
-10. 继续下一张。
+7. 保存。
+8. 继续下一张。
 
 ### `group2` 的标签规则
 
@@ -261,13 +325,13 @@ materials/business_exams/group2/reviewed-v1/
 - 框到的是缺口，不是别的高亮区域
 - 框大小和缺口边界基本一致
 
-## 7. 第三步：把标注结果整理到 `reviewed` 目录
+## 8. 第四步：确认 `reviewed` 目录内容完整
 
-标完以后，不要直接从 `import` 目录导出结果，要把“图片 + json”整理到 `reviewed` 目录。
+如果你已经用 `train group1|group2 prelabel` 生成初稿，通常不需要再手工搬文件。
+
+复核完成后，目录应该保持下面的结构：
 
 ### `group1`
-
-把下面两类文件分别放好：
 
 - `materials/business_exams/group1/reviewed-v1/reviewed/query`
   - 查询图图片
@@ -278,8 +342,6 @@ materials/business_exams/group2/reviewed-v1/
 
 ### `group2`
 
-把下面两类文件分别放好：
-
 - `materials/business_exams/group2/reviewed-v1/reviewed/master`
   - 背景图图片
   - 背景图对应的 `json`
@@ -288,10 +350,11 @@ materials/business_exams/group2/reviewed-v1/
 
 注意：
 
-- `group2/tile` 目录里通常只放图片，不放标注框
-- 真正答案框在 `reviewed/master/*.json`
+- `group2/tile` 目录里通常只放图片，不放标注框。
+- 真正答案框在 `reviewed/master/*.json`。
+- 到这一步为止，最终试卷答案 `reviewed/labels.jsonl` 仍然还没生成。
 
-## 8. 第四步：导出成正式试卷答案
+## 9. 第五步：导出成正式试卷答案
 
 整理好 `reviewed` 目录后，在项目根目录执行：
 
@@ -312,9 +375,9 @@ uv run sinan exam export-reviewed --task group2 --exam-root materials/business_e
 
 这两份 `labels.jsonl` 就是后面自动训练商业测试要用的“试卷标准答案”。
 
-## 9. 第五步：自动训练怎么使用这套试卷
+## 10. 第六步：自动训练怎么使用这套试卷
 
-训练完成后，要让自动训练从 reviewed 试卷池随机抽 30 题测试。
+训练完成后，要让自动训练从 reviewed 试卷池随机抽 50 题测试。
 
 ### `group1`
 
@@ -338,10 +401,13 @@ uv run sinan auto-train run group2 \
 
 当前商业测试逻辑是：
 
-- 从试卷池稳定随机抽 `30` 题
+- 从试卷池稳定随机抽 `50` 题
 - 用项目现有 solver 跑预测
 - `group1` 按整题序列判卷
 - `group2` 按中心点误差和 `IoU` 判卷
+  - 当前默认要求中心点误差 `<= 5px`
+  - 当前默认要求 `IoU >= 0.5`
+- 如果 `group2 reviewed tile` 是裁到最紧边界的透明 `png`，且不同题目的小图尺寸不一致，当前预测 / modeltest / business_eval 会自动按单样本拆分预测，再把结果聚合回统一 `labels.jsonl`
 - 成功率达到门槛才算通过
 
 ## 10. 最后再记 4 条硬规则
