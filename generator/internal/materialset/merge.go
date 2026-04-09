@@ -90,11 +90,7 @@ func Merge(targetRoot string, incomingRoot string) (MergeResult, error) {
 		return result, fmt.Errorf("no incoming materials found in %s", incomingRoot)
 	}
 
-	validationTask, err := detectValidationTask(result.Root)
-	if err != nil {
-		return result, err
-	}
-	result.Validation, err = validateMaterials(result.Root, validationTask)
+	result.Validation, err = material.ValidateForMerge(result.Root)
 	if err != nil {
 		return result, err
 	}
@@ -248,36 +244,6 @@ func mergeGroup2Raw(incomingDir string, destinationDir string, existing []materi
 		added++
 	}
 	return entries, added, nil
-}
-
-func detectValidationTask(root string) (string, error) {
-	hasGroup1 := hasCatalogRoot(root, "group1")
-	hasGroup2 := hasCatalogRoot(root, "group2")
-	switch {
-	case hasGroup1 && hasGroup2:
-		return "", nil
-	case hasGroup1:
-		return "group1", nil
-	case hasGroup2:
-		return "group2", nil
-	default:
-		return "", fmt.Errorf("materials root has neither group1 nor group2 catalog: %s", root)
-	}
-}
-
-func hasCatalogRoot(root string, task string) bool {
-	switch task {
-	case "group1":
-		_, manifestErr := os.Stat(filepath.Join(root, "manifests", "group1.classes.yaml"))
-		_, dirErr := os.Stat(filepath.Join(root, "group1", "icons"))
-		return manifestErr == nil && dirErr == nil
-	case "group2":
-		_, manifestErr := os.Stat(filepath.Join(root, "manifests", "group2.shapes.yaml"))
-		_, dirErr := os.Stat(filepath.Join(root, "group2", "shapes"))
-		return manifestErr == nil && dirErr == nil
-	default:
-		return false
-	}
 }
 
 func writeCatalogManifest(path string, section string, entries []material.CatalogEntry) error {

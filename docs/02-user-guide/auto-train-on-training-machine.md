@@ -420,71 +420,57 @@ opencode run `
 - `dataset_plan.json` 是下一轮数据策略
 - `summary.md` 是 study 级摘要，第一眼先看这里
 
-## 7.1 把真实样本 business gate 接到最终停止条件
+## 7.1 把 reviewed 试卷 gate 接到最终停止条件
 
-如果你希望 `group2` 不是“达到训练指标就停”，而是“必须通过真实样本遮挡验证才停”，可以额外传入：
+如果你希望 `group1` 或 `group2` 不是“达到离线指标就停”，而是“必须通过 reviewed 试卷集商业测试才停”，可以额外传入：
 
 ```powershell
 uv run sinan auto-train run group2 `
   --study-name study_group2_llm `
   --train-root D:\sinan-captcha-work `
   --generator-workspace D:\sinan-generator\workspace `
-  --business-eval-dir D:\sinan-captcha-work\business_eval\group2 `
-  --business-eval-success-threshold 0.98 `
-  --business-eval-min-cases 100 `
-  --business-eval-sample-size 100 `
-  --business-eval-occlusion-threshold 0.78
+  --business-eval-dir D:\sinan-captcha-work\materials\business_exams\group2\reviewed-v1\reviewed `
+  --business-eval-success-threshold 0.95 `
+  --business-eval-min-cases 30 `
+  --business-eval-sample-size 30
 ```
 
-推荐目录：
+`group1` 只需要把位置参数改成 `group1`，并把 `--business-eval-dir` 指向 `materials\business_exams\group1\reviewed-v1\reviewed`。
 
-- 建议直接放在训练根目录下：
-  - `D:\sinan-captcha-work\business_eval\group2`
-- 这样做的好处是：
-  - 训练数据 `datasets/`、训练产物 `runs/`、商业验收样本 `business_eval/` 在同一个训练根目录里，便于迁移和复盘
-  - 启动命令不需要再额外记一条独立磁盘路径
+`--business-eval-dir` 现在只接受 reviewed 试卷目录，目录内必须包含：
 
-`--business-eval-dir` 的目录约定：
+- `labels.jsonl`
+- `group1`：
+  - `query/`
+  - `scene/`
+- `group2`：
+  - `master/`
+  - `tile/`
 
-- 可以直接放一组样本：
-  - `master.png`
-  - `tile.png`
-  - 或 `bg.jpg`
-  - 或 `gap.jpg`
-- 也可以放多组子目录：
-  - `case_0001/master.png`
-  - `case_0001/tile.png`
-  - `case_0002/master.png`
-  - `case_0002/tile.png`
-  - 或者像你的真实样本一样：
-  - `20260407190052_2/bg.jpg`
-  - `20260407190052_2/gap.jpg`
-  - `20260407190323_4/bg.jpg`
-  - `20260407190323_4/gap.jpg`
+启用后，控制器会在“当前候选被判为 `PROMOTE_BRANCH`”时额外执行一轮 reviewed exam gate：
 
-当前兼容的文件名别名：
+1. 从 `--business-eval-dir` 的 `labels.jsonl` 读取 reviewed 试卷
+2. 按 `trial_id + train_name + exam_dir` 稳定随机抽取 `30` 题
+3. 物化一份只含本轮样本的 `_sampled_source/labels.jsonl`
+4. 仍使用项目当前的最终 solver 跑预测
+5. 用标准评测链路对这 30 题判卷
+6. 统计通过率
+7. 只有通过率达到阈值，study 才会真正 `STOP`
 
-- 背景图：`master.*`、`bg.*`、`background.*`
-- 缺口块：`tile.*`、`gap.*`、`piece.*`、`puzzle_piece.*`
+当前默认门槛：
 
-关于 `gap.jpg` / `tile.jpg`：
+- `business_eval_success_threshold = 0.95`
+- `business_eval_min_cases = 30`
+- `business_eval_sample_size = 30`
 
-- 当前商业验收不再强依赖透明 PNG 的 alpha 通道。
-- 如果 `gap/tile` 本身已经带透明边缘，运行时会直接使用原始 alpha。
-- 如果 `gap/tile` 是像你的真实样本那样的 `jpg` 小图，运行时会根据图块四周的背景颜色自动提取轮廓掩码，再用于：
-  - `group2` 推理输入
-  - 商业验收贴回评分
-- 这意味着 `bg.jpg + gap.jpg` 现在可以直接参与商业验收，不需要先手工改成透明 PNG。
+单题判卷规则：
 
-启用后，控制器会在“训练指标已达标、当前候选被判为 `PROMOTE_BRANCH`”时额外执行一轮商业验收 gate：
-
-1. 用当前 `group2` 模型预测缺口位置
-2. 把 `tile` 贴回 `master`
-3. 在模型输出位置附近做一圈局部搜索，尝试把缺口块在附近轻微挪动
-4. 比较当前 overlay 与附近候选 overlay，判断当前结果是否已经接近附近最干净的贴合位置
-5. 从 `--business-eval-dir` 中稳定随机抽取最多 `100` 组样本进行本轮验收
-6. 统计这 `100` 组样本的成功率
-7. 只有当成功率达到 `98%` 且本轮验收样本数达到 `100` 时，study 才会真正停止
+- `group1`
+  - 必须整题序列正确
+  - 每个点击目标的中心点误差必须在 `--point-tolerance-px` 之内
+- `group2`
+  - 中心点误差必须在 `--point-tolerance-px` 之内
+  - `IoU` 必须达到 `--iou-threshold`
 
 这里还有一个重要变化：
 
@@ -497,97 +483,30 @@ uv run sinan auto-train run group2 `
     - 或进程/机器被意外中断
 - 意外中断后，用同一个 `--study-name` 重启命令即可恢复
 
-当前 `group2` 商业验收的主判标准已经从“背景图里反推参考槽位”调整为“轮廓重合率主判 + overlay 痕迹辅判 + 局部 10px 容差”。
-
-- 旧规则的问题是：它需要在背景图里猜一个“参考缺口位置”，本质上仍是启发式假设。
-- 真实业务图里更接近人眼判断的方式是：
-  - 图块轮廓有没有真正压到背景缺口轮廓上
-  - overlay 后是否还露出明显缺口边缘
-  - 是否出现双轮廓/重影
-  - 是否有明显越界边缘
-- 因此当前商业测试会直接分析当前 `overlay`，并把“轮廓是否重合”作为主判：
-  - `contour_overlap_ratio`：图块轮廓与背景缺口轮廓的重合率，越高越好
-  - `exposed_gap_edge_ratio`：overlay 后仍露出的缺口边缘比例，越低越好
-  - `double_contour_ratio`：overlay 后出现双轮廓/重影的比例，越低越好
-  - `tile_residue_ratio`：overlay 中是否还能看到大面积图块痕迹，越低越好
-  - `overflow_edge_score`：是否有明显越界边缘，越低越好
-  - `clean_score(occlusion_score)`：当前位置整体贴合得有多干净，越高越好
-- 同时程序会在模型输出位置附近做一圈局部搜索：
-  - `best_local_bbox`
-  - `best_local_offset_px`
-  - `best_local_clean_score`
-- 当前单样本通过条件变成：
-  - 模型输出位置与邻域内最干净位置的边框偏差 `<= 10px`
-  - 当前模型输出位置的 `contour_overlap_ratio >= 0.55`
-  - 当前模型输出位置的 `double_contour_ratio <= 0.45`
-  - 当前模型输出位置的 `overflow_edge_score <= 0.40`
-  - 当前模型输出位置的 `clean_score >= effective_clean_threshold`
-    - `effective_clean_threshold = max(0.72, --business-eval-occlusion-threshold - 0.06)`
-  - `exposed_gap_edge_ratio` 与 `tile_residue_ratio` 当前继续保留在日志里做辅诊断，但不再单独作为硬门
-- `boundary_before / boundary_after / fill_score / seam_score` 当前仍会保留为兼容旧日志的辅诊断字段：
-  - `fill_score` 现等价于 `contour_overlap_ratio`
-  - `seam_score` 现表示边缘干净程度
-  - `boundary_before / boundary_after` 现用于辅助表达露边和越界诊断
-
 这里的“稳定随机抽样”指的是：
 
-- 每个候选 `trial` 都会随机抽取一批样本
+- 每个候选 `trial` 都会抽取一批样本
 - 同一个 `trial` 重跑时，抽中的样本保持一致，便于复盘
-- 新的 `trial` 会抽到不同的 100 组样本
-- 当目录内总样本数少于 100 时，本轮会跑全部样本，但不会达到正式商业验收门
+- 新的 `trial` 会抽到不同的 30 题
 
 当前会额外落盘：
 
 - `trials/<trial_id>/business_eval.json`
 - `trials/<trial_id>/business_eval.md`
 - `trials/<trial_id>/business_eval.log`
-- `trials/<trial_id>/business_eval/<case_id>/overlay.png`
-- `trials/<trial_id>/business_eval/<case_id>/diff.png`
+- `trials/<trial_id>/business_eval/_sampled_source/labels.jsonl`
 - `commercial_report.md`
 
 其中：
 
 - `business_eval.json` 是结构化明细，适合机器读取
 - `business_eval.md` 是中文摘要
-- `business_eval.log` 是逐 case 文本日志，当前会先写“字段说明 / 数据来源”，再记录：
-  - `predicted_bbox / predicted_center / inference_ms`
-    - 这些字段直接来自 `group2` 求解模块的推理输出
-  - `best_local_bbox / best_local_offset_px / best_local_clean_score`
-    - 这些字段来自局部邻域搜索，用来表示“当前位置附近最干净的贴合位置”以及模型输出与它的偏差
-  - `contour_overlap_ratio / exposed_gap_edge_ratio / double_contour_ratio`
-    - 这些字段直接描述当前 overlay 中图块轮廓是否和背景缺口轮廓重合、是否露边、是否出现双轮廓
-  - `tile_residue_ratio / double_edge_score / overflow_edge_score`
-    - 这些字段描述当前 overlay 中是否还存在明显图块残留、双边缘和越界边缘
-  - `result_cn / final_score / required_score / failed_checks_cn`
-    - 这些字段直接给出逐样本中文结论、最终得分、要求得分以及未通过项
-  - `clean_score`
-    - 这些字段由商业测试评分模块计算
-    - 表示当前模型输出位置的整体贴合干净程度，越高越好
-    - 当前它是参考分，不再是唯一决定单样本 PASS/FAIL 的硬门
-  - `success_rate / commercial_ready`
-    - 这些字段表示整批真实样本的通过率和是否达到最终商用门
-- `commercial_report.md` 是最终人类可读报告，当前固定包含：
-  - 最终结论
-  - 流程状态
-  - 训练过程结论
-  - 晋级结论
-  - 商业测试结论
-  - 商业测试字段说明
-- `summary.md` / `study_status.json` 当前也会额外写出：
+- `business_eval.log` 是逐 case 文本日志
+- `commercial_report.md` 是最终人类可读报告
+- `summary.md` / `study_status.json` 会额外写出：
   - `final_reason`
   - `final_detail`
-  - 用来区分“流程正常停止”和“商业测试通过”
-- `business_eval.log` 的逐 case 行当前会记录：
-  - `predicted_bbox`
-  - `predicted_center`
-  - `best_local_bbox`
-  - `best_local_offset_px`
-  - `best_local_clean_score`
-  - `contour_overlap_ratio`
-  - `exposed_gap_edge_ratio`
-  - `double_contour_ratio`
-  - `result_cn`
-  - `final_score`
+  - `commercial_ready`
   - `required_score`
   - `failed_checks_cn`
   - `inference_ms`
@@ -632,21 +551,22 @@ uv run sinan auto-train run group2 `
 
 - 启用 business gate 后，`PROMOTE_BRANCH` 当前表示“训练指标达标的候选”，不再等同于“已经达到商用门”
 - 当前 business gate 不是“每固定 N 轮就跑一次”，而是“某个 `trial` 先被判成候选晋级时才跑一次”
-- 当前 `group2 + business gate` 已改为“商用目标优先”的搜索闭环：
+- 当前 `group1/group2 + business gate` 已改为“商用目标优先”的搜索闭环：
   - 如果本轮已经通过 business gate，study 才真正 `STOP`
   - 如果本轮还没有进入候选晋级区间，下一轮默认也会进入 `REGENERATE_DATA`
   - 如果本轮进入候选晋级区间但 business gate 未通过，下一轮同样会进入 `REGENERATE_DATA`
   - 也就是说，只要还没达到最终商用门，下一轮默认就是：
     - 新数据版本
     - 基于当前最佳 run 继续训练
-- `group2` 的离线晋级阈值和商业测试阈值当前不是同一个指标体系：
-  - 离线晋级看 `point_hit_rate / mean_iou / mean_center_error_px`
-  - 最终停止看真实样本 `business_success_rate`
+- 两组的离线晋级阈值和商业测试阈值当前不是同一个指标体系：
+  - `group1` 离线晋级看 `full_sequence_hit_rate / single_target_hit_rate / mean_center_error_px`
+  - `group2` 离线晋级看 `point_hit_rate / mean_iou / mean_center_error_px`
+  - 最终停止统一看 reviewed 试卷集 `business_success_rate`
   - 但控制器当前已把离线晋级和调参动作都收口为“服务于最终 business gate”
 - 当前商业验收默认门槛：
-  - `business_eval_success_threshold = 0.98`
-  - `business_eval_min_cases = 100`
-  - `business_eval_sample_size = 100`
+  - `business_eval_success_threshold = 0.95`
+  - `business_eval_min_cases = 30`
+  - `business_eval_sample_size = 30`
 - 当 business gate 已启用时，当前默认不会因为：
   - `max_trials`
   - `max_hours`

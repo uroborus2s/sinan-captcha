@@ -17,6 +17,41 @@
 
 ## 当前事实
 
+- 2026-04-09 当前 `sinan-generator materials merge` 已修复“增量合并被缺失背景图阻塞”的问题：
+  - 之前 `materials merge` 在合并完成后会沿用完整素材包校验
+  - 当目标素材根目录里没有背景图时，即使本次只想追加 `group1/` 或 `group2/`，也会直接报 `no background images found`
+  - 当前已改为增量校验：
+    - 没有背景图时不再硬失败
+    - 只对当前真实存在的素材类型做校验
+    - `backgrounds/`、`group1/`、`group2/` 可以独立增量合并
+  - 当前仍会在以下情况失败：
+    - 本次没有任何可导入图片
+    - 导入图片损坏
+    - manifest 或已写入素材目录本身非法
+  - 当前已验证：
+    - `env GOCACHE=/tmp/go-build go test ./internal/materialset ./internal/material`（cwd=`generator/`）
+    - 使用临时目录实际执行 `/tmp/sinan-generator materials merge --into <materials> --from <incoming>`，确认“仅 group1、无背景图”场景返回码为 `0`
+- 2026-04-09 当前仓库已把商业试卷整理与 `auto-train` 商业门整体切到 reviewed exam 新模式：
+  - 当前新增根 CLI：
+    - `uv run sinan exam prepare --task group1|group2 --materials-root materials --output-dir <exam_root>`
+    - `uv run sinan exam export-reviewed --task group1|group2 --exam-root <exam_root>`
+    - `uv run sinan exam build-group2-prelabel-yolo --source-dir <reviewed_dir> --output-dir <yolo_dir>`
+  - 当前商业试卷目录已固定到：
+    - `materials/business_exams/group1/reviewed-v1/`
+    - `materials/business_exams/group2/reviewed-v1/`
+  - 当前 `X-AnyLabeling-GPU` 只作为预标注和人工复核工具，不参与最终 solver
+  - 当前 `auto-train` 的 business gate 已不再分析 `overlay/diff`
+  - 当前 `group1` 与 `group2` 都统一改为：
+    - 从 reviewed `labels.jsonl` 试卷池稳定随机抽 `30` 题
+    - 物化 `_sampled_source/labels.jsonl`
+    - 继续调用项目现有 solver 跑预测
+    - 再按各自任务语义判卷
+  - 当前默认商业门槛已改为：
+    - `business_eval_success_threshold = 0.95`
+    - `business_eval_min_cases = 30`
+    - `business_eval_sample_size = 30`
+  - 当前已验证：
+    - `uv run python -m unittest tests.python.test_exam_service tests.python.test_root_cli tests.python.test_auto_train_business_eval tests.python.test_auto_train_controller tests.python.test_auto_train_cli`
 - 2026-04-09 当前根仓库 Python 包版本事实源已从 `core/_version.py` 迁到根目录 `pyproject.toml`：
   - 当前版本号只保留在 `[project].version`
   - 当前 `core._version.py` 已删除

@@ -45,6 +45,24 @@
 | TASK-AT-014 | 设计 promotion gate 与 solver smoke gate | 发布负责人 | 评估设计、solver 资产导出合同 | gate 规则、promotion report 契约 | 晋级门冻结 | 0.5 天 |
 | TASK-AT-015 | 实施前总验收 | 项目维护者 | 001-014 全部产物 | 准入结论、风险清单 | 允许进入实现 | 0.5 天 |
 
+## 2.1 2026-04-09 商业试卷与 reviewed exam gate 增补任务
+
+这一轮实现额外冻结以下执行顺序，避免“试卷整理”和“商业门改造”继续混在一起：
+
+1. `TASK-AT-EXAM-001`：整理 `materials/group1` 与 `materials/result` 到 `materials/business_exams/<task>/reviewed-v1/import`
+2. `TASK-AT-EXAM-002`：在 `X-AnyLabeling-GPU` 中完成 `group1/group2` 原生模型预标注
+3. `TASK-AT-EXAM-003`：人工复核并导出 `reviewed/labels.jsonl`
+4. `TASK-AT-EXAM-004`：冻结 reviewed 试卷池版本，不回灌训练集
+5. `TASK-AT-EXAM-005`：把 `auto-train` 商业测试改成“从 reviewed 试卷池随机抽 30 题”
+6. `TASK-AT-EXAM-006`：删除旧 `group2 overlay` 商业 gate，统一为 reviewed exam 门禁
+
+本轮验收标准：
+
+- `group1` 和 `group2` 都支持 `--business-eval-dir <reviewed_exam_dir>`
+- 商业测试只接受 `labels.jsonl` 作为事实源
+- 每轮稳定随机抽 `30` 题
+- 只有抽样成功率达到门槛才允许 `commercial_gate_passed`
+
 ## 3. 执行角色定义
 
 | 角色 | 责任 |

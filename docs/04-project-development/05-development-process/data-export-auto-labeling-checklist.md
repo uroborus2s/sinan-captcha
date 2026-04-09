@@ -30,37 +30,53 @@
 - 不要直接开始几千张人工标注
 - 先只做少量种子集
 
-## 3. 先把目录建好
+## 3. 商业试卷目录先建好
 
-建议目录：
+当前仓库已经固定原始素材位置：
+
+- 点选原始图：`materials/group1/<sample_id>/icon.jpg`、`materials/group1/<sample_id>/bg.jpg`
+- 滑块原始图：`materials/result/<sample_id>/bg.jpg`、`materials/result/<sample_id>/gap.jpg`
+
+推荐把“商业试卷”单独沉淀到：
 
 ```text
-D:\sinan-captcha-work\datasets\
-  group1\
-    v1\
-      raw\
-      interim\
-      reviewed\
-      yolo\
-      reports\
-  group2\
-    v1\
-      raw\
-      interim\
-      reviewed\
-      master\
-      tile\
-      splits\
-      dataset.json
-      reports\
+materials/
+  business_exams/
+    group1/
+      reviewed-v1/
+        import/
+          query/
+          scene/
+        reviewed/
+          query/
+          scene/
+          labels.jsonl
+        manifest.json
+    group2/
+      reviewed-v1/
+        import/
+          master/
+          tile/
+        reviewed/
+          master/
+          tile/
+          labels.jsonl
+        manifest.json
+```
+
+准备命令：
+
+```bash
+uv run sinan exam prepare --task group1 --materials-root materials --output-dir materials/business_exams/group1/reviewed-v1
+uv run sinan exam prepare --task group2 --materials-root materials --output-dir materials/business_exams/group2/reviewed-v1
 ```
 
 检查项：
 
-- [ ] 第一组和第二组目录分开
-- [ ] `group1` 有 `raw`、`interim`、`reviewed`、`scene-yolo`、`query-yolo`、`splits`、`dataset.json`、`reports`
-- [ ] `group2` 有 `raw`、`interim`、`reviewed`、`master`、`tile`、`splits`、`dataset.json`、`reports`
-- [ ] 当前版本固定为 `v1`
+- [ ] `group1` 试卷工作目录里已生成 `import/query` 和 `import/scene`
+- [ ] `group2` 试卷工作目录里已生成 `import/master` 和 `import/tile`
+- [ ] 每个样本都保留稳定 `sample_id`
+- [ ] 试卷目录与正式训练集目录分开，不能回灌训练集
 
 ## 4. 第一组导出 Checklist
 
@@ -141,49 +157,76 @@ D:\sinan-captcha-work\datasets\
 - [ ] 允许先做更小规模冒烟集
 - [ ] 但正式验收前要补到目标规模
 
-## 8. 第二组自动标注 Checklist
+## 8. 第二组预标注 + 人工复核 Checklist
 
-第二组先用规则法做滑块候选位置预标注。
+第二组目标是做出“商业试卷答案”，不是替换最终 solver。
 
-执行步骤：
+执行原则：
 
-- [ ] 灰度化场景图
-- [ ] 提取高亮/白色区域
-- [ ] 连通域或轮廓提取
-- [ ] 计算面积、宽高比、形状相似度
-- [ ] 选出最像查询图的候选框
-- [ ] 生成 `bbox` 和 `center`
-- [ ] 存入 `interim`
+- [ ] `X-AnyLabeling` 只负责预标注和人工复核
+- [ ] 最终训练和最终求解仍继续使用项目现有 `group2` solver
+- [ ] 如需给 `X-AnyLabeling` 喂原生模型，使用辅助单图缺口检测模型，仅服务于标注
+
+辅助预标模型数据准备命令：
+
+```bash
+uv run sinan exam build-group2-prelabel-yolo \
+  --source-dir materials/business_exams/group2/reviewed-v1/reviewed \
+  --output-dir materials/business_exams/group2/prelabel-yolo
+```
+
+在 `X-AnyLabeling-GPU` 中的操作步骤：
+
+1. 打开 `materials/business_exams/group2/reviewed-v1/import/master`
+2. 加载原生目标检测模型，对 `master/bg` 图做批量预标注
+3. 标签名固定为 `slider_gap`
+4. 每张图只保留一个缺口框
+5. `tile/gap` 图只作为对照参考，不在其上标框
+6. 人工逐张复核 `bbox`
+7. 把复核后的 `json + 图片` 放到 `reviewed/master` 和 `reviewed/tile`
+
+导出 reviewed 试卷答案命令：
+
+```bash
+uv run sinan exam export-reviewed --task group2 --exam-root materials/business_exams/group2/reviewed-v1
+```
 
 通过标准：
 
-- [ ] 抽查 50-100 张，目标位置大体正确
-- [ ] 预标注结果能导入标注工具
+- [ ] 每张 `master` 图只有一个 `slider_gap`
+- [ ] `reviewed/labels.jsonl` 已生成
+- [ ] `target_gap.bbox / center / offset_x / offset_y` 能稳定落盘
 
-## 9. 第一组自动标注 Checklist
+## 9. 第一组预标注 + 人工复核 Checklist
 
-### 9.1 最优路线：生成端直接导标签
+第一组要分别处理：
 
-如果生成端能直接给坐标：
+- `query/icon` 小图
+- `scene/bg` 大图
 
-- [ ] 第一组直接生成 `gold` 标签
-- [ ] 不再人工逐张框目标
+在 `X-AnyLabeling-GPU` 中的操作步骤：
 
-### 9.2 退路：种子集 + 暖启动模型
+1. 打开 `materials/business_exams/group1/reviewed-v1/import/query`
+2. 加载原生目标检测模型，对 `query/icon` 图批量预标注
+3. `query` 标签只写类别名，例如 `icon_lock`
+4. 打开 `materials/business_exams/group1/reviewed-v1/import/scene`
+5. 对 `scene/bg` 图批量预标注
+6. `scene` 标签必须写成 `NN|class`，例如 `01|icon_lock`
+7. 同一张图里必须按点击顺序写 `01|`、`02|`、`03|`
+8. 人工复核后，把 `json + 图片` 放到 `reviewed/query` 和 `reviewed/scene`
 
-如果生成端导不出坐标：
+导出 reviewed 试卷答案命令：
 
-- [ ] 先人工纠正 300-500 张种子集
-- [ ] 固定第一组类别表
-- [ ] 训练一个暖启动小模型
-- [ ] 用暖启动模型批量预测剩余样本
-- [ ] 将预测结果导入 X-AnyLabeling
-- [ ] 人工只修正明显错误
+```bash
+uv run sinan exam export-reviewed --task group1 --exam-root materials/business_exams/group1/reviewed-v1
+```
 
-说明：
+通过标准：
 
-- 这一步允许少量人工
-- 但目标是尽快让后续数据进入自动标注模式
+- [ ] `query` 标注导出后能自动按从左到右补 `order`
+- [ ] `scene` 标注里顺序号和类别名一致
+- [ ] `reviewed/labels.jsonl` 已生成
+- [ ] `query_targets` 和 `scene_targets` 数量一致
 
 ## 10. 标签状态 Checklist
 
@@ -203,6 +246,13 @@ D:\sinan-captcha-work\datasets\
 
 - [ ] 未抽检的 `auto` 直接进入测试集
 - [ ] 真值校验失败的样本继续保留为 `gold`
+
+## 10.1 商业试卷冻结规则
+
+- [ ] 商业试卷统一标为 `reviewed`
+- [ ] 商业试卷版本按 `reviewed-v1`、`reviewed-v2` 冻结
+- [ ] 冻结后的试卷池不得回灌训练集
+- [ ] 自动训练商业测试只从冻结版 `reviewed` 试卷池抽题
 
 ## 11. 抽检 Checklist
 

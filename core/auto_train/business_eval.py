@@ -16,7 +16,7 @@ from core.dataset.validation import (
     validate_group1_row,
     validate_group2_row,
 )
-from core.evaluate.service import EvaluationRequest, EvaluationResult, evaluate_model
+from core.evaluate.service import EvaluationRequest, evaluate_model
 from core.modeltest.service import ModelTestRequest, ModelTestResult, run_model_test
 from core.train.base import default_best_weights, default_dataset_config
 from core.train.group1.service import QUERY_COMPONENT, SCENE_COMPONENT, group1_component_best_weights
@@ -124,10 +124,11 @@ def run_reviewed_business_eval(
             iou_threshold=iou_threshold,
         )
     )
+    gold_rows = load_reviewed_exam_rows(task, sampled_source.parent)
     prediction_rows = _load_prediction_rows(task, model_result.predict_output_dir / "labels.jsonl")
     case_results = build_case_results(
         task=task,
-        gold_rows=sampled_rows,
+        gold_rows=gold_rows,
         prediction_rows=prediction_rows,
         point_tolerance_px=point_tolerance_px,
         iou_threshold=iou_threshold,

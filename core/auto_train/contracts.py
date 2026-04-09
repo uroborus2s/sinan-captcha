@@ -908,6 +908,9 @@ class BusinessEvalRecord:
         _require_positive_int(self.point_tolerance_px, "point_tolerance_px")
         _require_ratio(self.iou_threshold, "iou_threshold")
         _require_non_empty(self.sampled_source, "sampled_source")
+        _require_non_empty(self.report_dir, "report_dir")
+        _require_non_empty(self.prediction_dir, "prediction_dir")
+        _require_non_empty(self.evaluation_report_dir, "evaluation_report_dir")
         if any(not isinstance(item, str) or not item.strip() for item in self.evidence):
             raise ValueError("evidence entries must be non-empty strings")
 

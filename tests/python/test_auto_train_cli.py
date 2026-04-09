@@ -82,13 +82,11 @@ class AutoTrainCliTests(unittest.TestCase):
                         "--business-eval-dir",
                         str(business_cases),
                         "--business-eval-success-threshold",
-                        "0.98",
+                        "0.95",
                         "--business-eval-min-cases",
-                        "8",
+                        "30",
                         "--business-eval-sample-size",
-                        "100",
-                        "--business-eval-occlusion-threshold",
-                        "0.81",
+                        "30",
                     ]
                 )
 
@@ -96,10 +94,9 @@ class AutoTrainCliTests(unittest.TestCase):
             assert captured_request is not None
             self.assertTrue(captured_request.goal_only_stop)
             self.assertEqual(captured_request.business_eval_dir, business_cases)
-            self.assertEqual(captured_request.business_eval_success_threshold, 0.98)
-            self.assertEqual(captured_request.business_eval_min_cases, 8)
-            self.assertEqual(captured_request.business_eval_sample_size, 100)
-            self.assertEqual(captured_request.business_eval_occlusion_threshold, 0.81)
+            self.assertEqual(captured_request.business_eval_success_threshold, 0.95)
+            self.assertEqual(captured_request.business_eval_min_cases, 30)
+            self.assertEqual(captured_request.business_eval_sample_size, 30)
             self.assertEqual(FakeController.max_steps, 0)
 
     def test_run_command_forwards_explicit_goal_only_stop_without_business_eval(self) -> None:

@@ -286,7 +286,16 @@ D:\incoming-materials\
 - 补齐 `manifests/materials.yaml`
 - 追加 `manifests/group1.classes.yaml`
 - 追加 `manifests/group2.shapes.yaml`
-- 运行当前素材校验
+- 运行当前已存在素材的增量校验
+
+说明：
+
+- `materials merge` 当前不会因为某一类素材暂时为空就整体失败。
+- 例如：
+  - 这次只追加 `group1/` 图标，没有背景图；
+  - 或这次只追加 `backgrounds/`；
+  - 都可以正常执行。
+- 只有真正参与合并且写入后的素材内容损坏、manifest 非法，或没有任何可导入图片时，命令才会失败。
 
 ### 5.4 生成数据时自动拉取素材
 

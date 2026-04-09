@@ -110,6 +110,59 @@ func TestMergeKeepsOneImageOneClassWhenNameCollides(t *testing.T) {
 	}
 }
 
+func TestMergeAcceptsIncrementalGroup1WithoutBackgrounds(t *testing.T) {
+	targetRoot := filepath.Join(t.TempDir(), "materials")
+	writeMaterialsManifest(t, filepath.Join(targetRoot, "manifests", "materials.yaml"))
+
+	incomingRoot := filepath.Join(t.TempDir(), "incoming")
+	writePNG(t, filepath.Join(incomingRoot, "group1", "star.png"), 40, 40)
+
+	result, err := Merge(targetRoot, incomingRoot)
+	if err != nil {
+		t.Fatalf("merge group1-only materials: %v", err)
+	}
+	if result.AddedBackgrounds != 0 {
+		t.Fatalf("expected no backgrounds to be added, got %d", result.AddedBackgrounds)
+	}
+	if result.AddedGroup1Classes != 1 || result.AddedGroup1Images != 1 {
+		t.Fatalf("expected one group1 class/image, got %+v", result)
+	}
+	if result.Validation.BackgroundCount != 0 {
+		t.Fatalf("expected background count to stay 0, got %d", result.Validation.BackgroundCount)
+	}
+	if result.Validation.Group1ClassCount != 1 {
+		t.Fatalf("expected one validated group1 class, got %d", result.Validation.Group1ClassCount)
+	}
+	if result.Validation.Group2ShapeCount != 0 {
+		t.Fatalf("expected group2 validation to be skipped, got %d", result.Validation.Group2ShapeCount)
+	}
+}
+
+func TestMergeAcceptsBackgroundOnlyIncrementalImport(t *testing.T) {
+	targetRoot := filepath.Join(t.TempDir(), "materials")
+	writeMaterialsManifest(t, filepath.Join(targetRoot, "manifests", "materials.yaml"))
+
+	incomingRoot := filepath.Join(t.TempDir(), "incoming")
+	writePNG(t, filepath.Join(incomingRoot, "backgrounds", "bg_new.png"), 360, 200)
+
+	result, err := Merge(targetRoot, incomingRoot)
+	if err != nil {
+		t.Fatalf("merge backgrounds-only materials: %v", err)
+	}
+	if result.AddedBackgrounds != 1 {
+		t.Fatalf("expected one added background, got %d", result.AddedBackgrounds)
+	}
+	if result.AddedGroup1Images != 0 || result.AddedGroup2Images != 0 {
+		t.Fatalf("expected no task assets to be added, got %+v", result)
+	}
+	if result.Validation.BackgroundCount != 1 {
+		t.Fatalf("expected one validated background, got %d", result.Validation.BackgroundCount)
+	}
+	if result.Validation.Group1ClassCount != 0 || result.Validation.Group2ShapeCount != 0 {
+		t.Fatalf("expected task validation to be skipped, got %+v", result.Validation)
+	}
+}
+
 func writeTallTransparentPNG(t *testing.T, path string, width int, height int) {
 	t.Helper()
 	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {

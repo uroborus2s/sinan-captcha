@@ -27,6 +27,14 @@ func Validate(root string) (ValidationSummary, error) {
 }
 
 func ValidateForTask(root string, task string) (ValidationSummary, error) {
+	return validateForTask(root, task, true, false)
+}
+
+func ValidateForMerge(root string) (ValidationSummary, error) {
+	return validateForTask(root, "", false, true)
+}
+
+func validateForTask(root string, task string, requireBackgrounds bool, allowMissingTasks bool) (ValidationSummary, error) {
 	summary := ValidationSummary{
 		MaterialsManifestPath: filepath.Join(root, "manifests", "materials.yaml"),
 		Group1ManifestPath:    filepath.Join(root, "manifests", "group1.classes.yaml"),
@@ -46,25 +54,25 @@ func ValidateForTask(root string, task string) (ValidationSummary, error) {
 	if err != nil && !os.IsNotExist(err) {
 		return summary, err
 	}
-	if backgroundCount == 0 {
+	if requireBackgrounds && backgroundCount == 0 {
 		return summary, errors.New("no background images found")
 	}
 	summary.BackgroundCount = backgroundCount
 
 	switch strings.TrimSpace(task) {
 	case "", "all":
-		if err := validateGroup1(root, &summary); err != nil {
+		if err := validateGroup1(root, &summary, allowMissingTasks); err != nil {
 			return summary, err
 		}
-		if err := validateGroup2(root, &summary); err != nil {
+		if err := validateGroup2(root, &summary, allowMissingTasks); err != nil {
 			return summary, err
 		}
 	case "group1":
-		if err := validateGroup1(root, &summary); err != nil {
+		if err := validateGroup1(root, &summary, allowMissingTasks); err != nil {
 			return summary, err
 		}
 	case "group2":
-		if err := validateGroup2(root, &summary); err != nil {
+		if err := validateGroup2(root, &summary, allowMissingTasks); err != nil {
 			return summary, err
 		}
 	default:
@@ -74,13 +82,19 @@ func ValidateForTask(root string, task string) (ValidationSummary, error) {
 	return summary, nil
 }
 
-func validateGroup1(root string, summary *ValidationSummary) error {
+func validateGroup1(root string, summary *ValidationSummary, allowMissing bool) error {
 	group1Entries, err := LoadGroup1Manifest(summary.Group1ManifestPath)
 	if err != nil {
+		if allowMissing && os.IsNotExist(err) {
+			return nil
+		}
 		return err
 	}
 	summary.Group1ClassCount = len(group1Entries)
 	if summary.Group1ClassCount == 0 {
+		if allowMissing {
+			return nil
+		}
 		return errors.New("group1 classes manifest is empty")
 	}
 	for _, entry := range group1Entries {
@@ -96,13 +110,19 @@ func validateGroup1(root string, summary *ValidationSummary) error {
 	return nil
 }
 
-func validateGroup2(root string, summary *ValidationSummary) error {
+func validateGroup2(root string, summary *ValidationSummary, allowMissing bool) error {
 	group2Entries, err := LoadGroup2Manifest(summary.Group2ManifestPath)
 	if err != nil {
+		if allowMissing && os.IsNotExist(err) {
+			return nil
+		}
 		return err
 	}
 	summary.Group2ShapeCount = len(group2Entries)
 	if summary.Group2ShapeCount == 0 {
+		if allowMissing {
+			return nil
+		}
 		return errors.New("group2 shapes manifest is empty")
 	}
 	for _, entry := range group2Entries {

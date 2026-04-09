@@ -1,5 +1,70 @@
 # 变更摘要
 
+## 2026-04-09 修复 `sinan-generator materials merge`：支持缺失背景图时的增量合并
+
+- 已更新：
+  - `generator/internal/material/validate.go`
+  - `generator/internal/materialset/merge.go`
+  - `generator/internal/materialset/merge_test.go`
+  - `docs/02-user-guide/prepare-training-data-with-generator.md`
+  - `.factory/memory/current-state.md`
+  - `.factory/memory/change-summary.md`
+- 当前已完成的目标：
+  - `materials merge` 当前不再沿用完整素材包的强制背景图校验
+  - 当前允许以下增量导入场景直接成功：
+    - 仅追加 `group1/` 图标
+    - 仅追加 `group2/` 缺口图
+    - 仅追加 `backgrounds/`
+  - 当前会只校验真正存在的素材类型
+  - 当前仍会在以下情况失败：
+    - 没有任何可导入图片
+    - 导入图片本身损坏
+    - manifest 或已写入素材目录非法
+- 已运行验证：
+  - `env GOCACHE=/tmp/go-build go test ./internal/materialset ./internal/material`（cwd=`generator/`）
+  - 本地构建 `/tmp/sinan-generator` 后，实际执行 `materials merge` 验证“仅 group1、无背景图”场景返回码为 `0`
+
+## 2026-04-09 商业试卷改为 reviewed exam 模式，删除旧 `group2 overlay` 商业 gate
+
+- 已更新：
+  - `core/exam/__init__.py`
+  - `core/exam/cli.py`
+  - `core/exam/service.py`
+  - `core/cli.py`
+  - `core/auto_train/contracts.py`
+  - `core/auto_train/business_eval.py`
+  - `core/auto_train/runners/business_eval.py`
+  - `core/auto_train/controller.py`
+  - `core/auto_train/cli.py`
+  - `tests/python/test_exam_service.py`
+  - `tests/python/test_root_cli.py`
+  - `tests/python/test_auto_train_business_eval.py`
+  - `tests/python/test_auto_train_controller.py`
+  - `tests/python/test_auto_train_cli.py`
+  - `docs/02-user-guide/auto-train-on-training-machine.md`
+  - `docs/04-project-development/05-development-process/data-export-auto-labeling-checklist.md`
+  - `docs/04-project-development/05-development-process/autonomous-training-task-breakdown.md`
+  - `.factory/memory/current-state.md`
+  - `.factory/memory/change-summary.md`
+- 当前已完成的目标：
+  - 新增 `exam` 根 CLI，支持把 `materials/group1` 和 `materials/result` 整理成 reviewed 试卷工作目录
+  - 新增 reviewed 标注导出，直接生成 `reviewed/labels.jsonl`
+  - 新增 `group2` 辅助 YOLO 数据导出，只服务于 `X-AnyLabeling` 原生模型预标注
+  - `auto-train` 商业测试已不再使用 `overlay/occlusion` 旧模式
+  - `group1` 和 `group2` 当前都支持 reviewed exam business gate
+  - 商业测试当前统一改成：
+    - 从 reviewed 试卷池稳定随机抽 `30` 题
+    - 物化 `_sampled_source/labels.jsonl`
+    - 调项目现有 solver 预测
+    - 按各自任务语义判卷
+  - 默认商业门槛当前改为：
+    - `business_eval_success_threshold = 0.95`
+    - `business_eval_min_cases = 30`
+    - `business_eval_sample_size = 30`
+  - `X-AnyLabeling` 当前仅用于预标注和人工复核，不改变最终 solver 方案
+- 已运行验证：
+  - `uv run python -m unittest tests.python.test_exam_service tests.python.test_root_cli tests.python.test_auto_train_business_eval tests.python.test_auto_train_controller tests.python.test_auto_train_cli`
+
 ## 2026-04-09 根仓库版本事实源迁移到 `pyproject.toml`
 
 - 已把根仓库版本单一事实源从 `core/_version.py` 迁到根目录 `pyproject.toml`
