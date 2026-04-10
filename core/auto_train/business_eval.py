@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from dataclasses import replace
 import json
 import math
 from pathlib import Path
@@ -138,6 +139,8 @@ def run_reviewed_business_eval(
         point_tolerance_px=point_tolerance_px,
         iou_threshold=iou_threshold,
     )
+    if task == "group2":
+        case_results = _attach_group2_failure_artifacts(case_results=case_results, report_dir=report_dir)
     passed_cases = sum(1 for item in case_results if item.success)
     total_cases = len(case_results)
     success_rate = 0.0 if total_cases == 0 else passed_cases / float(total_cases)
@@ -661,6 +664,8 @@ def _render_case_line(item: contracts.BusinessEvalCaseRecord, prefix: str | None
         f"metrics={_render_mapping(item.metrics)} "
         f"input_images={_render_mapping(item.input_images)}"
     )
+    if item.artifacts is not None:
+        line += f" artifacts={_render_mapping(item.artifacts)}"
     if item.prediction is not None:
         line += f" prediction={_render_mapping(item.prediction)}"
     if item.reference is not None:
@@ -689,6 +694,7 @@ def _render_case_markdown(item: contracts.BusinessEvalCaseRecord) -> list[str]:
     lines.extend(_case_reference_lines(item))
     lines.extend(_case_prediction_lines(item))
     lines.extend(_case_metric_lines(item))
+    lines.extend(_case_artifact_lines(item))
     if item.evidence:
         lines.append(f"- 辅助证据：{json.dumps(item.evidence, ensure_ascii=False)}")
     lines.append("")
@@ -757,6 +763,30 @@ def _business_test_conclusion_cn(record: contracts.BusinessEvalRecord) -> str:
     )
 
 
+def _attach_group2_failure_artifacts(
+    *,
+    case_results: list[contracts.BusinessEvalCaseRecord],
+    report_dir: Path,
+) -> list[contracts.BusinessEvalCaseRecord]:
+    artifact_dir = report_dir / "failure_overlays"
+    rewritten: list[contracts.BusinessEvalCaseRecord] = []
+    for item in case_results:
+        if item.success or item.prediction is None:
+            rewritten.append(item)
+            continue
+        try:
+            overlay_path = _write_group2_failure_overlay(item=item, output_dir=artifact_dir)
+        except Exception as exc:
+            evidence = list(item.evidence or [])
+            evidence.append(f"failure_overlay_error={exc}")
+            rewritten.append(replace(item, evidence=evidence))
+            continue
+        artifacts = dict(item.artifacts or {})
+        artifacts["predicted_overlay_image"] = str(overlay_path)
+        rewritten.append(replace(item, artifacts=artifacts))
+    return rewritten
+
+
 def _case_input_lines(item: contracts.BusinessEvalCaseRecord) -> list[str]:
     if not item.input_images:
         return []
@@ -803,6 +833,16 @@ def _case_prediction_lines(item: contracts.BusinessEvalCaseRecord) -> list[str]:
     return [f"- 模型输出：{_render_mapping(item.prediction)}"]
 
 
+def _case_artifact_lines(item: contracts.BusinessEvalCaseRecord) -> list[str]:
+    if not item.artifacts:
+        return []
+    lines: list[str] = []
+    for key, value in sorted(item.artifacts.items()):
+        label = "失败证据图" if key == "predicted_overlay_image" else key
+        lines.append(f"- {label}：{value}")
+    return lines
+
+
 def _case_metric_lines(item: contracts.BusinessEvalCaseRecord) -> list[str]:
     if item.reference is None or item.prediction is None:
         return [f"- 指标明细：{_render_mapping(item.metrics)}"]
@@ -837,6 +877,53 @@ def _case_summary_cn(item: contracts.BusinessEvalCaseRecord) -> str | None:
             f"最终判定为{'通过' if item.success else '未通过'}。"
         )
     return None
+
+
+def _write_group2_failure_overlay(
+    *,
+    item: contracts.BusinessEvalCaseRecord,
+    output_dir: Path,
+) -> Path:
+    from PIL import Image
+
+    master_image = item.input_images.get("master_image")
+    tile_image = item.input_images.get("tile_image")
+    if not isinstance(master_image, str) or not master_image.strip():
+        raise ValueError("missing master_image")
+    if not isinstance(tile_image, str) or not tile_image.strip():
+        raise ValueError("missing tile_image")
+    if item.prediction is None:
+        raise ValueError("missing prediction")
+    target_gap = item.prediction.get("target_gap")
+    bbox = _target_gap_bbox(target_gap)
+    x1, y1, x2, y2 = bbox
+    width = max(1, x2 - x1)
+    height = max(1, y2 - y1)
+
+    output_dir.mkdir(parents=True, exist_ok=True)
+    output_path = output_dir / f"{item.case_id}.png"
+
+    with Image.open(master_image) as master_src, Image.open(tile_image) as tile_src:
+        master = master_src.convert("RGBA")
+        tile = tile_src.convert("RGBA").resize((width, height), Image.Resampling.LANCZOS)
+        canvas = Image.new("RGBA", master.size, (0, 0, 0, 0))
+        canvas.paste(tile, (x1, y1), tile)
+        blended = Image.alpha_composite(master, canvas)
+        blended.save(output_path, format="PNG")
+    return output_path
+
+
+def _target_gap_bbox(target_gap: Any) -> tuple[int, int, int, int]:
+    if not isinstance(target_gap, dict):
+        raise ValueError("prediction target_gap must be an object")
+    bbox = target_gap.get("bbox")
+    if not isinstance(bbox, list) or len(bbox) != 4:
+        raise ValueError("prediction target_gap bbox must contain four numbers")
+    try:
+        x1, y1, x2, y2 = [int(round(float(value))) for value in bbox]
+    except (TypeError, ValueError) as exc:
+        raise ValueError("prediction target_gap bbox must contain numeric values") from exc
+    return x1, y1, x2, y2
 
 
 def _delta_axis_cn(value: Any, axis: str) -> str:

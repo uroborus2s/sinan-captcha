@@ -135,7 +135,7 @@ class StudyBudget:
 @dataclass(frozen=True)
 class BusinessEvalConfig:
     cases_root: str
-    success_threshold: float = 0.95
+    success_threshold: float = 0.90
     min_cases: int = 50
     sample_size: int = 50
     point_tolerance_px: int = 5
@@ -818,6 +818,7 @@ class BusinessEvalCaseRecord:
     reason_cn: str
     input_images: dict[str, JsonValue]
     metrics: dict[str, JsonValue]
+    artifacts: dict[str, JsonValue] | None = None
     prediction: dict[str, JsonValue] | None = None
     reference: dict[str, JsonValue] | None = None
     evidence: list[str] | None = None
@@ -835,6 +836,13 @@ class BusinessEvalCaseRecord:
                 raise ValueError("input_images values must be non-empty strings")
         if any(not isinstance(key, str) or not key.strip() for key in self.metrics):
             raise ValueError("metrics keys must be non-empty strings")
+        if self.artifacts is not None:
+            if not self.artifacts:
+                raise ValueError("artifacts must not be empty when provided")
+            for key, value in self.artifacts.items():
+                _require_non_empty(key, "artifacts key")
+                if not isinstance(value, str) or not value.strip():
+                    raise ValueError("artifacts values must be non-empty strings")
         if self.evidence is not None:
             if not isinstance(self.evidence, list):
                 raise ValueError("evidence must be a list or null")
@@ -854,6 +862,7 @@ class BusinessEvalCaseRecord:
             reason_cn=_string(payload, "reason_cn"),
             input_images=_mapping(payload, "input_images"),
             metrics=_mapping(payload, "metrics"),
+            artifacts=_optional_mapping(payload, "artifacts"),
             prediction=_optional_mapping(payload, "prediction"),
             reference=_optional_mapping(payload, "reference"),
             evidence=_optional_string_list(payload, "evidence"),

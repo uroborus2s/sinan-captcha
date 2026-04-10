@@ -55,6 +55,8 @@
 4. `TASK-AT-EXAM-004`：冻结 reviewed 试卷池版本，不回灌训练集
 5. `TASK-AT-EXAM-005`：把 `auto-train` 商业测试改成“从 reviewed 试卷池随机抽 50 题”
 6. `TASK-AT-EXAM-006`：删除旧 `group2 overlay` 商业 gate，统一为 reviewed exam 门禁
+7. `TASK-AT-EXAM-007`：为每个商业测试失败的 `group2` 样本输出“tile 贴回模型预测位置”的背景图证据
+8. `TASK-AT-EXAM-008`：把商业测试默认通过率门槛从 `0.95` 调整为 `0.90`，并保持 CLI/契约层支持外部参数覆盖
 
 本轮验收标准：
 
@@ -62,6 +64,44 @@
 - 商业测试只接受 `labels.jsonl` 作为事实源
 - 每轮稳定随机抽 `50` 题
 - 只有抽样成功率达到门槛才允许 `commercial_gate_passed`
+- `group2` 商业测试失败样本必须额外落盘可视化证据图，能直接看到 tile 被贴到模型预测位置后的效果
+- 商业测试默认通过率门槛应为 `0.90`
+- 仍保留显式覆盖入口：
+  - `--business-eval-success-threshold <ratio>`
+  - 允许按 study/run 单独提高或降低门槛
+
+## 2.2 2026-04-10 商业测试证据图与门槛默认值增补任务
+
+新增需求背景：
+
+1. 当前 `group2` 商业测试虽然会输出逐题文字偏差，但失败样本缺少“把 tile 贴回模型预测位置”的直观证据图，不利于快速判断是 `IoU` 问题、偏移问题，还是形状理解问题。
+2. 需求提出时，商业测试成功率默认门槛仍是 `0.95`，但业务侧希望默认收口到 `0.90`，同时保留从 CLI 外部传参覆盖的能力。
+
+新增执行顺序：
+
+1. `TASK-AT-EXAM-007`：设计并实现 `group2` 失败样本证据图导出
+2. `TASK-AT-EXAM-008`：调整商业测试默认成功率门槛并冻结外部覆盖合同
+
+新增验收标准：
+
+- 每个 `group2` 失败 case 都要额外输出 1 张证据图
+- 证据图必须使用原始 `master_image`
+- 证据图必须把原始 `tile_image` 按模型预测框位置贴回背景图
+- 证据图文件路径必须能在 `business_eval.md / business_eval.log / commercial_report.md` 中被追踪
+- 默认 `business_eval_success_threshold` 必须改为 `0.90`
+- 仍支持通过 CLI 显式传入：
+  - `--business-eval-success-threshold 0.95`
+  - 或其他 `0.0 ~ 1.0` 合法值
+- 旧 study 在门槛变化后必须按最新门槛重跑一次商业测试，再决定是否继续训练
+
+当前实现状态：
+
+- `TASK-AT-EXAM-007` 已完成：
+  - `group2` 商业测试失败 case 会额外输出 `business_eval/failure_overlays/<case_id>.png`
+  - `business_eval.md / business_eval.log` 会写出失败证据图路径
+- `TASK-AT-EXAM-008` 已完成：
+  - 当前默认 `business_eval_success_threshold` 已改为 `0.90`
+  - 仍保留 `--business-eval-success-threshold <ratio>` 外部覆盖入口
 
 ## 3. 执行角色定义
 

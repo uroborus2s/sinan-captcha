@@ -88,11 +88,53 @@ class AutoTrainCliTests(unittest.TestCase):
             assert captured_request is not None
             self.assertTrue(captured_request.goal_only_stop)
             self.assertEqual(captured_request.business_eval_dir, business_cases)
-            self.assertEqual(captured_request.business_eval_success_threshold, 0.95)
+            self.assertEqual(captured_request.business_eval_success_threshold, 0.90)
             self.assertEqual(captured_request.business_eval_min_cases, 50)
             self.assertEqual(captured_request.business_eval_sample_size, 50)
             self.assertEqual(captured_request.point_tolerance_px, 5)
             self.assertEqual(FakeController.max_steps, 0)
+
+    def test_run_command_preserves_explicit_business_eval_threshold_override(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            root = Path(tmpdir)
+            train_root = root / "train-root"
+            generator_workspace = root / "generator-workspace"
+            business_cases = root / "business-cases"
+            for path in (train_root, generator_workspace, business_cases):
+                path.mkdir(parents=True, exist_ok=True)
+
+            captured_request = None
+
+            class FakeController:
+                def __init__(self, *, request: object) -> None:
+                    nonlocal captured_request
+                    captured_request = request
+                    self.paths = type("Paths", (), {"study_status_file": root / "study_status.json"})()
+
+                def run(self, *, max_steps: int) -> object:
+                    return type("Result", (), {"executed": [], "final_stage": "PLAN"})()
+
+            with patch("core.auto_train.cli.controller.AutoTrainController", FakeController):
+                code = cli.main(
+                    [
+                        "run",
+                        "group2",
+                        "--study-name",
+                        "study_001",
+                        "--train-root",
+                        str(train_root),
+                        "--generator-workspace",
+                        str(generator_workspace),
+                        "--business-eval-dir",
+                        str(business_cases),
+                        "--business-eval-success-threshold",
+                        "0.95",
+                    ]
+                )
+
+            self.assertEqual(code, 0)
+            assert captured_request is not None
+            self.assertEqual(captured_request.business_eval_success_threshold, 0.95)
 
     def test_run_command_forwards_explicit_goal_only_stop_without_business_eval(self) -> None:
         with tempfile.TemporaryDirectory() as tmpdir:

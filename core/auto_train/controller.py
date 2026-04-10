@@ -88,7 +88,7 @@ class AutoTrainRequest:
     point_tolerance_px: int = 5
     iou_threshold: float = 0.5
     business_eval_dir: Path | None = None
-    business_eval_success_threshold: float = 0.95
+    business_eval_success_threshold: float = 0.90
     business_eval_min_cases: int = 50
     business_eval_sample_size: int = 50
     goal_only_stop: bool = False
@@ -410,6 +410,7 @@ class AutoTrainController:
             study=study,
         )
         leaderboard = self._update_leaderboard(summary_record, decision, business_record)
+        self._promote_current_trial_last_weights_if_selected(trial_id=trial_id, leaderboard=leaderboard)
         if business_record is not None and business_record.commercial_ready:
             updated = self._with_study_updates(
                 study,
@@ -820,6 +821,28 @@ class AutoTrainController:
         if last_path.exists():
             return last_path
         return best_path
+
+    def _promote_current_trial_last_weights_if_selected(
+        self,
+        *,
+        trial_id: str,
+        leaderboard: contracts.LeaderboardRecord,
+    ) -> None:
+        if self.request.task != "group2":
+            return
+        best_entry = leaderboard.best_entry
+        if best_entry is None or best_entry.trial_id != trial_id:
+            return
+        train_path = self.paths.train_file(trial_id)
+        if not train_path.exists():
+            return
+        train_record = storage.read_train_record(train_path)
+        best_path = Path(train_record.best_weights)
+        last_path = Path(train_record.last_weights)
+        if best_path.exists() or not last_path.exists():
+            return
+        best_path.parent.mkdir(parents=True, exist_ok=True)
+        shutil.copy2(last_path, best_path)
 
     def _safe_read_business_eval_record(self, trial_id: str) -> contracts.BusinessEvalRecord | None:
         path = self.paths.business_eval_file(trial_id)
@@ -1877,4 +1900,4 @@ def _composite_ranking_score(
         business_component = business_success_rate * 0.75
     if commercial_ready:
         business_component += 0.25
-    return (offline_score * difficulty_score) + (business_component * 0.35)
+    return (offline_score * difficulty_score * 0.8) + (business_component * 2.0)

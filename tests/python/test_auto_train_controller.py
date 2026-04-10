@@ -84,6 +84,24 @@ def _group2_trial_summary(trial_id: str, *, score: float, trend: str = "baseline
 
 
 class AutoTrainControllerTests(unittest.TestCase):
+    def test_composite_ranking_score_prioritizes_business_eval_result(self) -> None:
+        offline_heavier = controller._composite_ranking_score(
+            offline_score=0.99,
+            difficulty_score=1.12,
+            business_success_rate=0.60,
+            commercial_ready=False,
+        )
+        business_heavier = controller._composite_ranking_score(
+            offline_score=0.93,
+            difficulty_score=1.0,
+            business_success_rate=0.90,
+            commercial_ready=True,
+        )
+
+        self.assertGreater(business_heavier, offline_heavier)
+        self.assertAlmostEqual(offline_heavier, 1.78704, places=5)
+        self.assertAlmostEqual(business_heavier, 2.594, places=5)
+
     def test_build_leaderboard_entry_uses_composite_ranking_metrics(self) -> None:
         with tempfile.TemporaryDirectory() as tmpdir:
             root = Path(tmpdir)
@@ -858,6 +876,69 @@ class AutoTrainControllerTests(unittest.TestCase):
             self.assertEqual(execution.next_stage, "EVALUATE")
             self.assertEqual(len(captured_requests), 1)
             self.assertEqual(captured_requests[0].model_path, last_path)
+
+    def test_selected_group2_trial_promotes_last_weights_to_best_when_best_missing(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            root = Path(tmpdir)
+            train_root = root / "train-root"
+            generator_workspace = root / "generator-workspace"
+            train_root.mkdir(parents=True, exist_ok=True)
+            generator_workspace.mkdir(parents=True, exist_ok=True)
+
+            ctrl = controller.AutoTrainController(
+                request=controller.AutoTrainRequest(
+                    task="group2",
+                    study_name="study_001",
+                    train_root=train_root,
+                    generator_workspace=generator_workspace,
+                    studies_root=root / "studies",
+                    dataset_version="firstpass",
+                ),
+            )
+
+            best_path = train_root / "runs" / "group2" / "trial_0007" / "weights" / "best.pt"
+            last_path = train_root / "runs" / "group2" / "trial_0007" / "weights" / "last.pt"
+            last_path.parent.mkdir(parents=True, exist_ok=True)
+            last_path.write_bytes(b"checkpoint-last")
+
+            storage.write_train_record(
+                ctrl.paths.train_file("trial_0007"),
+                contracts.TrainRecord(
+                    task="group2",
+                    train_name="trial_0007",
+                    run_dir=str(best_path.parent.parent),
+                    params={"epochs": 100, "batch": 16, "imgsz": 192, "device": "0"},
+                    best_weights=str(best_path),
+                    last_weights=str(last_path),
+                ),
+            )
+
+            leaderboard = contracts.LeaderboardRecord(
+                study_name="study_001",
+                task="group2",
+                primary_metric="point_hit_rate",
+                entries=[
+                    contracts.LeaderboardEntry(
+                        trial_id="trial_0007",
+                        dataset_version="firstpass",
+                        train_name="trial_0007",
+                        primary_score=0.98,
+                        metrics={"ranking_score": 2.45},
+                    ),
+                    contracts.LeaderboardEntry(
+                        trial_id="trial_0006",
+                        dataset_version="firstpass",
+                        train_name="trial_0006",
+                        primary_score=0.99,
+                        metrics={"ranking_score": 2.12},
+                    ),
+                ],
+            )
+
+            ctrl._promote_current_trial_last_weights_if_selected(trial_id="trial_0007", leaderboard=leaderboard)
+
+            self.assertTrue(best_path.exists())
+            self.assertEqual(best_path.read_bytes(), b"checkpoint-last")
 
     def test_resume_stage_falls_back_to_build_dataset_when_dataset_config_is_missing(self) -> None:
         with tempfile.TemporaryDirectory() as tmpdir:

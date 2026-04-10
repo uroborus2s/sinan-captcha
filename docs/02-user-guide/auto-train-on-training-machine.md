@@ -430,7 +430,7 @@ uv run sinan auto-train run group2 `
   --train-root D:\sinan-captcha-work `
   --generator-workspace D:\sinan-generator\workspace `
   --business-eval-dir D:\sinan-captcha-work\materials\business_exams\group2\reviewed-v1\reviewed `
-  --business-eval-success-threshold 0.95 `
+  --business-eval-success-threshold 0.90 `
   --business-eval-min-cases 50 `
   --business-eval-sample-size 50 `
   --point-tolerance-px 5
@@ -460,7 +460,7 @@ uv run sinan auto-train run group2 `
 
 当前默认门槛：
 
-- `business_eval_success_threshold = 0.95`
+- `business_eval_success_threshold = 0.90`
 - `business_eval_min_cases = 50`
 - `business_eval_sample_size = 50`
 - `point_tolerance_px = 5`
@@ -502,6 +502,7 @@ uv run sinan auto-train run group2 `
 - `trials/<trial_id>/business_eval.md`
 - `trials/<trial_id>/business_eval.log`
 - `trials/<trial_id>/business_eval/_sampled_source/labels.jsonl`
+- `trials/<trial_id>/business_eval/failure_overlays/<case_id>.png`
 - `commercial_report.md`
 
 其中：
@@ -510,12 +511,17 @@ uv run sinan auto-train run group2 `
 - `business_eval.md` 是中文摘要
 - `business_eval.log` 是逐 case 文本日志
 - `commercial_report.md` 是最终人类可读报告
+- `failure_overlays/<case_id>.png` 只会在 `group2` 失败样本上生成：
+  - 使用原始 `master_image`
+  - 把原始 `tile_image` 按模型预测框贴回背景图
+  - 方便直接肉眼判断“模型认为缺口应该落在哪里”
 - `business_eval.md` 和 `business_eval.log` 当前都会逐题写出：
   - 是否通过
   - 标准答案与预测答案在 `X/Y` 方向上的偏差
   - 中心点总误差（仅作为参考展示）
   - `IoU`
   - 未通过项，例如 `delta_x` / `delta_y` / `iou`
+  - 如果存在失败证据图，也会写出证据图路径
 - `summary.md` / `study_status.json` 会额外写出：
   - `final_reason`
   - `final_detail`
@@ -547,7 +553,7 @@ uv run sinan auto-train run group2 `
   - `offline_score = 0.50 * point_hit_rate + 0.30 * mean_iou + 0.20 * center_quality`
   - `difficulty_score = preset_weight + min(regenerate_depth * 0.02, 0.08)`
   - `business_component = business_success_rate * 0.75 + (commercial_ready ? 0.25 : 0.0)`
-  - `ranking_score = offline_score * difficulty_score + business_component * 0.35`
+  - `ranking_score = offline_score * difficulty_score * 0.8 + business_component * 2.0`
 - 你可以直接在 `studies/<task>/<study-name>/leaderboard.json` 里看每个 trial 的：
   - `offline_score`
   - `difficulty_score`
@@ -558,6 +564,7 @@ uv run sinan auto-train run group2 `
   - 离线同分时，不会再默认让 `trial_0001` 永远排第一
   - 更难的数据版本、真实业务通过率更高的 trial，会被更优先地视为当前最佳候选
   - 下一轮 `from_run` 默认会优先继承这个综合最佳 trial
+  - 如果当前最佳候选恰好缺少 `weights/best.pt`，但存在 `weights/last.pt`，控制器会把该候选的 `last.pt` 提升为 `best.pt`
   - 当前还会自动清理模型目录，只保留综合评分最优的前 3 个 run，其他 trial 的模型目录会被删除
 
 注意：
@@ -577,7 +584,7 @@ uv run sinan auto-train run group2 `
   - 最终停止统一看 reviewed 试卷集 `business_success_rate`
   - 但控制器当前已把离线晋级和调参动作都收口为“服务于最终 business gate”
 - 当前商业验收默认门槛：
-  - `business_eval_success_threshold = 0.95`
+  - `business_eval_success_threshold = 0.90`
   - `business_eval_min_cases = 50`
   - `business_eval_sample_size = 50`
   - `point_tolerance_px = 5`

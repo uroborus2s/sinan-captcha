@@ -1,12 +1,41 @@
 from __future__ import annotations
 
+import struct
 import tempfile
 import unittest
+import zlib
 from pathlib import Path
 from unittest.mock import patch
 
 from core.auto_train import business_eval, controller, contracts, storage
 from core.common.jsonl import write_jsonl
+
+
+def _write_png(path: Path, width: int, height: int, color: tuple[int, int, int]) -> None:
+    raw_rows = []
+    pixel = bytes(color)
+    for _ in range(height):
+        raw_rows.append(b"\x00" + pixel * width)
+    payload = zlib.compress(b"".join(raw_rows))
+
+    def chunk(kind: bytes, data: bytes) -> bytes:
+        return (
+            struct.pack("!I", len(data))
+            + kind
+            + data
+            + struct.pack("!I", zlib.crc32(kind + data) & 0xFFFFFFFF)
+        )
+
+    png = b"".join(
+        [
+            b"\x89PNG\r\n\x1a\n",
+            chunk(b"IHDR", struct.pack("!IIBBBBB", width, height, 8, 2, 0, 0, 0)),
+            chunk(b"IDAT", payload),
+            chunk(b"IEND", b""),
+        ]
+    )
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_bytes(png)
 
 
 def _group2_trial_summary(trial_id: str, *, score: float, trend: str = "baseline") -> contracts.ResultSummaryRecord:
@@ -266,6 +295,98 @@ class BusinessEvalExamTests(unittest.TestCase):
             self.assertEqual(record.passed_cases, 1)
             self.assertTrue(record.commercial_ready)
 
+    def test_run_reviewed_business_eval_group2_writes_failure_overlay_artifact(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            root = Path(tmpdir)
+            train_root = root / "train-root"
+            cases_root = root / "business-exams" / "group2" / "reviewed"
+            report_dir = root / "reports" / "business-eval"
+            weights_dir = train_root / "runs" / "group2" / "trial_0002" / "weights"
+            master_dir = cases_root / "master"
+            tile_dir = cases_root / "tile"
+            for path in (weights_dir, master_dir, tile_dir):
+                path.mkdir(parents=True, exist_ok=True)
+            (weights_dir / "best.pt").write_bytes(b"pt")
+            _write_png(master_dir / "case_0002.png", 80, 60, (220, 220, 220))
+            _write_png(tile_dir / "case_0002.png", 20, 20, (20, 20, 20))
+            write_jsonl(
+                cases_root / "labels.jsonl",
+                [
+                    {
+                        "sample_id": "case_0002",
+                        "master_image": "master/case_0002.png",
+                        "tile_image": "tile/case_0002.png",
+                        "target_gap": {"class": "slider_gap", "class_id": 0, "bbox": [10, 10, 30, 30], "center": [20, 20]},
+                        "tile_bbox": [0, 0, 20, 20],
+                        "offset_x": 10,
+                        "offset_y": 10,
+                        "label_source": "reviewed",
+                        "source_batch": "batch",
+                    }
+                ],
+            )
+
+            def _fake_modeltest(request):
+                predict_dir = report_dir / "modeltest" / request.predict_name
+                predict_dir.mkdir(parents=True, exist_ok=True)
+                write_jsonl(
+                    predict_dir / "labels.jsonl",
+                    [
+                        {
+                            "sample_id": "case_0002",
+                            "master_image": str(master_dir / "case_0002.png"),
+                            "tile_image": str(tile_dir / "case_0002.png"),
+                            "target_gap": {"class": "slider_gap", "class_id": 0, "bbox": [25, 12, 45, 32], "center": [35, 22]},
+                            "tile_bbox": [0, 0, 20, 20],
+                            "offset_x": 25,
+                            "offset_y": 12,
+                            "label_source": "predicted",
+                            "source_batch": "batch",
+                        }
+                    ],
+                )
+                return type(
+                    "Result",
+                    (),
+                    {
+                        "predict_output_dir": predict_dir,
+                    },
+                )()
+
+            with patch("core.auto_train.business_eval.evaluate_model") as evaluate_model:
+                evaluate_model.return_value = type(
+                    "EvalResult",
+                    (),
+                    {
+                        "failure_count": 1,
+                        "report_dir": report_dir / "evaluation",
+                    },
+                )()
+                record = business_eval.run_reviewed_business_eval(
+                    trial_id="trial_0002",
+                    task="group2",
+                    train_root=train_root,
+                    dataset_version="firstpass",
+                    train_name="trial_0002",
+                    cases_root=cases_root,
+                    report_dir=report_dir,
+                    device="0",
+                    imgsz=192,
+                    success_threshold=0.95,
+                    min_cases=1,
+                    sample_size=1,
+                    point_tolerance_px=3,
+                    iou_threshold=0.5,
+                    modeltest_runner=_fake_modeltest,
+                )
+
+            self.assertEqual(record.total_cases, 1)
+            self.assertEqual(record.passed_cases, 0)
+            self.assertFalse(record.commercial_ready)
+            overlay_path = Path(str(record.case_results[0].artifacts["predicted_overlay_image"]))
+            self.assertTrue(overlay_path.exists())
+            self.assertEqual(overlay_path.parent.name, "failure_overlays")
+
     def test_business_eval_log_includes_group1_sequence_details(self) -> None:
         record = contracts.BusinessEvalRecord(
             trial_id="trial_0008",
@@ -352,6 +473,7 @@ class BusinessEvalExamTests(unittest.TestCase):
                         "iou_hit": False,
                         "failed_checks": ["delta_x", "iou"],
                     },
+                    artifacts={"predicted_overlay_image": "/tmp/business-eval/failure_overlays/case_0007.png"},
                     prediction={"target_gap": {"bbox": [16, 12, 40, 36], "center": [28, 24]}},
                     reference={"target_gap": {"bbox": [10, 16, 34, 40], "center": [22, 28]}},
                     evidence=[],
@@ -368,6 +490,7 @@ class BusinessEvalExamTests(unittest.TestCase):
         self.assertIn("未通过项：X 方向偏差、IoU", rendered)
         self.assertIn("标准答案中心点：", rendered)
         self.assertIn("模型预测中心点：", rendered)
+        self.assertIn("失败证据图：/tmp/business-eval/failure_overlays/case_0007.png", rendered)
         self.assertIn("计划抽取 50 组进行商业测试，实际完成判卷 50 组", rendered)
 
     def test_business_eval_log_includes_chinese_group2_case_summary(self) -> None:

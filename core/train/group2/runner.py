@@ -510,4 +510,3 @@ def _fmt_metric(value: float | None) -> str:
 
 if __name__ == "__main__":
     raise SystemExit(main())
-

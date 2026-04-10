@@ -1,5 +1,94 @@
 # 变更摘要
 
+## 2026-04-10 调整 `group2 auto-train` 综合排序公式，并改为按 trial 总分决定是否将 `last.pt` 提升为当前 run `best.pt`
+
+- 已更新：
+  - `core/auto_train/controller.py`
+  - `core/train/group2/runner.py`
+  - `tests/python/test_auto_train_controller.py`
+  - `tests/python/test_training_jobs.py`
+  - `docs/02-user-guide/auto-train-on-training-machine.md`
+  - `.factory/memory/current-state.md`
+  - `.factory/memory/change-summary.md`
+- 当前已完成的目标：
+  - 当前综合排序公式改为 business-first：
+    - `ranking_score = offline_score * difficulty_score * 0.8 + business_component * 2.0`
+  - 当前商业测试通过率和 `commercial_ready` 对最终排序的影响显著高于离线分与难度分
+  - 当前 `group2` 不再依赖“来源 run 的旧 `best_score` vs 当前 run 的 epoch 分数”去决定当前 run 是否应有 `best.pt`
+  - 当前改为：
+    - 先用新的综合公式重算各 trial 的 `ranking_score`
+    - 如果当前 trial 成为 `leaderboard.best_entry`
+    - 且当前 trial 缺少 `weights/best.pt` 但存在 `weights/last.pt`
+    - 就把当前 trial 的 `last.pt` 提升为当前 trial 的 `best.pt`
+  - 当前这让“上一轮总分 vs 当前轮总分”的比较成为唯一的 best 选择依据
+- 已运行验证：
+  - `uv run python -m unittest tests.python.test_auto_train_controller`
+
+## 2026-04-10 实现 `TASK-AT-EXAM-008`：将商业测试默认通过率门槛调整为 `0.90`
+
+- 已更新：
+  - `core/auto_train/controller.py`
+  - `core/auto_train/contracts.py`
+  - `core/auto_train/cli.py`
+  - `core/auto_train/runners/business_eval.py`
+  - `tests/python/test_auto_train_cli.py`
+  - `docs/02-user-guide/auto-train-on-training-machine.md`
+  - `docs/04-project-development/05-development-process/autonomous-training-task-breakdown.md`
+  - `.factory/memory/current-state.md`
+  - `.factory/memory/change-summary.md`
+- 当前已完成的目标：
+  - `business_eval_success_threshold` 默认值当前统一从 `0.95` 调整为 `0.90`
+  - 影响范围已覆盖：
+    - `AutoTrainRequest`
+    - `BusinessEvalConfig`
+    - CLI `--business-eval-success-threshold`
+    - business-eval runner request
+  - `--business-eval-success-threshold <ratio>` 显式覆盖能力保持不变
+  - CLI 已新增回归测试，明确断言：
+    - 默认值为 `0.90`
+    - 显式传入 `0.95` 时仍按 `0.95` 转发
+- 已运行验证：
+  - `uv run python -m unittest tests.python.test_auto_train_cli`
+
+## 2026-04-10 实现 `TASK-AT-EXAM-007`：为 `group2` 商业测试失败样本导出 overlay 证据图
+
+- 已更新：
+  - `core/auto_train/business_eval.py`
+  - `core/auto_train/contracts.py`
+  - `tests/python/test_auto_train_business_eval.py`
+  - `docs/02-user-guide/auto-train-on-training-machine.md`
+  - `docs/04-project-development/05-development-process/autonomous-training-task-breakdown.md`
+  - `.factory/memory/current-state.md`
+  - `.factory/memory/change-summary.md`
+- 当前已完成的目标：
+  - `group2` 商业测试失败 case 当前会额外输出：
+    - `trials/<trial_id>/business_eval/failure_overlays/<case_id>.png`
+  - 当前证据图生成规则为：
+    - 以原始 `master_image` 为底图
+    - 把原始 `tile_image` 按模型预测框位置缩放后贴回背景图
+  - 当前 `BusinessEvalCaseRecord` 已新增 `artifacts` 字段
+  - 当前 `business_eval.md` / `business_eval.log` 会写出失败证据图路径，便于直接追踪到单题可视化产物
+- 已运行验证：
+  - `uv run python -m unittest tests.python.test_auto_train_business_eval`
+  - `uv run python -m unittest tests.python.test_auto_train_controller tests.python.test_auto_train_cli`
+
+## 2026-04-10 新增 `auto-train business_eval` 需求拆解：失败样本证据图与 `0.90` 默认成功率门槛
+
+- 已更新：
+  - `docs/04-project-development/05-development-process/autonomous-training-task-breakdown.md`
+  - `.factory/memory/current-state.md`
+  - `.factory/memory/change-summary.md`
+- 当前已完成的目标：
+  - 在自主训练任务拆解文档中新增：
+    - `TASK-AT-EXAM-007`：每个 `group2` 商业测试失败样本输出“tile 贴到模型预测位置”的背景图证据
+    - `TASK-AT-EXAM-008`：把默认商业测试成功率门槛改为 `0.90`
+  - 当前已明确：
+    - `--business-eval-success-threshold` 外部参数覆盖能力已经存在
+    - 但默认值尚未实施改成 `0.90`
+  - 当前还明确冻结了新增验收标准：
+    - 失败样本证据图必须可追踪到 `business_eval.md / log / commercial_report`
+    - 门槛变化后的旧 study 必须按最新门槛重跑一次商业测试
+
 ## 2026-04-10 重构 `group2` 商业测试偏差规则：改为 `X/Y` 方向分别容差，不再用中心点总距离判通过
 
 - 已更新：

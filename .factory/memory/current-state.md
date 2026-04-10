@@ -17,6 +17,39 @@
 
 ## 当前事实
 
+- 2026-04-10 当前 `group2` 自动训练的综合排序已改为明显的 business-first 权重：
+  - 当前综合分公式改为：
+    - `ranking_score = offline_score * difficulty_score * 0.8 + business_component * 2.0`
+  - 当前 `business_component` 仍定义为：
+    - `business_success_rate * 0.75 + (commercial_ready ? 0.25 : 0.0)`
+  - 当前这意味着：
+    - 商业测试通过率和 `commercial_ready` 会明显强于离线分与难度分
+    - `leaderboard.json / best_trial.json` 会更优先把高 business score 的 trial 视为最佳候选
+- 2026-04-10 当前 `group2` 选中轮次缺少 `best.pt` 的修复逻辑已改为“trial 级总分比较 + 选中轮次提升 `last.pt`”：
+  - 当前不再引入额外的 epoch 级 baseline 重算逻辑
+  - 当前做法改为：
+    - 先按新的 business-first 公式重算每一轮 `ranking_score`
+    - 如果当前 trial 成为 `leaderboard.best_entry`
+    - 且当前 trial 缺少 `weights/best.pt`、但存在 `weights/last.pt`
+    - 就把当前 trial 的 `last.pt` 提升为当前 trial 的 `best.pt`
+  - 当前这意味着：
+    - `best.pt` 的选择基于“上一轮总分 vs 当前轮总分”
+    - 不再用来源 run 的旧 `best_score` 和当前 run 的 epoch 分数做跨数据集比较
+
+- 2026-04-10 当前 `TASK-AT-EXAM-007` 已实施完成，`group2` 商业测试失败样本会额外输出“tile 贴到模型预测位置”的背景图证据：
+  - 当前落盘位置：
+    - `trials/<trial_id>/business_eval/failure_overlays/<case_id>.png`
+  - 当前生成规则：
+    - 使用原始 `master_image`
+    - 按模型预测框位置把原始 `tile_image` 贴回背景图
+  - 当前报告出口：
+    - `business_eval.md`
+    - `business_eval.log`
+  - 当前已验证：
+    - `uv run python -m unittest tests.python.test_auto_train_business_eval`
+- 2026-04-10 当前 `TASK-AT-EXAM-008` 已实施完成：
+  - 当前默认 `business_eval_success_threshold` 已改为 `0.90`
+  - 当前 CLI 已支持 `--business-eval-success-threshold <ratio>`，可按 study/run 显式覆盖
 - 2026-04-10 当前 `group2` 商业测试的 `point_tolerance_px` 语义已从“中心点总距离容差”改为“X/Y 方向分别容差”：
   - 之前 `group2` 单题判卷把 `point_tolerance_px` 解释为：
     - `center_error_px <= tolerance`
@@ -77,7 +110,7 @@
 - 2026-04-10 当前 `auto-train` 商业测试默认门已继续收紧并补齐权重回退与逐题偏差报告：
   - 当前默认商业抽样题数已从 `30` 改为 `50`
   - 当前默认门槛已改为：
-    - `business_eval_success_threshold = 0.95`
+    - `business_eval_success_threshold = 0.90`
     - `business_eval_min_cases = 50`
     - `business_eval_sample_size = 50`
     - `point_tolerance_px = 5`
@@ -197,7 +230,7 @@
     - 继续调用项目现有 solver 跑预测
     - 再按各自任务语义判卷
   - 当前默认商业门槛已改为：
-    - `business_eval_success_threshold = 0.95`
+    - `business_eval_success_threshold = 0.90`
     - `business_eval_min_cases = 50`
     - `business_eval_sample_size = 50`
     - `point_tolerance_px = 5`
