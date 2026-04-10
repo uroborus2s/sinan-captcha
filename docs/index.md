@@ -121,6 +121,9 @@ mkdocs:
             - title: 模块边界基线
               path: 04-project-development/04-design/module-boundaries.md
               access: private
+            - title: group1 实例匹配重构设计
+              path: 04-project-development/04-design/group1-instance-matching-refactor.md
+              access: private
             - title: 接口与入口基线
               path: 04-project-development/04-design/api-design.md
               access: private
@@ -155,6 +158,9 @@ mkdocs:
               access: private
             - title: 自主训练任务拆解
               path: 04-project-development/05-development-process/autonomous-training-task-breakdown.md
+              access: private
+            - title: group1 实例匹配重构任务拆解
+              path: 04-project-development/05-development-process/group1-instance-matching-refactor-task-breakdown.md
               access: private
             - title: 独立 solver 迁移任务拆解
               path: 04-project-development/05-development-process/standalone-solver-migration-task-breakdown.md

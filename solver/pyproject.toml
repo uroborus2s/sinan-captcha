@@ -8,20 +8,38 @@ version = "0.1.0"
 description = "Standalone Python solver package for click and slider captchas."
 readme = "README.md"
 requires-python = ">=3.12"
-dependencies = []
+dependencies = [
+  "numpy",
+  "onnxruntime",
+  "pillow",
+]
 
 [tool.setuptools]
 package-dir = {"" = "src"}
+py-modules = [
+  "sinanz",
+  "sinanz_errors",
+  "sinanz_group2_runtime",
+  "sinanz_group2_service",
+  "sinanz_image_io",
+  "sinanz_resources",
+  "sinanz_types",
+]
 include-package-data = true
 
-[tool.setuptools.packages.find]
-where = ["src"]
-
-[tool.setuptools.package-data]
-sinanz = [
-  "py.typed",
-  "resources/models/*",
-  "resources/metadata/*",
+[tool.setuptools.data-files]
+"resources" = ["resources/manifest.json"]
+"resources/metadata" = [
+  "resources/metadata/README.md",
+  "resources/metadata/class_names.json",
+  "resources/metadata/click_matcher.json",
+  "resources/metadata/export_report.json",
+  "resources/metadata/slider_gap_locator.json",
+]
+"resources/models" = [
+  "resources/models/README.md",
+  "resources/models/slider_gap_locator.onnx",
+  "resources/models/slider_gap_locator.onnx.data",
 ]
 
 [tool.pytest.ini_options]
@@ -38,16 +56,13 @@ select = ["E", "F", "I", "UP", "B"]
 
 [tool.mypy]
 python_version = "3.12"
-packages = ["sinanz"]
+files = ["src", "tests"]
 strict = true
 warn_unused_configs = true
 
 [tool.sinanz]
 public_api = ["sn_match_slider", "sn_match_targets"]
-native_extension_dir = "native/sinanz_ext"
-native_extension_module = "sinanz_ext"
-native_bridge_module = "sinanz.native_bridge"
-runtime_target = "rust-onnxruntime"
+runtime_target = "python-onnxruntime"
 
 [dependency-groups]
 dev = [

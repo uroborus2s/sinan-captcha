@@ -140,10 +140,16 @@ class ModelTestResult:
     def render_console_report(self) -> str:
         metric_lines = _render_metric_lines(self.task, self.metrics)
         next_actions = "\n".join(f"- {item}" for item in self.next_actions)
+        workflow_line = ""
+        if self.task == "group1":
+            workflow_line = "- 本次重点验证最终位置挑选：query parser + scene detector + matcher。"
+        elif self.task == "group2":
+            workflow_line = "- 本次重点验证最终定位结果，而不是单纯看中间特征。"
         return "\n".join(
             [
                 "模型测试完成",
                 f"- 专项：{self.task}",
+                *([workflow_line] if workflow_line else []),
                 f"- 数据版本：{self.dataset_version}",
                 f"- 训练版本：{self.train_name}",
                 f"- 主权重文件：{self.model_path}",
@@ -662,6 +668,11 @@ def _render_markdown(result: ModelTestResult) -> str:
         f"- {result.verdict_title}",
         f"- {result.verdict_detail}",
         "- 这是一份入门级阅读口径，方便你先判断“这轮值不值得继续”。",
+        *(
+            ["- 这次重点验证最终位置挑选链路：query parser + scene detector + matcher。"]
+            if result.task == "group1"
+            else []
+        ),
         "",
         "## 本次测试做了什么",
         "",

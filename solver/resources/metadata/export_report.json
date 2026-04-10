@@ -1,0 +1,17 @@
+{
+  "asset_format": "sinan.solver.assets.v1",
+  "asset_version": "20260410-group2",
+  "group1_run": "",
+  "group2_run": "reviewed-v1-best",
+  "exported_at": "2026-04-10T09:22:09Z",
+  "runtime_target": "python-onnxruntime",
+  "exported_models": [
+    {
+      "model_id": "slider_gap_locator",
+      "source_checkpoint": "materials/solver/group2/best.pt",
+      "exported_model_path": "models/slider_gap_locator.onnx",
+      "exported_metadata_path": "metadata/slider_gap_locator.json",
+      "sha256": "7f45f3c0a87aa95999af8342ab91ee6378f5c90a25a8a978e91bbca2917ceb55"
+    }
+  ]
+}

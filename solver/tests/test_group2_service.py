@@ -5,11 +5,11 @@ import unittest
 from pathlib import Path
 from unittest.mock import Mock, patch
 
-from sinanz.group2.service import solve_slider_gap
+from sinanz_group2_service import solve_slider_gap
 
 
 class Group2ServiceTest(unittest.TestCase):
-    def test_solve_slider_gap_uses_native_bridge_and_maps_business_result(self) -> None:
+    def test_solve_slider_gap_uses_python_runtime_and_maps_business_result(self) -> None:
         with tempfile.TemporaryDirectory() as tmpdir:
             root = Path(tmpdir)
             background = root / "background.png"
@@ -21,11 +21,12 @@ class Group2ServiceTest(unittest.TestCase):
             model_path.parent.mkdir(parents=True, exist_ok=True)
             model_path.write_bytes(b"onnx")
 
-            native_result = Mock()
-            native_result.target_bbox = (80, 24, 120, 64)
-            native_result.execution_provider = "CPUExecutionProvider"
+            runtime_result = Mock()
+            runtime_result.target_bbox = (80, 24, 120, 64)
+            runtime_result.execution_provider = "CPUExecutionProvider"
+            runtime_result.runtime_target = "python-onnxruntime"
 
-            with patch("sinanz.group2.service.native_bridge.match_slider_gap", return_value=native_result) as match_mock:
+            with patch("sinanz_group2_service.group2_runtime.match_slider_gap", return_value=runtime_result) as match_mock:
                 result = solve_slider_gap(
                     background_image=background,
                     puzzle_piece_image=tile,
@@ -46,6 +47,7 @@ class Group2ServiceTest(unittest.TestCase):
             self.assertEqual(result.puzzle_piece_offset, (72, 12))
             self.assertIsNotNone(result.debug)
             self.assertIn("provider=CPUExecutionProvider", result.debug.notes)
+            self.assertIn("runtime=python-onnxruntime", result.debug.notes)
             self.assertIn("model=slider_gap_locator.onnx", result.debug.notes)
 
 

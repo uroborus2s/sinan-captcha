@@ -153,11 +153,13 @@ class ModelTestServiceTests(unittest.TestCase):
             summary_md = (report_dir / "summary.md").read_text(encoding="utf-8")
             self.assertIn("初学者结论", summary_md)
             self.assertIn("这轮双模型点击流水线已经比较稳", summary_md)
+            self.assertIn("位置挑选", summary_md)
             self.assertIn("整组命中率", summary_md)
             self.assertIn("顺序错误率", summary_md)
             self.assertIn(str(project_dir / "predict_firstpass"), summary_md)
             console_report = result.render_console_report()
             self.assertIn("模型测试完成", console_report)
+            self.assertIn("位置挑选", console_report)
             self.assertIn("下一步建议", console_report)
 
     def test_group2_model_test_runs_predict_and_evaluate_and_writes_beginner_report(self) -> None:

@@ -50,6 +50,12 @@ class ExportGroup2SolverAssetsResult:
     export_report_path: Path
 
 
+@dataclass(frozen=True)
+class ExportedOnnxInfo:
+    image_size: int
+    opset: int
+
+
 def export_group2_solver_assets(request: ExportGroup2SolverAssetsRequest) -> ExportGroup2SolverAssetsResult:
     exported_at = request.exported_at or _utc_now()
     model_dir = request.output_dir / "models"
@@ -58,7 +64,7 @@ def export_group2_solver_assets(request: ExportGroup2SolverAssetsRequest) -> Exp
     metadata_dir.mkdir(parents=True, exist_ok=True)
 
     model_path = model_dir / MODEL_FILENAMES[GROUP2_MODEL_ID]
-    imgsz = _export_group2_onnx_from_checkpoint(
+    exported_onnx = _export_group2_onnx_from_checkpoint(
         checkpoint_path=request.group2_checkpoint,
         output_path=model_path,
         opset=request.opset,
@@ -67,10 +73,10 @@ def export_group2_solver_assets(request: ExportGroup2SolverAssetsRequest) -> Exp
         model_id=GROUP2_MODEL_ID,
         task="group2",
         component=GROUP2_COMPONENT,
-        opset=request.opset,
+        opset=exported_onnx.opset,
         input_names=GROUP2_INPUT_NAMES,
         output_names=GROUP2_OUTPUT_NAMES,
-        image_size=(imgsz, imgsz),
+        image_size=(exported_onnx.image_size, exported_onnx.image_size),
         postprocess=GROUP2_POSTPROCESS,
     )
     model_metadata_path = request.output_dir / model_asset.metadata_path()
@@ -156,7 +162,7 @@ def _write_group1_pending_metadata(metadata_dir: Path) -> None:
     )
 
 
-def _export_group2_onnx_from_checkpoint(*, checkpoint_path: Path, output_path: Path, opset: int) -> int:
+def _export_group2_onnx_from_checkpoint(*, checkpoint_path: Path, output_path: Path, opset: int) -> ExportedOnnxInfo:
     torch, model_cls = _load_group2_export_backend()
     checkpoint = _load_torch_checkpoint(torch, checkpoint_path)
     imgsz = int(checkpoint.get("imgsz", 192))
@@ -167,20 +173,30 @@ def _export_group2_onnx_from_checkpoint(*, checkpoint_path: Path, output_path: P
     tile_extent = max(16, imgsz // 4)
     master = torch.zeros((1, 1, imgsz, imgsz), dtype=torch.float32)
     tile = torch.zeros((1, 1, tile_extent, tile_extent), dtype=torch.float32)
+    dynamic_shapes = {
+        "master": {0: 1, 1: 1, 2: imgsz, 3: imgsz},
+        "tile": {
+            0: 1,
+            1: 1,
+            2: torch.export.Dim("tile_h", min=16, max=max(16, imgsz)),
+            3: torch.export.Dim("tile_w", min=16, max=max(16, imgsz)),
+        },
+    }
     output_path.parent.mkdir(parents=True, exist_ok=True)
     torch.onnx.export(
         model,
         (master, tile),
         output_path,
+        dynamo=True,
         input_names=list(GROUP2_INPUT_NAMES),
         output_names=list(GROUP2_OUTPUT_NAMES),
-        dynamic_axes={
-            "tile_image": {2: "tile_height", 3: "tile_width"},
-            "response_map": {2: "response_height", 3: "response_width"},
-        },
+        dynamic_shapes=dynamic_shapes,
         opset_version=opset,
     )
-    return imgsz
+    return ExportedOnnxInfo(
+        image_size=imgsz,
+        opset=_read_exported_model_opset(output_path),
+    )
 
 
 def _load_group2_export_backend() -> tuple[Any, type[Any]]:
@@ -240,6 +256,17 @@ def _sha256_hex(path: Path) -> str:
         for chunk in iter(lambda: handle.read(65536), b""):
             hasher.update(chunk)
     return hasher.hexdigest()
+
+
+def _read_exported_model_opset(path: Path) -> int:
+    try:
+        onnx = importlib.import_module("onnx")
+    except ModuleNotFoundError as exc:  # pragma: no cover - environment dependent
+        raise ValueError("group2 ONNX export requires `onnx` to inspect the exported model opset.") from exc
+    model = onnx.load(path)
+    if not model.opset_import:
+        raise ValueError(f"exported ONNX model has no opset_import entries: {path}")
+    return int(model.opset_import[0].version)
 
 
 def _utc_now() -> str:

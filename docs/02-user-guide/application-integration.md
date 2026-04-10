@@ -34,6 +34,8 @@ solver = CaptchaSolver(
 
 `asset_root` 应指向包含模型文件的目录。普通业务接入通常不需要它。
 
+当前 `sinanz` 是纯 Python 包，滑块推理通过 Python `onnxruntime` 执行，不依赖额外的 Rust 扩展。
+
 ## 3. `sn_match_slider(...)`
 
 示例：
@@ -151,7 +153,7 @@ class CaptchaSolverGateway:
 | --- | --- |
 | `SolverInputError` | 图片路径不存在，或者传入了当前运行时不支持的图片类型。 |
 | `SolverAssetError` | 模型资产缺失、路径错误或资产版本不兼容。 |
-| `SolverRuntimeError` | 推理运行时不可用、模型无法加载，或当前 wheel 尚未提供某个专项的运行时。 |
+| `SolverRuntimeError` | 推理运行时不可用、`onnxruntime` 无法加载、模型无法读取，或当前 wheel 尚未提供某个专项的运行时。 |
 
 ## 7. 业务侧测试建议
 

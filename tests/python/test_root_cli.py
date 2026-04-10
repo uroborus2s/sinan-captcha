@@ -40,6 +40,15 @@ class RootCliTests(unittest.TestCase):
         self.assertEqual(code, 0)
         handler.assert_called_once_with("core.ops.setup_train", ["--yes"])
 
+    def test_dispatches_materials_audit_group1_query(self) -> None:
+        with patch("core.cli._run_command", return_value=0) as handler:
+            code = cli.main(["materials", "audit-group1-query", "--query-dir", "query", "--model", "qwen2.5vl:7b"])
+        self.assertEqual(code, 0)
+        handler.assert_called_once_with(
+            "core.materials.query_audit_cli",
+            ["--query-dir", "query", "--model", "qwen2.5vl:7b"],
+        )
+
     def test_dispatches_release_build(self) -> None:
         with patch("core.cli._run_command", return_value=0) as handler:
             code = cli.main(["release", "build", "--project-dir", "."])

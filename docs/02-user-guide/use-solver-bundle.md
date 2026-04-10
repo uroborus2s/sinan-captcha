@@ -39,6 +39,8 @@ uv pip install sinanz
 python -c "from sinanz import sn_match_slider, sn_match_targets; print('ok')"
 ```
 
+当前 `sinanz` 是纯 Python 包，滑块专项运行时依赖 `onnxruntime`。维护者发布的 wheel 会把模型资产一起带上，但不会附带独立的 Rust 扩展。
+
 ## 3. 两个公开业务入口
 
 ### 3.1 滑块验证码
@@ -107,6 +109,7 @@ solver = CaptchaSolver(
 - 不要让业务应用直接读取训练目录 `datasets/`、`runs/` 或 `weights/`。
 - 不要让业务应用直接调用训练仓库内部的 `core.solve`。
 - 如果维护者提供的是内嵌模型的 wheel，业务代码不需要手工传模型路径。
+- 如果你自己从源码安装，确保 `onnxruntime` 能正常安装到当前 Python 环境。
 
 下一页继续读：
 

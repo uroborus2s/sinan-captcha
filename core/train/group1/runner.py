@@ -13,7 +13,7 @@ from core.common.jsonl import write_jsonl
 from core.inference.service import map_group1_clicks
 from core.train.base import prepare_dataset_yaml_for_ultralytics
 from core.train.group1.dataset import load_group1_dataset_config, load_group1_rows, resolve_group1_path
-from core.train.group1.service import QUERY_COMPONENT, SCENE_COMPONENT
+from core.train.group1.service import ALL_COMPONENTS, QUERY_COMPONENT, SCENE_COMPONENT
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -24,8 +24,9 @@ def build_parser() -> argparse.ArgumentParser:
     train_parser.add_argument("--dataset-config", type=Path, required=True)
     train_parser.add_argument("--project", type=Path, required=True)
     train_parser.add_argument("--name", required=True)
-    train_parser.add_argument("--scene-model", default="yolo26n.pt")
-    train_parser.add_argument("--query-model", default="yolo26n.pt")
+    train_parser.add_argument("--component", choices=[ALL_COMPONENTS, SCENE_COMPONENT, QUERY_COMPONENT], default=ALL_COMPONENTS)
+    train_parser.add_argument("--scene-model", default=None)
+    train_parser.add_argument("--query-model", default=None)
     train_parser.add_argument("--epochs", type=int, default=120)
     train_parser.add_argument("--batch", type=int, default=16)
     train_parser.add_argument("--imgsz", type=int, default=640)
@@ -65,32 +66,63 @@ def _run_train(args: argparse.Namespace) -> None:
     run_dir = args.project / args.name
     run_dir.mkdir(parents=True, exist_ok=True)
 
-    scene_yaml = prepare_dataset_yaml_for_ultralytics(dataset_config.components["scene_detector"].dataset_yaml)
-    query_yaml = prepare_dataset_yaml_for_ultralytics(dataset_config.components["query_parser"].dataset_yaml)
-    commands = {
-        SCENE_COMPONENT: _build_train_command(
+    commands: dict[str, list[str]] = {}
+    component_summaries: dict[str, dict[str, Any]] = {}
+
+    if args.component in {ALL_COMPONENTS, SCENE_COMPONENT}:
+        scene_model = _resolve_component_model(
+            component=SCENE_COMPONENT,
+            model=args.scene_model,
+            resume=args.resume,
+        )
+        scene_yaml = prepare_dataset_yaml_for_ultralytics(dataset_config.components["scene_detector"].dataset_yaml)
+        commands[SCENE_COMPONENT] = _build_train_command(
             dataset_yaml=scene_yaml,
             project_dir=run_dir,
             run_name=SCENE_COMPONENT,
-            model=args.scene_model,
+            model=scene_model,
             epochs=args.epochs,
             batch=args.batch,
             imgsz=args.imgsz,
             device=args.device,
             resume=args.resume,
-        ),
-        QUERY_COMPONENT: _build_train_command(
+        )
+        component_summaries[SCENE_COMPONENT] = {
+            "dataset_yaml": str(scene_yaml),
+            "weights": {
+                "best": str(run_dir / SCENE_COMPONENT / "weights" / "best.pt"),
+                "last": str(run_dir / SCENE_COMPONENT / "weights" / "last.pt"),
+            },
+            "command": " ".join(commands[SCENE_COMPONENT]),
+        }
+
+    if args.component in {ALL_COMPONENTS, QUERY_COMPONENT}:
+        query_model = _resolve_component_model(
+            component=QUERY_COMPONENT,
+            model=args.query_model,
+            resume=args.resume,
+        )
+        query_yaml = prepare_dataset_yaml_for_ultralytics(dataset_config.components["query_parser"].dataset_yaml)
+        commands[QUERY_COMPONENT] = _build_train_command(
             dataset_yaml=query_yaml,
             project_dir=run_dir,
             run_name=QUERY_COMPONENT,
-            model=args.query_model,
+            model=query_model,
             epochs=args.epochs,
             batch=args.batch,
             imgsz=args.imgsz,
             device=args.device,
             resume=args.resume,
-        ),
-    }
+        )
+        component_summaries[QUERY_COMPONENT] = {
+            "dataset_yaml": str(query_yaml),
+            "weights": {
+                "best": str(run_dir / QUERY_COMPONENT / "weights" / "best.pt"),
+                "last": str(run_dir / QUERY_COMPONENT / "weights" / "last.pt"),
+            },
+            "command": " ".join(commands[QUERY_COMPONENT]),
+        }
+
     for command in commands.values():
         subprocess.run(command, check=True)
 
@@ -98,24 +130,8 @@ def _run_train(args: argparse.Namespace) -> None:
         "task": "group1",
         "dataset_config": str(args.dataset_config),
         "run_dir": str(run_dir),
-        "components": {
-            SCENE_COMPONENT: {
-                "dataset_yaml": str(scene_yaml),
-                "weights": {
-                    "best": str(run_dir / SCENE_COMPONENT / "weights" / "best.pt"),
-                    "last": str(run_dir / SCENE_COMPONENT / "weights" / "last.pt"),
-                },
-                "command": " ".join(commands[SCENE_COMPONENT]),
-            },
-            QUERY_COMPONENT: {
-                "dataset_yaml": str(query_yaml),
-                "weights": {
-                    "best": str(run_dir / QUERY_COMPONENT / "weights" / "best.pt"),
-                    "last": str(run_dir / QUERY_COMPONENT / "weights" / "last.pt"),
-                },
-                "command": " ".join(commands[QUERY_COMPONENT]),
-            },
-        },
+        "requested_component": args.component,
+        "components": component_summaries,
     }
     (run_dir / "summary.json").write_text(json.dumps(summary, ensure_ascii=False, indent=2), encoding="utf-8")
 
@@ -224,6 +240,14 @@ def _build_train_command(
         f"project={project_dir}",
         f"name={run_name}",
     ]
+
+
+def _resolve_component_model(*, component: str, model: str | None, resume: bool) -> str:
+    if model is not None:
+        return model
+    if resume:
+        raise RuntimeError(f"{component} 恢复训练缺少对应检查点。")
+    return "yolo26n.pt"
 
 
 def _serialize_detections(result: Any, *, ordered: bool) -> list[dict[str, Any]]:

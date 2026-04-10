@@ -36,17 +36,18 @@ D:\sinan-captcha-generator\workspace
 一个最小可用的素材包目录结构如下：
 
 ```text
-D:\materials-pack\
+D:\materials-pack-v3\
   backgrounds\
     bg_001.png
     bg_002.jpg
   group1\
     icons\
-      icon_house\
-        001.png
-        002.png
-      icon_leaf\
-        001.png
+      tpl_house\
+        var_real_cluster_040_01.png
+        var_lucide_outline.png
+      tpl_flag\
+        var_real_cluster_004_01.png
+        var_tabler_outline.png
   group2\
     shapes\
       shape_badge\
@@ -55,7 +56,7 @@ D:\materials-pack\
         001.png
   manifests\
     materials.yaml
-    group1.classes.yaml
+    group1.templates.yaml
     group2.shapes.yaml
 ```
 
@@ -64,11 +65,12 @@ D:\materials-pack\
 - `backgrounds/`
   - 背景图素材。
   - 支持 `.png`、`.jpg`、`.jpeg`。
-- `group1/icons/<class_name>/`
-  - 点选任务专用图标池。
-  - 每个子目录代表 1 个点选类别。
-  - 目录名必须和 `group1.classes.yaml` 中的 `name` 一致。
-  - 最好使用透明背景 PNG。
+- `group1/icons/<template_id>/`
+  - 点选任务专用图标模板池。
+  - 每个子目录代表 1 个模板族，不再代表旧的类别目录。
+  - 目录名必须和 `group1.templates.yaml` 中的 `template_id` 一致。
+  - 目录中的每个文件名必须直接等于 `variant_id`，例如 `var_tabler_outline.png`。
+  - 只接受透明背景 PNG。
 - `group2/shapes/<shape_name>/`
   - 滑块缺口任务专用形状池。
   - 每个子目录代表 1 种缺口形状模板。
@@ -77,9 +79,10 @@ D:\materials-pack\
   - 边缘越干净，生成出来的缺口越稳定。
 - `manifests/materials.yaml`
   - 素材包 schema 元信息。
-- `manifests/group1.classes.yaml`
-  - 点选类别清单。
-  - 决定有哪些 `group1/icons/<class_name>/` 目录必须存在。
+- `manifests/group1.templates.yaml`
+  - 点选模板清单。
+  - 决定有哪些 `group1/icons/<template_id>/` 目录必须存在。
+  - 决定每个目录下应有哪些 `variant_id` 文件。
 - `manifests/group2.shapes.yaml`
   - 缺口形状清单。
   - 决定有哪些 `group2/shapes/<shape_name>/` 目录必须存在。
@@ -87,19 +90,45 @@ D:\materials-pack\
 `materials.yaml` 示例：
 
 ```yaml
-schema_version: 2
+schema_version: 3
 ```
 
-`group1.classes.yaml` 示例：
+`group1.templates.yaml` 示例：
 
 ```yaml
-classes:
-  - id: 0
-    name: icon_house
+schema_version: 3
+task: group1
+mode: instance_matching
+
+templates:
+  - template_id: tpl_house
     zh_name: 房子
-  - id: 1
-    name: icon_leaf
-    zh_name: 叶子
+    family: building
+    tags: [house, home]
+    status: active
+    variants:
+      - variant_id: var_real_cluster_040_01
+        source: real_query
+        source_ref: cluster_040_01
+        style: captured
+      - variant_id: var_lucide_outline
+        source: lucide
+        source_ref: house
+        style: outline
+  - template_id: tpl_flag
+    zh_name: 旗帜
+    family: symbol
+    tags: [flag, banner]
+    status: active
+    variants:
+      - variant_id: var_real_cluster_004_01
+        source: real_query
+        source_ref: cluster_004_01
+        style: captured
+      - variant_id: var_tabler_outline
+        source: tabler
+        source_ref: flag
+        style: outline
 ```
 
 `group2.shapes.yaml` 示例：
@@ -116,33 +145,63 @@ shapes:
 
 字段说明：
 
-- `id`
-  - 素材条目 ID。
-  - `group1` 会写进点选标签；`group2` 主要用于素材管理和审查。
-- `name`
-  - 条目英文名，同时也是对应目录名。
-- `zh_name`
-  - 中文名，方便人工阅读和审查。
+- `template_id`
+  - `group1` 模板目录名。
+  - 固定格式：`tpl_<snake_case>`。
+- `variant_id`
+  - 模板内单个图像版本的正式 ID。
+  - 固定格式：`var_<snake_case>`。
+- `asset_id`
+  - 不由人工填写。
+  - 导入器会按 `asset_<template_id>__<variant_id>` 自动生成。
+- `zh_name / family / tags / source / source_ref / style / status`
+  - 素材治理字段。
+  - 用于人工审核、追溯和后续补齐，不作为旧 `class_id` 替代物。
 
 不要再把点选图标和缺口形状放在同一个目录里。当前生成器会严格按 `group1/icons/` 和 `group2/shapes/` 两个池子分别读取。
 
-## 3.1 旧素材包怎么迁移
+## 3.1 `group1` 旧素材结构已经废弃
+
+以下旧结构已经废弃，不再导入，也不会保留兼容：
+
+- `manifests/group1.classes.yaml`
+- `group1/icons/<class_name>/`
+- `001.png / 002.png` 这类无正式 `variant_id` 的文件名
+
+你现在应该直接准备：
+
+- `group1/icons/<template_id>/<variant_id>.png`
+- `manifests/group1.templates.yaml`
+
+命名规范：
+
+```text
+tpl_flag
+var_real_cluster_004_01.png
+var_tabler_outline.png
+var_tabler_filled.png
+```
+
+## 3.2 旧素材包怎么迁移
 
 如果你手上还是旧布局，至少要做下面 4 个调整：
 
-- 把旧的点选图标目录迁到 `group1/icons/<class_name>/`
+- 把旧的点选图标目录按模板重组到 `group1/icons/<template_id>/`
+- 把目录内文件统一改名成 `variant_id.png`
 - 把旧的缺口形状目录迁到 `group2/shapes/<shape_name>/`
-- 把旧的点选类别清单改名成 `manifests/group1.classes.yaml`
+- 把旧的点选类别清单替换成 `manifests/group1.templates.yaml`
 - 新增 `manifests/group2.shapes.yaml`，把缺口形状清单单独维护
 
 最常见的迁移映射：
 
 ```text
 旧结构                          新结构
-icons/icon_house/         ->    group1/icons/icon_house/
-icons/icon_leaf/          ->    group1/icons/icon_leaf/
+group1/icons/icon_flag/real_cluster_004_01.png
+                           ->    group1/icons/tpl_flag/var_real_cluster_004_01.png
+group1/icons/icon_flag/tabler_outline_flag.png
+                           ->    group1/icons/tpl_flag/var_tabler_outline.png
 shapes/shape_badge/       ->    group2/shapes/shape_badge/
-classes.yaml              ->    manifests/group1.classes.yaml
+classes.yaml              ->    manifests/group1.templates.yaml
 ```
 
 如果你已经把 `group1` 和 `group2` 素材拆成两个独立包，也可以继续用，但要注意下面这条规则：
@@ -173,7 +232,7 @@ Set-Location D:\sinan-captcha-generator
 ```powershell
 .\sinan-generator.exe materials import `
   --workspace D:\sinan-captcha-generator\workspace `
-  --from D:\materials-pack
+  --from D:\materials-pack-v3
 ```
 
 可选参数：
@@ -181,7 +240,7 @@ Set-Location D:\sinan-captcha-generator
 | 参数 | 说明 |
 | --- | --- |
 | `--workspace` | 工作区目录。 |
-| `--from` | 本地素材包目录，目录内部必须包含 `backgrounds/`、`group1/icons/`、`group2/shapes/`、`manifests/materials.yaml`、`manifests/group1.classes.yaml`、`manifests/group2.shapes.yaml`。 |
+| `--from` | 本地素材包目录，目录内部必须包含 `backgrounds/`、`group1/icons/`、`group2/shapes/`、`manifests/materials.yaml`、`manifests/group1.templates.yaml`、`manifests/group2.shapes.yaml`。 |
 | `--name` | 可选素材集名称；不传时默认使用目录名。 |
 | `--task` | 可选。只有当素材包只包含 `group1` 或只包含 `group2` 时才传；可选值是 `group1` 或 `group2`。 |
 
@@ -250,63 +309,28 @@ Set-Location D:\sinan-captcha-generator
 
 ### 5.3 把中转目录增量并入现有素材集
 
-如果你手上不是完整素材包，而是一批零散的新背景图、点选图标和透明缺口图，可以先放到一个中转目录，再用 `materials merge` 直接并进已有素材集根目录。
+`materials merge` 已从正式工作流移除。
 
-中转目录结构：
+原因：
 
-```text
-D:\incoming-materials\
-  backgrounds\
-    bg_001.jpg
-    bg_002.png
-  group1\
-    house.png
-    star.png
-  group2\
-    ticket-gap.png
-    star-gap.png
-```
+- 旧命令默认把零散图片自动折叠成 `class` 目录，和新的 `template/variant` 正式合同冲突。
+- 新工作流要求你在导入前先把素材整理成完整 pack，再用 `materials import` 或 `materials fetch` 进库。
 
-规则说明：
+推荐流程：
 
-- `backgrounds/`
-  - 每个文件都会追加到现有背景池。
-- `group1/`
-  - 当前按“1 张图 = 1 个新类别”处理。
-  - 类别名默认取文件名去扩展名后的结果，例如 `star.png -> star`。
-  - 如果现有素材集里已经有同名类别，会自动补成 `star_002`、`star_003`。
-- `group2/`
-  - 每个透明缺口图都会追加成 1 个新 shape。
-  - shape 名默认取文件名去扩展名后的结果。
-  - 合并时会自动：
-    - 按 alpha 裁掉四周透明边；
-    - 补成方形透明画布；
-    - 写入 `group2/shapes/<shape_name>/001.png`。
-  - 这一步是为了避免细长透明 gap 直接缩放后形状被压扁。
+1. 在本地整理完整 `materials-pack-v3/`
+2. 明确写好 `group1.templates.yaml`
+3. 运行 `materials import`
 
-命令示例：
+示例：
 
 ```powershell
-.\sinan-generator.exe materials merge `
-  --into D:\materials-pack `
-  --from D:\incoming-materials
+.\sinan-generator.exe materials import `
+  --workspace D:\sinan-captcha-generator\workspace `
+  --from D:\materials-pack-v3 `
+  --name group1-pack-v3 `
+  --task group1
 ```
-
-合并后会自动：
-
-- 补齐 `manifests/materials.yaml`
-- 追加 `manifests/group1.classes.yaml`
-- 追加 `manifests/group2.shapes.yaml`
-- 运行当前已存在素材的增量校验
-
-说明：
-
-- `materials merge` 当前不会因为某一类素材暂时为空就整体失败。
-- 例如：
-  - 这次只追加 `group1/` 图标，没有背景图；
-  - 或这次只追加 `backgrounds/`；
-  - 都可以正常执行。
-- 只有真正参与合并且写入后的素材内容损坏、manifest 非法，或没有任何可导入图片时，命令才会失败。
 
 ### 5.4 生成数据时顺手导入素材
 

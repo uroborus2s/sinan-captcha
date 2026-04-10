@@ -10,6 +10,7 @@ from typing import Any
 
 from core.common.images import get_image_size
 from core.common.jsonl import read_jsonl, write_jsonl
+from core.train.base import _ensure_training_dependencies
 from core.train.group1.service import (
     Group1PredictionJob,
     build_group1_prediction_job,
@@ -20,6 +21,8 @@ from core.train.group2.service import (
     build_group2_prediction_job,
     run_group2_prediction_job,
 )
+
+IMAGE_EXTENSIONS = {".png", ".jpg", ".jpeg"}
 
 
 @dataclass(frozen=True)
@@ -45,6 +48,19 @@ class Group2PrelabelRequest:
     project_dir: Path
     run_name: str = "prelabel"
     imgsz: int = 192
+    device: str = "0"
+    limit: int | None = None
+    overwrite: bool = False
+
+
+@dataclass(frozen=True)
+class Group1QueryDirectoryPrelabelRequest:
+    input_dir: Path
+    query_model_path: Path
+    project_dir: Path
+    run_name: str = "prelabel-query"
+    conf: float = 0.25
+    imgsz: int = 640
     device: str = "0"
     limit: int | None = None
     overwrite: bool = False
@@ -82,6 +98,54 @@ class Group2PrelabelPlan:
     source_labels_path: Path
 
 
+@dataclass(frozen=True)
+class Group1QueryDirectoryPrelabelPlan:
+    input_dir: Path
+    query_model_path: Path
+    project_dir: Path
+    output_dir: Path
+    run_name: str
+    conf: float
+    imgsz: int
+    device: str
+    limit: int | None
+    overwrite: bool
+
+    def to_dict(self) -> dict[str, object]:
+        return {
+            "input_dir": str(self.input_dir),
+            "query_model_path": str(self.query_model_path),
+            "project_dir": str(self.project_dir),
+            "output_dir": str(self.output_dir),
+            "run_name": self.run_name,
+            "conf": self.conf,
+            "imgsz": self.imgsz,
+            "device": self.device,
+            "limit": self.limit,
+            "overwrite": self.overwrite,
+        }
+
+
+@dataclass(frozen=True)
+class Group1QueryDirectoryPrelabelResult:
+    input_dir: Path
+    output_dir: Path
+    prediction_labels_path: Path
+    sample_count: int
+    annotation_count: int
+    model_path: Path
+
+    def to_dict(self) -> dict[str, object]:
+        return {
+            "input_dir": str(self.input_dir),
+            "output_dir": str(self.output_dir),
+            "prediction_labels_path": str(self.prediction_labels_path),
+            "sample_count": self.sample_count,
+            "annotation_count": self.annotation_count,
+            "model_path": str(self.model_path),
+        }
+
+
 def build_group1_prelabel_plan(request: Group1PrelabelRequest) -> Group1PrelabelPlan:
     source_labels_path = _generated_dir(request.exam_root, "group1") / "source.jsonl"
     job = build_group1_prediction_job(
@@ -110,6 +174,24 @@ def build_group2_prelabel_plan(request: Group2PrelabelRequest) -> Group2Prelabel
         device=request.device,
     )
     return Group2PrelabelPlan(prediction_job=job, source_labels_path=source_labels_path)
+
+
+def build_group1_query_directory_prelabel_plan(
+    request: Group1QueryDirectoryPrelabelRequest,
+) -> Group1QueryDirectoryPrelabelPlan:
+    output_dir = request.project_dir / request.run_name
+    return Group1QueryDirectoryPrelabelPlan(
+        input_dir=request.input_dir,
+        query_model_path=request.query_model_path,
+        project_dir=request.project_dir,
+        output_dir=output_dir,
+        run_name=request.run_name,
+        conf=request.conf,
+        imgsz=request.imgsz,
+        device=request.device,
+        limit=request.limit,
+        overwrite=request.overwrite,
+    )
 
 
 def run_group1_prelabel(request: Group1PrelabelRequest) -> PrelabelResult:
@@ -271,6 +353,90 @@ def run_group2_prelabel(request: Group2PrelabelRequest) -> PrelabelResult:
     )
 
 
+def run_group1_query_directory_prelabel(
+    request: Group1QueryDirectoryPrelabelRequest,
+) -> Group1QueryDirectoryPrelabelResult:
+    _ensure_training_dependencies()
+    if not request.input_dir.exists():
+        raise RuntimeError(f"未找到 query 图片目录：{request.input_dir}")
+    if not request.input_dir.is_dir():
+        raise RuntimeError(f"query 输入路径不是目录：{request.input_dir}")
+    if not request.query_model_path.exists():
+        raise RuntimeError(f"未找到 group1 query parser 权重：{request.query_model_path}")
+
+    image_paths = _list_annotation_images(request.input_dir, limit=request.limit)
+    if not image_paths:
+        raise RuntimeError(f"query 图片目录为空：{request.input_dir}")
+    _ensure_query_annotation_targets(image_paths=image_paths, overwrite=request.overwrite)
+
+    try:
+        from ultralytics import YOLO
+    except Exception as exc:  # pragma: no cover - host environment dependent
+        raise RuntimeError(
+            "当前环境缺少 `ultralytics`，无法执行 group1 query 目录预标注。"
+        ) from exc
+
+    model = YOLO(str(request.query_model_path))
+    plan = build_group1_query_directory_prelabel_plan(request)
+    plan.output_dir.mkdir(parents=True, exist_ok=True)
+
+    prediction_rows: list[dict[str, object]] = []
+    for image_path in image_paths:
+        prediction = model.predict(
+            source=str(image_path),
+            imgsz=request.imgsz,
+            conf=request.conf,
+            device=request.device,
+            verbose=False,
+        )[0]
+        detections = _serialize_query_detections(prediction)
+        width, height = get_image_size(image_path)
+        _write_labelme_annotation(
+            request.input_dir / f"{image_path.stem}.json",
+            image_path=image_path.name,
+            image_width=width,
+            image_height=height,
+            shapes=[
+                _build_rectangle_shape(label=str(target["class"]), bbox=_coerce_bbox(target["bbox"]))
+                for target in detections
+            ],
+        )
+        prediction_rows.append(
+            {
+                "image_path": str(image_path),
+                "annotation_path": str(request.input_dir / f"{image_path.stem}.json"),
+                "query_targets": detections,
+                "label_source": "pred",
+            }
+        )
+
+    prediction_labels_path = plan.output_dir / "labels.jsonl"
+    write_jsonl(prediction_labels_path, prediction_rows)
+    (plan.output_dir / "summary.json").write_text(
+        json.dumps(
+            {
+                "task": "group1_query_prelabel",
+                "input_dir": str(request.input_dir),
+                "query_model_path": str(request.query_model_path),
+                "sample_count": len(prediction_rows),
+                "prediction_labels_path": str(prediction_labels_path),
+            },
+            ensure_ascii=False,
+            indent=2,
+        ),
+        encoding="utf-8",
+    )
+
+    return Group1QueryDirectoryPrelabelResult(
+        input_dir=request.input_dir,
+        output_dir=plan.output_dir,
+        prediction_labels_path=prediction_labels_path,
+        sample_count=len(prediction_rows),
+        annotation_count=len(prediction_rows),
+        model_path=request.query_model_path,
+    )
+
+
 def _run_group2_prelabel_predictions(
     *,
     request: Group2PrelabelRequest,
@@ -343,6 +509,17 @@ def _generated_dir(exam_root: Path, task: str) -> Path:
     return exam_root / ".sinan" / "prelabel" / task
 
 
+def _list_annotation_images(input_dir: Path, limit: int | None) -> list[Path]:
+    images = sorted(
+        path
+        for path in input_dir.iterdir()
+        if path.is_file() and path.suffix.lower() in IMAGE_EXTENSIONS
+    )
+    if limit is None or limit >= len(images):
+        return images
+    return images[:limit]
+
+
 def _select_manifest_samples(*, exam_root: Path, expected_task: str, limit: int | None) -> list[dict[str, object]]:
     manifest_path = exam_root / "manifest.json"
     if not manifest_path.exists():
@@ -395,6 +572,18 @@ def _ensure_annotation_targets(*, sample_ids: list[str], annotation_dirs: list[P
                 )
 
 
+def _ensure_query_annotation_targets(*, image_paths: list[Path], overwrite: bool) -> None:
+    if overwrite:
+        return
+    for image_path in image_paths:
+        existing = image_path.with_suffix(".json")
+        if existing.exists():
+            raise RuntimeError(
+                "发现已存在的 query 标注文件，已停止以避免覆盖人工复核结果："
+                f"{existing}\n如确需重跑，请显式传入 --overwrite。"
+            )
+
+
 def _write_labelme_annotation(
     path: Path,
     *,
@@ -434,3 +623,33 @@ def _coerce_bbox(raw_bbox: Any) -> list[int]:
 
 def _bbox_center(bbox: list[int]) -> list[int]:
     return [int(round((bbox[0] + bbox[2]) / 2)), int(round((bbox[1] + bbox[3]) / 2))]
+
+
+def _serialize_query_detections(result: Any) -> list[dict[str, Any]]:
+    boxes = result.boxes
+    if boxes is None:
+        return []
+    names = result.names if isinstance(result.names, dict) else {}
+    detections: list[dict[str, Any]] = []
+    xyxy = boxes.xyxy.tolist()
+    cls_ids = boxes.cls.tolist()
+    confidences = boxes.conf.tolist()
+    for bbox, class_id, score in zip(xyxy, cls_ids, confidences, strict=False):
+        x1, y1, x2, y2 = [int(round(value)) for value in bbox]
+        center_x = int(round((x1 + x2) / 2))
+        center_y = int(round((y1 + y2) / 2))
+        numeric_class_id = int(class_id)
+        class_name = str(names.get(numeric_class_id, numeric_class_id))
+        detections.append(
+            {
+                "class": class_name,
+                "class_id": numeric_class_id,
+                "bbox": [x1, y1, x2, y2],
+                "center": [center_x, center_y],
+                "score": float(score),
+            }
+        )
+    detections.sort(key=lambda item: (int(item["center"][0]), int(item["center"][1])))
+    for order, detection in enumerate(detections, start=1):
+        detection["order"] = order
+    return detections

@@ -190,6 +190,9 @@ func buildQuery(plan sampler.SamplePlan, cfg config.Config) (image.Image, []expo
 		}
 		queryTargets = append(queryTargets, export.ObjectRecord{
 			Order:       order,
+			AssetID:     object.AssetID,
+			TemplateID:  object.TemplateID,
+			VariantID:   object.VariantID,
 			Class:       object.Class,
 			ClassID:     object.ClassID,
 			BBox:        [4]int{rect.Min.X, rect.Min.Y, rect.Max.X, rect.Max.Y},

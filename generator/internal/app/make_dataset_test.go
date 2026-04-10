@@ -45,6 +45,8 @@ func TestMakeDatasetBuildsGroup1TrainingDirectory(t *testing.T) {
 	assertDirHasFiles(t, filepath.Join(trainingDir, ".sinan", "raw", filepath.Base(result.BatchRoot), "scene"))
 	assertDirHasFiles(t, filepath.Join(trainingDir, ".sinan", "raw", filepath.Base(result.BatchRoot), "query"))
 	assertGroup1DatasetJSONReferencesPipelineArtifacts(t, filepath.Join(trainingDir, "dataset.json"))
+	assertGroup1SplitCarriesInstanceIdentity(t, filepath.Join(trainingDir, "splits", "train.jsonl"))
+	assertGroup1RawBatchCarriesInstanceIdentity(t, filepath.Join(trainingDir, ".sinan", "raw", filepath.Base(result.BatchRoot), "labels.jsonl"))
 	if !strings.Contains(result.DatasetConfig, filepath.Join(trainingDir, "dataset.json")) {
 		t.Fatalf("unexpected dataset config path: %s", result.DatasetConfig)
 	}
@@ -365,12 +367,12 @@ func createMaterialsPack(t *testing.T) string {
 	t.Helper()
 	root := filepath.Join(t.TempDir(), "materials")
 	writeMaterialsManifest(t, filepath.Join(root, "manifests", "materials.yaml"))
-	writeGroup1Manifest(t, filepath.Join(root, "manifests", "group1.classes.yaml"))
+	writeGroup1TemplatesManifest(t, filepath.Join(root, "manifests", "group1.templates.yaml"))
 	writeGroup2Manifest(t, filepath.Join(root, "manifests", "group2.shapes.yaml"))
 	writePNG(t, filepath.Join(root, "backgrounds", "bg_001.png"), 320, 180)
 	writePNG(t, filepath.Join(root, "backgrounds", "bg_002.png"), 320, 180)
-	writeMaskIconPNG(t, filepath.Join(root, "group1", "icons", "icon_house", "001.png"), 48, 48)
-	writeMaskIconPNG(t, filepath.Join(root, "group1", "icons", "icon_leaf", "001.png"), 48, 48)
+	writeMaskIconPNG(t, filepath.Join(root, "group1", "icons", "tpl_house", "var_house_001.png"), 48, 48)
+	writeMaskIconPNG(t, filepath.Join(root, "group1", "icons", "tpl_leaf", "var_leaf_001.png"), 48, 48)
 	writeMaskIconPNG(t, filepath.Join(root, "group2", "shapes", "shape_ticket", "001.png"), 48, 48)
 	writeMaskIconPNG(t, filepath.Join(root, "group2", "shapes", "shape_cloud", "001.png"), 48, 48)
 	return root
@@ -380,11 +382,11 @@ func createGroup1OnlyMaterialsPack(t *testing.T) string {
 	t.Helper()
 	root := filepath.Join(t.TempDir(), "materials-group1")
 	writeMaterialsManifest(t, filepath.Join(root, "manifests", "materials.yaml"))
-	writeGroup1Manifest(t, filepath.Join(root, "manifests", "group1.classes.yaml"))
+	writeGroup1TemplatesManifest(t, filepath.Join(root, "manifests", "group1.templates.yaml"))
 	writePNG(t, filepath.Join(root, "backgrounds", "bg_001.png"), 320, 180)
 	writePNG(t, filepath.Join(root, "backgrounds", "bg_002.png"), 320, 180)
-	writeMaskIconPNG(t, filepath.Join(root, "group1", "icons", "icon_house", "001.png"), 48, 48)
-	writeMaskIconPNG(t, filepath.Join(root, "group1", "icons", "icon_leaf", "001.png"), 48, 48)
+	writeMaskIconPNG(t, filepath.Join(root, "group1", "icons", "tpl_house", "var_house_001.png"), 48, 48)
+	writeMaskIconPNG(t, filepath.Join(root, "group1", "icons", "tpl_leaf", "var_leaf_001.png"), 48, 48)
 	return root
 }
 
@@ -404,11 +406,11 @@ func createNamedGroup1MaterialsPack(t *testing.T, name string) string {
 	t.Helper()
 	root := filepath.Join(t.TempDir(), "materials-"+name)
 	writeMaterialsManifest(t, filepath.Join(root, "manifests", "materials.yaml"))
-	writeNamedGroup1Manifest(t, filepath.Join(root, "manifests", "group1.classes.yaml"), name)
+	writeNamedGroup1TemplatesManifest(t, filepath.Join(root, "manifests", "group1.templates.yaml"), name)
 	writePNG(t, filepath.Join(root, "backgrounds", name+"_bg_001.png"), 320, 180)
 	writePNG(t, filepath.Join(root, "backgrounds", name+"_bg_002.png"), 320, 180)
-	writeMaskIconPNG(t, filepath.Join(root, "group1", "icons", name+"_icon_house", name+"_house_001.png"), 48, 48)
-	writeMaskIconPNG(t, filepath.Join(root, "group1", "icons", name+"_icon_leaf", name+"_leaf_001.png"), 48, 48)
+	writeMaskIconPNG(t, filepath.Join(root, "group1", "icons", "tpl_"+name+"_house", "var_"+name+"_house_001.png"), 48, 48)
+	writeMaskIconPNG(t, filepath.Join(root, "group1", "icons", "tpl_"+name+"_leaf", "var_"+name+"_leaf_001.png"), 48, 48)
 	return root
 }
 
@@ -429,25 +431,43 @@ func writeMaterialsManifest(t *testing.T, path string) {
 	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
 		t.Fatalf("mkdir manifest dir: %v", err)
 	}
-	content := "schema_version: 2\n"
+	content := "schema_version: 3\n"
 	if err := os.WriteFile(path, []byte(content), 0o644); err != nil {
 		t.Fatalf("write manifest: %v", err)
 	}
 }
 
-func writeGroup1Manifest(t *testing.T, path string) {
+func writeGroup1TemplatesManifest(t *testing.T, path string) {
 	t.Helper()
 	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
 		t.Fatalf("mkdir manifest dir: %v", err)
 	}
 	content := strings.Join([]string{
-		"classes:",
-		"  - id: 0",
-		"    name: icon_house",
+		"schema_version: 3",
+		"task: group1",
+		"mode: instance_matching",
+		"",
+		"templates:",
+		"  - template_id: tpl_house",
 		"    zh_name: 房子",
-		"  - id: 1",
-		"    name: icon_leaf",
+		"    family: building",
+		"    tags: [house, home]",
+		"    status: active",
+		"    variants:",
+		"      - variant_id: var_house_001",
+		"        source: generator_seed",
+		"        source_ref: house_seed_001",
+		"        style: flat",
+		"  - template_id: tpl_leaf",
 		"    zh_name: 叶子",
+		"    family: nature",
+		"    tags: [leaf]",
+		"    status: active",
+		"    variants:",
+		"      - variant_id: var_leaf_001",
+		"        source: generator_seed",
+		"        source_ref: leaf_seed_001",
+		"        style: flat",
 		"",
 	}, "\n")
 	if err := os.WriteFile(path, []byte(content), 0o644); err != nil {
@@ -475,19 +495,37 @@ func writeGroup2Manifest(t *testing.T, path string) {
 	}
 }
 
-func writeNamedGroup1Manifest(t *testing.T, path string, name string) {
+func writeNamedGroup1TemplatesManifest(t *testing.T, path string, name string) {
 	t.Helper()
 	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
 		t.Fatalf("mkdir manifest dir: %v", err)
 	}
 	content := strings.Join([]string{
-		"classes:",
-		"  - id: 0",
-		"    name: " + name + "_icon_house",
+		"schema_version: 3",
+		"task: group1",
+		"mode: instance_matching",
+		"",
+		"templates:",
+		"  - template_id: tpl_" + name + "_house",
 		"    zh_name: " + name + "_房子",
-		"  - id: 1",
-		"    name: " + name + "_icon_leaf",
+		"    family: building",
+		"    tags: [" + name + ", house]",
+		"    status: active",
+		"    variants:",
+		"      - variant_id: var_" + name + "_house_001",
+		"        source: generator_seed",
+		"        source_ref: " + name + "_house_seed_001",
+		"        style: flat",
+		"  - template_id: tpl_" + name + "_leaf",
 		"    zh_name: " + name + "_叶子",
+		"    family: nature",
+		"    tags: [" + name + ", leaf]",
+		"    status: active",
+		"    variants:",
+		"      - variant_id: var_" + name + "_leaf_001",
+		"        source: generator_seed",
+		"        source_ref: " + name + "_leaf_seed_001",
+		"        style: flat",
 		"",
 	}, "\n")
 	if err := os.WriteFile(path, []byte(content), 0o644); err != nil {
@@ -611,6 +649,52 @@ func assertGroup1DatasetJSONReferencesPipelineArtifacts(t *testing.T, path strin
 	} {
 		if !strings.Contains(text, expected) {
 			t.Fatalf("dataset json missing %s:\n%s", expected, text)
+		}
+	}
+}
+
+func assertGroup1SplitCarriesInstanceIdentity(t *testing.T, path string) {
+	t.Helper()
+	content, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatalf("read split jsonl %s: %v", path, err)
+	}
+	lines := strings.Split(strings.TrimSpace(string(content)), "\n")
+	if len(lines) == 0 || strings.TrimSpace(lines[0]) == "" {
+		t.Fatalf("expected split file %s to contain at least one row", path)
+	}
+	row := map[string]any{}
+	if err := json.Unmarshal([]byte(lines[0]), &row); err != nil {
+		t.Fatalf("parse split row: %v", err)
+	}
+	if _, exists := row["query_items"]; !exists {
+		t.Fatalf("expected split row to use query_items, got %v", row)
+	}
+	items, ok := row["query_items"].([]any)
+	if !ok || len(items) == 0 {
+		t.Fatalf("expected split row query_items to be a non-empty array, got %T", row["query_items"])
+	}
+	first, ok := items[0].(map[string]any)
+	if !ok {
+		t.Fatalf("expected first query item to be an object, got %T", items[0])
+	}
+	for _, field := range []string{"asset_id", "template_id", "variant_id"} {
+		if _, exists := first[field]; !exists {
+			t.Fatalf("expected query item to contain %s, got %v", field, first)
+		}
+	}
+}
+
+func assertGroup1RawBatchCarriesInstanceIdentity(t *testing.T, path string) {
+	t.Helper()
+	content, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatalf("read raw labels %s: %v", path, err)
+	}
+	text := string(content)
+	for _, expected := range []string{`"query_items"`, `"asset_id"`, `"template_id"`, `"variant_id"`} {
+		if !strings.Contains(text, expected) {
+			t.Fatalf("raw labels missing %s:\n%s", expected, text)
 		}
 	}
 }

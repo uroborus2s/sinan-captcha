@@ -82,6 +82,23 @@ class ReleaseCliTests(unittest.TestCase):
         self.assertEqual(request.output_dir, Path("dist/solver-assets/20260405"))
         self.assertEqual(request.asset_version, "20260405")
 
+    def test_dispatches_stage_solver_assets(self) -> None:
+        with patch("core.release.cli.stage_solver_assets") as handler:
+            code = cli.main(
+                [
+                    "stage-solver-assets",
+                    "--project-dir",
+                    ".",
+                    "--asset-dir",
+                    "materials/solver/group2/exported",
+                ]
+            )
+
+        self.assertEqual(code, 0)
+        request = handler.call_args.args[0]
+        self.assertEqual(request.project_dir, Path("."))
+        self.assertEqual(request.asset_dir, Path("materials/solver/group2/exported"))
+
 
 if __name__ == "__main__":
     unittest.main()

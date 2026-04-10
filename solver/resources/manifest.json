@@ -1,0 +1,52 @@
+{
+  "asset_format": "sinan.solver.assets.v1",
+  "asset_version": "20260410-group2",
+  "exported_at": "2026-04-10T09:22:09Z",
+  "runtime": {
+    "target": "python-onnxruntime",
+    "python_package": "sinanz",
+    "preferred_execution_providers": [
+      "CUDAExecutionProvider",
+      "CPUExecutionProvider"
+    ]
+  },
+  "models": {
+    "slider_gap_locator": {
+      "task": "group2",
+      "component": "locator",
+      "format": "onnx",
+      "opset": 18,
+      "path": "models/slider_gap_locator.onnx",
+      "metadata": "metadata/slider_gap_locator.json",
+      "input": {
+        "names": [
+          "master_image",
+          "tile_image"
+        ],
+        "image_size": [
+          192,
+          192
+        ],
+        "layout": "NCHW",
+        "pixel_format": "RGB",
+        "dtype": "float32",
+        "normalization": "zero_to_one"
+      },
+      "output": {
+        "names": [
+          "response_map"
+        ],
+        "postprocess": "paired_gap_bbox_v1"
+      },
+      "preferred_execution_providers": [
+        "CUDAExecutionProvider",
+        "CPUExecutionProvider"
+      ]
+    }
+  },
+  "metadata_files": {
+    "click_matcher": "metadata/click_matcher.json",
+    "class_names": "metadata/class_names.json",
+    "export_report": "metadata/export_report.json"
+  }
+}

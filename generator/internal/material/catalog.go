@@ -11,7 +11,7 @@ import (
 	"strings"
 )
 
-const CurrentSchemaVersion = 2
+const CurrentSchemaVersion = 3
 
 type BackgroundAsset struct {
 	ID     string `json:"id"`
@@ -26,11 +26,26 @@ type ImageAsset struct {
 	Height int    `json:"height"`
 }
 
-type ClassAssets struct {
-	ID     int          `json:"id"`
-	Name   string       `json:"name"`
-	ZhName string       `json:"zh_name"`
-	Icons  []ImageAsset `json:"icons"`
+type Group1VariantAsset struct {
+	AssetID    string `json:"asset_id"`
+	TemplateID string `json:"template_id"`
+	VariantID  string `json:"variant_id"`
+	Source     string `json:"source,omitempty"`
+	SourceRef  string `json:"source_ref,omitempty"`
+	Style      string `json:"style,omitempty"`
+	Path       string `json:"path"`
+	Width      int    `json:"width"`
+	Height     int    `json:"height"`
+}
+
+type Group1TemplateAssets struct {
+	Index      int                  `json:"index"`
+	TemplateID string               `json:"template_id"`
+	ZhName     string               `json:"zh_name"`
+	Family     string               `json:"family,omitempty"`
+	Tags       []string             `json:"tags,omitempty"`
+	Status     string               `json:"status,omitempty"`
+	Variants   []Group1VariantAsset `json:"variants"`
 }
 
 type ShapeAssets struct {
@@ -41,15 +56,15 @@ type ShapeAssets struct {
 }
 
 type Catalog struct {
-	Root              string            `json:"root"`
-	Task              string            `json:"task"`
-	SchemaVersion     int               `json:"schema_version"`
-	MaterialsManifest string            `json:"materials_manifest"`
-	Group1Manifest    string            `json:"group1_manifest"`
-	Group2Manifest    string            `json:"group2_manifest"`
-	Backgrounds       []BackgroundAsset `json:"backgrounds"`
-	Group1Classes     []ClassAssets     `json:"group1_classes,omitempty"`
-	Group2Shapes      []ShapeAssets     `json:"group2_shapes,omitempty"`
+	Root                    string                 `json:"root"`
+	Task                    string                 `json:"task"`
+	SchemaVersion           int                    `json:"schema_version"`
+	MaterialsManifest       string                 `json:"materials_manifest"`
+	Group1TemplatesManifest string                 `json:"group1_templates_manifest"`
+	Group2Manifest          string                 `json:"group2_manifest"`
+	Backgrounds             []BackgroundAsset      `json:"backgrounds"`
+	Group1Templates         []Group1TemplateAssets `json:"group1_templates,omitempty"`
+	Group2Shapes            []ShapeAssets          `json:"group2_shapes,omitempty"`
 }
 
 type MaterialsManifest struct {
@@ -64,11 +79,11 @@ type CatalogEntry struct {
 
 func LoadCatalog(root string, task string) (Catalog, error) {
 	catalog := Catalog{
-		Root:              root,
-		Task:              task,
-		MaterialsManifest: filepath.Join(root, "manifests", "materials.yaml"),
-		Group1Manifest:    filepath.Join(root, "manifests", "group1.classes.yaml"),
-		Group2Manifest:    filepath.Join(root, "manifests", "group2.shapes.yaml"),
+		Root:                    root,
+		Task:                    task,
+		MaterialsManifest:       filepath.Join(root, "manifests", "materials.yaml"),
+		Group1TemplatesManifest: filepath.Join(root, "manifests", "group1.templates.yaml"),
+		Group2Manifest:          filepath.Join(root, "manifests", "group2.shapes.yaml"),
 	}
 
 	manifest, err := LoadMaterialsManifest(catalog.MaterialsManifest)
@@ -88,11 +103,11 @@ func LoadCatalog(root string, task string) (Catalog, error) {
 
 	switch strings.TrimSpace(task) {
 	case "group1":
-		classes, err := LoadGroup1Manifest(catalog.Group1Manifest)
+		manifest, err := LoadGroup1TemplatesManifest(catalog.Group1TemplatesManifest)
 		if err != nil {
 			return catalog, err
 		}
-		catalog.Group1Classes, err = loadClassAssets(root, classes)
+		catalog.Group1Templates, err = loadGroup1TemplateAssets(root, manifest.Templates)
 		if err != nil {
 			return catalog, err
 		}
@@ -133,33 +148,39 @@ func loadBackgrounds(root string) ([]BackgroundAsset, error) {
 	return backgrounds, nil
 }
 
-func loadClassAssets(root string, entries []CatalogEntry) ([]ClassAssets, error) {
-	classes := make([]ClassAssets, 0, len(entries))
-	for _, entry := range entries {
-		iconPaths, err := listImageFiles(filepath.Join(root, "group1", "icons", entry.Name))
-		if err != nil {
-			return nil, err
+func loadGroup1TemplateAssets(root string, entries []Group1TemplateEntry) ([]Group1TemplateAssets, error) {
+	templates := make([]Group1TemplateAssets, 0, len(entries))
+	for index, entry := range entries {
+		templateAssets := Group1TemplateAssets{
+			Index:      index,
+			TemplateID: entry.TemplateID,
+			ZhName:     entry.ZhName,
+			Family:     entry.Family,
+			Tags:       append([]string(nil), entry.Tags...),
+			Status:     entry.Status,
+			Variants:   make([]Group1VariantAsset, 0, len(entry.Variants)),
 		}
-		classAssets := ClassAssets{
-			ID:     entry.ID,
-			Name:   entry.Name,
-			ZhName: entry.ZhName,
-			Icons:  make([]ImageAsset, 0, len(iconPaths)),
-		}
-		for _, iconPath := range iconPaths {
-			width, height, err := imageSize(iconPath)
+		for _, variant := range entry.Variants {
+			variantPath := filepath.Join(root, "group1", "icons", entry.TemplateID, variant.VariantID+".png")
+			width, height, err := imageSize(variantPath)
 			if err != nil {
 				return nil, err
 			}
-			classAssets.Icons = append(classAssets.Icons, ImageAsset{
-				Path:   iconPath,
-				Width:  width,
-				Height: height,
+			templateAssets.Variants = append(templateAssets.Variants, Group1VariantAsset{
+				AssetID:    BuildGroup1AssetID(entry.TemplateID, variant.VariantID),
+				TemplateID: entry.TemplateID,
+				VariantID:  variant.VariantID,
+				Source:     variant.Source,
+				SourceRef:  variant.SourceRef,
+				Style:      variant.Style,
+				Path:       variantPath,
+				Width:      width,
+				Height:     height,
 			})
 		}
-		classes = append(classes, classAssets)
+		templates = append(templates, templateAssets)
 	}
-	return classes, nil
+	return templates, nil
 }
 
 func loadShapeAssets(root string, entries []CatalogEntry) ([]ShapeAssets, error) {
@@ -224,4 +245,13 @@ func imageSize(path string) (int, int, error) {
 		return 0, 0, err
 	}
 	return cfg.Width, cfg.Height, nil
+}
+
+func BuildGroup1AssetID(templateID string, variantID string) string {
+	templateID = strings.TrimSpace(templateID)
+	variantID = strings.TrimSpace(variantID)
+	if templateID == "" || variantID == "" {
+		return ""
+	}
+	return "asset_" + templateID + "__" + variantID
 }

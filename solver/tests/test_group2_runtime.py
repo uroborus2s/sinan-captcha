@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import unittest
 
-from sinanz.group2 import runtime
+import sinanz_group2_runtime as runtime
 
 
 class Group2RuntimeTest(unittest.TestCase):

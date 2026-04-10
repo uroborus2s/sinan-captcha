@@ -10,6 +10,12 @@
   - 点选模式输出到 `materials/group1/`
   - 滑块模式输出到 `materials/result/`
   - 滑块图片当前保存为 `bg.jpg` 和 `gap.jpg`
+  - 当脚本需要把滑块切换到点选模式时，当前会调用本地 `sinanz` solver 计算目标位移，再按模型结果拖动滑块
+  - 当前额外支持 `4=测试滑动` 模式：只做一次 solver 驱动拖动验证
+  - 当前该模式会把 `verify_jigsaw` 的业务响应作为唯一裁决依据：
+    - `risk_info.process_type = NONE` 且 `risk_level = 0` 视为成功
+    - `risk_info.process_type = JIGSAW` 视为失败并继续出滑块题
+  - 当前失败时会打印 `verify_jigsaw` 摘要与页面响应，并保存 `failure.png` 后结束当前浏览器会话
   - `两者都保存` 模式会连续保存滑块组，直到切到点选后再保存一组点选图并结束当前浏览器会话
 - `scripts/organize_group2_gap_shapes.py` 当前用于整理 `materials/result/*/gap.jpg`：
   - 按轮廓特征自动去重

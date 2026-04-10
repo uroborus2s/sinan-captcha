@@ -33,11 +33,11 @@ func TestFetchArchiveImportsZipIntoOfficialMaterials(t *testing.T) {
 	if result.Ref.Name != "official-pack-v1" {
 		t.Fatalf("unexpected name: %s", result.Ref.Name)
 	}
-	if result.Validation.Group1ClassCount != 2 {
-		t.Fatalf("unexpected group1 class count: %d", result.Validation.Group1ClassCount)
+	if result.Validation.Group1TemplateCount != 2 {
+		t.Fatalf("unexpected group1 template count: %d", result.Validation.Group1TemplateCount)
 	}
-	if _, err := os.Stat(filepath.Join(result.Root, "manifests", "group1.classes.yaml")); err != nil {
-		t.Fatalf("expected fetched group1 manifest: %v", err)
+	if _, err := os.Stat(filepath.Join(result.Root, "manifests", "group1.templates.yaml")); err != nil {
+		t.Fatalf("expected fetched group1 templates manifest: %v", err)
 	}
 	if _, err := os.Stat(filepath.Join(result.Root, "manifests", "group2.shapes.yaml")); err != nil {
 		t.Fatalf("expected fetched group2 manifest: %v", err)
@@ -58,8 +58,8 @@ func TestFetchArchiveAcceptsTaskScopedMaterialsPack(t *testing.T) {
 	if err != nil {
 		t.Fatalf("fetch task-scoped archive: %v", err)
 	}
-	if result.Validation.Group1ClassCount != 2 {
-		t.Fatalf("unexpected group1 class count: %d", result.Validation.Group1ClassCount)
+	if result.Validation.Group1TemplateCount != 2 {
+		t.Fatalf("unexpected group1 template count: %d", result.Validation.Group1TemplateCount)
 	}
 	if result.Validation.Group2ShapeCount != 0 {
 		t.Fatalf("expected group2 count to remain 0, got %d", result.Validation.Group2ShapeCount)
@@ -70,11 +70,11 @@ func createMaterialsPack(t *testing.T) string {
 	t.Helper()
 	root := filepath.Join(t.TempDir(), "materials")
 	writeMaterialsManifest(t, filepath.Join(root, "manifests", "materials.yaml"))
-	writeGroup1Manifest(t, filepath.Join(root, "manifests", "group1.classes.yaml"))
+	writeGroup1TemplatesManifest(t, filepath.Join(root, "manifests", "group1.templates.yaml"))
 	writeGroup2Manifest(t, filepath.Join(root, "manifests", "group2.shapes.yaml"))
 	writePNG(t, filepath.Join(root, "backgrounds", "bg_001.png"), 320, 180)
-	writePNG(t, filepath.Join(root, "group1", "icons", "icon_house", "001.png"), 48, 48)
-	writePNG(t, filepath.Join(root, "group1", "icons", "icon_leaf", "001.png"), 48, 48)
+	writePNG(t, filepath.Join(root, "group1", "icons", "tpl_house", "var_real_cluster_040_01.png"), 48, 48)
+	writePNG(t, filepath.Join(root, "group1", "icons", "tpl_leaf", "var_real_cluster_041_01.png"), 48, 48)
 	writePNG(t, filepath.Join(root, "group2", "shapes", "shape_ticket", "001.png"), 48, 48)
 	writePNG(t, filepath.Join(root, "group2", "shapes", "shape_cloud", "001.png"), 48, 48)
 	return root
@@ -84,10 +84,10 @@ func createGroup1OnlyMaterialsPack(t *testing.T) string {
 	t.Helper()
 	root := filepath.Join(t.TempDir(), "materials-group1")
 	writeMaterialsManifest(t, filepath.Join(root, "manifests", "materials.yaml"))
-	writeGroup1Manifest(t, filepath.Join(root, "manifests", "group1.classes.yaml"))
+	writeGroup1TemplatesManifest(t, filepath.Join(root, "manifests", "group1.templates.yaml"))
 	writePNG(t, filepath.Join(root, "backgrounds", "bg_001.png"), 320, 180)
-	writePNG(t, filepath.Join(root, "group1", "icons", "icon_house", "001.png"), 48, 48)
-	writePNG(t, filepath.Join(root, "group1", "icons", "icon_leaf", "001.png"), 48, 48)
+	writePNG(t, filepath.Join(root, "group1", "icons", "tpl_house", "var_real_cluster_040_01.png"), 48, 48)
+	writePNG(t, filepath.Join(root, "group1", "icons", "tpl_leaf", "var_real_cluster_041_01.png"), 48, 48)
 	return root
 }
 
@@ -136,25 +136,43 @@ func writeMaterialsManifest(t *testing.T, path string) {
 	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
 		t.Fatalf("mkdir manifest dir: %v", err)
 	}
-	content := "schema_version: 2\n"
+	content := "schema_version: 3\n"
 	if err := os.WriteFile(path, []byte(content), 0o644); err != nil {
 		t.Fatalf("write manifest: %v", err)
 	}
 }
 
-func writeGroup1Manifest(t *testing.T, path string) {
+func writeGroup1TemplatesManifest(t *testing.T, path string) {
 	t.Helper()
 	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
 		t.Fatalf("mkdir manifest dir: %v", err)
 	}
 	content := strings.Join([]string{
-		"classes:",
-		"  - id: 0",
-		"    name: icon_house",
+		"schema_version: 3",
+		"task: group1",
+		"mode: instance_matching",
+		"",
+		"templates:",
+		"  - template_id: tpl_house",
 		"    zh_name: 房子",
-		"  - id: 1",
-		"    name: icon_leaf",
+		"    family: building",
+		"    tags: [house, home]",
+		"    status: active",
+		"    variants:",
+		"      - variant_id: var_real_cluster_040_01",
+		"        source: real_query",
+		"        source_ref: cluster_040_01",
+		"        style: captured",
+		"  - template_id: tpl_leaf",
 		"    zh_name: 叶子",
+		"    family: nature",
+		"    tags: [leaf]",
+		"    status: active",
+		"    variants:",
+		"      - variant_id: var_real_cluster_041_01",
+		"        source: real_query",
+		"        source_ref: cluster_041_01",
+		"        style: captured",
 		"",
 	}, "\n")
 	if err := os.WriteFile(path, []byte(content), 0o644); err != nil {

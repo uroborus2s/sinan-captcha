@@ -2,7 +2,7 @@
 
 - 文档状态：生效
 - 当前阶段：IMPLEMENTATION（`TASK-SOLVER-MIG-008`）
-- 目标读者：训练链路负责人、Rust 实现者、Python 实现者、发布维护者
+- 目标读者：训练链路负责人、Python 实现者、发布维护者
 - 负责人：Codex
 
 ## 1. 设计结论
@@ -18,7 +18,7 @@
 调用方需要记住的结论只有三条：
 
 1. 最终用户安装的是 `sinanz` wheel，不直接接触这批导出资产。
-2. Rust 扩展和 Python 包后续都只能消费这份合同，不能继续回头读训练目录。
+2. `sinanz` 包和调试脚本后续都只能消费这份合同，不能继续回头读训练目录。
 3. 当前仓库已实现 `group2` 的 `export-solver-assets`，`group1` 仍在 `TASK-SOLVER-MIG-009` 补齐。
 
 ## 2. 固定文件命名
@@ -78,9 +78,8 @@ dist/
 | `asset_format` | `string` | 固定为 `sinan.solver.assets.v1` |
 | `asset_version` | `string` | 导出资产版本，推荐与发布版本或日期版本对齐 |
 | `exported_at` | `string` | UTC ISO8601 时间戳 |
-| `runtime.target` | `string` | 固定为 `rust-onnxruntime` |
+| `runtime.target` | `string` | 固定为 `python-onnxruntime` |
 | `runtime.python_package` | `string` | 固定为 `sinanz` |
-| `runtime.native_extension` | `string` | 固定为 `sinanz_ext` |
 | `runtime.preferred_execution_providers` | `array[string]` | 当前默认顺序：`CUDAExecutionProvider`、`CPUExecutionProvider` |
 | `models` | `object` | 稳定模型 ID 的清单；`TASK-SOLVER-MIG-008` 当前至少要求包含 `slider_gap_locator` |
 | `metadata_files` | `object` | 非模型类 metadata 的相对路径清单 |
@@ -122,7 +121,7 @@ dist/
 | `model_id` | `string` | 与 manifest 中的模型 ID 一致 |
 | `task` | `string` | `group1` 或 `group2` |
 | `component` | `string` | 组件名 |
-| `runtime_target` | `string` | 固定为 `rust-onnxruntime` |
+| `runtime_target` | `string` | 固定为 `python-onnxruntime` |
 | `format` | `string` | 固定为 `onnx` |
 | `opset` | `integer` | ONNX opset |
 | `input` | `object` | 与 manifest 中 `input` 同结构 |
@@ -131,7 +130,7 @@ dist/
 
 设计约束：
 
-- 模型 metadata 必须足够让 Rust 扩展和 Python 调试层独立理解输入输出约束。
+- 模型 metadata 必须足够让 `sinanz` 运行时和调试脚本独立理解输入输出约束。
 - 模型 metadata 不得包含训练机绝对路径。
 - 模型 metadata 不得依赖外部环境变量才能解释。
 
@@ -148,8 +147,7 @@ dist/
 | `group1_run` | `string` | `group1` 导出所用训练运行名 |
 | `group2_run` | `string` | `group2` 导出所用训练运行名 |
 | `exported_at` | `string` | UTC ISO8601 时间戳 |
-| `runtime_target` | `string` | 固定为 `rust-onnxruntime` |
-| `native_extension` | `string` | 固定为 `sinanz_ext` |
+| `runtime_target` | `string` | 固定为 `python-onnxruntime` |
 | `exported_models` | `array[object]` | 每个导出模型的来源与完整性记录 |
 
 ### 6.2 `exported_models[]` 字段
@@ -172,7 +170,7 @@ dist/
 - `group2` 当前默认后处理协议：
   - `paired_gap_bbox_v1`
 
-这些值不是训练框架内部实现细节，而是 Rust 扩展和 Python 层之间的稳定约定。
+这些值不是训练框架内部实现细节，而是 `sinanz` 运行时和调试脚本之间的稳定约定。
 
 ## 8. 当前仓库中的代码事实源
 
@@ -194,5 +192,5 @@ dist/
 下面能力仍在后续任务中：
 
 - `group1` 的 ONNX 导出仍未接入训练链路
-- Rust 扩展还没有开始真正消费这些资产并执行 ONNX Runtime 推理
-- `sinanz` wheel 仍未把 Rust 扩展和 ONNX 资产真正打进最终平台包
+- `sinanz` wheel 当前已按纯 Python 包路线消费这些资产，运行时为 `onnxruntime`
+- 后续如需继续收口，只需要完善 `group1` 资产与公开 API，不再引入 Rust 原生扩展

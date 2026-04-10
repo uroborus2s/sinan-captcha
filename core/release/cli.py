@@ -13,6 +13,7 @@ from core.release.service import (
     ExportGroup2SolverAssetsRequest,
     PackageWindowsRequest,
     PublishReleaseRequest,
+    StageSolverAssetsRequest,
     build_all_distributions,
     build_generator_distribution,
     build_distribution,
@@ -20,6 +21,7 @@ from core.release.service import (
     export_group2_solver_assets,
     package_windows_bundle,
     publish_distribution,
+    stage_solver_assets,
 )
 
 
@@ -70,6 +72,13 @@ def build_parser() -> argparse.ArgumentParser:
     export_parser_cmd.add_argument("--exported-at", default=None)
     export_parser_cmd.add_argument("--source-checkpoint", default=None)
     export_parser_cmd.add_argument("--opset", type=int, default=17)
+
+    stage_assets_parser_cmd = subparsers.add_parser(
+        "stage-solver-assets",
+        help="Copy exported solver assets into solver/resources/ for packaging.",
+    )
+    stage_assets_parser_cmd.add_argument("--project-dir", type=Path, default=Path.cwd())
+    stage_assets_parser_cmd.add_argument("--asset-dir", type=Path, required=True)
 
     package_parser_cmd = subparsers.add_parser(
         "package-windows",
@@ -129,6 +138,13 @@ def main(argv: list[str] | None = None) -> int:
                     exported_at=args.exported_at,
                     source_checkpoint=args.source_checkpoint,
                     opset=args.opset,
+                )
+            )
+        elif args.command == "stage-solver-assets":
+            stage_solver_assets(
+                StageSolverAssetsRequest(
+                    project_dir=args.project_dir,
+                    asset_dir=args.asset_dir,
                 )
             )
         elif args.command == "package-windows":

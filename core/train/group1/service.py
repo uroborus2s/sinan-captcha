@@ -9,6 +9,7 @@ import subprocess
 from core.common.jsonl import read_jsonl
 from core.train.base import _ensure_training_dependencies
 
+ALL_COMPONENTS = "all"
 SCENE_COMPONENT = "scene-detector"
 QUERY_COMPONENT = "query-parser"
 
@@ -17,11 +18,12 @@ QUERY_COMPONENT = "query-parser"
 class Group1TrainingJob:
     dataset_config: Path
     project_dir: Path
-    scene_model: str
-    query_model: str
+    scene_model: str | None
+    query_model: str | None
     epochs: int
     batch: int
     run_name: str
+    component: str = ALL_COMPONENTS
     imgsz: int = 640
     device: str = "0"
     resume: bool = False
@@ -40,10 +42,8 @@ class Group1TrainingJob:
             str(self.project_dir),
             "--name",
             self.run_name,
-            "--scene-model",
-            self.scene_model,
-            "--query-model",
-            self.query_model,
+            "--component",
+            self.component,
             "--epochs",
             str(self.epochs),
             "--batch",
@@ -53,6 +53,10 @@ class Group1TrainingJob:
             "--device",
             self.device,
         ]
+        if self.scene_model is not None:
+            command.extend(["--scene-model", self.scene_model])
+        if self.query_model is not None:
+            command.extend(["--query-model", self.query_model])
         if self.resume:
             command.append("--resume")
         return command
@@ -126,18 +130,28 @@ def build_group1_training_job(
     query_model: str | None = None,
     epochs: int | None = None,
     batch: int | None = None,
+    component: str = ALL_COMPONENTS,
     imgsz: int = 640,
     device: str = "0",
     resume: bool = False,
 ) -> Group1TrainingJob:
+    if component not in {ALL_COMPONENTS, SCENE_COMPONENT, QUERY_COMPONENT}:
+        raise RuntimeError(f"不支持的 group1 训练组件：{component}")
+    resolved_scene_model = scene_model or model
+    resolved_query_model = query_model or model
+    if component == SCENE_COMPONENT:
+        resolved_query_model = None
+    elif component == QUERY_COMPONENT:
+        resolved_scene_model = None
     return Group1TrainingJob(
         dataset_config=dataset_config,
         project_dir=project_dir,
-        scene_model=scene_model or model,
-        query_model=query_model or model,
+        scene_model=resolved_scene_model,
+        query_model=resolved_query_model,
         epochs=120 if epochs is None else epochs,
         batch=16 if batch is None else batch,
         run_name=run_name,
+        component=component,
         imgsz=imgsz,
         device=device,
         resume=resume,
@@ -173,7 +187,12 @@ def execute_group1_training_job(job: Group1TrainingJob) -> int:
     _ensure_training_dependencies()
     if not job.dataset_config.exists():
         raise RuntimeError(f"未找到 group1 数据集配置文件：{job.dataset_config}")
-    for component_name, model in ((SCENE_COMPONENT, job.scene_model), (QUERY_COMPONENT, job.query_model)):
+    for component_name, model in (
+        (SCENE_COMPONENT, job.scene_model),
+        (QUERY_COMPONENT, job.query_model),
+    ):
+        if model is None:
+            continue
         if job.resume and Path(model).suffix == ".pt" and not Path(model).exists():
             raise RuntimeError(f"未找到 group1 {component_name} 可继续训练的检查点：{model}")
     try:

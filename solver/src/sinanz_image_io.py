@@ -4,8 +4,8 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from .errors import SolverInputError
-from .types import ImageInput
+from sinanz_errors import SolverInputError
+from sinanz_types import ImageInput
 
 
 def require_pathlike_image(image: ImageInput, *, field: str) -> Path:

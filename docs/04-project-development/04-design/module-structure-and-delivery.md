@@ -234,26 +234,18 @@ core/
 
 ```text
 solver/
-  Cargo.toml
   pyproject.toml
-  native/
-    sinanz_ext/
-      Cargo.toml
-      src/
-        lib.rs
+  resources/
+    models/
+    metadata/
   src/
-    sinanz/
-      __init__.py
-      api.py
-      native_bridge.py
-      types.py
-      errors.py
-      image_io.py
-      group1/
-      group2/
-      resources/
-        models/
-        metadata/
+    sinanz.py
+    sinanz_errors.py
+    sinanz_types.py
+    sinanz_image_io.py
+    sinanz_group2_runtime.py
+    sinanz_group2_service.py
+    sinanz_resources.py
   tests/
 ```
 
@@ -261,28 +253,12 @@ solver/
   - 独立 PyPI 包
   - `sn_match_slider` / `sn_match_targets` 公开 API
   - 默认内嵌 ONNX 推理资产加载
-  - Python 外壳、资源加载与异常映射
-  - Python 侧 native bridge 占位与运行时元数据
+  - Python 预处理、资源加载、ONNX Runtime 调用与异常映射
 - 迁移策略：
   - 第一阶段允许作为当前仓库内的独立 Python 子项目存在
   - 第二阶段可整体抽离为独立仓库，不改变包名和函数名
 
-### 5.11 `solver/native/sinanz_ext`
-
-- 职责：
-  - Rust 原生扩展工程
-  - 对接 ONNX Runtime
-  - 暴露 Python bridge 所需的最小 ABI
-  - 承担推理会话构建、provider 选择和性能敏感后处理
-- 当前阶段边界：
-  - 先落可编译工程骨架与 workspace
-  - 先落 Python bridge 占位和 Cargo 元数据一致性
-  - `pyo3 + ort` 接线和正式 wheel 构建集成在后续迁移任务完成
-- 设计判断：
-  - Python 继续承担可读性更好的输入解码和异常语义层
-  - Rust 负责缩小最终用户对 PyTorch 运行时的依赖面
-
-### 5.12 `core/release`
+### 5.11 `core/release`
 
 - 职责：
   - 本地构建 wheel / sdist

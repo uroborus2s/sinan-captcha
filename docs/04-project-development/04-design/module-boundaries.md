@@ -73,7 +73,7 @@
 - 职责：
   - 预标注导入
   - 审核与抽检结果汇总
-  - 导出 `group1` pipeline dataset
+  - 导出 `group1` 实例匹配训练与评测数据
   - 导出 `group2` paired dataset
 - 不负责：
   - 训练模型
@@ -82,8 +82,10 @@
 ### MOD-007 `group1` 训练模块
 
 - 职责：
-  - 训练 `scene detector`
-  - 训练 `query parser`
+  - 训练 `scene proposal detector`
+  - 训练 `icon embedder`
+  - 管理 `query splitter` 规则或轻量模型
+  - 校准 `matcher`
   - 管理 `group1` 训练超参数、日志和模型产物
 - 不负责：
   - `group2` 训练
@@ -101,7 +103,7 @@
 ### MOD-009 推理后处理与业务映射层
 
 - 职责：
-  - `group1` 把 query/scene 结果映射成有序中心点序列
+  - `group1` 把 query splitter、proposal detector、embedder 和 matcher 结果映射成有序中心点序列
   - `group2` 把模型输出换算成中心点与辅助字段
   - 统一推理结果到业务字段
 - 不负责：
@@ -218,8 +220,11 @@ tests/
 - 自动标注准确率不足时：
   - 阻断进入 `reviewed`
 - `group1` 类别体系不稳定时：
-  - 发起设计变更
-  - 不在实现里临时热修业务合同
+  - 允许继续扩充素材治理分类
+  - 但不得回退到以闭集类名作为 solver 主合同的临时热修
+- `group1` 新方案 cutover 后：
+  - 必须删除旧闭集类名正式实现
+  - 不保留长期双轨兼容层
 - AI 决策 JSON 非法或与当前状态冲突时：
   - 回退到规则模式
   - 当前 trial 仍需完整落盘

@@ -96,7 +96,7 @@ flowchart LR
 - Python API 负责参数归一化、图片解码和异常语义
 - Rust 扩展负责 ONNX Runtime provider 选择、会话建立和推理桥接
 - `group1` 执行：
-  - `query parser ONNX -> scene detector ONNX -> matcher`
+  - `query splitter -> scene proposal detector ONNX -> icon embedder ONNX -> matcher`
 - `group2` 执行：
   - `slider gap locator ONNX`
 - 统一输出：
@@ -105,7 +105,7 @@ flowchart LR
 
 ### 2. 导出资产与发布层
 
-- 负责把 `group1` 两子模型、matcher 配置和 `group2` 模型导出为 ONNX + metadata
+- 负责把 `group1` proposal detector、embedder、matcher 配置和 `group2` 模型导出为 ONNX + metadata
 - 负责导出资产校验、相对路径解析和 wheel 组装
 - 负责把训练运行产物变成可复制、可部署、可回滚的交付实体
 
@@ -119,15 +119,16 @@ flowchart LR
 
 - 维护 `gold / auto / reviewed` 状态流转
 - 冻结 train / val / test 切分
-- 维护 `group1` pipeline dataset 与 `group2` paired dataset 契约
+- 维护 `group1` 实例匹配数据契约与 `group2` paired dataset 契约
 - 维护失败样本回灌和版本追加
 
 ### 5. 训练与评估层
 
 - `group1`：
-  - 训练 `scene detector`
-  - 训练 `query parser`
-  - 经 `matcher` 形成任务结果
+  - 训练 `scene proposal detector`
+  - 训练 `icon embedder`
+  - 校准 `matcher`
+  - 经整链路验证形成任务结果
 - `group2`：
   - 训练 paired locator
   - 输出中心点、目标框和可选偏移量
@@ -144,10 +145,10 @@ flowchart LR
 
 ### `group1`
 
-1. 生成器输出查询图、场景图、目标顺序和 `gold`
-2. 数据层导出 `dataset.json + scene-yolo/query-yolo/splits`
-3. 训练 `scene detector` 和 `query parser`
-4. Rust 扩展加载 ONNX 模型，统一求解层调用 `matcher`
+1. 生成器输出查询图、场景图、目标顺序、实例身份和 `gold`
+2. 数据层导出 `dataset.json + proposal-yolo/ + embedding/ + eval/ + splits`
+3. 训练 `scene proposal detector`、`icon embedder`，并校准 `matcher`
+4. Rust 扩展加载 ONNX 模型和 matcher 配置，统一求解层调用实例匹配链
 5. 输出有序中心点序列
 
 ### `group2`
@@ -172,7 +173,7 @@ flowchart LR
 - `sinanz` 当前仍是 Python 子项目骨架，尚未切到正式平台 wheel
 - `auto-train` 目前已经能把 `dataset_plan` 中的 `preset`、`sample_count`、`sampling` 和 `effects.*` 下发到生成器，但还没有进入素材选择、类目定向采样和更细粒度的数据策略
 - solver 运行时当前仍处在 Python/PyTorch 过渡态，尚未完成 ONNX + Rust 迁移
-- `group1` 同类多实例场景仍主要依赖规则匹配
+- `group1` 当前代码实现仍停留在旧闭集类名流水线，尚未切到正式实例匹配主线
 
 ## 为什么不先做公网服务
 

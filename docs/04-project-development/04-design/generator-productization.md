@@ -103,7 +103,7 @@
 
 ```text
 <dataset-dir>\
-  group1: dataset.json + scene-yolo/ + query-yolo/ + splits/
+  group1: dataset.json + proposal-yolo/ + embedding/ + eval/ + splits/
   group2: dataset.json + master/ + tile/ + splits/
   .sinan\
     raw\
@@ -115,7 +115,9 @@
 
 - `group1` 的主入口改为 `dataset.json`
 - `group2` 的主入口改为 `dataset.json`
-- `group1` 的 `scene-yolo/` 与 `query-yolo/` 都必须保留独立的 `dataset.yaml`
+- `group1` 的 `proposal-yolo/` 必须保留独立的 `dataset.yaml`
+- `group1` 的 `embedding/` 必须保留可追溯的 pair/triplet 元数据
+- `group1` 的 `eval/` 必须保留端到端 `labels.jsonl`
 - `group1` 的 `splits/*.jsonl` 中每条样本都必须同时引用 `query_image` 和 `scene_image`
 - `group2` 的 `splits/*.jsonl` 中每条样本都必须同时引用 `master_image` 和 `tile_image`
 - `.sinan/raw/` 保留生成器原始批次与审计线索

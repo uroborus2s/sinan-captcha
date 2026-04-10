@@ -1,8 +1,11 @@
 # 独立 solver 迁移任务拆解
 
+> 2026-04-10 当前方向已收口为“纯 Python `sinanz` 包 + `onnxruntime`”。
+> 文中涉及 `solver/native/sinanz_ext/`、`maturin`、Rust 原生扩展的任务已全部废弃，不再作为实施目标。
+
 - 文档状态：生效
 - 当前阶段：IMPLEMENTATION
-- 目标读者：项目维护者、Python 实现者、Rust 实现者、发布维护者
+- 目标读者：项目维护者、Python 实现者、发布维护者
 - 负责人：Codex
 - 上游输入：
   - `docs/04-project-development/04-design/api-design.md`
@@ -10,9 +13,8 @@
   - `docs/03-developer-guide/solver-bundle-and-integration.md`
 - 下游交付：
   - `solver/` 独立 Python 项目
-  - `solver/native/sinanz_ext/` Rust 原生扩展工程
   - 训练仓库推理资产导出链路
-  - PyPI 平台 wheel 发布与安装冒烟验证
+  - PyPI 纯 Python wheel 发布与安装冒烟验证
 - 关联需求：`REQ-001`、`REQ-004`、`REQ-008`、`REQ-010`、`NFR-004`、`NFR-007`
 
 ## 1. 使用方式
@@ -68,9 +70,9 @@ from sinanz import sn_match_slider, sn_match_targets
 | TASK-SOLVER-MIG-004 | 建立独立 solver 子项目骨架 | Python 实现者 | API 合同、资产合同 | `solver/` 工程骨架 | 子项目可构建 | 0.5 天 |
 | TASK-SOLVER-MIG-005 | 抽离共享运行时与 `group2` 过渡代码 | Python 实现者 | `core/solve`、`core/train/group2` | 独立加载层、group2 过渡 runtime | 训练依赖切断 | 1 天 |
 | TASK-SOLVER-MIG-006 | 冻结 `PT -> ONNX` 导出与命名合同 | 架构负责人 | 训练产物、独立 solver 需求 | ONNX 命名、metadata、导出规则 | ONNX 合同冻结 | 0.5 天 |
-| TASK-SOLVER-MIG-007 | 建立 Rust 原生扩展工程与构建边界 | Rust 实现者 | ONNX 合同、子项目骨架 | `sinanz_ext` 工程、Cargo workspace | 原生工程可构建 | 0.5 天 |
-| TASK-SOLVER-MIG-008 | 实现 `group2` ONNX 导出与 Rust runtime bridge | Rust 实现者 | `group2` 训练产物、Rust 工程 | `group2` ONNX runtime、桥接接口 | `group2` Rust 化 | 1 天 |
-| TASK-SOLVER-MIG-009 | 实现 `group1` ONNX 导出与 Rust runtime bridge | Rust 实现者 | `group1` 训练产物、matcher 约束 | `group1` ONNX runtime、桥接接口 | 两专项都可运行 | 1 天 |
+| TASK-SOLVER-MIG-007 | 已废弃：Rust 原生扩展工程 | - | - | - | 不再实施 | - |
+| TASK-SOLVER-MIG-008 | 已收口：`group2` ONNX 导出与纯 Python runtime | Python 实现者 | `group2` 训练产物 | `group2` ONNX 资产、Python runtime | `group2` 可发布 | 1 天 |
+| TASK-SOLVER-MIG-009 | 已改道：`group1` ONNX 导出与纯 Python runtime | Python 实现者 | `group1` 训练产物、matcher 约束 | `group1` ONNX 资产、Python runtime | 两专项都可运行 | 1 天 |
 | TASK-SOLVER-MIG-010 | 迁移 `group1` 求解与后处理代码 | Python 实现者 | `core/solve/*`、`core/inference/*` | group1 service、matcher 接口、结果映射 | Python 结果面稳定 | 1 天 |
 | TASK-SOLVER-MIG-011 | 实现内嵌资产加载与默认模型解析 | Python 实现者 | 子项目骨架、导出资产、Rust bridge | 资源加载器、wheel 资源规则 | `pip install` 后可直接加载 | 1 天 |
 | TASK-SOLVER-MIG-012 | 补齐测试、发布链路并降级旧入口 | 测试负责人/发布维护者 | 独立 solver 项目、导出资产 | 安装测试、发布脚本、弃用说明 | 允许正式迁移 | 1 天 |
@@ -171,9 +173,9 @@ from sinanz import sn_match_slider, sn_match_targets
 | 主要输入 | 训练权重、当前导出合同、独立 solver 资产需求 |
 | 操作步骤 | 1. 固定 `.onnx` 文件名和版本字段。<br>2. 固定输入尺寸、预处理参数、provider 兼容信息写入 metadata。<br>3. 固定 `manifest.json` 中 Python 包与 Rust 扩展共同消费的字段。 |
 | 输出产物 | ONNX 命名规则、manifest 字段表、导出报告字段、仓内代码契约事实源 |
-| 验收标准 | 维护者可以稳定回答“Rust 扩展到底读哪些文件和字段”，且仓库里已有可测试的字段事实源 |
+| 验收标准 | 维护者可以稳定回答“`sinanz` 运行时到底读哪些文件和字段”，且仓库里已有可测试的字段事实源 |
 | 阻断条件 | 资产命名仍跟训练运行目录耦合，或字段不足以独立构建 runtime |
-| 失败处理 | 回补导出合同，不进入 Rust 工程搭建 |
+| 失败处理 | 回补导出合同，不进入后续 solver runtime 接入 |
 | 预计工时 | 0.5 天 |
 | 完成后进入 | TASK-SOLVER-MIG-007 |
 
@@ -181,31 +183,31 @@ from sinanz import sn_match_slider, sn_match_targets
 
 | 字段 | 内容 |
 |---|---|
-| 任务目标 | 在 solver 子项目内建立 Rust 原生扩展工程和 Cargo workspace，固定未来 `pyo3 + ort` 集成边界 |
-| 主执行角色 | Rust 实现者 |
-| 协作角色 | Python 实现者、发布维护者 |
-| 前置条件 | TASK-SOLVER-MIG-006 已通过 |
-| 主要输入 | ONNX 合同、独立 solver 子项目 |
-| 操作步骤 | 1. 新建 `solver/Cargo.toml` workspace。<br>2. 新建 `solver/native/sinanz_ext/Cargo.toml` 和 `src/lib.rs`。<br>3. 固定 crate 类型、扩展入口、未来 `pyo3 + ort` 的接入位置和构建说明。 |
-| 输出产物 | Rust 工程骨架、Cargo workspace、原生扩展说明 |
-| 验收标准 | Rust 子项目可以独立被 Cargo 识别，且目录边界清晰可维护 |
-| 阻断条件 | Rust 工程仍散落在 Python 包根目录，或未来 `pyo3` / wheel 构建位置不清晰 |
-| 失败处理 | 回补工程骨架，不进入 ONNX runtime 实现 |
-| 预计工时 | 0.5 天 |
+| 任务目标 | 已废弃：不再建立 Rust 原生扩展工程 |
+| 主执行角色 | - |
+| 协作角色 | - |
+| 前置条件 | - |
+| 主要输入 | - |
+| 操作步骤 | 2026-04-10 已取消。当前替代动作是直接在 `solver/` 内收口纯 Python runtime、资源布局和 wheel 打包。 |
+| 输出产物 | 废弃记录 |
+| 验收标准 | 仓库不再把 Rust 视为 `solver` 的正式实施方向 |
+| 阻断条件 | 文档或代码仍把 Rust 写成当前主线 |
+| 失败处理 | 继续回补纯 Python 路线文档与结构说明 |
+| 预计工时 | - |
 | 完成后进入 | TASK-SOLVER-MIG-008 |
 
 ## 11. TASK-SOLVER-MIG-008 执行表
 
 | 字段 | 内容 |
 |---|---|
-| 任务目标 | 完成 `group2` ONNX 导出与 Rust runtime bridge，使滑块链路摆脱 PyTorch 运行时 |
-| 主执行角色 | Rust 实现者 |
-| 协作角色 | 训练链路负责人、Python 实现者 |
-| 前置条件 | TASK-SOLVER-MIG-007 已通过 |
-| 主要输入 | `group2` 训练产物、ONNX 合同、Rust 工程 |
-| 操作步骤 | 1. 实现 `group2` 的 ONNX 导出脚本或发布步骤。<br>2. 在 Rust 扩展中建立 `group2` ONNX Runtime 会话和推理入口。<br>3. 固定 Python 到 Rust 的最小桥接签名。 |
-| 输出产物 | `group2` ONNX 导出、Rust runtime、桥接测试 |
-| 验收标准 | `group2` 求解不再依赖 PyTorch 运行时，且能通过 Rust 扩展返回业务结果 |
+| 任务目标 | 完成 `group2` ONNX 导出与纯 Python runtime 接入，使滑块链路摆脱 PyTorch 运行时 |
+| 主执行角色 | Python 实现者 |
+| 协作角色 | 训练链路负责人 |
+| 前置条件 | TASK-SOLVER-MIG-006 已通过 |
+| 主要输入 | `group2` 训练产物、ONNX 合同 |
+| 操作步骤 | 1. 实现 `group2` 的 ONNX 导出脚本或发布步骤。<br>2. 在 `solver` 内建立 Python `onnxruntime` 会话和推理入口。<br>3. 固定预处理、资源定位和业务结果映射。 |
+| 输出产物 | `group2` ONNX 导出、Python runtime、回归测试 |
+| 验收标准 | `group2` 求解不再依赖 PyTorch 运行时，且能通过纯 Python `sinanz` wheel 返回业务结果 |
 | 阻断条件 | `group2` 仍需要 `torch.load` 或训练侧 Python runtime 才能工作 |
 | 失败处理 | 回补 `group2` ONNX 路线，不进入 `group1` ONNX 迁移 |
 | 预计工时 | 1 天 |
@@ -215,13 +217,13 @@ from sinanz import sn_match_slider, sn_match_targets
 
 | 字段 | 内容 |
 |---|---|
-| 任务目标 | 完成 `group1` ONNX 导出与 Rust runtime bridge，为点击链路提供统一运行时边界 |
-| 主执行角色 | Rust 实现者 |
-| 协作角色 | 算法负责人、Python 实现者 |
+| 任务目标 | 完成 `group1` ONNX 导出与纯 Python runtime 接入，为点击链路提供统一运行时边界 |
+| 主执行角色 | Python 实现者 |
+| 协作角色 | 算法负责人 |
 | 前置条件 | TASK-SOLVER-MIG-008 已通过 |
-| 主要输入 | `group1` 训练产物、matcher 约束、Rust 工程 |
-| 操作步骤 | 1. 实现 `scene detector` 与 `query parser` 的 ONNX 导出。<br>2. 在 Rust 扩展中建立双模型推理入口。<br>3. 固定检测结果到 Python matcher 的桥接格式，或把简单后处理一并下沉。 |
-| 输出产物 | `group1` ONNX 导出、Rust runtime、桥接接口 |
+| 主要输入 | `group1` 训练产物、matcher 约束 |
+| 操作步骤 | 1. 实现 `scene detector` 与 `query parser` 的 ONNX 导出。<br>2. 在 `solver` 内建立双模型 Python `onnxruntime` 推理入口。<br>3. 固定检测结果到 Python matcher 的接口格式。 |
+| 输出产物 | `group1` ONNX 导出、Python runtime、接口层 |
 | 验收标准 | `group1` 求解不再依赖 PyTorch 运行时，且可以向 Python 结果层输出稳定结构 |
 | 阻断条件 | `group1` 仍需要 Ultralytics Python runtime 才能完成推理 |
 | 失败处理 | 回补 `group1` ONNX 路线，不进入 Python 结果面收口 |

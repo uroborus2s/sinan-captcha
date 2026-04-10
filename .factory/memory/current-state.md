@@ -17,6 +17,122 @@
 
 ## 当前事实
 
+- 2026-04-11 当前 `group1` 素材库协议已在正式文档与 generator 中切换到 `schema_version: 3`：
+  - 当前正式素材结构已冻结为：
+    - `manifests/group1.templates.yaml`
+    - `group1/icons/<template_id>/<variant_id>.png`
+  - 当前 generator 已完成的代码切换包括：
+    - `material.Validate*` 只认 `group1.templates.yaml`
+    - `material.LoadCatalog()` 只加载 `template/variant` 结构
+    - `sampler.BuildPlan()` 已按模板抽样、按变体落实例身份
+    - `materialset.detectMaterialRoot()` 已改为识别新目录布局
+    - `sinan-generator materials merge` 旧入口与实现已删除
+  - 当前这代表：
+    - generator 内部不再保留 `group1.classes.yaml + group1/icons/<class_name>/` 的旧素材协议代码
+    - `group1` 素材准备后续必须直接按新 pack 规范提供，不再走旧 merge 流
+  - 当前已验证：
+    - `env GOCACHE=/tmp/go-cache go test ./internal/material ./internal/materialset ./internal/sampler ./internal/qa ./internal/app ./cmd/sinan-generator ./internal/render ./internal/truth`（cwd=`generator/`）
+
+- 2026-04-11 当前 `group1` 实例匹配重构的第一段实现切片已落地：
+  - 当前 Python 数据契约层已支持新的 `group1` 实例字段：
+    - 顶层 `query_items`
+    - 对象级 `asset_id / template_id / variant_id`
+  - 当前 `validate_group1_row()` 已改为双读：
+    - 新数据可直接走 `query_items + 实例身份`
+    - 旧数据仍可暂时走 `query_targets + class/class_id`
+  - 当前 generator 的 `group1` 原始批次与 `splits/*.jsonl` 已开始输出：
+    - `query_items`
+    - `asset_id`
+    - `template_id`
+    - `variant_id`
+  - 当前 generator 的 click 真值一致性校验已优先按实例身份对齐 query 和 scene
+  - 当前这代表：
+    - 新 schema 已经能被实际写出
+    - 旧 Python 训练/评估入口暂未整体切换到新 proposal/embedder 主线
+    - `dataset.json`、训练组件和 runtime cutover 仍属于后续实施任务
+  - 当前已验证：
+    - `env PYTHONPATH=. ./.venv/bin/python -m unittest discover -s tests/python -p 'test_group1_instance_contracts.py'`
+    - `env PYTHONPATH=. ./.venv/bin/python -m unittest discover -s tests/python -p 'test_autolabel_service.py'`
+    - `env PYTHONPATH=. ./.venv/bin/python -m unittest discover -s tests/python -p 'test_evaluate_service.py'`
+    - `env PYTHONPATH=. ./.venv/bin/python -m unittest discover -s tests/python -p 'test_prediction_and_model_test.py'`
+    - `env PYTHONPATH=. ./.venv/bin/python -m unittest discover -s tests/python -p 'test_auto_train_runners.py'`
+    - `env PYTHONPATH=. ./.venv/bin/python -m unittest discover -s tests/python -p 'test_train_prelabel_service.py'`
+    - `env GOCACHE=/tmp/go-cache go test ./internal/truth ./internal/qa ./internal/render ./internal/app`（cwd=`generator/`）
+- 2026-04-11 当前正式文档基线已将 `group1` 的目标方案切换为“实例匹配求解”：
+  - 正式设计主线：
+    - `query splitter`
+    - `scene proposal detector`
+    - `icon embedder`
+    - `matcher`
+  - 当前新增正式文档：
+    - `docs/04-project-development/04-design/group1-instance-matching-refactor.md`
+    - `docs/04-project-development/05-development-process/group1-instance-matching-refactor-task-breakdown.md`
+  - 当前需求层已新增：
+    - `REQ-014`：旧方案切换与清理
+    - `NFR-010`：单一正式方案与代码清洁性
+  - 当前这代表：
+    - 后续 `group1` 实施必须围绕实例匹配主线推进
+    - 旧闭集类名路线不再是正式设计基线
+- 2026-04-11 当前代码实现层的 `group1` 训练/验证工作流仍停留在旧闭集类名路线：
+  - 当前 `sinan-generator make-dataset --task group1` 继续输出同一份 `group1 pipeline dataset`
+  - 当前 `uv run sinan train group1` 默认仍会顺序训练双组件
+  - 当前也已支持显式按组件训练：
+    - `uv run sinan train group1 --component query-parser ...`
+    - `uv run sinan train group1 --component scene-detector ...`
+  - 当前 `uv run sinan test group1 ...` 的报告口径已明确为：
+    - 最终位置挑选验证
+    - 即 `query-parser + scene-detector + matcher` 的整链路验证
+  - 当前已验证：
+    - `uv run python -m unittest discover -s tests/python -p 'test_training_jobs.py'`
+    - `uv run python -m unittest discover -s tests/python -p 'test_prediction_and_model_test.py'`
+    - `uv run python -m unittest discover -s tests/python -p 'test_root_cli.py'`
+    - `uv run python -m unittest discover -s tests/python -p 'test_auto_train_runners.py'`
+  - 当前该实现已降级为待重构实现差距，不再代表正式设计目标
+- 2026-04-10 当前仓库已新增 `uv run sinan train group1 prelabel-query-dir`，用于对单独一批 `group1 query` 图片执行本地模型预标注：
+  - 当前该命令使用本地 `runs/group1/<train-name>/query-parser/weights/best.pt`
+  - 当前输入目录中的每张图片会直接生成同名 `json` 标注文件，供 `X-AnyLabeling` 打开
+  - 当前额外汇总产物会写到：
+    - `<input-dir>/.sinan/prelabel/group1/query/<run-name>/labels.jsonl`
+    - `<input-dir>/.sinan/prelabel/group1/query/<run-name>/summary.json`
+  - 当前已验证：
+    - `.venv/bin/python -m unittest discover -s tests/python -p 'test_train_prelabel_service.py'`
+    - `.venv/bin/python -m unittest discover -s tests/python -p 'test_training_jobs.py'`
+- 2026-04-10 当前 `scripts/crawl/ctrip_login.py` 的 `4=测试滑动` 模式已改为按 `verify_jigsaw` 的业务响应判定成功/失败：
+  - 当前不再把“是否切到点选 DOM”作为唯一成功条件
+  - 当前会监听：
+    - `/captcha/v4/verify_jigsaw`
+  - 当前判定规则为：
+    - `risk_info.process_type = "NONE"` 且 `risk_level = 0` 视为成功
+    - `risk_info.process_type = "JIGSAW"` 视为失败并继续返回滑块题
+  - 当前失败时会：
+    - 打印 `verify_jigsaw` 摘要
+    - 打印当前验证码区域页面响应
+    - 保存 `materials/result/<batch>_<index>/failure.png`
+    - 结束当前浏览器会话
+  - 当前已验证：
+    - `uv run python -m unittest discover -s tests/python -p 'test_ctrip_login_script.py'`
+- 2026-04-10 当前仓库已新增 `sinan materials audit-group1-query`，用于批量审查 `group1 query` 图片并回写素材类别 backlog：
+  - 当前命令必须在仓库根目录执行；如果在 `solver/` 等子目录运行，会直接提示返回根目录
+  - 当前默认输入目录：
+    - `materials/test/group1/query`
+  - 当前命令默认会把执行进度直接打印到终端，包括：
+    - 当前处理到哪一张图片
+    - 发送给大模型的请求摘要与提示词
+    - 大模型原始响应
+    - 解析后的结果或错误
+  - 当前可用 `--quiet` 关闭终端日志
+  - 当前命令会顺序扫描 query 图片，调用本地 Ollama 多模态模型，并输出：
+    - `reports/materials/group1-query-audit.jsonl`
+    - `reports/materials/group1-query-audit-trace.jsonl`
+    - `docs/02-user-guide/group1-material-category-backlog.md` 的自动映射区
+  - 当前 `group1-query-audit-trace.jsonl` 会为每张图片保留：
+    - 原始模型输出文本
+    - 解析后的类别序列
+    - 原始 API 响应体
+    - 错误信息（如果解析失败）
+  - 当前如果识别为未知素材类，会把建议类名、中文名、图形描述和示例图片追加到 backlog 的“待补齐的新类别”
+  - 当前已验证：
+    - `uv run python -m unittest tests.python.test_group1_query_audit tests.python.test_root_cli`
 - 2026-04-10 当前 `group2` 离线评估 / 自动训练 / 模型测试中重复出现的阈值语义已开始收口为共享常量：
   - 当前新增：
     - `core/group2_semantics.py`
@@ -829,20 +945,12 @@
   - 当前会产出 `manifest.json`、`models/slider_gap_locator.onnx`、`metadata/slider_gap_locator.json`、`metadata/export_report.json`
   - 当前会同步写出 `click_matcher.json` 与 `class_names.json` 的 `TASK-SOLVER-MIG-009` 占位文件
 - 2026-04-05 `sinanz` 的 `group2` 公开服务已完成首轮 ONNX runtime 边界切换：
-  - `solver_package/src/sinanz/group2/service.py` 当前已不再依赖 Python/PyTorch runtime
   - `group2` 当前改为查找 `slider_gap_locator.onnx`
-  - 当前统一经 `sinanz.native_bridge.match_slider_gap(...)` 消费原生桥接返回值
-  - Rust crate metadata 当前阶段已从 `scaffold` 更新为 `group2-onnx-bridge`
+  - 当前运行时目标已冻结为纯 Python `onnxruntime`
+  - 公开接口继续保持 `sn_match_slider(...)` / `sn_match_targets(...)`
 - 2026-04-05 `TASK-SOLVER-MIG-008` 当前仍未完成的部分：
-  - Rust 原生模块 `sinanz_ext` 仍未真正接入 `pyo3 + ONNX Runtime`
-  - `sinanz` wheel 当前仍未产出平台相关 wheel
-  - 本机仍在补装 `torch / onnx / onnxruntime` 依赖，真实导出烟测尚未完成
-- 2026-04-05 已完成 `TASK-SOLVER-MIG-007`：
-  - 已新增 `solver_package/src/sinanz/native_bridge.py`
-  - 已固定 `solver_package/Cargo.toml` 的 workspace metadata
-  - 已固定 `solver_package/native/sinanz_ext/Cargo.toml` 的 crate metadata 与 future feature 名称
-  - 已把 Rust crate 内部模块拆为 `bridge.rs`、`runtime.rs`、`error.rs`
-  - 已补齐 Python 侧和 Cargo 元数据一致性测试
+  - `group1` 的 ONNX 导出仍未接入训练链路
+  - `sinanz` wheel 仍需继续验证安装后资源定位与公开 API
 - 2026-04-05 已完成 `TASK-SOLVER-MIG-006`：
   - 新增 `docs/04-project-development/04-design/solver-asset-export-contract.md`
   - 新增 `core/release/solver_asset_contract.py`
@@ -850,19 +958,14 @@
   - 已冻结 ONNX 文件名、per-model metadata、`manifest.json` 和 `export_report.json` 字段合同
   - 训练仓库当前已具备可测试的仓内代码契约事实源，后续导出实现必须复用这份定义
 - 2026-04-05 已冻结独立 solver 的新运行时路线：
-  - 最终对外交付改为平台相关 `sinanz` wheel
-  - wheel 内默认内嵌 ONNX 模型与 metadata
-  - wheel 内将包含 Rust 原生扩展
+  - 最终对外交付改为纯 Python `sinanz` wheel
+  - wheel 内默认携带 ONNX 模型与 metadata
+  - 运行时依赖为 `onnxruntime`
   - 外置 bundle 当前降级为训练仓库到 solver 项目之间的内部交接资产
 - 2026-04-05 已完成 `sinanz` 公开方法名收口：
   - `sn_match_slider(...)`
   - `sn_match_targets(...)`
   - 旧 `locate_slider_gap_target_center(...)` / `locate_click_targets_in_query_order(...)` 已不再作为公开 API 暴露
-- 2026-04-05 已新增 Rust 原生扩展工程骨架：
-  - `solver_package/Cargo.toml`
-  - `solver_package/native/sinanz_ext/Cargo.toml`
-  - `solver_package/native/sinanz_ext/src/lib.rs`
-  - 当前是可被 Cargo 识别的 `cdylib` scaffold，`pyo3 + ONNX Runtime` 接线仍在后续迁移任务
 - 2026-04-05 已完成 `TASK-SOLVER-MIG-005` 首轮实现：
   - 新增 `core/solve/group2_runtime.py`
   - `core.solve.service` 当前已改为依赖 `core.solve.group2_runtime`
@@ -885,11 +988,9 @@
 - 2026-04-05 当前独立 solver 子项目验证已通过：
   - `uv build --directory solver_package`
   - `PYTHONPATH=solver_package/src ./.venv/bin/python -m unittest discover -s solver_package/tests -p 'test_*.py'`
-  - `cargo test --manifest-path solver_package/native/sinanz_ext/Cargo.toml`
 - 2026-04-05 当前 `sinanz` 的构建现实状态：
-  - `uv build --directory solver_package` 仍输出纯 Python `py3-none-any` wheel
-  - Rust 扩展工程已存在，但尚未接入 Python 打包后端
-  - 平台相关 wheel 仍属于后续 `pyo3 + ONNX Runtime` 集成任务
+  - `uv build --directory solver_package` 输出纯 Python `py3-none-any` wheel
+  - 后续正式 `solver/` 子项目继续沿用纯 Python wheel 方向，不再引入平台相关原生扩展
 - 2026-04-05 当前 MIG-005 相关验证已通过：
   - `./.venv/bin/python -m unittest tests.python.test_solve_service tests.python.test_solve_group2_runtime`
 - 2026-04-05 用户已明确确认新的 solver 目标边界：
@@ -1394,6 +1495,81 @@
 
 ## 最近条目
 
+- 任务：在 `scripts/crawl/ctrip_login.py` 中接入本地 `sinanz` solver，替换随机滑块拖动
+- 变更：
+  - `ctrip_login.py` 当前会优先从仓库内 `solver/src` 加载本地 `sinanz`
+  - 当前会先保存当前验证码的 `bg/gap` 图片，再读取页面上的背景图、拼图块、滑块按钮和滑轨几何信息
+  - 当前会把拼图块当前显示框换算回背景图坐标，传给 `sn_match_slider(..., puzzle_piece_start_bbox=...)`
+  - 当前改为根据 solver 返回的 `puzzle_piece_offset` 计算真实拖动距离，并保留轻微人类轨迹抖动；不再随机选择目标距离
+  - 当前新增 `4=测试滑动` 模式：只执行一次 solver 驱动拖动；成功打印成功信息，失败会打印当前验证码区域的页面响应信息
+  - `两者都保存` 模式仍保持“每次先保存一组滑块，再拖动；若仍未切到点选则继续保存下一组滑块”的行为
+- 实测：
+  - `python -m unittest tests.python.test_ctrip_login_script`
+- 缺陷：
+  - 当前仍依赖页面 DOM 中 `.advise / .image-left / .cpt-drop-btn / .cpt-bg-bar` 的几何关系稳定；若携程后续改版，需要重新校准选择器与换算逻辑
+
+- 任务：将 `solver` 从 Rust 试验路线收口为纯 Python 包
+- 变更：
+  - 已删除 Rust 试验项目与 `solver_native` 路线，`solver` 当前重新收口为纯 Python 包
+  - `solver/src/` 已拉平成顶层模块：
+    - `sinanz.py`
+    - `sinanz_errors.py`
+    - `sinanz_types.py`
+    - `sinanz_image_io.py`
+    - `sinanz_group2_runtime.py`
+    - `sinanz_group2_service.py`
+    - `sinanz_resources.py`
+  - 非 `.py` 资源已统一移到 `solver/resources/`
+  - `solver/pyproject.toml` 已改回 `setuptools` 构建，运行时依赖恢复为：
+    - `numpy`
+    - `pillow`
+    - `onnxruntime`
+  - `group2` 当前直接由 Python `onnxruntime.InferenceSession(...)` 执行真实 ONNX 推理
+- 实测：
+  - `PYTHONPATH=solver/src python -m unittest solver.tests.test_group2_service solver.tests.test_group2_runtime solver.tests.test_public_api`
+  - `python -m unittest discover -s tests/python -p 'test_solver_asset_contract.py'`
+  - `python -m unittest discover -s tests/python -p 'test_solver_asset_export_group2.py'`
+  - `python -m unittest discover -s tests/python -p 'test_release_service.py'`
+  - `python scripts/eval_solver_group2_reviewed.py`
+  - reviewed 回归结果：
+    - `sample_count=257`
+    - `failure_count=8`
+    - `point_hit_rate=0.9689`
+    - `mean_center_error_px=6.16`
+    - `mean_iou=0.8025`
+    - `mean_inference_ms=19.01`
+- 缺陷：
+  - `group1` 仍未接入正式 ONNX 导出与运行时链路
+  - reviewed 集仍有 `8` 组失败样本，后续如要继续提精度，应优先分析失败集分布而不是继续改封装
+
+- 任务：将 `group2` 最终模型导出为 solver 资产并接入 `solver/`
+- 变更：
+  - 已从 `materials/solver/group2/best.pt` 成功导出标准 solver 资产到
+    `materials/solver/group2/exported/`
+  - 已修正 group2 ONNX 导出链路，改用 `torch.onnx` 新导出器并显式声明
+    `dynamic_shapes`，当前导出契约为：
+    - `master_image`: `1x1x192x192`
+    - `tile_image`: `1x1x(tile_h)x(tile_w)`
+    - `response_map`: 动态高宽
+  - 已新增 `stage-solver-assets` 流程，把导出资产同步嵌入 `solver/resources/`
+  - `solver` 侧当前直接走 Python `onnxruntime` 运行时，公开接口与资产契约已稳定
+  - 已新增 `scripts/eval_solver_group2_reviewed.py`，可直接对 reviewed 金标集做端到端回归
+- 实测：
+  - `python -m unittest discover -s tests/python -p 'test_solver_asset_export_group2.py'`
+  - `python -m unittest discover -s tests/python -p 'test_release_cli.py'`
+  - `python -m unittest discover -s tests/python -p 'test_release_service.py'`
+  - `PYTHONPATH=solver/src python -m unittest solver.tests.test_native_bridge solver.tests.test_group2_service solver.tests.test_group2_runtime solver.tests.test_public_api`
+  - `python scripts/eval_solver_group2_reviewed.py`
+  - reviewed 回归结果：
+    - `sample_count=257`
+    - `failure_count=8`
+    - `point_hit_rate=0.9689`
+    - `mean_center_error_px=6.16`
+    - `mean_iou=0.8025`
+    - `mean_inference_ms=5.61`
+- 缺陷：
+  - reviewed 集仍有 `8` 组失败样本，后续如要继续提精度，应优先分析失败集分布而不是继续改封装
+
 - 任务：整理真实 `group1` query 图标类型并补首批外部候选素材
 - 变更：
   - 已新增 `scripts/organize_group1_query_icons.py`，能从
@@ -1456,6 +1632,10 @@
 - 缺陷：暂无新增缺陷；仍缺少 Windows + NVIDIA 实机长流程验证
 
 ## 下一步建议
+
+- 2026-04-10：`solver` 已重新收口为纯 Python wheel，当前运行链路为 Python 预处理 -> Python `onnxruntime` -> 业务结果封装。
+- 2026-04-10：`solver/src` 已拉平、`solver/resources` 已外置，后续发布不再依赖 Rust、`maturin` 或平台相关编译物。
+- 2026-04-10：已在 `materials/solver/group2/reviewed` 上完成纯 Python 链路的全量回归，`257` 组样本结果为 `failure_count=8`、`point_hit_rate=0.9688715953307393`、`mean_center_error_px=6.155523243332449`、`mean_iou=0.8024894202411161`、`mean_inference_ms=19.014062256809336`。
 
 - 先校验忽略规则，确认运行时数据、构建产物和本地环境不会误入仓库
 - 先确认 PyPI 发布 token 和远程仓库权限已就绪，再执行真正的发布动作

@@ -6,8 +6,7 @@ from dataclasses import dataclass
 from typing import Any
 
 SOLVER_ASSET_FORMAT = "sinan.solver.assets.v1"
-RUNTIME_TARGET = "rust-onnxruntime"
-NATIVE_EXTENSION_MODULE = "sinanz_ext"
+RUNTIME_TARGET = "python-onnxruntime"
 PYTHON_PACKAGE_NAME = "sinanz"
 PREFERRED_EXECUTION_PROVIDERS = ("CUDAExecutionProvider", "CPUExecutionProvider")
 PIXEL_FORMAT = "RGB"
@@ -104,7 +103,6 @@ class SolverAssetManifest:
             "runtime": {
                 "target": RUNTIME_TARGET,
                 "python_package": PYTHON_PACKAGE_NAME,
-                "native_extension": NATIVE_EXTENSION_MODULE,
                 "preferred_execution_providers": list(PREFERRED_EXECUTION_PROVIDERS),
             },
             "models": {asset.model_id: asset.to_manifest_entry() for asset in self.model_assets},
@@ -146,7 +144,6 @@ class SolverAssetExportReport:
             "group2_run": self.group2_run,
             "exported_at": self.exported_at,
             "runtime_target": RUNTIME_TARGET,
-            "native_extension": NATIVE_EXTENSION_MODULE,
             "exported_models": [record.to_dict() for record in self.exported_models],
         }
 

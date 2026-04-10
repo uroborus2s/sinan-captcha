@@ -1,12 +1,20 @@
-"""Business-oriented solver entrypoints."""
+"""Standalone public API for captcha solver consumers."""
 
 from __future__ import annotations
 
 from pathlib import Path
 
-from .errors import SolverRuntimeError
-from .group2.service import solve_slider_gap
-from .types import BBox, ImageInput, OrderedClickTargetsResult, SliderGapCenterResult
+from sinanz_errors import SolverAssetError, SolverError, SolverInputError, SolverRuntimeError
+from sinanz_group2_service import solve_slider_gap
+from sinanz_types import (
+    BBox,
+    ClickCaptchaDebugInfo,
+    ImageInput,
+    OrderedClickTarget,
+    OrderedClickTargetsResult,
+    SliderGapCenterResult,
+    SliderGapDebugInfo,
+)
 
 _GROUP1_RUNTIME_PLACEHOLDER = (
     "Standalone click-captcha runtime is not implemented yet. "
@@ -85,3 +93,23 @@ def _get_default_solver(*, device: str) -> CaptchaSolver:
     if _default_solver is None or _default_solver.device != device:
         _default_solver = CaptchaSolver(device=device)
     return _default_solver
+
+
+__all__ = [
+    "BBox",
+    "CaptchaSolver",
+    "ClickCaptchaDebugInfo",
+    "ImageInput",
+    "OrderedClickTarget",
+    "OrderedClickTargetsResult",
+    "SliderGapCenterResult",
+    "SliderGapDebugInfo",
+    "SolverAssetError",
+    "SolverError",
+    "SolverInputError",
+    "SolverRuntimeError",
+    "sn_match_slider",
+    "sn_match_targets",
+]
+
+__version__ = "0.1.0"

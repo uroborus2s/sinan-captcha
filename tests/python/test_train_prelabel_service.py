@@ -3,6 +3,7 @@ from __future__ import annotations
 import json
 import os
 import struct
+import types
 import tempfile
 import unittest
 from pathlib import Path
@@ -14,9 +15,11 @@ from core.train.group1.service import Group1PredictionResult
 from core.train.group2.service import Group2PredictionResult
 from core.train.prelabel import (
     Group1PrelabelRequest,
+    Group1QueryDirectoryPrelabelRequest,
     Group2PrelabelRequest,
     _resolve_sample_asset,
     run_group1_prelabel,
+    run_group1_query_directory_prelabel,
     run_group2_prelabel,
 )
 
@@ -207,6 +210,89 @@ class TrainPrelabelServiceTests(unittest.TestCase):
                         project_dir=root / "reports" / "group1",
                     )
                 )
+
+    def test_group1_query_directory_prelabel_writes_sidecar_json_and_summary(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            root = Path(tmpdir)
+            input_dir = root / "materials" / "test" / "group1" / "query"
+            image_path = input_dir / "sample_0001.png"
+            _write_png(image_path, 120, 36, (10, 10, 10))
+            query_model = root / "runs" / "group1" / "demo" / "query-parser" / "weights" / "best.pt"
+            query_model.parent.mkdir(parents=True, exist_ok=True)
+            query_model.write_text("fake-model", encoding="utf-8")
+
+            class _TensorLike:
+                def __init__(self, values: list[list[float]] | list[float]) -> None:
+                    self._values = values
+
+                def tolist(self):
+                    return self._values
+
+            fake_result = types.SimpleNamespace(
+                names={0: "icon_lock"},
+                boxes=types.SimpleNamespace(
+                    xyxy=_TensorLike([[5.0, 8.0, 29.0, 30.0]]),
+                    cls=_TensorLike([0.0]),
+                    conf=_TensorLike([0.98]),
+                ),
+            )
+
+            class _FakeYOLO:
+                def __init__(self, model_path: str) -> None:
+                    self.model_path = model_path
+
+                def predict(self, *, source: str, imgsz: int, conf: float, device: str, verbose: bool):
+                    self.last_call = {
+                        "source": source,
+                        "imgsz": imgsz,
+                        "conf": conf,
+                        "device": device,
+                        "verbose": verbose,
+                    }
+                    return [fake_result]
+
+            with patch("core.train.prelabel._ensure_training_dependencies") as ensure_deps:
+                ensure_deps.return_value = None
+                with patch.dict("sys.modules", {"ultralytics": types.SimpleNamespace(YOLO=_FakeYOLO)}):
+                    result = run_group1_query_directory_prelabel(
+                        Group1QueryDirectoryPrelabelRequest(
+                            input_dir=input_dir,
+                            query_model_path=query_model,
+                            project_dir=root / "reports" / "group1" / "query-prelabel",
+                        )
+                    )
+
+            self.assertEqual(result.sample_count, 1)
+            self.assertEqual(result.annotation_count, 1)
+            annotation_path = input_dir / "sample_0001.json"
+            self.assertTrue(annotation_path.exists())
+            annotation = json.loads(annotation_path.read_text(encoding="utf-8"))
+            self.assertEqual(annotation["imagePath"], "sample_0001.png")
+            self.assertEqual(annotation["shapes"][0]["label"], "icon_lock")
+            rows = read_jsonl(result.prediction_labels_path)
+            self.assertEqual(rows[0]["query_targets"][0]["class"], "icon_lock")
+
+    def test_group1_query_directory_prelabel_refuses_to_overwrite_existing_json_by_default(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            root = Path(tmpdir)
+            input_dir = root / "materials" / "test" / "group1" / "query"
+            image_path = input_dir / "sample_0001.png"
+            _write_png(image_path, 120, 36, (10, 10, 10))
+            (input_dir / "sample_0001.json").write_text("{}", encoding="utf-8")
+            query_model = root / "runs" / "group1" / "demo" / "query-parser" / "weights" / "best.pt"
+            query_model.parent.mkdir(parents=True, exist_ok=True)
+            query_model.write_text("fake-model", encoding="utf-8")
+
+            with patch("core.train.prelabel._ensure_training_dependencies") as ensure_deps:
+                ensure_deps.return_value = None
+                with self.assertRaisesRegex(RuntimeError, "--overwrite"):
+                    run_group1_query_directory_prelabel(
+                        Group1QueryDirectoryPrelabelRequest(
+                            input_dir=input_dir,
+                            query_model_path=query_model,
+                            project_dir=root / "reports" / "group1" / "query-prelabel",
+                        )
+                    )
 
     def test_group2_prelabel_copies_assets_and_writes_master_annotation(self) -> None:
         with tempfile.TemporaryDirectory() as tmpdir:

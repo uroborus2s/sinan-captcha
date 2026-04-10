@@ -15,7 +15,7 @@ def validate_group1_row(row: dict[str, Any]) -> dict[str, Any]:
         "sample_id",
         "query_image",
         "scene_image",
-        "query_targets",
+        "query_items",
         "scene_targets",
         "distractors",
         "label_source",
@@ -23,29 +23,29 @@ def validate_group1_row(row: dict[str, Any]) -> dict[str, Any]:
     ]
     _require_fields(normalized, required)
 
-    query_targets = normalized["query_targets"]
+    query_items = normalized["query_items"]
     scene_targets = normalized["scene_targets"]
     distractors = normalized["distractors"]
-    if not isinstance(query_targets, list):
-        raise DatasetValidationError("group1 query_targets must be a list")
+    if not isinstance(query_items, list):
+        raise DatasetValidationError("group1 query_items must be a list")
     if not isinstance(scene_targets, list):
         raise DatasetValidationError("group1 scene_targets must be a list")
     if not isinstance(distractors, list):
         raise DatasetValidationError("group1 distractors must be a list")
     if normalized["label_source"] == "gold":
-        if not query_targets:
-            raise DatasetValidationError("group1 gold query_targets must be a non-empty list")
+        if not query_items:
+            raise DatasetValidationError("group1 gold query_items must be a non-empty list")
         if not scene_targets:
             raise DatasetValidationError("group1 gold scene_targets must be a non-empty list")
-        if len(query_targets) != len(scene_targets):
-            raise DatasetValidationError("group1 gold query_targets and scene_targets must have the same length")
+        if len(query_items) != len(scene_targets):
+            raise DatasetValidationError("group1 gold query_items and scene_targets must have the same length")
 
-    for target in query_targets:
-        _validate_object(target, require_order=True)
+    for target in query_items:
+        _validate_group1_object(target, require_order=True)
     for target in scene_targets:
-        _validate_object(target, require_order=True)
+        _validate_group1_object(target, require_order=True)
     for distractor in distractors:
-        _validate_object(distractor, require_order=False)
+        _validate_group1_object(distractor, require_order=False)
 
     return normalized
 
@@ -83,13 +83,23 @@ def collect_group1_classes(rows: list[dict[str, Any]]) -> dict[int, str]:
     for row in rows:
         normalized = _normalize_group1_aliases(row)
         for obj in normalized["query_targets"] + normalized["scene_targets"] + normalized["distractors"]:
-            classes[int(obj["class_id"])] = str(obj["class"])
+            class_id = obj.get("class_id")
+            class_name = obj.get("class")
+            if not isinstance(class_id, int):
+                continue
+            if not isinstance(class_name, str) or not class_name.strip():
+                continue
+            classes[int(class_id)] = class_name
     return classes
 
 
-def get_group1_query_targets(row: dict[str, Any]) -> list[dict[str, Any]]:
+def get_group1_query_items(row: dict[str, Any]) -> list[dict[str, Any]]:
     normalized = _normalize_group1_aliases(row)
-    return list(normalized["query_targets"])
+    return list(normalized["query_items"])
+
+
+def get_group1_query_targets(row: dict[str, Any]) -> list[dict[str, Any]]:
+    return get_group1_query_items(row)
 
 
 def get_group1_scene_targets(row: dict[str, Any]) -> list[dict[str, Any]]:
@@ -100,7 +110,7 @@ def get_group1_scene_targets(row: dict[str, Any]) -> list[dict[str, Any]]:
 def set_group1_scene_targets(row: dict[str, Any], targets: list[dict[str, Any]]) -> dict[str, Any]:
     normalized = _normalize_group1_aliases(row)
     normalized["scene_targets"] = targets
-    normalized.pop("targets", None)
+    normalized["targets"] = targets
     return normalized
 
 
@@ -151,9 +161,37 @@ def _require_fields(row: dict[str, Any], required: list[str]) -> None:
 
 def _normalize_group1_aliases(row: dict[str, Any]) -> dict[str, Any]:
     normalized = dict(row)
+    if "query_items" not in normalized and "query_targets" in normalized:
+        normalized["query_items"] = normalized["query_targets"]
+    if "query_targets" not in normalized and "query_items" in normalized:
+        normalized["query_targets"] = normalized["query_items"]
     if "scene_targets" not in normalized and "targets" in normalized:
         normalized["scene_targets"] = normalized["targets"]
+    if "targets" not in normalized and "scene_targets" in normalized:
+        normalized["targets"] = normalized["scene_targets"]
     return normalized
+
+
+def _validate_group1_object(obj: dict[str, Any], *, require_order: bool) -> None:
+    required = ["bbox", "center"]
+    if require_order:
+        required.insert(0, "order")
+    _require_fields(obj, required)
+
+    _validate_bbox_and_center(obj)
+    identity_fields = ("asset_id", "template_id", "variant_id")
+    has_any_identity = any(field in obj for field in identity_fields)
+    has_all_identity = all(isinstance(obj.get(field), str) and str(obj.get(field)).strip() for field in identity_fields)
+    has_legacy_class = isinstance(obj.get("class"), str) and str(obj.get("class")).strip() and isinstance(obj.get("class_id"), int)
+
+    if has_any_identity and not has_all_identity:
+        raise DatasetValidationError("group1 object must provide a complete asset_id/template_id/variant_id identity")
+    if not has_all_identity and not has_legacy_class:
+        raise DatasetValidationError("group1 object must provide asset identity or legacy class/class_id")
+    if "class" in obj and (not isinstance(obj["class"], str) or not str(obj["class"]).strip()):
+        raise DatasetValidationError("class must be a non-empty string when provided")
+    if "class_id" in obj and not isinstance(obj["class_id"], int):
+        raise DatasetValidationError("class_id must be an integer when provided")
 
 
 def _validate_object(obj: dict[str, Any], *, require_order: bool) -> None:
@@ -162,6 +200,10 @@ def _validate_object(obj: dict[str, Any], *, require_order: bool) -> None:
         required.insert(0, "order")
     _require_fields(obj, required)
 
+    _validate_bbox_and_center(obj)
+
+
+def _validate_bbox_and_center(obj: dict[str, Any]) -> None:
     bbox = obj["bbox"]
     center = obj["center"]
     if not isinstance(bbox, list) or len(bbox) != 4:

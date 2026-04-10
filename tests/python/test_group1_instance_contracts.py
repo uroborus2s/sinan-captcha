@@ -1,0 +1,138 @@
+from __future__ import annotations
+
+import unittest
+
+from core.dataset.contracts import BoundingBox, Group1OrderedItem, Group1Sample, Group1SceneObject
+from core.dataset.validation import get_group1_query_targets, validate_group1_row
+
+
+class Group1InstanceContractsTests(unittest.TestCase):
+    def test_group1_sample_serializes_query_items_with_material_identity(self) -> None:
+        sample = Group1Sample(
+            sample_id="g1_000001",
+            query_image="query/g1_000001.png",
+            scene_image="scene/g1_000001.png",
+            query_items=[
+                Group1OrderedItem(
+                    order=1,
+                    asset_id="asset_house_main",
+                    template_id="tpl_house",
+                    variant_id="var_outline",
+                    bbox=BoundingBox(8, 8, 28, 28),
+                    center=(18, 18),
+                    class_name="icon_house",
+                    class_id=0,
+                )
+            ],
+            scene_targets=[
+                Group1OrderedItem(
+                    order=1,
+                    asset_id="asset_house_main",
+                    template_id="tpl_house",
+                    variant_id="var_outline",
+                    bbox=BoundingBox(80, 32, 120, 72),
+                    center=(100, 52),
+                    class_name="icon_house",
+                    class_id=0,
+                )
+            ],
+            distractors=[
+                Group1SceneObject(
+                    asset_id="asset_leaf_alt",
+                    template_id="tpl_leaf",
+                    variant_id="var_fill",
+                    bbox=BoundingBox(140, 36, 180, 76),
+                    center=(160, 56),
+                    class_name="icon_leaf",
+                    class_id=1,
+                )
+            ],
+            label_source="gold",
+            source_batch="batch_0001",
+            seed=1,
+        )
+
+        payload = sample.to_dict()
+
+        self.assertIn("query_items", payload)
+        self.assertNotIn("query_targets", payload)
+        self.assertEqual(payload["query_items"][0]["asset_id"], "asset_house_main")
+        self.assertEqual(payload["query_items"][0]["template_id"], "tpl_house")
+        self.assertEqual(payload["query_items"][0]["variant_id"], "var_outline")
+        self.assertEqual(payload["scene_targets"][0]["center"], [100, 52])
+        self.assertEqual(payload["distractors"][0]["asset_id"], "asset_leaf_alt")
+
+    def test_validate_group1_row_accepts_new_query_items_shape_and_preserves_legacy_accessor(self) -> None:
+        row = {
+            "sample_id": "g1_000001",
+            "query_image": "query/g1_000001.png",
+            "scene_image": "scene/g1_000001.png",
+            "query_items": [
+                {
+                    "order": 1,
+                    "asset_id": "asset_house_main",
+                    "template_id": "tpl_house",
+                    "variant_id": "var_outline",
+                    "bbox": [8, 8, 28, 28],
+                    "center": [18, 18],
+                }
+            ],
+            "scene_targets": [
+                {
+                    "order": 1,
+                    "asset_id": "asset_house_main",
+                    "template_id": "tpl_house",
+                    "variant_id": "var_outline",
+                    "bbox": [80, 32, 120, 72],
+                    "center": [100, 52],
+                }
+            ],
+            "distractors": [],
+            "label_source": "gold",
+            "source_batch": "batch_0001",
+        }
+
+        normalized = validate_group1_row(row)
+
+        self.assertEqual(normalized["query_items"][0]["asset_id"], "asset_house_main")
+        self.assertEqual(normalized["query_targets"][0]["asset_id"], "asset_house_main")
+        self.assertEqual(get_group1_query_targets(normalized)[0]["template_id"], "tpl_house")
+
+    def test_validate_group1_row_normalizes_legacy_query_targets_into_query_items(self) -> None:
+        row = {
+            "sample_id": "g1_000001",
+            "query_image": "query/g1_000001.png",
+            "scene_image": "scene/g1_000001.png",
+            "query_targets": [
+                {
+                    "order": 1,
+                    "asset_id": "asset_house_main",
+                    "template_id": "tpl_house",
+                    "variant_id": "var_outline",
+                    "bbox": [8, 8, 28, 28],
+                    "center": [18, 18],
+                }
+            ],
+            "scene_targets": [
+                {
+                    "order": 1,
+                    "asset_id": "asset_house_main",
+                    "template_id": "tpl_house",
+                    "variant_id": "var_outline",
+                    "bbox": [80, 32, 120, 72],
+                    "center": [100, 52],
+                }
+            ],
+            "distractors": [],
+            "label_source": "gold",
+            "source_batch": "batch_0001",
+        }
+
+        normalized = validate_group1_row(row)
+
+        self.assertEqual(normalized["query_items"][0]["variant_id"], "var_outline")
+        self.assertEqual(normalized["query_targets"][0]["variant_id"], "var_outline")
+
+
+if __name__ == "__main__":
+    unittest.main()

@@ -1,0 +1,32 @@
+{
+  "model_id": "slider_gap_locator",
+  "task": "group2",
+  "component": "locator",
+  "runtime_target": "python-onnxruntime",
+  "format": "onnx",
+  "opset": 18,
+  "input": {
+    "names": [
+      "master_image",
+      "tile_image"
+    ],
+    "image_size": [
+      192,
+      192
+    ],
+    "layout": "NCHW",
+    "pixel_format": "RGB",
+    "dtype": "float32",
+    "normalization": "zero_to_one"
+  },
+  "output": {
+    "names": [
+      "response_map"
+    ],
+    "postprocess": "paired_gap_bbox_v1"
+  },
+  "preferred_execution_providers": [
+    "CUDAExecutionProvider",
+    "CPUExecutionProvider"
+  ]
+}

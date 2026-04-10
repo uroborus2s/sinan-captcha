@@ -71,7 +71,7 @@ func CheckConsistency(record export.SampleRecord, spec backend.Spec, canvas conf
 				return fmt.Errorf("query target %d: %w", index, err)
 			}
 			sceneTarget := record.SceneTargets[index]
-			if target.Class != sceneTarget.Class || target.ClassID != sceneTarget.ClassID || target.Order != sceneTarget.Order {
+			if !sameGroup1Identity(target, sceneTarget) || target.Order != sceneTarget.Order {
 				return fmt.Errorf("query target %d does not align with scene target definition", index)
 			}
 		}
@@ -206,4 +206,11 @@ func verifySlide(record export.SampleRecord, offsetX int, offsetY int) bool {
 func normalize(record export.SampleRecord) export.SampleRecord {
 	record.TruthChecks = nil
 	return record
+}
+
+func sameGroup1Identity(left export.ObjectRecord, right export.ObjectRecord) bool {
+	if left.AssetID != "" || right.AssetID != "" || left.TemplateID != "" || right.TemplateID != "" || left.VariantID != "" || right.VariantID != "" {
+		return left.AssetID == right.AssetID && left.TemplateID == right.TemplateID && left.VariantID == right.VariantID
+	}
+	return left.Class == right.Class && left.ClassID == right.ClassID
 }

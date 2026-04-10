@@ -7,6 +7,7 @@ from pathlib import Path
 from unittest.mock import patch
 
 from core.release.solver_export import (
+    ExportedOnnxInfo,
     ExportGroup2SolverAssetsRequest,
     export_group2_solver_assets,
 )
@@ -49,7 +50,7 @@ class Group2SolverAssetExportTests(unittest.TestCase):
                 },
             )
             self.assertEqual(manifest_payload["asset_version"], "20260405")
-            self.assertEqual(manifest_payload["runtime"]["target"], "rust-onnxruntime")
+            self.assertEqual(manifest_payload["runtime"]["target"], "python-onnxruntime")
             self.assertEqual(
                 manifest_payload["models"]["slider_gap_locator"]["path"],
                 "models/slider_gap_locator.onnx",
@@ -92,11 +93,11 @@ class Group2SolverAssetExportTests(unittest.TestCase):
             )
 
     @staticmethod
-    def _write_fake_onnx(*, checkpoint_path: Path, output_path: Path, opset: int) -> int:
+    def _write_fake_onnx(*, checkpoint_path: Path, output_path: Path, opset: int) -> ExportedOnnxInfo:
         del checkpoint_path, opset
         output_path.parent.mkdir(parents=True, exist_ok=True)
         output_path.write_bytes(b"fake-onnx")
-        return 192
+        return ExportedOnnxInfo(image_size=192, opset=17)
 
 
 if __name__ == "__main__":

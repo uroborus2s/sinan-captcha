@@ -96,6 +96,14 @@ uv run sinan train group1 prelabel --exam-root materials/business_exams/group1/r
 uv run sinan train group2 prelabel --exam-root materials/business_exams/group2/reviewed-v1 --dataset-version firstpass --train-name firstpass
 ```
 
+如果你当前只想对一批独立的 `group1 query` 图片做预标注，而不是整套 `query + scene` 试卷，也可以直接执行：
+
+```bash
+uv run sinan train group1 prelabel-query-dir --input-dir materials/test/group1/query --train-name firstpass
+```
+
+这条命令会直接使用本地 `query-parser` 权重，为 `query` 目录里的每张图片写同名 `json` 标注文件，并把汇总结果写到该目录下的 `.sinan/prelabel/group1/query/`。
+
 这两条命令会做 4 件事：
 
 1. 从 `manifest.json` 读取试卷样本。
@@ -175,6 +183,10 @@ materials/business_exams/group2/reviewed-v1/
 
 - 给每张 `icon.jpg` 里的查询小图标打框。
 
+如果你需要一份可直接对照的标准标签表，先打开：
+
+- [训练者角色：`group1` 标签对照与人工复核说明](./group1-label-reference-and-review-guide.md)
+
 目录：
 
 - `materials/business_exams/group1/reviewed-v1/reviewed/query`
@@ -212,6 +224,10 @@ materials/business_exams/group2/reviewed-v1/
 - `01|icon_lock`
 - `1_icon_lock`
 - `target_1`
+
+如果你不确定某个图标到底该叫哪个标准标签，不要现场临时发明名字。先回看：
+
+- [训练者角色：`group1` 标签对照与人工复核说明](./group1-label-reference-and-review-guide.md)
 
 ### `group1 query` 复核标准
 
@@ -262,6 +278,15 @@ materials/business_exams/group2/reviewed-v1/
 - `01`、`02`、`03` 表示点击顺序
 - 后面的 `class` 必须和 `query` 里对应的类别一致
 - 同一张图里只能标真正答案，不标干扰项
+
+如果你发现模型没识别出某个图标，先用同一页文档区分：
+
+- 这是已有类别但漏检
+- 还是当前类表里根本没有的新类别
+
+对应处理规则见：
+
+- [训练者角色：`group1` 标签对照与人工复核说明](./group1-label-reference-and-review-guide.md)
 
 ### `group1 scene` 复核标准
 

@@ -2,7 +2,7 @@
 
 - 项目名称：sinan-captcha
 - 当前阶段：IMPLEMENTATION（设计基线维护）
-- 最近更新：2026-04-05
+- 最近更新：2026-04-11
 - 负责人：Codex
 
 ## 1. 设计目标
@@ -41,14 +41,17 @@
 ### 2.2 训练框架
 
 - `group1` 训练框架：
-  - Ultralytics YOLO
-  - 分别训练 `scene detector` 与 `query parser`
+  - `scene proposal detector`：Ultralytics YOLO 类无关检测
+  - `icon embedder`：仓库内 PyTorch 度量学习编码器
+  - `query splitter`：首版优先规则切分，必要时再补轻量模型
+  - `matcher`：余弦相似度 + 全局分配 + 歧义阈值
 - `group2` 训练框架：
   - 仓库内 PyTorch 自定义 paired-input runner
 
 设计判断：
 
-- `group1` 的真实业务是 `query_image + scene_image -> ordered_clicks`，首版拆成 `scene detector + query parser + matcher` 最稳。
+- `group1` 的真实业务不是“识别类名”，而是 `query_image + scene_image -> ordered_clicks` 的实例匹配问题。
+- `group1` 正式路线改为 `query splitter + scene proposal detector + icon embedder + matcher`，不再把闭集类名检测当成 solver 主线。
 - `group2` 的真实业务是 `master_image + tile_image -> target_center`，继续伪装成单图 detect 只会让合同和实现都失真。
 
 ### 2.2.1 推理运行时路线
@@ -69,16 +72,19 @@
 
 ### 2.3 `group1` 正式技术路线
 
-- 子模型 1：`scene detector`
-- 子模型 2：`query parser`
+- 组件 1：`query splitter`
+- 组件 2：`scene proposal detector`
+- 组件 3：`icon embedder`
 - 非模型组件：`matcher`
 - 正式业务输出：按查询顺序排列的中心点序列
-- 调试或解释字段：检测框、候选框、匹配状态、歧义状态
+- 调试或解释字段：query 项、候选框、相似度、分配状态、歧义状态
 
 设计判断：
 
-- 首版不引入额外相似度匹配模型。
-- 只有当类别体系无法稳定维护、重复类别场景无法靠规则消歧时，才重新评估“检测 + 匹配模型”路线。
+- `group1` 不再以闭集类名作为 solver 主合同。
+- 素材分类仍保留，但只服务素材治理、采样和人工理解，不再决定正式求解是否成立。
+- `group1` 正式训练主事实源改为 `asset_id / template_id / variant_id` 这类实例身份。
+- 当前仓库仍保留旧 `scene detector + query parser + class matcher` 实现，但它已降级为待重构实现差距，不再是正式设计基线。
 
 ### 2.4 `group2` 正式技术路线
 
@@ -111,6 +117,10 @@
 
 - backend 只能提供生成能力，不得成为训练标签的主事实源。
 - 视觉难度增强第一版只允许 truth-preserving 的像素级扰动，不允许改变几何语义。
+- `group1` 生成器导出必须从“类名驱动数据集”切到“实例驱动数据集”：
+  - proposal 检测数据
+  - embedding/metric learning 数据
+  - end-to-end 评测数据
 
 ### 2.6 自主训练控制器与 agent 运行时
 
@@ -172,7 +182,7 @@
 
 - 主事实源：JSONL
 - 派生产物：
-  - `group1`：`dataset.json`、`scene-yolo/`、`query-yolo/`、`splits/`
+  - `group1`：`dataset.json`、`proposal-yolo/`、`embedding/`、`eval/`、`splits/`
   - `group2`：`dataset.json`、`master/`、`tile/`、`splits/`
 - 禁止把任何派生产物当作唯一事实源。
 
@@ -205,8 +215,9 @@
 - Python 侧正式入口：`sinan`
 - solver 侧正式能力归属：
   - 当前迁移参考实现在 `core/solve`
-  - 正式公开入口应在 `solver/src/sinanz/`
-  - 正式运行时扩展应在 `solver/native/sinanz_ext/`
+  - 正式公开入口应在 `solver/src/*.py`
+  - 正式模型资源应在 `solver/resources/`
+  - 正式运行时方案为纯 Python + `onnxruntime`
 - 不再允许 `scripts/*` 成为正式对外入口。
 
 ### 4.3 默认质量门槛

@@ -15,6 +15,9 @@ import (
 
 type ObjectRecord struct {
 	Order       int     `json:"order,omitempty"`
+	AssetID     string  `json:"asset_id,omitempty"`
+	TemplateID  string  `json:"template_id,omitempty"`
+	VariantID   string  `json:"variant_id,omitempty"`
 	Class       string  `json:"class"`
 	ClassID     int     `json:"class_id"`
 	BBox        [4]int  `json:"bbox"`
@@ -40,7 +43,7 @@ type SampleRecord struct {
 	SceneImage      string         `json:"scene_image,omitempty"`
 	MasterImage     string         `json:"master_image,omitempty"`
 	TileImage       string         `json:"tile_image,omitempty"`
-	QueryTargets    []ObjectRecord `json:"query_targets,omitempty"`
+	QueryTargets    []ObjectRecord `json:"query_items,omitempty"`
 	SceneTargets    []ObjectRecord `json:"scene_targets,omitempty"`
 	Distractors     []ObjectRecord `json:"distractors,omitempty"`
 	TargetGap       *ObjectRecord  `json:"target_gap,omitempty"`
@@ -91,6 +94,31 @@ type BatchWriter struct {
 	result   Result
 	labels   *os.File
 	manifest BatchManifest
+}
+
+func (record *SampleRecord) UnmarshalJSON(data []byte) error {
+	type sampleRecordAlias SampleRecord
+	type sampleRecordPayload struct {
+		sampleRecordAlias
+		QueryItems         []ObjectRecord `json:"query_items"`
+		LegacyQueryTargets []ObjectRecord `json:"query_targets"`
+	}
+
+	var payload sampleRecordPayload
+	if err := json.Unmarshal(data, &payload); err != nil {
+		return err
+	}
+
+	*record = SampleRecord(payload.sampleRecordAlias)
+	switch {
+	case payload.QueryItems != nil:
+		record.QueryTargets = payload.QueryItems
+	case payload.LegacyQueryTargets != nil:
+		record.QueryTargets = payload.LegacyQueryTargets
+	default:
+		record.QueryTargets = nil
+	}
+	return nil
 }
 
 func NewBatchWriter(

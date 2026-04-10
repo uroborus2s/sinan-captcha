@@ -8,8 +8,7 @@ from core.release import solver_asset_contract as contract
 class SolverAssetContractTests(unittest.TestCase):
     def test_named_onnx_assets_are_stable(self) -> None:
         self.assertEqual(contract.SOLVER_ASSET_FORMAT, "sinan.solver.assets.v1")
-        self.assertEqual(contract.RUNTIME_TARGET, "rust-onnxruntime")
-        self.assertEqual(contract.NATIVE_EXTENSION_MODULE, "sinanz_ext")
+        self.assertEqual(contract.RUNTIME_TARGET, "python-onnxruntime")
         self.assertEqual(
             contract.MODEL_FILENAMES,
             {
@@ -59,8 +58,7 @@ class SolverAssetContractTests(unittest.TestCase):
         payload = manifest.to_dict()
 
         self.assertEqual(payload["asset_format"], "sinan.solver.assets.v1")
-        self.assertEqual(payload["runtime"]["target"], "rust-onnxruntime")
-        self.assertEqual(payload["runtime"]["native_extension"], "sinanz_ext")
+        self.assertEqual(payload["runtime"]["target"], "python-onnxruntime")
         self.assertEqual(
             payload["runtime"]["preferred_execution_providers"],
             ["CUDAExecutionProvider", "CPUExecutionProvider"],

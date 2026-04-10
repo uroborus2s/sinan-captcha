@@ -197,6 +197,50 @@ class TrainingJobTests(unittest.TestCase):
         self.assertIn("--query-model D:/sinan-captcha-work/runs/group1/firstpass/query-parser/weights/last.pt", output)
         self.assertIn("--resume", output)
 
+    def test_group1_cli_can_train_only_query_parser(self) -> None:
+        buffer = io.StringIO()
+        with patch("core.train.group1.cli.Path.cwd", return_value=Path("D:/sinan-captcha-work")):
+            with redirect_stdout(buffer):
+                code = group1_cli.main(
+                    [
+                        "--dataset-version",
+                        "firstpass",
+                        "--name",
+                        "query_only",
+                        "--component",
+                        "query-parser",
+                        "--dry-run",
+                    ]
+                )
+        self.assertEqual(code, 0)
+        output = buffer.getvalue()
+        self.assertIn("--component query-parser", output)
+        self.assertIn("--query-model yolo26n.pt", output)
+        self.assertNotIn("--scene-model", output)
+
+    def test_group1_cli_can_train_only_scene_detector_from_previous_run(self) -> None:
+        buffer = io.StringIO()
+        with patch("core.train.group1.cli.Path.cwd", return_value=Path("D:/sinan-captcha-work")):
+            with redirect_stdout(buffer):
+                code = group1_cli.main(
+                    [
+                        "--dataset-version",
+                        "firstpass_v2",
+                        "--name",
+                        "scene_only",
+                        "--component",
+                        "scene-detector",
+                        "--from-run",
+                        "firstpass",
+                        "--dry-run",
+                    ]
+                )
+        self.assertEqual(code, 0)
+        output = buffer.getvalue()
+        self.assertIn("--component scene-detector", output)
+        self.assertIn("--scene-model D:/sinan-captcha-work/runs/group1/firstpass/scene-detector/weights/best.pt", output)
+        self.assertNotIn("--query-model", output)
+
     def test_group1_prelabel_cli_dry_run_uses_reviewed_exam_and_trained_weights(self) -> None:
         buffer = io.StringIO()
         with patch("core.train.group1.cli.Path.cwd", return_value=Path("D:/sinan-captcha-work")):
@@ -220,6 +264,27 @@ class TrainingJobTests(unittest.TestCase):
         self.assertIn("--scene-model D:/sinan-captcha-work/runs/group1/round1/scene-detector/weights/best.pt", output)
         self.assertIn("--query-model D:/sinan-captcha-work/runs/group1/round1/query-parser/weights/best.pt", output)
         self.assertIn("--source materials/business_exams/group1/reviewed-v1/.sinan/prelabel/group1/source.jsonl", output)
+
+    def test_group1_query_directory_prelabel_cli_dry_run_uses_query_parser_weights(self) -> None:
+        buffer = io.StringIO()
+        with patch("core.train.group1.cli.Path.cwd", return_value=Path("D:/sinan-captcha-work")):
+            with redirect_stdout(buffer):
+                code = group1_cli.main(
+                    [
+                        "prelabel-query-dir",
+                        "--input-dir",
+                        "materials/test/group1/query",
+                        "--train-name",
+                        "round1",
+                        "--dry-run",
+                    ]
+                )
+        self.assertEqual(code, 0)
+        output = buffer.getvalue()
+        self.assertIn('"input_dir": "materials/test/group1/query"', output)
+        self.assertIn('"query_model_path": "D:/sinan-captcha-work/runs/group1/round1/query-parser/weights/best.pt"', output)
+        self.assertIn('"project_dir": "materials/test/group1/query/.sinan/prelabel/group1/query"', output)
+        self.assertIn('"run_name": "prelabel-query"', output)
 
     def test_group2_cli_executes_training_command(self) -> None:
         with tempfile.TemporaryDirectory() as tmpdir:

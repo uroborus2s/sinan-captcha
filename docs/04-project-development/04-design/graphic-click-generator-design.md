@@ -2,7 +2,7 @@
 
 - 文档状态：草稿
 - 当前阶段：DESIGN
-- 最近更新：2026-04-02
+- 最近更新：2026-04-11
 - 目标读者：架构/开发、训练实施者、生成器实现者
 - 负责人：Codex
 - 上游输入：
@@ -27,6 +27,12 @@
    - 滑块缺口定位：`group2_slider_gap_locate`
 4. `go-captcha` 只作为 backend 候选，不作为训练标签事实源本身。
 5. 任何无法证明真值正确性的样本一律不得进入训练集。
+
+2026-04-11 新增收口：
+
+- 本文继续作为生成器控制层和 `gold` 门禁设计的事实源。
+- `group1` 的正式导出契约已从旧 `class_id` 驱动路线切到实例匹配路线。
+- 详细方案以 [group1 实例匹配重构设计](./group1-instance-matching-refactor.md) 为准。
 
 这里最关键的收口是：
 
@@ -67,15 +73,19 @@
   - `query_image`
   - `scene_image`
 - 输出真值：
-  - `query_targets[].order`
-  - `query_targets[].class`
-  - `query_targets[].bbox`
-  - `query_targets[].center`
+  - `query_items[].order`
+  - `query_items[].asset_id`
+  - `query_items[].template_id`
+  - `query_items[].variant_id`
+  - `query_items[].bbox`
+  - `query_items[].center`
   - `scene_targets[].order`
-  - `scene_targets[].class`
+  - `scene_targets[].asset_id`
+  - `scene_targets[].template_id`
+  - `scene_targets[].variant_id`
   - `scene_targets[].bbox`
   - `scene_targets[].center`
-  - `distractors[].class`
+  - `distractors[].asset_id`
   - `distractors[].bbox`
 
 ### 3.2 第二专项：滑块缺口定位
@@ -111,7 +121,7 @@ flowchart LR
     H --> I["导出器"]
     I --> J["images + labels.jsonl + manifest.json"]
     J --> K["数据集构建层"]
-    K --> L["group1 pipeline dataset / group2 paired dataset"]
+    K --> L["group1 proposal+embedding+eval dataset / group2 paired dataset"]
 ```
 
 ### 4.1 控制层职责
@@ -261,12 +271,16 @@ flowchart LR
   "backend": "native",
   "query_image": "query/g1_000001.png",
   "scene_image": "scene/g1_000001.png",
-  "targets": [
-    {"order": 1, "class": "icon_house", "class_id": 0, "bbox": [20, 8, 42, 24], "center": [31, 16]},
-    {"order": 2, "class": "icon_leaf", "class_id": 1, "bbox": [55, 10, 75, 26], "center": [65, 18]}
+  "query_items": [
+    {"order": 1, "asset_id": "asset_0101", "template_id": "tpl_0004", "variant_id": "var_0002", "bbox": [20, 8, 42, 24], "center": [31, 16]},
+    {"order": 2, "asset_id": "asset_0217", "template_id": "tpl_0011", "variant_id": "var_0001", "bbox": [55, 10, 75, 26], "center": [65, 18]}
+  ],
+  "scene_targets": [
+    {"order": 1, "asset_id": "asset_0101", "template_id": "tpl_0004", "variant_id": "var_0002", "bbox": [220, 108, 242, 124], "center": [231, 116]},
+    {"order": 2, "asset_id": "asset_0217", "template_id": "tpl_0011", "variant_id": "var_0001", "bbox": [355, 114, 375, 130], "center": [365, 122]}
   ],
   "distractors": [
-    {"class": "icon_boat", "class_id": 2, "bbox": [80, 12, 104, 28]}
+    {"asset_id": "asset_0999", "bbox": [80, 12, 104, 28]}
   ],
   "label_source": "gold",
   "truth_checks": {
@@ -332,6 +346,10 @@ generator/output/
 - 第一组和第二组分开落盘
 - `labels.jsonl` 和图片同批次存放
 - `manifest.json` 记录配置快照与校验摘要
+- `group1` 最终训练目录应继续下钻为：
+  - `proposal-yolo/`
+  - `embedding/`
+  - `eval/`
 
 ## 9. CLI 设计
 

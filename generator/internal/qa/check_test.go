@@ -24,7 +24,7 @@ func TestInspectBatchValidatesClickBatch(t *testing.T) {
 		Backend:         "native",
 		AssetDirs:       map[string]string{"query": "query", "scene": "scene"},
 		ConfigSnapshot:  config.Config{Canvas: config.CanvasConfig{SceneWidth: 300, SceneHeight: 150, QueryWidth: 120, QueryHeight: 36}},
-		MaterialSummary: material.ValidationSummary{SchemaVersion: 2, Group1ClassCount: 2, Group2ShapeCount: 2},
+		MaterialSummary: material.ValidationSummary{SchemaVersion: 3, Group1TemplateCount: 2, Group1VariantCount: 2, Group2ShapeCount: 2},
 	})
 	writeLabels(t, filepath.Join(batchRoot, "labels.jsonl"), []export.SampleRecord{
 		{

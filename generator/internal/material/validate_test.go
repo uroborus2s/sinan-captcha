@@ -14,10 +14,10 @@ import (
 func TestValidateRejectsUndecodableBackground(t *testing.T) {
 	root := t.TempDir()
 	writeMaterialsManifest(t, root)
-	writeGroup1Manifest(t, root)
+	writeGroup1TemplatesManifest(t, root)
 	writeGroup2Manifest(t, root)
 	writeInvalidImage(t, filepath.Join(root, "backgrounds", "broken.jpeg"))
-	writePNG(t, filepath.Join(root, "group1", "icons", "icon_house", "001.png"), 32, 32)
+	writePNG(t, filepath.Join(root, "group1", "icons", "tpl_house", "var_real_cluster_040_01.png"), 32, 32)
 	writePNG(t, filepath.Join(root, "group2", "shapes", "shape_ticket", "001.png"), 32, 32)
 
 	_, err := Validate(root)
@@ -32,17 +32,17 @@ func TestValidateRejectsUndecodableBackground(t *testing.T) {
 func TestValidateRejectsUndecodableIcon(t *testing.T) {
 	root := t.TempDir()
 	writeMaterialsManifest(t, root)
-	writeGroup1Manifest(t, root)
+	writeGroup1TemplatesManifest(t, root)
 	writeGroup2Manifest(t, root)
 	writePNG(t, filepath.Join(root, "backgrounds", "bg.png"), 320, 180)
-	writeInvalidImage(t, filepath.Join(root, "group1", "icons", "icon_house", "broken.png"))
+	writeInvalidImage(t, filepath.Join(root, "group1", "icons", "tpl_house", "var_real_cluster_040_01.png"))
 	writePNG(t, filepath.Join(root, "group2", "shapes", "shape_ticket", "001.png"), 32, 32)
 
 	_, err := Validate(root)
 	if err == nil {
 		t.Fatal("expected invalid icon image to fail validation")
 	}
-	if !strings.Contains(err.Error(), "broken.png") {
+	if !strings.Contains(err.Error(), "tpl_house/var_real_cluster_040_01") {
 		t.Fatalf("expected error to mention broken icon, got %v", err)
 	}
 }
@@ -50,10 +50,10 @@ func TestValidateRejectsUndecodableIcon(t *testing.T) {
 func TestValidateRejectsTruncatedJPEGBackground(t *testing.T) {
 	root := t.TempDir()
 	writeMaterialsManifest(t, root)
-	writeGroup1Manifest(t, root)
+	writeGroup1TemplatesManifest(t, root)
 	writeGroup2Manifest(t, root)
 	writeTruncatedJPEG(t, filepath.Join(root, "backgrounds", "truncated.jpeg"), 320, 180)
-	writePNG(t, filepath.Join(root, "group1", "icons", "icon_house", "001.png"), 32, 32)
+	writePNG(t, filepath.Join(root, "group1", "icons", "tpl_house", "var_real_cluster_040_01.png"), 32, 32)
 	writePNG(t, filepath.Join(root, "group2", "shapes", "shape_ticket", "001.png"), 32, 32)
 
 	_, err := Validate(root)
@@ -68,10 +68,10 @@ func TestValidateRejectsTruncatedJPEGBackground(t *testing.T) {
 func TestValidateRejectsMissingGroup2Shapes(t *testing.T) {
 	root := t.TempDir()
 	writeMaterialsManifest(t, root)
-	writeGroup1Manifest(t, root)
+	writeGroup1TemplatesManifest(t, root)
 	writeGroup2Manifest(t, root)
 	writePNG(t, filepath.Join(root, "backgrounds", "bg.png"), 320, 180)
-	writePNG(t, filepath.Join(root, "group1", "icons", "icon_house", "001.png"), 32, 32)
+	writePNG(t, filepath.Join(root, "group1", "icons", "tpl_house", "var_real_cluster_040_01.png"), 32, 32)
 
 	_, err := Validate(root)
 	if err == nil {
@@ -85,16 +85,19 @@ func TestValidateRejectsMissingGroup2Shapes(t *testing.T) {
 func TestValidateForTaskAcceptsGroup1OnlyMaterials(t *testing.T) {
 	root := t.TempDir()
 	writeMaterialsManifest(t, root)
-	writeGroup1Manifest(t, root)
+	writeGroup1TemplatesManifest(t, root)
 	writePNG(t, filepath.Join(root, "backgrounds", "bg.png"), 320, 180)
-	writePNG(t, filepath.Join(root, "group1", "icons", "icon_house", "001.png"), 32, 32)
+	writePNG(t, filepath.Join(root, "group1", "icons", "tpl_house", "var_real_cluster_040_01.png"), 32, 32)
 
 	summary, err := ValidateForTask(root, "group1")
 	if err != nil {
 		t.Fatalf("validate group1-only materials: %v", err)
 	}
-	if summary.Group1ClassCount != 1 {
-		t.Fatalf("expected 1 group1 class, got %d", summary.Group1ClassCount)
+	if summary.Group1TemplateCount != 1 {
+		t.Fatalf("expected 1 group1 template, got %d", summary.Group1TemplateCount)
+	}
+	if summary.Group1VariantCount != 1 {
+		t.Fatalf("expected 1 group1 variant, got %d", summary.Group1VariantCount)
 	}
 	if summary.Group2ShapeCount != 0 {
 		t.Fatalf("expected group2 shape count to remain 0, got %d", summary.Group2ShapeCount)
@@ -115,8 +118,8 @@ func TestValidateForTaskAcceptsGroup2OnlyMaterials(t *testing.T) {
 	if summary.Group2ShapeCount != 1 {
 		t.Fatalf("expected 1 group2 shape, got %d", summary.Group2ShapeCount)
 	}
-	if summary.Group1ClassCount != 0 {
-		t.Fatalf("expected group1 class count to remain 0, got %d", summary.Group1ClassCount)
+	if summary.Group1TemplateCount != 0 {
+		t.Fatalf("expected group1 template count to remain 0, got %d", summary.Group1TemplateCount)
 	}
 }
 
@@ -126,19 +129,36 @@ func writeMaterialsManifest(t *testing.T, root string) {
 	if err := os.MkdirAll(filepath.Dir(manifestPath), 0o755); err != nil {
 		t.Fatalf("mkdir manifests: %v", err)
 	}
-	content := "schema_version: 2\n"
+	content := "schema_version: 3\n"
 	if err := os.WriteFile(manifestPath, []byte(content), 0o644); err != nil {
 		t.Fatalf("write manifest: %v", err)
 	}
 }
 
-func writeGroup1Manifest(t *testing.T, root string) {
+func writeGroup1TemplatesManifest(t *testing.T, root string) {
 	t.Helper()
-	manifestPath := filepath.Join(root, "manifests", "group1.classes.yaml")
+	manifestPath := filepath.Join(root, "manifests", "group1.templates.yaml")
 	if err := os.MkdirAll(filepath.Dir(manifestPath), 0o755); err != nil {
 		t.Fatalf("mkdir manifests: %v", err)
 	}
-	content := "classes:\n  - id: 0\n    name: icon_house\n    zh_name: 房子\n"
+	content := strings.Join([]string{
+		"schema_version: 3",
+		"task: group1",
+		"mode: instance_matching",
+		"",
+		"templates:",
+		"  - template_id: tpl_house",
+		"    zh_name: 房子",
+		"    family: building",
+		"    tags: [house, home]",
+		"    status: active",
+		"    variants:",
+		"      - variant_id: var_real_cluster_040_01",
+		"        source: real_query",
+		"        source_ref: cluster_040_01",
+		"        style: captured",
+		"",
+	}, "\n")
 	if err := os.WriteFile(manifestPath, []byte(content), 0o644); err != nil {
 		t.Fatalf("write manifest: %v", err)
 	}

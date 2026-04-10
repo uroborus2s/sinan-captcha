@@ -31,6 +31,12 @@ class BuildSolverRequest:
 
 
 @dataclass(frozen=True)
+class StageSolverAssetsRequest:
+    project_dir: Path
+    asset_dir: Path
+
+
+@dataclass(frozen=True)
 class BuildAllReleaseRequest:
     project_dir: Path
     goos: str | None = None
@@ -104,6 +110,38 @@ def build_all_distributions(request: BuildAllReleaseRequest) -> None:
         )
     )
     build_solver_distribution(BuildSolverRequest(project_dir=project_dir))
+
+
+def stage_solver_assets(request: StageSolverAssetsRequest) -> None:
+    project_dir = request.project_dir.resolve()
+    asset_dir = request.asset_dir.resolve()
+    solver_resource_dir = project_dir / "solver" / "resources"
+    models_dir = solver_resource_dir / "models"
+    metadata_dir = solver_resource_dir / "metadata"
+    manifest_path = asset_dir / "manifest.json"
+    source_models_dir = asset_dir / "models"
+    source_metadata_dir = asset_dir / "metadata"
+
+    if not manifest_path.is_file():
+        raise ValueError(f"solver asset manifest does not exist: {manifest_path}")
+    if not source_models_dir.is_dir():
+        raise ValueError(f"solver asset models dir does not exist: {source_models_dir}")
+    if not source_metadata_dir.is_dir():
+        raise ValueError(f"solver asset metadata dir does not exist: {source_metadata_dir}")
+    if not solver_resource_dir.is_dir():
+        raise ValueError(f"solver resource dir does not exist: {solver_resource_dir}")
+
+    models_dir.mkdir(parents=True, exist_ok=True)
+    metadata_dir.mkdir(parents=True, exist_ok=True)
+    _clear_directory_files(models_dir)
+    _clear_directory_files(metadata_dir)
+
+    for model_path in sorted(source_models_dir.glob("*")):
+        if model_path.is_file():
+            shutil.copy2(model_path, models_dir / model_path.name)
+    for metadata_path in sorted(source_metadata_dir.glob("*.json")):
+        shutil.copy2(metadata_path, metadata_dir / metadata_path.name)
+    shutil.copy2(manifest_path, solver_resource_dir / "manifest.json")
 
 
 def publish_distribution(request: PublishReleaseRequest) -> None:
@@ -218,6 +256,16 @@ def _clean_output_dir(output_dir: Path) -> None:
     output_dir.mkdir(parents=True, exist_ok=True)
     for entry in output_dir.iterdir():
         if entry.name == ".gitignore":
+            continue
+        if entry.is_dir():
+            shutil.rmtree(entry)
+        else:
+            entry.unlink()
+
+
+def _clear_directory_files(directory: Path) -> None:
+    for entry in directory.iterdir():
+        if entry.name.lower().startswith("readme"):
             continue
         if entry.is_dir():
             shutil.rmtree(entry)

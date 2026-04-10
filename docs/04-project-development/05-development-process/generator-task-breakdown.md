@@ -29,7 +29,7 @@
 | 任务 ID | 任务名称 | 主执行角色 | 主要输入 | 主要输出 | 阶段关口 | 预计工时 |
 |---|---|---|---|---|---|---|
 | TASK-GEN-001 | 固定样本契约 | 数据契约负责人 | 生成器设计方案 | 双模式字段表、示例 JSONL | 字段冻结 | 0.5 天 |
-| TASK-GEN-002 | 固定素材规范 | 素材管理员 | 字段表、样本图 | `materials.yaml`、`group1.classes.yaml`、`group2.shapes.yaml` 规则与点选/滑块素材规范 | 素材冻结 | 0.5 天 |
+| TASK-GEN-002 | 固定素材规范 | 素材管理员 | 字段表、样本图 | `materials.yaml`、`group1.templates.yaml`、`group2.shapes.yaml` 规则与点选/滑块素材规范 | 素材冻结 | 0.5 天 |
 | TASK-GEN-003 | 设计目录骨架 | 架构负责人 | 生成器设计方案、素材规范 | 目录蓝图 | 目录冻结 | 0.5 天 |
 | TASK-GEN-004 | 设计配置文件 | 架构负责人 | 目录蓝图、布局要求 | `default.yaml` 字段表、`smoke.yaml` 字段表 | 配置冻结 | 0.5 天 |
 | TASK-GEN-005 | 设计素材校验器 | 生成器实现者 | 素材规范、配置字段 | 校验规则表、失败清单模板 | 校验规则冻结 | 0.5 天 |
@@ -82,7 +82,7 @@
 | 协作角色 | 数据契约负责人、图像实现者 |
 | 前置条件 | TASK-GEN-001 已通过 |
 | 主要输入 | 字段说明表、参考样本图 |
-| 操作步骤 | 1. 固定背景图最小分辨率、格式和白名单来源。<br>2. 固定 `group1` 点选图标素材格式为透明底 PNG。<br>3. 固定 `group2` 缺口 mask 的边缘与留白规范。<br>4. 固定 `group1/icons/<class_name>/` 与 `group2/shapes/<shape_name>/` 目录结构。<br>5. 固定 `materials.yaml`、`group1.classes.yaml`、`group2.shapes.yaml` 结构。<br>6. 明确不允许的素材类型，例如纯色背景、被裁断图标、边缘毛糙的缺口形状。 |
+| 操作步骤 | 1. 固定背景图最小分辨率、格式和白名单来源。<br>2. 固定 `group1` 点选图标素材格式为透明底 PNG。<br>3. 固定 `group2` 缺口 mask 的边缘与留白规范。<br>4. 固定 `group1/icons/<template_id>/<variant_id>.png` 与 `group2/shapes/<shape_name>/` 目录结构。<br>5. 固定 `materials.yaml`、`group1.templates.yaml`、`group2.shapes.yaml` 结构。<br>6. 明确不允许的素材类型，例如纯色背景、被裁断图标、边缘毛糙的缺口形状。 |
 | 输出产物 | 素材目录规范、三份 manifest 结构说明、禁用素材规则 |
 | 验收标准 | 类别名与目录名一一对应；背景图和图标图规则足够明确，别人可按文档独立收集素材 |
 | 阻断条件 | 类别命名规则不清；图标格式和边距规范缺失 |

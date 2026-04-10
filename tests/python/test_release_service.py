@@ -16,12 +16,14 @@ from core.release.service import (
     BuildSolverRequest,
     PackageWindowsRequest,
     PublishReleaseRequest,
+    StageSolverAssetsRequest,
     build_all_distributions,
     build_generator_distribution,
     build_distribution,
     build_solver_distribution,
     package_windows_bundle,
     publish_distribution,
+    stage_solver_assets,
 )
 
 
@@ -148,6 +150,45 @@ class ReleaseServiceTests(unittest.TestCase):
                 BuildGeneratorRequest(project_dir=project_dir.resolve(), goos="windows", goarch="amd64")
             )
             build_solver.assert_called_once_with(BuildSolverRequest(project_dir=project_dir.resolve()))
+
+    def test_stage_solver_assets_copies_models_metadata_and_manifest(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            project_dir = Path(tmpdir)
+            resource_dir = project_dir / "solver" / "resources"
+            models_dir = resource_dir / "models"
+            metadata_dir = resource_dir / "metadata"
+            models_dir.mkdir(parents=True)
+            metadata_dir.mkdir(parents=True)
+            (models_dir / "README.md").write_text("keep", encoding="utf-8")
+            (metadata_dir / "README.md").write_text("keep", encoding="utf-8")
+            (models_dir / "stale.onnx").write_text("old", encoding="utf-8")
+            (metadata_dir / "stale.json").write_text("old", encoding="utf-8")
+
+            asset_dir = project_dir / "dist" / "solver-assets" / "20260410"
+            source_models_dir = asset_dir / "models"
+            source_metadata_dir = asset_dir / "metadata"
+            source_models_dir.mkdir(parents=True)
+            source_metadata_dir.mkdir(parents=True)
+            (asset_dir / "manifest.json").write_text('{"asset_version":"20260410"}', encoding="utf-8")
+            (source_models_dir / "slider_gap_locator.onnx").write_text("onnx", encoding="utf-8")
+            (source_metadata_dir / "slider_gap_locator.json").write_text('{"model_id":"slider_gap_locator"}', encoding="utf-8")
+            (source_metadata_dir / "export_report.json").write_text('{"group2_run":"best"}', encoding="utf-8")
+
+            stage_solver_assets(
+                StageSolverAssetsRequest(
+                    project_dir=project_dir,
+                    asset_dir=asset_dir,
+                )
+            )
+
+            self.assertTrue((resource_dir / "manifest.json").exists())
+            self.assertTrue((models_dir / "slider_gap_locator.onnx").exists())
+            self.assertTrue((metadata_dir / "slider_gap_locator.json").exists())
+            self.assertTrue((metadata_dir / "export_report.json").exists())
+            self.assertFalse((models_dir / "stale.onnx").exists())
+            self.assertFalse((metadata_dir / "stale.json").exists())
+            self.assertTrue((models_dir / "README.md").exists())
+            self.assertTrue((metadata_dir / "README.md").exists())
 
     def test_publish_distribution_reads_token_from_env(self) -> None:
         with tempfile.TemporaryDirectory() as tmpdir:

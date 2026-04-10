@@ -30,22 +30,49 @@ class OrderedTarget(SceneObject):
 
 
 @dataclass(frozen=True)
+class Group1SceneObject:
+    asset_id: str
+    template_id: str
+    variant_id: str
+    bbox: BoundingBox
+    center: tuple[int, int]
+    class_name: str | None = None
+    class_id: int | None = None
+
+
+@dataclass(frozen=True)
+class Group1OrderedItem:
+    order: int
+    asset_id: str
+    template_id: str
+    variant_id: str
+    bbox: BoundingBox
+    center: tuple[int, int]
+    class_name: str | None = None
+    class_id: int | None = None
+
+
+@dataclass(frozen=True)
 class Group1Sample:
     sample_id: str
     query_image: str
     scene_image: str
-    query_targets: list[OrderedTarget]
-    scene_targets: list[OrderedTarget]
-    distractors: list[SceneObject]
+    query_items: list[Group1OrderedItem]
+    scene_targets: list[Group1OrderedItem]
+    distractors: list[Group1SceneObject]
     label_source: str
     source_batch: str
     seed: int
 
+    @property
+    def query_targets(self) -> list[Group1OrderedItem]:
+        return self.query_items
+
     def to_dict(self) -> dict[str, object]:
         payload = asdict(self)
-        payload["query_targets"] = [_scene_object_to_dict(target) | {"order": target.order} for target in self.query_targets]
-        payload["scene_targets"] = [_scene_object_to_dict(target) | {"order": target.order} for target in self.scene_targets]
-        payload["distractors"] = [_scene_object_to_dict(obj) for obj in self.distractors]
+        payload["query_items"] = [_group1_object_to_dict(target) | {"order": target.order} for target in self.query_items]
+        payload["scene_targets"] = [_group1_object_to_dict(target) | {"order": target.order} for target in self.scene_targets]
+        payload["distractors"] = [_group1_object_to_dict(obj) for obj in self.distractors]
         return payload
 
 
@@ -76,3 +103,18 @@ def _scene_object_to_dict(obj: SceneObject) -> dict[str, object]:
         "bbox": obj.bbox.as_list(),
         "center": [obj.center[0], obj.center[1]],
     }
+
+
+def _group1_object_to_dict(obj: Group1SceneObject) -> dict[str, object]:
+    payload: dict[str, object] = {
+        "asset_id": obj.asset_id,
+        "template_id": obj.template_id,
+        "variant_id": obj.variant_id,
+        "bbox": obj.bbox.as_list(),
+        "center": [obj.center[0], obj.center[1]],
+    }
+    if obj.class_name is not None:
+        payload["class"] = obj.class_name
+    if obj.class_id is not None:
+        payload["class_id"] = obj.class_id
+    return payload

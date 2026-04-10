@@ -5,12 +5,11 @@ from unittest.mock import patch
 
 from sinanz import (
     CaptchaSolver,
-    SolverAssetError,
     SolverRuntimeError,
     sn_match_slider,
     sn_match_targets,
 )
-from sinanz.resources import metadata_root, models_root
+from sinanz_resources import metadata_root, models_root, resource_root
 
 
 class PublicApiTest(unittest.TestCase):
@@ -26,14 +25,9 @@ class PublicApiTest(unittest.TestCase):
         self.assertEqual(models_root().name, "models")
         self.assertEqual(metadata_root().name, "metadata")
 
-    def test_group2_entrypoint_requires_embedded_or_explicit_model_asset(self) -> None:
-        solver = CaptchaSolver()
-
-        with self.assertRaisesRegex(SolverAssetError, "slider_gap_locator.onnx"):
-            solver.sn_match_slider(
-                background_image="master.png",
-                puzzle_piece_image="tile.png",
-            )
+    def test_group2_embedded_assets_are_packaged(self) -> None:
+        self.assertTrue((models_root() / "slider_gap_locator.onnx").is_file())
+        self.assertTrue((resource_root() / "manifest.json").is_file())
 
     def test_group1_entrypoint_remains_placeholder_until_next_migration_stage(self) -> None:
         solver = CaptchaSolver()

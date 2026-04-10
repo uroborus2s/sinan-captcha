@@ -29,16 +29,16 @@ type SamplePlan struct {
 
 func BuildPlan(index int, cfg config.Config, catalog material.Catalog) (SamplePlan, error) {
 	plan := SamplePlan{}
-	if len(catalog.Group1Classes) == 0 {
-		return plan, fmt.Errorf("material catalog has no group1 classes")
+	if len(catalog.Group1Templates) == 0 {
+		return plan, fmt.Errorf("material catalog has no group1 templates")
 	}
 	if len(catalog.Backgrounds) == 0 {
 		return plan, fmt.Errorf("material catalog has no backgrounds")
 	}
 
-	maxTargets := min(cfg.Sampling.TargetCountMax, len(catalog.Group1Classes))
+	maxTargets := min(cfg.Sampling.TargetCountMax, len(catalog.Group1Templates))
 	if maxTargets < cfg.Sampling.TargetCountMin {
-		return plan, fmt.Errorf("not enough classes for target count: have %d need at least %d", len(catalog.Group1Classes), cfg.Sampling.TargetCountMin)
+		return plan, fmt.Errorf("not enough templates for target count: have %d need at least %d", len(catalog.Group1Templates), cfg.Sampling.TargetCountMin)
 	}
 
 	sampleSeed := cfg.Project.Seed + int64(index)
@@ -48,27 +48,30 @@ func BuildPlan(index int, cfg config.Config, catalog material.Catalog) (SamplePl
 	distractorCount := between(rng, cfg.Sampling.DistractorCountMin, cfg.Sampling.DistractorCountMax)
 	background := catalog.Backgrounds[rng.Intn(len(catalog.Backgrounds))]
 
-	targetClasses := selectUniqueClasses(rng, catalog.Group1Classes, targetCount)
-	targets := make([]PlacedObject, 0, len(targetClasses))
+	targetTemplates := selectUniqueTemplates(rng, catalog.Group1Templates, targetCount)
+	targets := make([]PlacedObject, 0, len(targetTemplates))
 	sizes := make([]layout.Size, 0, targetCount+distractorCount)
 
-	for order, classAssets := range targetClasses {
-		icon := classAssets.Icons[rng.Intn(len(classAssets.Icons))]
+	for order, templateAssets := range targetTemplates {
+		variant := templateAssets.Variants[rng.Intn(len(templateAssets.Variants))]
 		scale := round2(0.88 + rng.Float64()*0.26)
 		alpha := round2(0.90 + rng.Float64()*0.08)
 		rotationDeg := round1(-14 + rng.Float64()*28)
-		baseSize := iconSize(icon, cfg.Canvas.SceneHeight, scale, rng)
+		baseSize := iconSize(material.ImageAsset{Path: variant.Path, Width: variant.Width, Height: variant.Height}, cfg.Canvas.SceneHeight, scale, rng)
 		size := rotatedBounds(baseSize.Width, baseSize.Height, rotationDeg)
 		targets = append(targets, PlacedObject{
 			ObjectRecord: export.ObjectRecord{
 				Order:       order + 1,
-				Class:       classAssets.Name,
-				ClassID:     classAssets.ID,
+				AssetID:     variant.AssetID,
+				TemplateID:  variant.TemplateID,
+				VariantID:   variant.VariantID,
+				Class:       templateAssets.TemplateID,
+				ClassID:     templateAssets.Index,
 				RotationDeg: rotationDeg,
 				Alpha:       alpha,
 				Scale:       scale,
 			},
-			IconPath:   icon.Path,
+			IconPath:   variant.Path,
 			BaseWidth:  baseSize.Width,
 			BaseHeight: baseSize.Height,
 		})
@@ -76,28 +79,31 @@ func BuildPlan(index int, cfg config.Config, catalog material.Catalog) (SamplePl
 	}
 
 	distractors := make([]PlacedObject, 0, distractorCount)
-	distractorPool := buildDistractorPool(catalog.Group1Classes, targetClasses)
+	distractorPool := buildDistractorPool(catalog.Group1Templates, targetTemplates)
 	if len(distractorPool) < distractorCount {
 		distractorCount = len(distractorPool)
 		distractors = make([]PlacedObject, 0, distractorCount)
 	}
 	for index := 0; index < distractorCount; index++ {
-		classAssets := distractorPool[rng.Intn(len(distractorPool))]
-		icon := classAssets.Icons[rng.Intn(len(classAssets.Icons))]
+		templateAssets := distractorPool[rng.Intn(len(distractorPool))]
+		variant := templateAssets.Variants[rng.Intn(len(templateAssets.Variants))]
 		scale := round2(0.84 + rng.Float64()*0.28)
 		alpha := round2(0.88 + rng.Float64()*0.08)
 		rotationDeg := round1(-16 + rng.Float64()*32)
-		baseSize := iconSize(icon, cfg.Canvas.SceneHeight, scale, rng)
+		baseSize := iconSize(material.ImageAsset{Path: variant.Path, Width: variant.Width, Height: variant.Height}, cfg.Canvas.SceneHeight, scale, rng)
 		size := rotatedBounds(baseSize.Width, baseSize.Height, rotationDeg)
 		distractors = append(distractors, PlacedObject{
 			ObjectRecord: export.ObjectRecord{
-				Class:       classAssets.Name,
-				ClassID:     classAssets.ID,
+				AssetID:     variant.AssetID,
+				TemplateID:  variant.TemplateID,
+				VariantID:   variant.VariantID,
+				Class:       templateAssets.TemplateID,
+				ClassID:     templateAssets.Index,
 				RotationDeg: rotationDeg,
 				Alpha:       alpha,
 				Scale:       scale,
 			},
-			IconPath:   icon.Path,
+			IconPath:   variant.Path,
 			BaseWidth:  baseSize.Width,
 			BaseHeight: baseSize.Height,
 		})
@@ -144,27 +150,27 @@ func BuildPlan(index int, cfg config.Config, catalog material.Catalog) (SamplePl
 	return plan, nil
 }
 
-func buildDistractorPool(classes []material.ClassAssets, targets []material.ClassAssets) []material.ClassAssets {
+func buildDistractorPool(templates []material.Group1TemplateAssets, targets []material.Group1TemplateAssets) []material.Group1TemplateAssets {
 	targetNames := make(map[string]struct{}, len(targets))
 	for _, target := range targets {
-		targetNames[target.Name] = struct{}{}
+		targetNames[target.TemplateID] = struct{}{}
 	}
 
-	pool := make([]material.ClassAssets, 0, len(classes))
-	for _, classAssets := range classes {
-		if _, exists := targetNames[classAssets.Name]; exists {
+	pool := make([]material.Group1TemplateAssets, 0, len(templates))
+	for _, templateAssets := range templates {
+		if _, exists := targetNames[templateAssets.TemplateID]; exists {
 			continue
 		}
-		pool = append(pool, classAssets)
+		pool = append(pool, templateAssets)
 	}
 	return pool
 }
 
-func selectUniqueClasses(rng *rand.Rand, classes []material.ClassAssets, count int) []material.ClassAssets {
-	permutation := rng.Perm(len(classes))
-	selected := make([]material.ClassAssets, 0, count)
+func selectUniqueTemplates(rng *rand.Rand, templates []material.Group1TemplateAssets, count int) []material.Group1TemplateAssets {
+	permutation := rng.Perm(len(templates))
+	selected := make([]material.Group1TemplateAssets, 0, count)
 	for _, index := range permutation[:count] {
-		selected = append(selected, classes[index])
+		selected = append(selected, templates[index])
 	}
 	return selected
 }
@@ -239,10 +245,10 @@ func recordsFromPlaced(objects []PlacedObject) []export.ObjectRecord {
 func buildClickSourceSignature(backgroundID string, targets []PlacedObject, distractors []PlacedObject) string {
 	parts := []string{backgroundID}
 	for _, target := range targets {
-		parts = append(parts, fmt.Sprintf("t:%s:%s", target.Class, filepath.Base(target.IconPath)))
+		parts = append(parts, fmt.Sprintf("t:%s:%s", target.TemplateID, target.VariantID))
 	}
 	for _, distractor := range distractors {
-		parts = append(parts, fmt.Sprintf("d:%s:%s", distractor.Class, filepath.Base(distractor.IconPath)))
+		parts = append(parts, fmt.Sprintf("d:%s:%s", distractor.TemplateID, distractor.VariantID))
 	}
 	return strings.Join(parts, "|")
 }

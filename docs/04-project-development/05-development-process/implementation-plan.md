@@ -13,12 +13,12 @@
 
 1. 先搭好一台 Windows + NVIDIA 单机训练环境。
 2. 优先从自有验证码生成端直接导出标签，不要先做人工标框。
-3. 第一专项训练 1 个多类别检测模型。
+3. 第一专项重构为“候选检测 + 图标匹配”流水线，而不是多类别闭集检测。
 4. 第二专项训练 1 个滑块缺口定位模型。
 5. 自动标注优先级按下面顺序执行：
    - 生成器内部真值直出并通过校验
    - 第二组用规则法做滑块候选位置预标注
-   - 第一组先做少量种子集，再训练一个暖启动小模型批量预标注
+   - 第一组先做少量种子集，再训练候选检测器与预标注辅助链
 6. 先把两个专项模型都跑通，再谈统一推理接口和后续优化。
 
 ## 2. 第一版成功标准
@@ -31,7 +31,7 @@
   - 第二组：训练 3000 对，验证 500 对，测试 500 对。
 - 自动标注目标：每批 200 张抽检可用率不低于 97%；生成器直出 `gold` 样本必须 100% 通过真值校验。
 - 训练目标：
-  - 第一组：单目标点命中率 >= 92%，整组顺序全部命中率 >= 80%。
+  - 第一组：单目标点命中率 >= 98.5%，整组顺序全部命中率 >= 93%。
   - 第二组：点命中率 >= 95%，平均点误差 <= 8 像素，框 IoU 均值 >= 0.80，偏移误差均值 <= 6 像素。
 
 ## 3. 建议的 15 个工作日节奏
@@ -320,11 +320,11 @@ uv run yolo checks
 如果拿不到生成端坐标，用“种子集 + 暖启动模型”路线：
 
 1. 先人工纠正 300-500 张，不要一上来做 5000 张。
-2. 第一组类别表先固定下来。
-3. 用这 300-500 张训练一个小检测模型，目标是“能框大概位置”，不是一次训到最好。
+2. 第一组先固定 `asset_id` 与素材来源，不强依赖类名表。
+3. 用这 300-500 张训练一个小候选检测模型，目标是“能把 query/scene 里的图标位置先框出来”。
 4. 用这个暖启动模型去批量预测剩余几千张。
 5. 将预测结果导入 X-AnyLabeling。
-6. 人只需要修正明显错框、漏框、错类和顺序字段。
+6. 人只需要修正明显错框、漏框和顺序字段；类别语义改为辅助信息，不再是正式验收主字段。
 
 这才是第一组最现实的自动标注路线。
 
@@ -339,7 +339,7 @@ datasets/
       raw/
       interim/
       reviewed/
-      scene-yolo/
+      proposal-yolo/
         images/
           train/
           val/
@@ -349,16 +349,13 @@ datasets/
           val/
           test/
         dataset.yaml
-      query-yolo/
-        images/
-          train/
-          val/
-          test/
-        labels/
-          train/
-          val/
-          test/
-        dataset.yaml
+      embedding/
+        queries/
+        candidates/
+        pairs.jsonl
+        triplets.jsonl
+      eval/
+        labels.jsonl
       splits/
         train.jsonl
         val.jsonl
@@ -392,7 +389,7 @@ datasets/
 2. 自动标注结果放 `interim/`。
 3. 审核通过后放 `reviewed/`。
 4. 给训练框架转换后的结果放任务专属训练目录：
-   - `group1` 放 `scene-yolo/`、`query-yolo/`、`splits/` 与 `dataset.json`
+   - `group1` 放 `proposal-yolo/`、`embedding/`、`eval/`、`splits/` 与 `dataset.json`
    - `group2` 放 `master/`、`tile/`、`splits/` 与 `dataset.json`
 5. 每次追加样本都开新版本，如 `v2`、`v3`。
 
@@ -416,7 +413,7 @@ uv run sinan train group2 --dataset-version v1 --name v1 --epochs 100 --batch 16
 
 ### 10.2 第一专项后训练
 
-第一组的首版目标改为双模型流水线：`scene detector + query parser + matcher`。
+第一组的正式目标改为实例匹配流水线：`scene proposal detector + icon embedder + matcher`。
 
 示例命令：
 
@@ -424,11 +421,12 @@ uv run sinan train group2 --dataset-version v1 --name v1 --epochs 100 --batch 16
 uv run sinan train group1 --dataset-config D:\sinan-captcha-work\datasets\group1\v1\dataset.json --name v1 --epochs 120 --batch 16 --imgsz 640 --device 0
 ```
 
-训练入口内部会顺序训练 `scene-detector` 和 `query-parser`，推理阶段再做顺序映射：
+训练入口后续应支持分别训练 proposal detector 和 embedder，推理阶段再做顺序映射：
 
-1. 读取查询图中的目标顺序。
-2. 把顺序对应到场景图检测结果。
-3. 输出每个目标的点击点坐标。
+1. 读取查询图中的目标顺序并切出 query 项。
+2. 检测 scene 里的全部图标候选。
+3. 对 query 项和 scene 候选做向量匹配与全局分配。
+4. 输出每个目标的点击点坐标。
 
 所以第一组验收时看的是“点位和顺序”，不是只看检测框。
 
@@ -454,10 +452,10 @@ uv run sinan train group1 --dataset-config D:\sinan-captcha-work\datasets\group1
 
 只要“整组顺序全部命中率”还很低，就不要急着追求更多 epoch，先查：
 
-1. 类别表是否混乱
-2. 查询顺序字段是否丢失
-3. 同类重复目标是否没有消歧
-4. 自动标注是否有系统性偏差
+1. query 切分是否错位
+2. 候选检测是否漏检
+3. 相似图标是否发生向量混淆
+4. 全局分配和歧义拒判是否合理
 
 ## 12. 第八步：失败样本怎么回灌
 

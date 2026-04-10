@@ -25,6 +25,7 @@ class CtripLoginScriptTests(unittest.TestCase):
         self.assertEqual(ctrip_login.parse_capture_mode("1"), ctrip_login.CaptureMode.CLICK)
         self.assertEqual(ctrip_login.parse_capture_mode("滑块"), ctrip_login.CaptureMode.SLIDER)
         self.assertEqual(ctrip_login.parse_capture_mode("both"), ctrip_login.CaptureMode.BOTH)
+        self.assertEqual(ctrip_login.parse_capture_mode("4"), ctrip_login.CaptureMode.TEST_SLIDER)
 
     def test_parse_capture_mode_rejects_unknown_value(self) -> None:
         with self.assertRaises(ValueError):
@@ -112,11 +113,70 @@ class CtripLoginScriptTests(unittest.TestCase):
             self.assertEqual(bg_path.read_bytes(), payload)
             self.assertEqual(gap_path.read_bytes(), payload)
 
-    def test_choose_drag_distance_stays_inside_track(self) -> None:
-        distance = ctrip_login.choose_drag_distance(track_width=288.0, button_width=44.0)
+    def test_solve_slider_drag_distance_scales_solver_offset_and_clamps(self) -> None:
+        context = ctrip_login.SliderSolveContext(
+            background_size=(300, 150),
+            background_box={"x": 0.0, "y": 0.0, "width": 288.0, "height": 144.0},
+            tile_box={"x": 24.0, "y": 30.0, "width": 38.0, "height": 42.0},
+            button_box={"x": 24.0, "y": 180.0, "width": 44.0, "height": 44.0},
+            track_box={"x": 0.0, "y": 180.0, "width": 288.0, "height": 44.0},
+        )
 
-        self.assertGreaterEqual(distance, 35.2)
-        self.assertLessEqual(distance, 238.0)
+        class _FakeResult:
+            puzzle_piece_offset = (150, 0)
+
+        class _FakeSolver:
+            def sn_match_slider(self, **_: object) -> _FakeResult:
+                return _FakeResult()
+
+        with patch.object(ctrip_login, "_get_slider_solver", return_value=_FakeSolver()):
+            distance = ctrip_login.solve_slider_drag_distance(
+                context,
+                background_path=Path("bg.jpg"),
+                gap_path=Path("gap.jpg"),
+            )
+
+        self.assertAlmostEqual(distance, 144.0)
+
+    def test_build_verify_jigsaw_verdict_uses_process_type_and_risk_level(self) -> None:
+        success_payload = {
+            "code": 0,
+            "message": "Success",
+            "result": {
+                "risk_info": {
+                    "risk_level": 0,
+                    "process_type": "NONE",
+                }
+            },
+        }
+        failure_payload = {
+            "code": 0,
+            "message": "Success",
+            "result": {
+                "risk_info": {
+                    "risk_level": 1,
+                    "process_type": "JIGSAW",
+                }
+            },
+        }
+
+        success = ctrip_login._build_verify_jigsaw_verdict(
+            success_payload,
+            url="https://ic.ctrip.com/captcha/v4/verify_jigsaw",
+            status=200,
+        )
+        failure = ctrip_login._build_verify_jigsaw_verdict(
+            failure_payload,
+            url="https://ic.ctrip.com/captcha/v4/verify_jigsaw",
+            status=200,
+        )
+
+        self.assertTrue(success["passed"])
+        self.assertEqual(success["process_type"], "NONE")
+        self.assertEqual(success["risk_level"], 0)
+        self.assertFalse(failure["passed"])
+        self.assertEqual(failure["process_type"], "JIGSAW")
+        self.assertEqual(failure["risk_level"], 1)
 
     def test_capture_both_mode_saves_slider_until_click_mode_appears(self) -> None:
         class _FakePage:
@@ -140,11 +200,14 @@ class CtripLoginScriptTests(unittest.TestCase):
                 patch.object(
                     ctrip_login,
                     "save_slider_captcha_images",
-                    AsyncMock(),
+                    AsyncMock(side_effect=[
+                        (slider_dir / "20260409000100_1" / "bg.jpg", slider_dir / "20260409000100_1" / "gap.jpg"),
+                        (slider_dir / "20260409000100_2" / "bg.jpg", slider_dir / "20260409000100_2" / "gap.jpg"),
+                    ]),
                 ) as save_slider_mock,
                 patch.object(
                     ctrip_login,
-                    "random_drag_slider",
+                    "drag_slider_with_solver",
                     AsyncMock(side_effect=[81.0, 95.0]),
                 ) as drag_mock,
                 patch.object(
@@ -171,6 +234,118 @@ class CtripLoginScriptTests(unittest.TestCase):
         self.assertEqual(drag_mock.await_count, 2)
         self.assertEqual(save_click_mock.await_count, 1)
         self.assertEqual(page.wait_for_timeout.await_count, 4)
+
+    def test_run_slider_drag_test_returns_true_when_verify_jigsaw_passes(self) -> None:
+        class _FakePage:
+            def __init__(self) -> None:
+                self.wait_for_timeout = AsyncMock()
+
+        page = _FakePage()
+        folder = Path("/tmp/slider-test")
+
+        with (
+            patch.object(
+                ctrip_login,
+                "save_slider_captcha_images",
+                AsyncMock(return_value=(folder / "bg.jpg", folder / "gap.jpg")),
+            ) as save_mock,
+            patch.object(
+                ctrip_login,
+                "drag_slider_with_solver_and_verify",
+                AsyncMock(
+                    return_value={
+                        "passed": True,
+                        "distance": 88.0,
+                        "process_type": "NONE",
+                        "risk_level": 0,
+                    }
+                ),
+            ) as drag_mock,
+            patch.object(
+                ctrip_login,
+                "is_click_mode",
+                AsyncMock(return_value=False),
+            ) as click_mock,
+            patch.object(
+                ctrip_login,
+                "print_slider_failure_response",
+                AsyncMock(),
+            ) as failure_mock,
+        ):
+            success = asyncio.run(ctrip_login.run_slider_drag_test(page, folder))
+
+        self.assertTrue(success)
+        save_mock.assert_awaited_once()
+        drag_mock.assert_awaited_once()
+        click_mock.assert_awaited_once()
+        failure_mock.assert_not_awaited()
+
+    def test_run_slider_drag_test_prints_response_when_verify_jigsaw_fails(self) -> None:
+        class _FakePage:
+            def __init__(self) -> None:
+                self.wait_for_timeout = AsyncMock()
+
+        page = _FakePage()
+        folder = Path("/tmp/slider-test")
+
+        with (
+            patch.object(
+                ctrip_login,
+                "save_slider_captcha_images",
+                AsyncMock(return_value=(folder / "bg.jpg", folder / "gap.jpg")),
+            ),
+            patch.object(
+                ctrip_login,
+                "drag_slider_with_solver_and_verify",
+                AsyncMock(
+                    return_value={
+                        "passed": False,
+                        "distance": 91.0,
+                        "process_type": "JIGSAW",
+                        "risk_level": 1,
+                    }
+                ),
+            ),
+            patch.object(
+                ctrip_login,
+                "print_slider_failure_response",
+                AsyncMock(),
+            ) as failure_mock,
+        ):
+            success = asyncio.run(ctrip_login.run_slider_drag_test(page, folder))
+
+        self.assertFalse(success)
+        failure_mock.assert_awaited_once()
+
+    def test_run_slider_drag_test_prints_response_when_verify_request_errors(self) -> None:
+        class _FakePage:
+            def __init__(self) -> None:
+                self.wait_for_timeout = AsyncMock()
+
+        page = _FakePage()
+        folder = Path("/tmp/slider-test")
+
+        with (
+            patch.object(
+                ctrip_login,
+                "save_slider_captcha_images",
+                AsyncMock(return_value=(folder / "bg.jpg", folder / "gap.jpg")),
+            ),
+            patch.object(
+                ctrip_login,
+                "drag_slider_with_solver_and_verify",
+                AsyncMock(side_effect=RuntimeError("verify timeout")),
+            ),
+            patch.object(
+                ctrip_login,
+                "print_slider_failure_response",
+                AsyncMock(),
+            ) as failure_mock,
+        ):
+            success = asyncio.run(ctrip_login.run_slider_drag_test(page, folder))
+
+        self.assertFalse(success)
+        failure_mock.assert_awaited_once()
 
 
 if __name__ == "__main__":

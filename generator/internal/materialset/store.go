@@ -355,14 +355,14 @@ func isMaterialRoot(root string, task string) bool {
 			required,
 			filepath.Join(root, "group1", "icons"),
 			filepath.Join(root, "group2", "shapes"),
-			filepath.Join(root, "manifests", "group1.classes.yaml"),
+			filepath.Join(root, "manifests", "group1.templates.yaml"),
 			filepath.Join(root, "manifests", "group2.shapes.yaml"),
 		)
 	case "group1":
 		required = append(
 			required,
 			filepath.Join(root, "group1", "icons"),
-			filepath.Join(root, "manifests", "group1.classes.yaml"),
+			filepath.Join(root, "manifests", "group1.templates.yaml"),
 		)
 	case "group2":
 		required = append(

@@ -35,6 +35,25 @@ uv run sinan train group1 `
   --name firstpass
 ```
 
+这条命令会基于生成器导出的同一份 `group1 pipeline dataset`，顺序训练：
+
+- `query-parser`
+- `scene-detector`
+
+如果你要显式拆开训练，也可以直接指定组件：
+
+```powershell
+uv run sinan train group1 `
+  --dataset-version firstpass `
+  --name g1_query `
+  --component query-parser
+
+uv run sinan train group1 `
+  --dataset-version firstpass `
+  --name g1_scene `
+  --component scene-detector
+```
+
 ### 3.2 训练 `group2`
 
 ```powershell
@@ -124,6 +143,14 @@ uv run sinan predict group2 --dataset-version firstpass --train-name firstpass
 uv run sinan test group1 --dataset-version firstpass --train-name firstpass
 uv run sinan test group2 --dataset-version firstpass --train-name firstpass
 ```
+
+这里要特别记住：
+
+- `group1` 的 `test` 不是只看两个子模型各自的检测结果
+- 它验证的是最终位置挑选链路：
+  - `query-parser` 先恢复 query 顺序
+  - `scene-detector` 再给出 scene 候选目标
+  - `matcher` 最后输出按顺序排列的点击点
 
 ### 5.3 JSONL 评估
 
