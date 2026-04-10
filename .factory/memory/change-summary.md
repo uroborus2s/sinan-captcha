@@ -1,5 +1,32 @@
 # 变更摘要
 
+## 2026-04-10 重构 `group2` 商业测试偏差规则：改为 `X/Y` 方向分别容差，不再用中心点总距离判通过
+
+- 已更新：
+  - `core/auto_train/business_eval.py`
+  - `tests/python/test_auto_train_business_eval.py`
+  - `docs/02-user-guide/auto-train-on-training-machine.md`
+  - `docs/02-user-guide/prepare-business-exam-with-x-anylabeling.md`
+  - `.factory/memory/current-state.md`
+  - `.factory/memory/change-summary.md`
+- 当前已完成的目标：
+  - `group2` 商业测试当前不再用 `center_error_px <= point_tolerance_px` 作为主判定
+  - 当前已改为：
+    - `abs(delta_x_px) <= point_tolerance_px`
+    - `abs(delta_y_px) <= point_tolerance_px`
+    - `iou >= iou_threshold`
+  - 当前 `center_error_px` 仍保留在逐题报告中，但只作为参考展示，不再参与通过判定
+  - 当前逐题明细会明确写出：
+    - `x_hit`
+    - `y_hit`
+    - `axis_hit`
+    - `failed_checks = delta_x / delta_y / iou`
+  - 当前中文报告已同步改为说明：
+    - 标准答案与模型预测在 `X/Y` 方向上的偏差
+    - 哪一个轴向条件未通过
+- 已运行验证：
+  - `.venv/bin/python -m unittest tests.python.test_auto_train_business_eval tests.python.test_auto_train_controller tests.python.test_auto_train_cli`
+
 ## 2026-04-10 调整 `sinan-generator group1 query` 背景策略：改为透明背景为主，少量混入灰黑/彩色面板
 
 - 已更新：
@@ -102,7 +129,9 @@
     - `delta_x_px`
     - `delta_y_px`
     - `iou`
-    - `point_hit`
+    - `x_hit`
+    - `y_hit`
+    - `axis_hit`
     - `iou_hit`
     - `failed_checks`
   - 当前 `business_eval.md` 与 `business_eval.log` 已补成逐题明细格式

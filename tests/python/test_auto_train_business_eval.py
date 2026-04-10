@@ -51,7 +51,7 @@ def _group2_business_case(*, success: bool) -> contracts.BusinessEvalCaseRecord:
         sample_id="case_0001",
         success=success,
         reason_code="pass" if success else "low_iou",
-        reason_cn="中心点误差和 IoU 均达标。" if success else "预测框与标准答案重合度不足。",
+        reason_cn="X/Y 方向偏差和 IoU 均达标。" if success else "预测框与标准答案重合度不足。",
         input_images={
             "master_image": "/tmp/business-cases/case_0001/bg.jpg",
             "tile_image": "/tmp/business-cases/case_0001/gap.jpg",
@@ -60,8 +60,14 @@ def _group2_business_case(*, success: bool) -> contracts.BusinessEvalCaseRecord:
             "point_tolerance_px": 12,
             "iou_threshold": 0.5,
             "center_error_px": 3.0,
+            "delta_x_px": 2.0,
+            "delta_y_px": 1.0,
             "iou": 0.82 if success else 0.31,
-            "point_hit": True,
+            "x_hit": True,
+            "y_hit": True,
+            "axis_hit": True,
+            "iou_hit": success,
+            "failed_checks": [] if success else ["iou"],
             "inference_ms": 8.5321,
         },
         prediction={"target_gap": {"bbox": [12, 18, 36, 42], "center": [24, 30]}},
@@ -156,12 +162,14 @@ class BusinessEvalExamTests(unittest.TestCase):
 
         self.assertEqual(len(cases), 1)
         self.assertFalse(cases[0].success)
-        self.assertEqual(cases[0].reason_code, "point_miss_and_low_iou")
+        self.assertEqual(cases[0].reason_code, "axis_miss_and_low_iou")
         self.assertIn("iou", cases[0].metrics)
         self.assertEqual(cases[0].metrics["delta_x_px"], 12.0)
         self.assertEqual(cases[0].metrics["delta_y_px"], 12.0)
-        self.assertEqual(cases[0].metrics["failed_checks"], ["point_tolerance", "iou"])
-        self.assertFalse(cases[0].metrics["point_hit"])
+        self.assertEqual(cases[0].metrics["failed_checks"], ["delta_x", "delta_y", "iou"])
+        self.assertFalse(cases[0].metrics["x_hit"])
+        self.assertFalse(cases[0].metrics["y_hit"])
+        self.assertFalse(cases[0].metrics["axis_hit"])
         self.assertFalse(cases[0].metrics["iou_hit"])
 
     def test_run_reviewed_business_eval_group2_falls_back_to_last_weights_when_best_missing(self) -> None:
@@ -328,8 +336,8 @@ class BusinessEvalExamTests(unittest.TestCase):
                     case_id="case_0007",
                     sample_id="case_0007",
                     success=False,
-                    reason_code="point_miss_and_low_iou",
-                    reason_cn="预测中心点超出允许像素容差，且预测框与标准答案重合度不足。",
+                    reason_code="axis_miss_and_low_iou",
+                    reason_cn="预测中心点在 X/Y 方向上的偏差超出允许像素容差，且预测框与标准答案重合度不足。",
                     input_images={"master_image": "/tmp/master/case_0007.png", "tile_image": "/tmp/tile/case_0007.png"},
                     metrics={
                         "point_tolerance_px": 5,
@@ -338,9 +346,11 @@ class BusinessEvalExamTests(unittest.TestCase):
                         "delta_x_px": 6.0,
                         "delta_y_px": -4.0,
                         "iou": 0.31,
-                        "point_hit": False,
+                        "x_hit": False,
+                        "y_hit": True,
+                        "axis_hit": False,
                         "iou_hit": False,
-                        "failed_checks": ["point_tolerance", "iou"],
+                        "failed_checks": ["delta_x", "iou"],
                     },
                     prediction={"target_gap": {"bbox": [16, 12, 40, 36], "center": [28, 24]}},
                     reference={"target_gap": {"bbox": [10, 16, 34, 40], "center": [22, 28]}},
@@ -355,7 +365,7 @@ class BusinessEvalExamTests(unittest.TestCase):
         self.assertIn("### case_0007", rendered)
         self.assertIn("X 方向偏差：向右偏 6.0000px", rendered)
         self.assertIn("Y 方向偏差：向上偏 4.0000px", rendered)
-        self.assertIn("未通过项：中心点误差、IoU", rendered)
+        self.assertIn("未通过项：X 方向偏差、IoU", rendered)
         self.assertIn("标准答案中心点：", rendered)
         self.assertIn("模型预测中心点：", rendered)
         self.assertIn("计划抽取 50 组进行商业测试，实际完成判卷 50 组", rendered)
@@ -385,19 +395,21 @@ class BusinessEvalExamTests(unittest.TestCase):
                     case_id="case_0008",
                     sample_id="case_0008",
                     success=False,
-                    reason_code="point_miss",
-                    reason_cn="预测中心点超出允许像素容差。",
+                    reason_code="axis_miss",
+                    reason_cn="预测中心点在 X/Y 方向上的偏差超出允许像素容差。",
                     input_images={"master_image": "/tmp/master/case_0008.png", "tile_image": "/tmp/tile/case_0008.png"},
                     metrics={
                         "point_tolerance_px": 5,
                         "iou_threshold": 0.5,
-                        "center_error_px": 6.0,
+                        "center_error_px": 6.7082,
                         "delta_x_px": -3.0,
-                        "delta_y_px": 5.0,
+                        "delta_y_px": 6.0,
                         "iou": 0.66,
-                        "point_hit": False,
+                        "x_hit": True,
+                        "y_hit": False,
+                        "axis_hit": False,
                         "iou_hit": True,
-                        "failed_checks": ["point_tolerance"],
+                        "failed_checks": ["delta_y"],
                     },
                     prediction={"target_gap": {"bbox": [12, 20, 36, 44], "center": [24, 32]}},
                     reference={"target_gap": {"bbox": [15, 15, 39, 39], "center": [27, 27]}},

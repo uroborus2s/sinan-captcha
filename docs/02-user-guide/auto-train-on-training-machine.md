@@ -471,10 +471,12 @@ uv run sinan auto-train run group2 `
   - 必须整题序列正确
   - 每个点击目标的中心点误差必须在 `--point-tolerance-px` 之内
 - `group2`
-  - 中心点误差必须在 `--point-tolerance-px` 之内
+  - `X` 方向偏差必须在 `--point-tolerance-px` 之内
+  - `Y` 方向偏差必须在 `--point-tolerance-px` 之内
   - `IoU` 必须达到 `--iou-threshold`
   - 当前默认等价于：
-    - `center_error_px <= 5`
+    - `abs(delta_x_px) <= 5`
+    - `abs(delta_y_px) <= 5`
     - `IoU >= 0.5`
 
 这里还有一个重要变化：
@@ -510,9 +512,10 @@ uv run sinan auto-train run group2 `
 - `commercial_report.md` 是最终人类可读报告
 - `business_eval.md` 和 `business_eval.log` 当前都会逐题写出：
   - 是否通过
-  - 标准答案与预测答案的中心点偏差
+  - 标准答案与预测答案在 `X/Y` 方向上的偏差
+  - 中心点总误差（仅作为参考展示）
   - `IoU`
-  - 未通过项，例如 `point_tolerance` / `iou`
+  - 未通过项，例如 `delta_x` / `delta_y` / `iou`
 - `summary.md` / `study_status.json` 会额外写出：
   - `final_reason`
   - `final_detail`

@@ -543,23 +543,27 @@ def _build_group2_case_results(
         delta_x = float(predicted_target["center"][0]) - float(gold_target["center"][0])
         delta_y = float(predicted_target["center"][1]) - float(gold_target["center"][1])
         iou = _iou(gold_target["bbox"], predicted_target["bbox"])
-        point_hit = center_error <= point_tolerance_px
+        x_hit = abs(delta_x) <= point_tolerance_px
+        y_hit = abs(delta_y) <= point_tolerance_px
+        axis_hit = x_hit and y_hit
         iou_hit = iou >= iou_threshold
         failed_checks: list[str] = []
-        if not point_hit:
-            failed_checks.append("point_tolerance")
+        if not x_hit:
+            failed_checks.append("delta_x")
+        if not y_hit:
+            failed_checks.append("delta_y")
         if not iou_hit:
             failed_checks.append("iou")
-        success = point_hit and iou_hit
+        success = axis_hit and iou_hit
         if success:
             reason_code = "pass"
-            reason_cn = "中心点误差和 IoU 均达标。"
-        elif not point_hit and not iou_hit:
-            reason_code = "point_miss_and_low_iou"
-            reason_cn = "预测中心点超出允许像素容差，且预测框与标准答案重合度不足。"
-        elif not point_hit:
-            reason_code = "point_miss"
-            reason_cn = "预测中心点超出允许像素容差。"
+            reason_cn = "X/Y 方向偏差和 IoU 均达标。"
+        elif not axis_hit and not iou_hit:
+            reason_code = "axis_miss_and_low_iou"
+            reason_cn = "预测中心点在 X/Y 方向上的偏差超出允许像素容差，且预测框与标准答案重合度不足。"
+        elif not axis_hit:
+            reason_code = "axis_miss"
+            reason_cn = "预测中心点在 X/Y 方向上的偏差超出允许像素容差。"
         else:
             reason_code = "low_iou"
             reason_cn = "预测框与标准答案重合度不足。"
@@ -578,7 +582,9 @@ def _build_group2_case_results(
                     "delta_x_px": round(delta_x, 4),
                     "delta_y_px": round(delta_y, 4),
                     "iou": round(iou, 6),
-                    "point_hit": point_hit,
+                    "x_hit": x_hit,
+                    "y_hit": y_hit,
+                    "axis_hit": axis_hit,
                     "iou_hit": iou_hit,
                     "failed_checks": failed_checks,
                     "inference_ms": prediction.get("inference_ms"),
@@ -611,7 +617,8 @@ def _business_rule_cn(record: contracts.BusinessEvalRecord) -> str:
             f"group1 单题必须整题序列正确，且所有点击目标中心点误差不超过 {record.point_tolerance_px}px。"
         )
     return (
-        f"group2 单题必须同时满足中心点误差不超过 {record.point_tolerance_px}px，"
+        f"group2 单题必须同时满足 X 方向偏差不超过 {record.point_tolerance_px}px、"
+        f"Y 方向偏差不超过 {record.point_tolerance_px}px，"
         f"且 IoU 不低于 {record.iou_threshold:.2f}。"
     )
 
@@ -804,9 +811,11 @@ def _case_metric_lines(item: contracts.BusinessEvalCaseRecord) -> list[str]:
         failed_checks = metrics.get("failed_checks")
         failed_checks_cn = _failed_checks_cn(failed_checks if isinstance(failed_checks, list) else [])
         return [
-            f"- 中心点总误差：{metrics.get('center_error_px')}px，允许阈值 {metrics.get('point_tolerance_px')}px",
+            f"- 中心点总误差：{metrics.get('center_error_px')}px，仅作参考展示",
             f"- X 方向偏差：{_delta_axis_cn(metrics.get('delta_x_px'), 'x')}",
             f"- Y 方向偏差：{_delta_axis_cn(metrics.get('delta_y_px'), 'y')}",
+            f"- X 方向是否达标：{'是' if metrics.get('x_hit') else '否'}，阈值 {metrics.get('point_tolerance_px')}px",
+            f"- Y 方向是否达标：{'是' if metrics.get('y_hit') else '否'}，阈值 {metrics.get('point_tolerance_px')}px",
             f"- IoU 重合度：{metrics.get('iou')}，要求不低于 {metrics.get('iou_threshold')}",
             f"- 未通过项：{failed_checks_cn}",
         ]
@@ -821,7 +830,7 @@ def _case_summary_cn(item: contracts.BusinessEvalCaseRecord) -> str | None:
         return (
             f"该题标准答案中心点为 {item.reference['target_gap'].get('center')}，"
             f"模型预测中心点为 {item.prediction['target_gap'].get('center')}；"
-            f"中心点总误差 {metrics.get('center_error_px')}px，"
+            f"中心点总误差 {metrics.get('center_error_px')}px（仅作参考），"
             f"X 方向偏差 {metrics.get('delta_x_px')}px，"
             f"Y 方向偏差 {metrics.get('delta_y_px')}px，"
             f"IoU 为 {metrics.get('iou')}，"
@@ -853,8 +862,10 @@ def _failed_checks_cn(items: list[Any]) -> str:
         return "无，全部达标"
     labels: list[str] = []
     for item in items:
-        if item == "point_tolerance":
-            labels.append("中心点误差")
+        if item == "delta_x":
+            labels.append("X 方向偏差")
+        elif item == "delta_y":
+            labels.append("Y 方向偏差")
         elif item == "iou":
             labels.append("IoU")
         else:

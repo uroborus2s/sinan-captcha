@@ -17,6 +17,21 @@
 
 ## 当前事实
 
+- 2026-04-10 当前 `group2` 商业测试的 `point_tolerance_px` 语义已从“中心点总距离容差”改为“X/Y 方向分别容差”：
+  - 之前 `group2` 单题判卷把 `point_tolerance_px` 解释为：
+    - `center_error_px <= tolerance`
+  - 当前已改为：
+    - `abs(delta_x_px) <= tolerance`
+    - `abs(delta_y_px) <= tolerance`
+    - 且 `IoU >= iou_threshold`
+  - 当前 `center_error_px` 仍会继续写入报告，但只作为参考展示，不再决定通过/未通过
+  - 当前逐题明细会额外明确记录：
+    - `x_hit`
+    - `y_hit`
+    - `axis_hit`
+    - `failed_checks = delta_x / delta_y / iou`
+  - 当前已验证：
+    - `.venv/bin/python -m unittest tests.python.test_auto_train_business_eval tests.python.test_auto_train_controller tests.python.test_auto_train_cli`
 - 2026-04-10 当前 `sinan-generator` 的 `group1 query` 渲染已改为“透明背景为主，少量混入彩色/灰黑面板”：
   - 当前新增可配置字段：
     - `effects.click.query_background_transparent_ratio`
@@ -78,7 +93,9 @@
     - `delta_x_px`
     - `delta_y_px`
     - `iou`
-    - `point_hit`
+    - `x_hit`
+    - `y_hit`
+    - `axis_hit`
     - `iou_hit`
     - `failed_checks`
   - 当前已验证：

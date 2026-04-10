@@ -404,8 +404,9 @@ uv run sinan auto-train run group2 \
 - 从试卷池稳定随机抽 `50` 题
 - 用项目现有 solver 跑预测
 - `group1` 按整题序列判卷
-- `group2` 按中心点误差和 `IoU` 判卷
-  - 当前默认要求中心点误差 `<= 5px`
+- `group2` 按 X/Y 方向偏差和 `IoU` 判卷
+  - 当前默认要求 `|delta_x_px| <= 5px`
+  - 当前默认要求 `|delta_y_px| <= 5px`
   - 当前默认要求 `IoU >= 0.5`
 - 如果 `group2 reviewed tile` 是裁到最紧边界的透明 `png`，且不同题目的小图尺寸不一致，当前预测 / modeltest / business_eval 会自动按单样本拆分预测，再把结果聚合回统一 `labels.jsonl`
 - 成功率达到门槛才算通过
