@@ -18,6 +18,7 @@ from torch.utils.data import DataLoader, Dataset
 
 from core.common.jsonl import write_jsonl
 from core.dataset.validation import get_group2_target, set_group2_target, validate_group2_row
+from core.group2_semantics import GROUP2_OFFLINE_POINT_HIT_TOLERANCE_PX
 from core.train.group2.dataset import load_group2_dataset_config, load_group2_rows, resolve_group2_path
 
 FEATURE_STRIDE = 4
@@ -372,7 +373,7 @@ def _evaluate(
                 iou = _iou(target["bbox"], predicted_bbox)
                 center_errors.append(center_error)
                 ious.append(iou)
-                hits += 1 if center_error <= 12 else 0
+                hits += 1 if center_error <= GROUP2_OFFLINE_POINT_HIT_TOLERANCE_PX else 0
                 samples += 1
 
     return {

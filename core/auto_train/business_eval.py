@@ -19,7 +19,7 @@ from core.dataset.validation import (
 )
 from core.evaluate.service import EvaluationRequest, evaluate_model
 from core.modeltest.service import ModelTestRequest, ModelTestResult, run_model_test
-from core.train.base import default_best_weights, default_dataset_config, default_last_weights
+from core.train.base import default_dataset_config, preferred_checkpoint_path, preferred_run_checkpoint
 from core.train.group1.service import (
     QUERY_COMPONENT,
     SCENE_COMPONENT,
@@ -375,7 +375,7 @@ def _build_business_model_test_request(
         dataset_version=dataset_version,
         train_name=train_name,
         dataset_config=dataset_config,
-        model_path=_preferred_group2_weights(train_root, train_name),
+        model_path=preferred_run_checkpoint(train_root, "group2", train_name),
         query_model_path=None,
         source=source,
         project_dir=report_dir / "modeltest",
@@ -705,24 +705,10 @@ def _render_mapping(value: dict[str, Any]) -> str:
     return json.dumps(value, ensure_ascii=False, sort_keys=True)
 
 
-def _preferred_group2_weights(train_root: Path, train_name: str) -> Path:
-    best = default_best_weights(train_root, "group2", train_name)
-    if best.exists():
-        return best
-    last = default_last_weights(train_root, "group2", train_name)
-    if last.exists():
-        return last
-    return best
-
-
 def _preferred_group1_component_weights(train_root: Path, train_name: str, component: str) -> Path:
     best = group1_component_best_weights(train_root, train_name, component)
-    if best.exists():
-        return best
     last = group1_component_last_weights(train_root, train_name, component)
-    if last.exists():
-        return last
-    return best
+    return preferred_checkpoint_path(best, last)
 
 
 def _process_conclusion_cn(*, study: contracts.StudyRecord, business_record: contracts.BusinessEvalRecord) -> str:

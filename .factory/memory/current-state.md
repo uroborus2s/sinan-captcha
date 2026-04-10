@@ -17,6 +17,32 @@
 
 ## 当前事实
 
+- 2026-04-10 当前 `group2` 离线评估 / 自动训练 / 模型测试中重复出现的阈值语义已开始收口为共享常量：
+  - 当前新增：
+    - `core/group2_semantics.py`
+  - 当前已统一收口的语义包括：
+    - `GROUP2_OFFLINE_POINT_HIT_TOLERANCE_PX = 12.0`
+    - `GROUP2_LOCALIZATION_ALERT_CENTER_ERROR_PX = 12.0`
+    - `GROUP2_SUMMARY_POINT_HIT_ALERT_THRESHOLD = 0.90`
+    - `GROUP2_SUMMARY_LOW_IOU_ALERT_THRESHOLD = 0.80`
+    - `GROUP2_DATASET_GAP_POINT_HIT_THRESHOLD = 0.80`
+    - 一组 `group2 modeltest` 初学者报告阈值
+  - 当前影响范围已覆盖：
+    - `core/train/group2/runner.py`
+    - `core/modeltest/service.py`
+    - `core/auto_train/summary.py`
+    - `core/auto_train/policies.py`
+    - `core/auto_train/controller.py`
+  - 当前已验证：
+    - `uv run python -m unittest tests.python.test_training_jobs tests.python.test_auto_train_runners tests.python.test_auto_train_business_eval tests.python.test_auto_train_controller tests.python.test_auto_train_summary tests.python.test_auto_train_policies tests.python.test_prediction_and_model_test`
+- 2026-04-10 当前 `group2` 训练链路中重复的 checkpoint 回退与混尺寸预测预判逻辑已收口：
+  - 当前新增共享 helper：
+    - `core.train.base.preferred_checkpoint_path(...)`
+    - `core.train.base.preferred_run_checkpoint(...)`
+  - 当前 `auto_train.runners.train`、`auto_train.business_eval`、`auto_train.controller` 已统一复用同一套 `best.pt -> last.pt` 选择规则
+  - 当前 `core.train.group2.service.run_group2_prediction_job()` 只会解析一次 dataset config，再决定是否切到逐样本预测
+  - 当前已验证：
+    - `uv run python -m unittest tests.python.test_training_jobs tests.python.test_auto_train_runners tests.python.test_auto_train_business_eval tests.python.test_auto_train_controller`
 - 2026-04-10 当前 `group2` 自动训练的综合排序已改为明显的 business-first 权重：
   - 当前综合分公式改为：
     - `ranking_score = offline_score * difficulty_score * 0.8 + business_component * 2.0`

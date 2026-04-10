@@ -5,6 +5,7 @@ import unittest
 from pathlib import Path
 
 from core.auto_train import contracts, layout, storage, summary
+from core.group2_semantics import GROUP2_LOCALIZATION_ALERT_CENTER_ERROR_PX
 
 
 class AutoTrainSummaryTests(unittest.TestCase):
@@ -260,6 +261,48 @@ class AutoTrainSummaryTests(unittest.TestCase):
             self.assertIn("point_hits", record.failure_patterns)
             self.assertIn("center_offset", record.failure_patterns)
             self.assertIn("low_iou", record.failure_patterns)
+
+    def test_build_result_summary_for_group2_does_not_flag_center_offset_at_exact_threshold(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            paths = layout.StudyPaths(
+                studies_root=Path(tmpdir) / "studies",
+                task="group2",
+                study_name="study_001",
+            )
+            paths.ensure_layout()
+
+            record = summary.build_result_summary(
+                summary.ResultSummaryRequest(
+                    study_name="study_001",
+                    paths=paths,
+                    trial_id="trial_0001",
+                    dataset_version="v1",
+                    train_name="trial_0001",
+                    primary_metric="point_hit_rate",
+                    test_record=contracts.TestRecord(
+                        task="group2",
+                        dataset_version="v1",
+                        train_name="trial_0001",
+                        metrics={"precision": 0.9, "recall": 0.86, "map50_95": 0.77},
+                        predict_output_dir="D:/reports/group2/predict_trial_0001",
+                        val_output_dir="D:/reports/group2/val_trial_0001",
+                        report_dir="D:/reports/group2/test_trial_0001",
+                    ),
+                    evaluate_record=contracts.EvaluateRecord(
+                        available=True,
+                        task="group2",
+                        metrics={
+                            "point_hit_rate": 0.91,
+                            "mean_center_error_px": GROUP2_LOCALIZATION_ALERT_CENTER_ERROR_PX,
+                            "mean_iou": 0.81,
+                        },
+                        failure_count=1,
+                        report_dir="D:/reports/group2/eval_trial_0001",
+                    ),
+                )
+            )
+
+            self.assertNotIn("center_offset", record.failure_patterns)
 
     def test_result_summary_round_trips_via_storage(self) -> None:
         with tempfile.TemporaryDirectory() as tmpdir:

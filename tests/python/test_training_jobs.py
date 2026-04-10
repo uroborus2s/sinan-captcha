@@ -9,7 +9,11 @@ from unittest.mock import patch
 import zlib
 
 from core.common.jsonl import read_jsonl
-from core.train.base import prepare_dataset_yaml_for_ultralytics
+from core.train.base import (
+    preferred_checkpoint_path,
+    preferred_run_checkpoint,
+    prepare_dataset_yaml_for_ultralytics,
+)
 from core.train.group1 import cli as group1_cli
 from core.train.group1.service import build_group1_training_job
 from core.train.group2 import cli as group2_cli
@@ -44,6 +48,28 @@ def _write_png(path: Path, width: int, height: int, color: tuple[int, int, int])
 
 
 class TrainingJobTests(unittest.TestCase):
+    def test_preferred_checkpoint_path_returns_best_when_available(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            root = Path(tmpdir)
+            best = root / "weights" / "best.pt"
+            last = root / "weights" / "last.pt"
+            best.parent.mkdir(parents=True, exist_ok=True)
+            best.write_text("best", encoding="utf-8")
+            last.write_text("last", encoding="utf-8")
+
+            self.assertEqual(preferred_checkpoint_path(best, last), best)
+
+    def test_preferred_run_checkpoint_falls_back_to_last_when_best_is_missing(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            train_root = Path(tmpdir)
+            last = train_root / "runs" / "group2" / "trial_0001" / "weights" / "last.pt"
+            last.parent.mkdir(parents=True, exist_ok=True)
+            last.write_text("last", encoding="utf-8")
+
+            resolved = preferred_run_checkpoint(train_root, "group2", "trial_0001")
+
+            self.assertEqual(resolved, last)
+
     def test_group1_uses_expected_defaults(self) -> None:
         job = build_group1_training_job(Path("datasets/group1/v1/dataset.json"), Path("runs/group1"))
         command = job.command()

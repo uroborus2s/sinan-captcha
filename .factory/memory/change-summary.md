@@ -1,5 +1,50 @@
 # 变更摘要
 
+## 2026-04-10 统一 `group2` 重复阈值语义到共享常量
+
+- 已更新：
+  - `core/group2_semantics.py`
+  - `core/train/group2/runner.py`
+  - `core/modeltest/service.py`
+  - `core/auto_train/summary.py`
+  - `core/auto_train/policies.py`
+  - `core/auto_train/controller.py`
+  - `tests/python/test_auto_train_summary.py`
+  - `tests/python/test_auto_train_policies.py`
+  - `.factory/memory/current-state.md`
+  - `.factory/memory/change-summary.md`
+- 当前已完成的目标：
+  - 把 `group2` 离线点位命中容差 `12px` 从分散字面量收口到：
+    - `GROUP2_OFFLINE_POINT_HIT_TOLERANCE_PX`
+    - `GROUP2_LOCALIZATION_ALERT_CENTER_ERROR_PX`
+  - 把 `group2` summary / policy / modeltest 中重复出现的点位命中率与 IoU 阈值收口到 `core/group2_semantics.py`
+  - 让训练评估、失败模式判定、自动训练决策、模型测试报告使用同一份常量来源
+  - 新增边界测试，明确保证：
+    - `mean_center_error_px == 12.0` 时不会被误判为 `center_offset`
+- 已运行验证：
+  - `uv run python -m unittest tests.python.test_training_jobs tests.python.test_auto_train_runners tests.python.test_auto_train_business_eval tests.python.test_auto_train_controller tests.python.test_auto_train_summary tests.python.test_auto_train_policies tests.python.test_prediction_and_model_test`
+
+## 2026-04-10 清理 `group2` 训练链路中的重复 checkpoint 回退与重复 dataset config 解析
+
+- 已更新：
+  - `core/train/base.py`
+  - `core/auto_train/runners/train.py`
+  - `core/auto_train/business_eval.py`
+  - `core/auto_train/controller.py`
+  - `core/train/group2/service.py`
+  - `tests/python/test_training_jobs.py`
+  - `.factory/memory/current-state.md`
+  - `.factory/memory/change-summary.md`
+- 当前已完成的目标：
+  - 新增共享 helper：
+    - `preferred_checkpoint_path(best, last)`
+    - `preferred_run_checkpoint(train_root, task, run_name)`
+  - 删除 `group2` 链路里分散的重复 `best.pt -> last.pt` 选择代码，避免未来再出现不同模块回退规则不一致
+  - 删除 `AutoTrainController._resolve_test_model_path()` 中未使用的 `train_name` 兼容参数
+  - `core.train.group2.service` 当前只在预测入口解析一次 dataset config，再基于同一份配置判断是否需要逐样本预测
+- 已运行验证：
+  - `uv run python -m unittest tests.python.test_training_jobs tests.python.test_auto_train_runners tests.python.test_auto_train_business_eval tests.python.test_auto_train_controller`
+
 ## 2026-04-10 调整 `group2 auto-train` 综合排序公式，并改为按 trial 总分决定是否将 `last.pt` 提升为当前 run `best.pt`
 
 - 已更新：

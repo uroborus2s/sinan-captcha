@@ -94,6 +94,21 @@ def default_last_weights(train_root: Path, task: str, run_name: str) -> Path:
     return default_run_weights(train_root, task, run_name, "last.pt")
 
 
+def preferred_checkpoint_path(best_path: Path, last_path: Path) -> Path:
+    if best_path.exists():
+        return best_path
+    if last_path.exists():
+        return last_path
+    return best_path
+
+
+def preferred_run_checkpoint(train_root: Path, task: str, run_name: str) -> Path:
+    return preferred_checkpoint_path(
+        default_best_weights(train_root, task, run_name),
+        default_last_weights(train_root, task, run_name),
+    )
+
+
 def default_predict_source(train_root: Path, task: str, dataset_version: str) -> Path:
     if task in {"group1", "group2"}:
         return train_root / "datasets" / task / dataset_version / "splits" / "val.jsonl"

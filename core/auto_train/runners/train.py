@@ -16,6 +16,8 @@ from core.train.base import (
     default_project_dir,
     default_run_dir,
     execute_training_job,
+    preferred_checkpoint_path,
+    preferred_run_checkpoint,
 )
 from core.train.group1.service import Group1TrainingJob, build_group1_training_job, execute_group1_training_job
 from core.train.group1.service import (
@@ -188,7 +190,7 @@ def _resolve_model(request: TrainRunnerRequest) -> str:
             )
         if request.task == "group1":
             return str(_preferred_group1_component_weights(request.train_root, request.base_run, SCENE_COMPONENT))
-        return str(_preferred_run_weights(request.train_root, request.task, request.base_run))
+        return str(preferred_run_checkpoint(request.train_root, request.task, request.base_run))
 
     if request.model is not None:
         return request.model
@@ -252,21 +254,7 @@ def _build_training_job(
     )
 
 
-def _preferred_run_weights(train_root: Path, task: str, run_name: str) -> Path:
-    best = default_best_weights(train_root, task, run_name)
-    if best.exists():
-        return best
-    last = default_last_weights(train_root, task, run_name)
-    if last.exists():
-        return last
-    return best
-
-
 def _preferred_group1_component_weights(train_root: Path, run_name: str, component: str) -> Path:
     best = group1_component_best_weights(train_root, run_name, component)
-    if best.exists():
-        return best
     last = group1_component_last_weights(train_root, run_name, component)
-    if last.exists():
-        return last
-    return best
+    return preferred_checkpoint_path(best, last)

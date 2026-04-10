@@ -5,6 +5,10 @@ from __future__ import annotations
 from dataclasses import dataclass
 
 from core.auto_train import contracts
+from core.group2_semantics import (
+    GROUP2_DATASET_GAP_POINT_HIT_THRESHOLD,
+    GROUP2_LOCALIZATION_ALERT_CENTER_ERROR_PX,
+)
 
 
 @dataclass(frozen=True)
@@ -205,7 +209,7 @@ def _evaluate_group2(policy: TaskPolicy, summary: contracts.ResultSummaryRecord)
         )
 
     if (
-        (point_hit_rate is not None and point_hit_rate < 0.8)
+        (point_hit_rate is not None and point_hit_rate < GROUP2_DATASET_GAP_POINT_HIT_THRESHOLD)
         or "low_iou" in failure_patterns
         or ("point_hits" in failure_patterns and (summary.failure_count or 0) >= 6)
     ):
@@ -219,7 +223,10 @@ def _evaluate_group2(policy: TaskPolicy, summary: contracts.ResultSummaryRecord)
             failure_patterns=summary.failure_patterns,
         )
 
-    if "center_offset" in failure_patterns or (center_error is not None and center_error > 12.0):
+    if (
+        "center_offset" in failure_patterns
+        or (center_error is not None and center_error > GROUP2_LOCALIZATION_ALERT_CENTER_ERROR_PX)
+    ):
         return _recommend(
             summary.task,
             "RETUNE",

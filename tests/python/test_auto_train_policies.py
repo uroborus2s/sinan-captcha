@@ -3,6 +3,7 @@ from __future__ import annotations
 import unittest
 
 from core.auto_train import contracts, policies
+from core.group2_semantics import GROUP2_LOCALIZATION_ALERT_CENTER_ERROR_PX
 
 
 def _group1_summary(
@@ -183,6 +184,21 @@ class AutoTrainPoliciesTests(unittest.TestCase):
 
         self.assertEqual(recommendation.decision, "RETUNE")
         self.assertEqual(recommendation.reason, "group2_localization_offset")
+
+    def test_group2_does_not_enter_center_offset_branch_at_exact_threshold(self) -> None:
+        recommendation = policies.evaluate_summary(
+            _group2_summary(
+                point_hit_rate=0.9,
+                mean_iou=0.84,
+                center_error_px=GROUP2_LOCALIZATION_ALERT_CENTER_ERROR_PX,
+                trend="plateau",
+                failure_patterns=[],
+                failure_count=1,
+            )
+        )
+
+        self.assertEqual(recommendation.decision, "RETUNE")
+        self.assertEqual(recommendation.reason, "group2_continue_tuning")
 
 
 if __name__ == "__main__":

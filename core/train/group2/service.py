@@ -10,7 +10,12 @@ import shutil
 import subprocess
 
 from core.common.jsonl import read_jsonl, write_jsonl
-from core.train.group2.dataset import load_group2_dataset_config, load_group2_rows, resolve_group2_path
+from core.train.group2.dataset import (
+    Group2DatasetConfig,
+    load_group2_dataset_config,
+    load_group2_rows,
+    resolve_group2_path,
+)
 
 
 @dataclass(frozen=True)
@@ -178,8 +183,8 @@ def run_group2_prediction_job(job: Group2PredictionJob) -> Group2PredictionResul
     if not job.source.exists():
         raise RuntimeError(f"未找到 group2 预测输入：{job.source}")
 
-    source_rows = _load_prediction_source_rows(job)
-    if _requires_per_sample_prediction(job, source_rows):
+    dataset_config, source_rows = _load_prediction_source(job)
+    if _requires_per_sample_prediction(dataset_config, source_rows):
         return _run_group2_prediction_job_per_sample(job, source_rows)
 
     return _run_group2_prediction_subprocess(job)
@@ -205,13 +210,13 @@ def _run_group2_prediction_subprocess(job: Group2PredictionJob) -> Group2Predict
     )
 
 
-def _load_prediction_source_rows(job: Group2PredictionJob) -> list[dict[str, object]]:
+def _load_prediction_source(job: Group2PredictionJob) -> tuple[Group2DatasetConfig, list[dict[str, object]]]:
     dataset_config = load_group2_dataset_config(job.dataset_config)
-    return load_group2_rows(dataset_config, job.source)
+    return dataset_config, load_group2_rows(dataset_config, job.source)
 
 
 def _requires_per_sample_prediction(
-    job: Group2PredictionJob,
+    dataset_config: Group2DatasetConfig,
     source_rows: list[dict[str, object]],
 ) -> bool:
     from PIL import Image
@@ -219,7 +224,6 @@ def _requires_per_sample_prediction(
     if len(source_rows) <= 1:
         return False
 
-    dataset_config = load_group2_dataset_config(job.dataset_config)
     shapes: set[tuple[int, int, int, int]] = set()
     for row in source_rows:
         master_path = resolve_group2_path(dataset_config.root, Path(str(row["master_image"])))

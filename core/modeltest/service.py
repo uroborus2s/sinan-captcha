@@ -11,6 +11,15 @@ import subprocess
 
 from core.common.jsonl import write_jsonl
 from core.evaluate.service import EvaluationRequest, evaluate_model
+from core.group2_semantics import (
+    GROUP2_LOCALIZATION_ALERT_CENTER_ERROR_PX,
+    GROUP2_MODELTEST_BOOTSTRAP_POINT_HIT_THRESHOLD,
+    GROUP2_MODELTEST_DATASET_GAP_IOU_THRESHOLD,
+    GROUP2_MODELTEST_EFFECTIVE_IOU_THRESHOLD,
+    GROUP2_MODELTEST_EFFECTIVE_POINT_HIT_THRESHOLD,
+    GROUP2_MODELTEST_STRONG_IOU_THRESHOLD,
+    GROUP2_MODELTEST_STRONG_POINT_HIT_THRESHOLD,
+)
 from core.predict.service import PredictionJob, count_images
 from core.train.base import (
     _ensure_training_dependencies as _ensure_group1_training_dependencies,
@@ -549,11 +558,17 @@ def _summarize_verdict(task: str, metrics: dict[str, float | None]) -> tuple[str
         mean_iou = metrics.get("mean_iou")
         if point_hit_rate is None or mean_iou is None:
             return "验证结果不完整", "group2 预测和评估已经跑完，但关键指标没有完整落盘，请先检查预测输出和评估目录。"
-        if point_hit_rate >= 0.92 and mean_iou >= 0.85:
+        if (
+            point_hit_rate >= GROUP2_MODELTEST_STRONG_POINT_HIT_THRESHOLD
+            and mean_iou >= GROUP2_MODELTEST_STRONG_IOU_THRESHOLD
+        ):
             return "这轮双输入定位已经比较稳", "可以开始做业务联调和难样本抽查，再决定是否继续追更高指标。"
-        if point_hit_rate >= 0.8 and mean_iou >= 0.7:
+        if (
+            point_hit_rate >= GROUP2_MODELTEST_EFFECTIVE_POINT_HIT_THRESHOLD
+            and mean_iou >= GROUP2_MODELTEST_EFFECTIVE_IOU_THRESHOLD
+        ):
             return "这轮双输入定位已经有明显效果", "可以继续补复杂背景和弱对比样本，把定位误差再往下压。"
-        if point_hit_rate >= 0.65:
+        if point_hit_rate >= GROUP2_MODELTEST_BOOTSTRAP_POINT_HIT_THRESHOLD:
             return "这轮模型已经学到配对关系", "但定位稳定性还不够，优先补更多图案形状和难背景。"
         return "这轮模型还在起步阶段", "先回头检查双输入样本契约、缺口图案一致性和训练集规模。"
 
@@ -592,11 +607,11 @@ def _build_next_actions(task: str, metrics: dict[str, float | None]) -> list[str
         point_hit_rate = metrics.get("point_hit_rate")
         mean_iou = metrics.get("mean_iou")
         center_error = metrics.get("mean_center_error_px")
-        if point_hit_rate is not None and point_hit_rate < 0.8:
+        if point_hit_rate is not None and point_hit_rate < GROUP2_MODELTEST_EFFECTIVE_POINT_HIT_THRESHOLD:
             next_actions.append("优先补更多真实图案缺口样本，特别是弱对比背景和边缘位置样本。")
-        if mean_iou is not None and mean_iou < 0.75:
+        if mean_iou is not None and mean_iou < GROUP2_MODELTEST_DATASET_GAP_IOU_THRESHOLD:
             next_actions.append("重点检查 tile 图案和主图缺口是否严格同源，先清理任何形状不一致样本。")
-        if center_error is not None and center_error > 12:
+        if center_error is not None and center_error > GROUP2_LOCALIZATION_ALERT_CENTER_ERROR_PX:
             next_actions.append("当前更像是定位偏移偏大，建议先固定一版数据集，再单独调 imgsz、batch 或继续训练轮数。")
         if not next_actions:
             next_actions.append("保留当前 paired dataset 不动，再开一个新训练名做对照实验，避免把好结果覆盖掉。")

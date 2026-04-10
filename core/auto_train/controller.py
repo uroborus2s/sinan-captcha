@@ -28,7 +28,13 @@ from core.auto_train import (
     study_status,
     summary,
 )
-from core.train.base import default_dataset_config, default_report_dir, default_run_dir
+from core.group2_semantics import GROUP2_LOCALIZATION_ALERT_CENTER_ERROR_PX
+from core.train.base import (
+    default_dataset_config,
+    default_report_dir,
+    default_run_dir,
+    preferred_checkpoint_path,
+)
 
 DEFAULT_JUDGE_PROVIDER = "rules"
 DEFAULT_JUDGE_MODEL = "policy-v1"
@@ -302,7 +308,7 @@ class AutoTrainController:
 
     def _stage_test(self, trial_id: str) -> StageExecution:
         input_record = storage.read_trial_input_record(self.paths.input_file(trial_id))
-        model_path = self._resolve_test_model_path(trial_id, input_record.train_name)
+        model_path = self._resolve_test_model_path(trial_id)
         result = self.dependencies.test_runner(
             runners.test.TestRunnerRequest(
                 task=self.request.task,
@@ -809,18 +815,15 @@ class AutoTrainController:
         self._prune_model_runs(record)
         return record
 
-    def _resolve_test_model_path(self, trial_id: str, train_name: str) -> Path | None:
+    def _resolve_test_model_path(self, trial_id: str) -> Path | None:
         train_path = self.paths.train_file(trial_id)
         if not train_path.exists():
             return None
         train_record = storage.read_train_record(train_path)
-        best_path = Path(train_record.best_weights)
-        if best_path.exists():
-            return best_path
-        last_path = Path(train_record.last_weights)
-        if last_path.exists():
-            return last_path
-        return best_path
+        return preferred_checkpoint_path(
+            Path(train_record.best_weights),
+            Path(train_record.last_weights),
+        )
 
     def _promote_current_trial_last_weights_if_selected(
         self,
@@ -1873,7 +1876,10 @@ def _offline_ranking_score(summary_record: contracts.ResultSummaryRecord) -> flo
     point_hit_rate = _summary_metric(summary_record, "point_hit_rate") or 0.0
     mean_iou = _summary_metric(summary_record, "mean_iou") or 0.0
     center_error = _summary_metric(summary_record, "mean_center_error_px")
-    center_quality = 0.0 if center_error is None else max(0.0, min(1.0, 1.0 - (center_error / 12.0)))
+    center_quality = 0.0 if center_error is None else max(
+        0.0,
+        min(1.0, 1.0 - (center_error / GROUP2_LOCALIZATION_ALERT_CENTER_ERROR_PX)),
+    )
     return (point_hit_rate * 0.50) + (mean_iou * 0.30) + (center_quality * 0.20)
 
 

@@ -5,6 +5,11 @@ from __future__ import annotations
 from dataclasses import dataclass
 
 from core.auto_train import contracts, layout, storage
+from core.group2_semantics import (
+    GROUP2_LOCALIZATION_ALERT_CENTER_ERROR_PX,
+    GROUP2_SUMMARY_LOW_IOU_ALERT_THRESHOLD,
+    GROUP2_SUMMARY_POINT_HIT_ALERT_THRESHOLD,
+)
 
 
 @dataclass(frozen=True)
@@ -203,12 +208,12 @@ def _infer_failure_patterns(
         if (_metric_value(metrics, "order_error_rate") or 0.0) > 0.08:
             patterns.append("order_errors")
     if evaluate_record.task == "group2":
-        if (_metric_value(metrics, "point_hit_rate") or 0.0) < 0.9:
+        if (_metric_value(metrics, "point_hit_rate") or 0.0) < GROUP2_SUMMARY_POINT_HIT_ALERT_THRESHOLD:
             patterns.append("point_hits")
-        if (_metric_value(metrics, "mean_center_error_px") or 0.0) > 12.0:
+        if (_metric_value(metrics, "mean_center_error_px") or 0.0) > GROUP2_LOCALIZATION_ALERT_CENTER_ERROR_PX:
             patterns.append("center_offset")
         mean_iou = _metric_value(metrics, "mean_iou")
-        if mean_iou is not None and mean_iou < 0.8:
+        if mean_iou is not None and mean_iou < GROUP2_SUMMARY_LOW_IOU_ALERT_THRESHOLD:
             patterns.append("low_iou")
 
     return sorted(set(patterns))
