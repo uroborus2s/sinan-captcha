@@ -350,22 +350,23 @@ class TrainPrelabelServiceTests(unittest.TestCase):
                 return_value={"message": {"content": fake_content}},
             ):
                 stderr_buffer = io.StringIO()
+                output_root = root / "reports" / "group1" / "vlm-prelabel"
                 with redirect_stderr(stderr_buffer):
                     result = run_group1_vlm_prelabel(
                         Group1VlmPrelabelRequest(
                             pair_root=pair_root,
                             model="qwen2.5vl:7b",
-                            project_dir=pair_root / ".sinan" / "prelabel" / "group1" / "vlm",
+                            project_dir=output_root,
                         )
                     )
             logs = stderr_buffer.getvalue()
 
             self.assertEqual(result.sample_count, 1)
             self.assertEqual(result.annotation_count, 2)
-            self.assertTrue((pair_root / "reviewed" / "query" / "sample_0001.png").exists())
-            self.assertTrue((pair_root / "reviewed" / "scene" / "sample_0001.png").exists())
-            query_payload = json.loads((pair_root / "reviewed" / "query" / "sample_0001.json").read_text(encoding="utf-8"))
-            scene_payload = json.loads((pair_root / "reviewed" / "scene" / "sample_0001.json").read_text(encoding="utf-8"))
+            self.assertTrue((output_root / "reviewed" / "query" / "sample_0001.png").exists())
+            self.assertTrue((output_root / "reviewed" / "scene" / "sample_0001.png").exists())
+            query_payload = json.loads((output_root / "reviewed" / "query" / "sample_0001.json").read_text(encoding="utf-8"))
+            scene_payload = json.loads((output_root / "reviewed" / "scene" / "sample_0001.json").read_text(encoding="utf-8"))
             self.assertEqual([shape["label"] for shape in query_payload["shapes"]], ["query_item", "query_item"])
             self.assertEqual([shape["flags"]["class_guess"] for shape in query_payload["shapes"]], ["icon_lock", "icon_star"])
             self.assertEqual([shape["label"] for shape in scene_payload["shapes"]], ["01", "02"])
@@ -379,6 +380,7 @@ class TrainPrelabelServiceTests(unittest.TestCase):
             self.assertIn("sending request", logs)
             self.assertIn('"query_items"', logs)
             self.assertIn("normalized query_items=2 scene_targets=2", logs)
+            self.assertEqual(result.review_dir, output_root / "reviewed")
 
     def test_group2_prelabel_copies_assets_and_writes_master_annotation(self) -> None:
         with tempfile.TemporaryDirectory() as tmpdir:

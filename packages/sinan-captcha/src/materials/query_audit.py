@@ -6,6 +6,7 @@ import base64
 from collections import Counter, defaultdict
 from dataclasses import dataclass
 import hashlib
+from http.client import HTTPException
 import io
 import json
 from pathlib import Path
@@ -1691,6 +1692,8 @@ def _post_json(url: str, payload: Mapping[str, object], *, timeout_seconds: int)
         raise RuntimeError(f"ollama request failed with HTTP {exc.code}: {body}") from exc
     except URLError as exc:
         raise RuntimeError(f"could not reach Ollama at {url}: {exc.reason}") from exc
+    except (HTTPException, OSError) as exc:
+        raise RuntimeError(f"ollama connection failed for {url}: {exc}") from exc
     try:
         payload_obj = json.loads(raw_body)
     except json.JSONDecodeError as exc:

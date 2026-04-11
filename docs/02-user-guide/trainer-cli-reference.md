@@ -57,27 +57,27 @@ sinan
     └── run
 ```
 
-| 命令 | 主要用途 | 典型使用场景 |
-| --- | --- | --- |
-| `env check` | 训练机环境自检 | 新机器首次验收 |
-| `env setup-train` | 初始化训练目录与依赖 | 训练机标准化初始化 |
-| `materials build` | 构建离线素材包 | 素材治理与归档 |
-| `materials audit-group1-query` | 审计 query 图并生成模板素材包 | `group1` 素材清洗/补齐 |
-| `materials collect-backgrounds` | 分析参考背景风格并下载相似背景图 | 背景素材扩充 |
-| `dataset validate` | 校验 JSONL 数据集合同 | 数据出库前门禁 |
-| `exam prepare` | 准备 reviewed 试卷目录 | 人工标注前准备 |
-| `exam export-reviewed` | 导出 reviewed 为 `labels.jsonl` | 人工复核后回灌 |
-| `exam build-group2-prelabel-yolo` | 为 group2 预标注构建 YOLO 集 | group2 标注前准备 |
-| `autolabel` | 离线自动标注转换 | 规则预标注与 seed 扩增 |
-| `train group1` | 训练 group1 主模型链 | 点选任务训练 |
-| `train group1 prelabel*` | 生成 group1 预标注 | 人工审核前自动初标 |
-| `train group2` | 训练 group2 主模型 | 拖拽任务训练 |
-| `train group2 prelabel` | 生成 group2 预标注 | group2 标注提效 |
-| `predict group1/group2` | 跑预测产物 | 训练后快速出预测 |
-| `test group1/group2` | 跑标准测试流程 | 出报告前模型验证 |
-| `evaluate` | 比对 gold 与 prediction | 指标计算与报告 |
-| `auto-train run/stage` | 自主训练控制器入口 | 无人值守或阶段调试 |
-| `solve *` | 本地 bundle 构建与试跑 | 训练产物交付验收 |
+| 命令                                | 主要用途                         | 典型使用场景           |
+| --------------------------------- | ---------------------------- | ---------------- |
+| `env check`                       | 训练机环境自检                      | 新机器首次验收          |
+| `env setup-train`                 | 初始化训练目录与依赖                   | 训练机标准化初始化        |
+| `materials build`                 | 构建离线素材包                      | 素材治理与归档          |
+| `materials audit-group1-query`    | 审计 query 图并生成模板素材包           | `group1` 素材清洗/补齐 |
+| `materials collect-backgrounds`   | 分析参考背景风格并下载相似背景图             | 背景素材扩充           |
+| `dataset validate`                | 校验 JSONL 数据集合同               | 数据出库前门禁          |
+| `exam prepare`                    | 准备 reviewed 试卷目录             | 人工标注前准备          |
+| `exam export-reviewed`            | 导出 reviewed 为 `labels.jsonl` | 人工复核后回灌          |
+| `exam build-group2-prelabel-yolo` | 为 group2 预标注构建 YOLO 集        | group2 标注前准备     |
+| `autolabel`                       | 离线自动标注转换                     | 规则预标注与 seed 扩增   |
+| `train group1`                    | 训练 group1 主模型链               | 点选任务训练           |
+| `train group1 prelabel*`          | 生成 group1 预标注                | 人工审核前自动初标        |
+| `train group2`                    | 训练 group2 主模型                | 拖拽任务训练           |
+| `train group2 prelabel`           | 生成 group2 预标注                | group2 标注提效      |
+| `predict group1/group2`           | 跑预测产物                        | 训练后快速出预测         |
+| `test group1/group2`              | 跑标准测试流程                      | 出报告前模型验证         |
+| `evaluate`                        | 比对 gold 与 prediction         | 指标计算与报告          |
+| `auto-train run/stage`            | 自主训练控制器入口                    | 无人值守或阶段调试        |
+| `solve *`                         | 本地 bundle 构建与试跑              | 训练产物交付验收         |
 
 ## 3. 环境命令
 
@@ -763,16 +763,16 @@ uv run sinan train group1 prelabel-vlm \
 
 #### 参数说明
 
-| 参数 | 必填 | 默认值 | 说明 |
-| --- | --- | --- | --- |
-| `--pair-root` | 是 | 无 | query/scene 成对目录根。 |
-| `--model` | 是 | 无 | Ollama 多模态模型名。 |
-| `--project` | 否 | `<pair-root>/.sinan/prelabel/group1/vlm` | 输出目录。 |
-| `--ollama-url` | 否 | `http://127.0.0.1:11434` | Ollama 服务地址。 |
-| `--timeout-seconds` | 否 | `300` | 单请求超时时间。 |
-| `--limit` | 否 | 空 | 限制样本数。 |
-| `--overwrite` | 否 | `false` | 覆盖已有结果。 |
-| `--dry-run` | 否 | `false` | 仅打印计划。 |
+| 参数                  | 必填  | 默认值                                      | 说明                 |
+| ------------------- | --- | ---------------------------------------- | ------------------ |
+| `--pair-root`       | 是   | 无                                        | query/scene 成对目录根。 |
+| `--model`           | 是   | 无                                        | Ollama 多模态模型名。     |
+| `--project`         | 否   | `<pair-root>/.sinan/prelabel/group1/vlm` | 统一输出目录，包含 `reviewed/`、`labels.jsonl`、`trace.jsonl`、`summary.json`。 |
+| `--ollama-url`      | 否   | `http://127.0.0.1:11434`                 | Ollama 服务地址。       |
+| `--timeout-seconds` | 否   | `300`                                    | 单请求超时时间。           |
+| `--limit`           | 否   | 空                                        | 限制样本数。             |
+| `--overwrite`       | 否   | `false`                                  | 覆盖已有结果。            |
+| `--dry-run`         | 否   | `false`                                  | 仅打印计划。             |
 
 #### 最小示例
 
@@ -783,7 +783,7 @@ uv run sinan train group1 prelabel-vlm --pair-root work_home/group1_pairs --mode
 #### 成功标志
 
 - 命令输出 JSON，包含处理数量与写入路径。
-- 对应输出目录生成可复核标注文件。
+- `--project` 目录下生成 `reviewed/query/*.json`、`reviewed/scene/*.json`、`labels.jsonl`、`trace.jsonl` 和 `summary.json`。
 
 #### 常见误用
 

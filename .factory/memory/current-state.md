@@ -190,6 +190,11 @@
     - 输出 `reviewed/query|scene/*.json` 供人工审核
     - 中间产物写入 `<pair-root>/.sinan/prelabel/group1/vlm/`
     - 预测行当前标记为 `label_source=vlm_pred`
+    - 当前共享 Ollama HTTP helper 已补齐底层连接断开异常包装：
+      - `RemoteDisconnected`
+      - `ConnectionResetError`
+      - `TimeoutError`
+      - 这类异常现在会统一输出为可读 `RuntimeError`，不再直接泄露原始 traceback
     - 当前命令默认会持续向 `stderr` 打印进度日志：
       - 启动参数与发现到的样本数
       - 每个 sample 的 prompt

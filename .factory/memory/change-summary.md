@@ -1,5 +1,20 @@
 # 变更摘要
 
+## 2026-04-12 补齐 Ollama 连接异常包装，避免 `prelabel-vlm` 直接打印底层 traceback
+
+- 已更新：
+  - `packages/sinan-captcha/src/materials/query_audit.py`
+  - `tests/python/test_group1_query_audit.py`
+  - `.factory/memory/current-state.md`
+  - `.factory/memory/change-summary.md`
+- 当前已完成的目标：
+  - 共享 `_post_json()` 已补齐本地 Ollama 连接层异常包装
+  - 当本地服务接受连接后又主动断开，或出现 `ConnectionResetError` / `TimeoutError` 一类底层异常时，CLI 现在会返回明确 `RuntimeError`
+  - `train group1 prelabel-vlm` 与 `materials audit-group1-query` 复用同一包装逻辑，不再因为底层 `RemoteDisconnected` 之类异常直接向用户打印整段 Python traceback
+- 已运行验证：
+  - `uv run pytest tests/python/test_group1_query_audit.py -q`
+  - `uv run pytest tests/python/test_group1_query_audit.py tests/python/test_train_prelabel_service.py -q`
+
 ## 2026-04-12 调整 `audit-group1-query` 为大模型结果优先，本地切图数量不一致只记 warning
 
 - 已更新：

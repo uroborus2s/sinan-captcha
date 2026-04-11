@@ -252,7 +252,7 @@ def build_group1_vlm_prelabel_plan(
     return Group1VlmPrelabelPlan(
         pair_root=request.pair_root,
         project_dir=request.project_dir,
-        review_dir=request.pair_root / "reviewed",
+        review_dir=request.project_dir / "reviewed",
         source_labels_path=request.project_dir / "source.jsonl",
         prediction_labels_path=request.project_dir / "labels.jsonl",
         trace_path=request.project_dir / "trace.jsonl",
@@ -453,15 +453,14 @@ def run_group1_vlm_prelabel(request: Group1VlmPrelabelRequest) -> PrelabelResult
         f"discovered sample_count={len(pairs)} query_dir={query_dir} scene_dir={scene_dir}"
     )
 
-    review_query_dir = request.pair_root / "reviewed" / "query"
-    review_scene_dir = request.pair_root / "reviewed" / "scene"
+    plan = build_group1_vlm_prelabel_plan(request)
+    review_query_dir = plan.review_dir / "query"
+    review_scene_dir = plan.review_dir / "scene"
     _ensure_annotation_targets(
         sample_ids=[pair.sample_id for pair in pairs],
         annotation_dirs=[review_query_dir, review_scene_dir],
         overwrite=request.overwrite,
     )
-
-    plan = build_group1_vlm_prelabel_plan(request)
     plan.project_dir.mkdir(parents=True, exist_ok=True)
 
     source_rows: list[dict[str, object]] = []

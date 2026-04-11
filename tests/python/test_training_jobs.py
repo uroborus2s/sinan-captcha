@@ -471,6 +471,7 @@ class TrainingJobTests(unittest.TestCase):
         self.assertIn('"pair_root": "materials/validation/group1"', output)
         self.assertIn('"model": "qwen2.5vl:7b"', output)
         self.assertIn('"project_dir": "materials/validation/group1/.sinan/prelabel/group1/vlm"', output)
+        self.assertIn('"review_dir": "materials/validation/group1/.sinan/prelabel/group1/vlm/reviewed"', output)
 
     def test_group2_cli_executes_training_command(self) -> None:
         with tempfile.TemporaryDirectory() as tmpdir:

@@ -80,7 +80,7 @@
      - 可选类别提示仅保存在 `shape.flags.class_guess`
    - 如果手头只有同名配对的 `query/ + scene|scence/` 原图，也可以直接用本地 Ollama 多模态模型先生成 reviewed 初稿：
      - `uv run sinan train group1 prelabel-vlm --pair-root work_home/materials/validation/group1 --model qwen2.5vl:7b`
-     - 该命令只会生成 `reviewed/*.json` 预标注草稿，最终仍需人工复核后再执行 `exam export-reviewed`
+     - 该命令会在输出目录下生成 `reviewed/*.json` 预标注草稿和结果文件，最终仍需人工复核后再执行 `exam export-reviewed`
 
 典型命令：
 

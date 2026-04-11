@@ -6,6 +6,7 @@ import re
 import tempfile
 import unittest
 from contextlib import redirect_stderr
+from http.client import RemoteDisconnected
 from pathlib import Path
 from unittest.mock import Mock, patch
 
@@ -39,6 +40,21 @@ def _write_query_image(path: Path, boxes: list[tuple[int, int, int, int]]) -> No
 
 
 class Group1QueryAuditTests(unittest.TestCase):
+    def test_post_json_wraps_remote_disconnect_as_runtime_error(self) -> None:
+        with patch(
+            "materials.query_audit.urlopen",
+            side_effect=RemoteDisconnected("remote end closed connection without response"),
+        ):
+            with self.assertRaisesRegex(
+                RuntimeError,
+                r"ollama connection failed for http://127\.0\.0\.1:11434/api/chat: remote end closed connection without response",
+            ):
+                query_audit_module._post_json(
+                    "http://127.0.0.1:11434/api/chat",
+                    {"model": "qwen2.5vl:7b"},
+                    timeout_seconds=30,
+                )
+
     def test_query_audit_cli_defaults_to_validation_query_and_pack_output(self) -> None:
         parser = query_audit_cli.build_parser()
         args = parser.parse_args(["--model", "gemma4:26b"])
