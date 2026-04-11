@@ -126,13 +126,13 @@ uv run sinan test group2 --dataset-version firstpass --train-name firstpass
 - `work_home/`
   - 本地运行目录，放素材、报告、缓存和其他开发期产物，不提交到 Git
 
-根目录薄包装命令：
+根目录正式 CLI：
 
 ```bash
-uv run python scripts/repo.py build sinan-captcha
-uv run python scripts/repo.py build generator
-uv run python scripts/repo.py build solver
-uv run python scripts/repo.py build all
+uv run repo build sinan-captcha
+uv run repo build generator
+uv run repo build solver
+uv run repo build all
 ```
 
 这些根目录构建命令当前直接调用各 Python 子项目的 `setuptools` build backend；生成器构建的 `GOCACHE` 默认落到 `work_home/.cache/go/`。
@@ -148,7 +148,7 @@ git commit -m "refactor: adjust monorepo package layout"
 如果要交叉编译 Windows 版生成器：
 
 ```bash
-uv run python scripts/repo.py build generator --goos windows --goarch amd64
+uv run repo build generator --goos windows --goarch amd64
 ```
 
 当前各子包构建结果固定为：
@@ -171,16 +171,16 @@ uv run python scripts/repo.py build generator --goos windows --goarch amd64
 
 ## 根目录统一编译与发布
 
-如果你在维护源码仓库，现在可以直接在根目录执行统一编译命令：
+如果你在维护源码仓库，现在统一走根目录 `repo` CLI：
 
 ```bash
-uv run sinan release build-all --project-dir .
+uv run repo build all
 ```
 
 如果要同时产出 Windows 版生成器：
 
 ```bash
-uv run sinan release build-all --project-dir . --goos windows --goarch amd64
+uv run repo build all --goos windows --goarch amd64
 ```
 
 构建结果固定为：
@@ -191,11 +191,13 @@ uv run sinan release build-all --project-dir . --goos windows --goarch amd64
 
 这些构建命令当前都会先清理对应输出目录，再写入新的编译结果。
 
-上传根仓库 Python CLI 到 PyPI：
+上传 `sinan-captcha` 到 PyPI：
 
 ```bash
-uv run sinan release publish --project-dir . --token-env PYPI_TOKEN
+uv run repo publish
 ```
+
+默认会按 `PYPI_TOKEN -> UV_PUBLISH_TOKEN` 顺序读取 token；如果你们内部使用其他变量名，可显式传 `--token-env <ENV_NAME>`。
 
 ## 文档入口
 

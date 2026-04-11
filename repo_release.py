@@ -1,4 +1,4 @@
-"""Build, publish, and package local delivery artifacts."""
+"""Root-level build, publish, and packaging services for the monorepo."""
 
 from __future__ import annotations
 
@@ -11,14 +11,6 @@ import subprocess
 import textwrap
 
 from project_metadata import read_project_version
-from release.solver_export import (
-    ExportGroup2SolverAssetsRequest,
-    ExportSolverAssetsRequest,
-    export_group2_solver_assets,
-    export_solver_assets,
-)
-
-
 @dataclass(frozen=True)
 class BuildReleaseRequest:
     project_dir: Path
@@ -52,8 +44,8 @@ class BuildAllReleaseRequest:
 @dataclass(frozen=True)
 class PublishReleaseRequest:
     project_dir: Path
-    repository: str
-    token_env: str
+    repository: str = "pypi"
+    token_env: str | None = None
 
 
 @dataclass(frozen=True)
@@ -161,9 +153,7 @@ def stage_solver_assets(request: StageSolverAssetsRequest) -> None:
 
 def publish_distribution(request: PublishReleaseRequest) -> None:
     layout = _resolve_repo_layout(request.project_dir)
-    token = os.environ.get(request.token_env)
-    if not token:
-        raise ValueError(f"missing publish token env var: {request.token_env}")
+    token, token_source = _resolve_publish_token(request)
 
     publish_url, check_url = _resolve_repository_urls(request.repository)
     env = os.environ.copy()
@@ -183,6 +173,7 @@ def publish_distribution(request: PublishReleaseRequest) -> None:
         cwd=layout.sinan_dir,
         env=_tool_env(layout.repo_root, env),
     )
+    print(f"published sinan-captcha to PyPI using token from {token_source}")
 
 
 def package_windows_bundle(request: PackageWindowsRequest) -> None:
@@ -264,9 +255,21 @@ def _current_distribution_files(project_dir: Path) -> list[Path]:
 def _resolve_repository_urls(repository: str) -> tuple[str, str]:
     if repository == "pypi":
         return ("https://upload.pypi.org/legacy/", "https://pypi.org/simple")
-    if repository == "testpypi":
-        return ("https://test.pypi.org/legacy/", "https://test.pypi.org/simple")
-    raise ValueError(f"unsupported repository: {repository}")
+    raise ValueError(f"unsupported repository: {repository}. only PyPI is supported")
+
+
+def _resolve_publish_token(request: PublishReleaseRequest) -> tuple[str, str]:
+    if request.token_env is not None:
+        token = os.environ.get(request.token_env)
+        if not token:
+            raise ValueError(f"missing publish token env var: {request.token_env}")
+        return token, request.token_env
+
+    for env_name in ("PYPI_TOKEN", "UV_PUBLISH_TOKEN"):
+        token = os.environ.get(env_name)
+        if token:
+            return token, env_name
+    raise ValueError("missing publish token env var: PYPI_TOKEN or UV_PUBLISH_TOKEN")
 
 
 def _clean_output_dir(output_dir: Path) -> None:

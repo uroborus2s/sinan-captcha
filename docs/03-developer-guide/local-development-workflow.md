@@ -21,7 +21,6 @@
 
 - `sinan` 子命令
 - 训练、预测、评估
-- `release` 发布逻辑
 - `auto_train` 控制器
 - 训练仓库内的 bundle 调试与 `solve` 入口
 
@@ -97,28 +96,28 @@ uv run sinan env setup-train --train-root <训练目录>
 ### 查看当前 monorepo 路径
 
 ```bash
-uv run python scripts/repo.py paths
+uv run repo paths
 ```
 
 ### 构建一个或全部模块
 
 ```bash
-uv run python scripts/repo.py build sinan-captcha
-uv run python scripts/repo.py build generator
-uv run python scripts/repo.py build solver
-uv run python scripts/repo.py build all
+uv run repo build sinan-captcha
+uv run repo build generator
+uv run repo build solver
+uv run repo build all
 ```
 
 如果要交叉编译 Windows 版生成器：
 
 ```bash
-uv run python scripts/repo.py build generator --goos windows --goarch amd64
+uv run repo build generator --goos windows --goarch amd64
 ```
 
 说明：
 
-- `scripts/repo.py` 是开发期薄包装，适合本地快速确认构建仍然可用。
-- 正式发布链路仍然应优先看 `sinan release ...`。
+- `repo` 是当前唯一正式仓库级 CLI。
+- `sinan` 不再承载仓库级构建 / 发布 / 打包命令。
 
 ## 最小验证矩阵
 
@@ -128,7 +127,7 @@ uv run python scripts/repo.py build generator --goos windows --goarch amd64
 | 只改 `packages/sinan-captcha/src/` | `uv run python -m unittest discover -s tests/python -p 'test_*.py'` |
 | 只改 `packages/generator/` | 在 `packages/generator/` 下执行 `GOCACHE=/tmp/sinan-go-build-cache go test ./...` |
 | 只改 `packages/solver/` | `uv run pytest packages/solver/tests -q` |
-| 改 `scripts/repo.py`、`release`、打包逻辑 | Python 回归 + `uv run python scripts/repo.py build all` |
+| 改 `repo_cli.py`、`repo_release.py`、打包逻辑 | Python 回归 + `uv run repo build all` |
 | 改 solver 资产导出 / staging / `sinanz` 资源路径 | Python 回归 + solver 测试 + 相关构建 |
 | 改 `dataset.json`、训练目录结构、跨模块合同 | Python 回归 + Go 测试 + solver 测试 |
 
@@ -149,7 +148,7 @@ uv run python -m unittest discover -s tests/python -p 'test_root_cli.py'
 ### 构建 `sinan-captcha`
 
 ```bash
-uv run python scripts/repo.py build sinan-captcha
+uv run repo build sinan-captcha
 ```
 
 构建行为要点：
@@ -172,7 +171,7 @@ GOCACHE=/tmp/sinan-go-build-cache go test ./...
 ### 从根目录构建生成器
 
 ```bash
-uv run python scripts/repo.py build generator
+uv run repo build generator
 ```
 
 当前输出目录：
@@ -196,23 +195,23 @@ uv run pytest packages/solver/tests -q
 ### 构建 `sinanz`
 
 ```bash
-uv run python scripts/repo.py build solver
+uv run repo build solver
 ```
 
 如果你刚执行过 solver 资产 staging，建议立即重新构建一次，确认资源和 wheel 能对齐。
 
 ## 正式发布入口
 
-如果你要验证“当前发布子命令是否还能用”，不要只跑 `scripts/repo.py`，还应跑正式入口：
+如果你要验证“当前仓库级发布链路是否还能用”，直接跑正式入口：
 
 ```bash
-uv run sinan release build-all --project-dir .
+uv run repo build all
 ```
 
 可选 Windows 版生成器：
 
 ```bash
-uv run sinan release build-all --project-dir . --goos windows --goarch amd64
+uv run repo build all --goos windows --goarch amd64
 ```
 
 ## 改完后必须同步什么

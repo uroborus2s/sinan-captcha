@@ -18,11 +18,11 @@
 
 | 产物 | 目录 | 主入口 |
 | --- | --- | --- |
-| `sinan-captcha` wheel + sdist | `packages/sinan-captcha/dist/` | `uv run sinan release build --project-dir .` |
-| `sinan-generator` 二进制 | `packages/generator/dist/<goos>-<goarch>/` | `uv run sinan release build-generator --project-dir .` |
-| `sinanz` wheel + sdist | `packages/solver/dist/` | `uv run sinan release build-solver --project-dir .` |
-| 导出的 solver 资产目录 | 自定义 `--output-dir` | `uv run sinan release export-solver-assets ...` |
-| Windows 训练交付包 | 自定义 `--output-dir` | `uv run sinan release package-windows ...` |
+| `sinan-captcha` wheel + sdist | `packages/sinan-captcha/dist/` | `uv run repo build sinan-captcha` |
+| `sinan-generator` 二进制 | `packages/generator/dist/<goos>-<goarch>/` | `uv run repo build generator` |
+| `sinanz` wheel + sdist | `packages/solver/dist/` | `uv run repo build solver` |
+| 导出的 solver 资产目录 | 自定义 `--output-dir` | `uv run repo export-solver-assets ...` |
+| Windows 训练交付包 | 自定义 `--output-dir` | `uv run repo package-windows ...` |
 
 ## 先记住发布边界不是对称的
 
@@ -35,11 +35,9 @@
 
 用一句话速记：
 
-- `scripts/repo.py build all`
-  本地开发快速构建
-- `sinan release build-all --project-dir .`
-  正式发布构建入口
-- `sinan release publish --project-dir .`
+- `repo build all`
+  仓库级统一构建入口
+- `repo publish`
   只上传 `sinan-captcha`
 
 ## 先把 4 个容易混的术语拆开
@@ -82,40 +80,26 @@ Go 生成器测试在 `packages/generator/` 目录执行：
 GOCACHE=/tmp/sinan-go-build-cache go test ./...
 ```
 
-## 开发期统一构建
+## 统一仓库级构建
 
-本地快速确认可用性，优先用薄包装脚本：
+当前仓库级正式入口只有 `repo`：
 
 ```bash
-uv run python scripts/repo.py build all
+uv run repo build all
 ```
 
 只构建单个模块：
 
 ```bash
-uv run python scripts/repo.py build sinan-captcha
-uv run python scripts/repo.py build generator
-uv run python scripts/repo.py build solver
-```
-
-如果要交叉编译 Windows 版生成器：
-
-```bash
-uv run python scripts/repo.py build generator --goos windows --goarch amd64
-```
-
-## 正式发布构建
-
-正式链路统一走 `sinan release`：
-
-```bash
-uv run sinan release build-all --project-dir .
+uv run repo build sinan-captcha
+uv run repo build generator
+uv run repo build solver
 ```
 
 如果需要同时产出 Windows 版生成器：
 
 ```bash
-uv run sinan release build-all --project-dir . --goos windows --goarch amd64
+uv run repo build all --goos windows --goarch amd64
 ```
 
 这个命令会依次执行：
@@ -129,7 +113,7 @@ uv run sinan release build-all --project-dir . --goos windows --goarch amd64
 ### 构建 `sinan-captcha`
 
 ```bash
-uv run sinan release build --project-dir .
+uv run repo build sinan-captcha
 ```
 
 建议构建后立即做一次安装烟测：
@@ -143,38 +127,36 @@ uvx --from ./packages/sinan-captcha/dist/sinan_captcha-<version>-py3-none-any.wh
 当前平台：
 
 ```bash
-uv run sinan release build-generator --project-dir .
+uv run repo build generator
 ```
 
 Windows amd64：
 
 ```bash
-uv run sinan release build-generator --project-dir . --goos windows --goarch amd64
+uv run repo build generator --goos windows --goarch amd64
 ```
 
 ### 构建 `sinanz`
 
 ```bash
-uv run sinan release build-solver --project-dir .
+uv run repo build solver
 ```
 
 ## 上传 `sinan-captcha` 到 PyPI
 
-正式 PyPI：
-
 ```bash
-uv run sinan release publish --project-dir . --token-env PYPI_TOKEN
+uv run repo publish
 ```
 
-如果你们把 token 放在其他环境变量里，改 `--token-env` 即可。
+默认读取顺序：
 
-TestPyPI：
+- `PYPI_TOKEN`
+- `UV_PUBLISH_TOKEN`
+
+如果你们把 token 放在其他环境变量里，显式传：
 
 ```bash
-uv run sinan release publish \
-  --project-dir . \
-  --repository testpypi \
-  --token-env TEST_PYPI_TOKEN
+uv run repo publish --token-env <TOKEN_ENV>
 ```
 
 当前行为要点：
@@ -188,8 +170,7 @@ uv run sinan release publish \
 ### 第一步：从训练产线导出资产
 
 ```bash
-uv run sinan release export-solver-assets \
-  --project-dir . \
+uv run repo export-solver-assets \
   --group1-proposal-checkpoint runs/group1/<group1-run>/proposal-detector/weights/best.pt \
   --group1-query-checkpoint runs/group1/<group1-run>/query-parser/weights/best.pt \
   --group1-embedder-checkpoint runs/group1/<group1-run>/icon-embedder/weights/best.pt \
@@ -210,8 +191,7 @@ uv run sinan release export-solver-assets \
 ### 第二步：stage 到 `packages/solver/resources/`
 
 ```bash
-uv run sinan release stage-solver-assets \
-  --project-dir . \
+uv run repo stage-solver-assets \
   --asset-dir work_home/reports/solver-assets/<asset-version>
 ```
 
@@ -226,7 +206,7 @@ uv run sinan release stage-solver-assets \
 ### 第三步：重新构建 `sinanz`
 
 ```bash
-uv run sinan release build-solver --project-dir .
+uv run repo build solver
 ```
 
 ## 组装 Windows 训练交付包
@@ -239,8 +219,7 @@ uv run sinan release build-solver --project-dir .
 最小命令：
 
 ```bash
-uv run sinan release package-windows \
-  --project-dir . \
+uv run repo package-windows \
   --generator-exe packages/generator/dist/windows-amd64/sinan-generator.exe \
   --output-dir dist/windows-bundle-<version>
 ```
@@ -248,8 +227,7 @@ uv run sinan release package-windows \
 如果还要一起打包 solver bundle、数据集或素材：
 
 ```bash
-uv run sinan release package-windows \
-  --project-dir . \
+uv run repo package-windows \
   --generator-exe packages/generator/dist/windows-amd64/sinan-generator.exe \
   --bundle-dir <bundle-dir> \
   --datasets-dir work_home/datasets \
@@ -271,7 +249,7 @@ uv run sinan release package-windows \
 ## 发版时最容易漏掉的 5 件事
 
 1. 只改了根 `pyproject.toml`，却忘了真正的版本号在 `packages/sinan-captcha/pyproject.toml`
-2. 只跑了 `scripts/repo.py build all`，没有跑正式的 `sinan release build-all`
+2. 误以为还存在 `sinan release` 或 `scripts/repo.py` 这类旧入口，没有直接使用 `uv run repo ...`
 3. 执行了 `stage-solver-assets` 却忘了重新构建 `sinanz`
 4. 误以为 `publish` 会上传 `sinanz`
 5. 没在 `git status --short` 里核对 `packages/solver/resources/` 是否正是自己要发布的资产版本

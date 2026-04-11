@@ -29,7 +29,7 @@ sinan-captcha = { workspace = true }
 sinanz = { workspace = true }
 
 [tool.setuptools]
-py-modules = ["repo_cli"]
+py-modules = ["repo_cli", "repo_release", "repo_solver_export", "repo_solver_asset_contract"]
 
 [tool.ruff]
 target-version = "py312"

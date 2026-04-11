@@ -6,7 +6,7 @@ import unittest
 from pathlib import Path
 from unittest.mock import patch
 
-from release.solver_export import (
+from repo_solver_export import (
     ExportedOnnxInfo,
     ExportGroup2SolverAssetsRequest,
     ExportSolverAssetsRequest,
@@ -33,7 +33,7 @@ class Group2SolverAssetExportTests(unittest.TestCase):
                 exported_at="2026-04-05T12:00:00Z",
             )
 
-            with patch("release.solver_export._export_group2_onnx_from_checkpoint") as export_mock:
+            with patch("repo_solver_export._export_group2_onnx_from_checkpoint") as export_mock:
                 export_mock.side_effect = self._write_fake_onnx
                 result = export_group2_solver_assets(request)
 
@@ -117,9 +117,9 @@ class Group2SolverAssetExportTests(unittest.TestCase):
             )
 
             with (
-                patch("release.solver_export._export_yolo_onnx_from_checkpoint") as yolo_export,
-                patch("release.solver_export._export_icon_embedder_onnx_from_checkpoint") as embedder_export,
-                patch("release.solver_export._export_group2_onnx_from_checkpoint") as group2_export,
+                patch("repo_solver_export._export_yolo_onnx_from_checkpoint") as yolo_export,
+                patch("repo_solver_export._export_icon_embedder_onnx_from_checkpoint") as embedder_export,
+                patch("repo_solver_export._export_group2_onnx_from_checkpoint") as group2_export,
             ):
                 yolo_export.side_effect = self._write_fake_yolo_onnx
                 embedder_export.side_effect = self._write_fake_embedder_onnx

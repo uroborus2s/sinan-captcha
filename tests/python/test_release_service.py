@@ -9,7 +9,7 @@ import unittest
 from pathlib import Path
 from unittest.mock import patch
 
-from release.service import (
+from repo_release import (
     BuildAllReleaseRequest,
     BuildGeneratorRequest,
     BuildReleaseRequest,
@@ -63,7 +63,7 @@ class ReleaseServiceTests(unittest.TestCase):
             dist_dir.mkdir()
             (dist_dir / "stale.whl").write_text("old", encoding="utf-8")
             (dist_dir / ".gitignore").write_text("*\n", encoding="utf-8")
-            with patch("release.service._build_setuptools_distribution") as build_dist:
+            with patch("repo_release._build_setuptools_distribution") as build_dist:
                 build_distribution(BuildReleaseRequest(project_dir=project_dir))
 
             self.assertFalse((dist_dir / "stale.whl").exists())
@@ -86,7 +86,7 @@ class ReleaseServiceTests(unittest.TestCase):
                     Path(args[0][3]).write_text("exe", encoding="utf-8")
                 return subprocess.CompletedProcess(args[0], 0)
 
-            with patch("release.service.subprocess.run", side_effect=fake_run) as subprocess_run:
+            with patch("repo_release.subprocess.run", side_effect=fake_run) as subprocess_run:
                 current_dir = Path.cwd()
                 os.chdir(project_dir)
                 try:
@@ -117,7 +117,7 @@ class ReleaseServiceTests(unittest.TestCase):
                     return subprocess.CompletedProcess(args[0], 0, stdout="windows\namd64\n")
                 return subprocess.CompletedProcess(args[0], 0)
 
-            with patch("release.service.subprocess.run", side_effect=fake_run):
+            with patch("repo_release.subprocess.run", side_effect=fake_run):
                 with self.assertRaisesRegex(ValueError, "expected generator binary was not created"):
                     build_generator_distribution(BuildGeneratorRequest(project_dir=project_dir))
 
@@ -130,7 +130,7 @@ class ReleaseServiceTests(unittest.TestCase):
             dist_dir.mkdir()
             (dist_dir / "stale.whl").write_text("old", encoding="utf-8")
             (dist_dir / ".gitignore").write_text("*\n", encoding="utf-8")
-            with patch("release.service._build_setuptools_distribution") as build_dist:
+            with patch("repo_release._build_setuptools_distribution") as build_dist:
                 build_solver_distribution(BuildSolverRequest(project_dir=project_dir))
 
             self.assertFalse((dist_dir / "stale.whl").exists())
@@ -145,7 +145,7 @@ class ReleaseServiceTests(unittest.TestCase):
             source_root.mkdir(parents=True)
             (source_root / "judge-trial.md").write_text("judge", encoding="utf-8")
 
-            staged = __import__("release.service", fromlist=["_stage_repo_opencode_assets"])._stage_repo_opencode_assets(
+            staged = __import__("repo_release", fromlist=["_stage_repo_opencode_assets"])._stage_repo_opencode_assets(
                 sinan_dir
             )
 
@@ -158,7 +158,7 @@ class ReleaseServiceTests(unittest.TestCase):
                 "judge",
             )
 
-            __import__("release.service", fromlist=["_clear_staged_opencode_assets"])._clear_staged_opencode_assets(
+            __import__("repo_release", fromlist=["_clear_staged_opencode_assets"])._clear_staged_opencode_assets(
                 sinan_dir
             )
             self.assertFalse(staged.exists())
@@ -169,9 +169,9 @@ class ReleaseServiceTests(unittest.TestCase):
             self._create_repo_layout(project_dir)
             request = BuildAllReleaseRequest(project_dir=project_dir, goos="windows", goarch="amd64")
 
-            with patch("release.service.build_distribution") as build_root:
-                with patch("release.service.build_generator_distribution") as build_generator:
-                    with patch("release.service.build_solver_distribution") as build_solver:
+            with patch("repo_release.build_distribution") as build_root:
+                with patch("repo_release.build_generator_distribution") as build_generator:
+                    with patch("repo_release.build_solver_distribution") as build_solver:
                         build_all_distributions(request)
 
             build_root.assert_called_once_with(BuildReleaseRequest(project_dir=project_dir.resolve()))
@@ -231,11 +231,11 @@ class ReleaseServiceTests(unittest.TestCase):
             (dist_dir / f"sinan_captcha-{package_version}-py3-none-any.whl").write_text("wheel", encoding="utf-8")
             (dist_dir / f"sinan_captcha-{package_version}.tar.gz").write_text("sdist", encoding="utf-8")
             (dist_dir / "sinan_captcha-0.1.13-py3-none-any.whl").write_text("old", encoding="utf-8")
-            request = PublishReleaseRequest(project_dir=project_dir, repository="pypi", token_env="PYPI_TOKEN")
+            request = PublishReleaseRequest(project_dir=project_dir, token_env="PYPI_TOKEN")
             env = os.environ.copy()
             env["PYPI_TOKEN"] = "secret-token"
             with patch.dict(os.environ, env, clear=True):
-                with patch("release.service.subprocess.run") as subprocess_run:
+                with patch("repo_release.subprocess.run") as subprocess_run:
                     subprocess_run.return_value.returncode = 0
                     publish_distribution(request)
 

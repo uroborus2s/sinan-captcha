@@ -1,5 +1,45 @@
 # 变更摘要
 
+## 2026-04-11 删除旧 `sinan release` / `scripts/repo.py` 结构，统一到根目录 `repo` CLI
+
+- 已更新：
+  - `pyproject.toml`
+  - `repo_cli.py`
+  - `repo_release.py`
+  - `repo_solver_export.py`
+  - `repo_solver_asset_contract.py`
+  - `README.md`
+  - `docs/03-developer-guide/index.md`
+  - `docs/03-developer-guide/maintainer-quickstart.md`
+  - `docs/03-developer-guide/repository-structure-and-boundaries.md`
+  - `docs/03-developer-guide/local-development-workflow.md`
+  - `docs/03-developer-guide/release-and-delivery-workflow.md`
+  - `docs/03-developer-guide/solver-bundle-and-integration.md`
+  - `.factory/memory/current-state.md`
+  - `.factory/memory/change-summary.md`
+  - `tests/python/test_repo_cli.py`
+  - `tests/python/test_release_service.py`
+  - `tests/python/test_solver_asset_export_group2.py`
+  - `tests/python/test_solver_asset_contract.py`
+- 已删除：
+  - `packages/sinan-captcha/src/release/`
+  - `scripts/repo.py`
+  - `tests/python/test_release_cli.py`
+  - `tests/python/test_repo_script.py`
+- 当前已完成的目标：
+  - 仓库级构建、发版、资产导出和 Windows 打包已全部迁到根目录模块
+  - `uv run repo ...` 已成为唯一正式仓库级 CLI
+  - `sinan` CLI 已彻底去掉仓库级 `release` 边界
+  - `publish` 当前只支持 PyPI，默认 token 读取顺序为 `PYPI_TOKEN -> UV_PUBLISH_TOKEN`
+- 已运行验证：
+  - `./.venv/bin/python -m unittest discover -s tests/python -p 'test_root_cli.py'`
+  - `./.venv/bin/python -m unittest discover -s tests/python -p 'test_repo_cli.py'`
+  - `./.venv/bin/python -m unittest discover -s tests/python -p 'test_release_service.py'`
+  - `./.venv/bin/python -m unittest discover -s tests/python -p 'test_solver_asset_export_group2.py'`
+  - `./.venv/bin/python -m unittest discover -s tests/python -p 'test_solver_asset_contract.py'`
+  - `./.venv/bin/python -m unittest discover -s tests/python -p 'test_project_metadata.py'`
+  - `git diff --check`
+
 ## 2026-04-11 基于最新 monorepo 结构重构 `docs/03-developer-guide` 并同步开发者阅读路径
 
 - 已更新：

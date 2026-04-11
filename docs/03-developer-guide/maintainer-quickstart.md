@@ -14,9 +14,9 @@
 先记住下面 5 件事，再开始跑命令：
 
 1. 仓库主线不是公网 API，而是“模型生产仓库 + 独立 solver 包”的组合工程。
-2. `sinan` 负责训练、评估、发布和自主训练；`sinan-generator` 负责素材、样本和数据集生成；`sinanz` 是独立 solver 包。
+2. `sinan` 负责训练、评估、预测、`solve` 和自主训练；仓库级构建 / 发版 / 打包统一走根目录 `repo` CLI；`sinan-generator` 负责素材、样本和数据集生成；`sinanz` 是独立 solver 包。
 3. 根 `uv workspace` 当前只纳入 `packages/sinan-captcha` 和 `packages/solver`；`packages/generator` 仍通过 Go 构建。
-4. 当前正式发布命令由 `sinan release ...` 驱动，但 `publish` 只上传 `sinan-captcha` 当前版本的 wheel 与 sdist。
+4. 当前仓库级正式命令由 `uv run repo ...` 驱动，`publish` 只上传 `sinan-captcha` 当前版本的 wheel 与 sdist。
 5. `work_home/` 是默认本地运行根；不要把数据集、缓存、报告和构建脏数据直接塞回源码目录。
 
 ## 第二步：先读这些事实源
@@ -45,10 +45,9 @@
 | 你要排查什么 | 先看哪个文件 |
 | --- | --- |
 | `sinan` 根命令分发 | `packages/sinan-captcha/src/cli.py` |
-| `sinan release ...` | `packages/sinan-captcha/src/release/cli.py` 和 `packages/sinan-captcha/src/release/service.py` |
+| `repo build/publish/export/package` | `repo_cli.py`、`repo_release.py`、`repo_solver_export.py` |
 | `sinan solve ...` | `packages/sinan-captcha/src/solve/cli.py` |
 | 训练目录初始化 | `packages/sinan-captcha/src/ops/setup_train.py` |
-| 根目录构建包装器 | `scripts/repo.py` |
 | `sinan-generator` | `packages/generator/cmd/sinan-generator/main.go` |
 | `sinanz` 公共 API | `packages/solver/src/sinanz.py` |
 
@@ -63,11 +62,10 @@
 | 命令 / 目标 | 入口文件 | 最小验证 |
 | --- | --- | --- |
 | `sinan` 根命令 | `packages/sinan-captcha/src/cli.py` | `uv run python -m unittest discover -s tests/python -p 'test_root_cli.py'` |
-| `sinan release ...` | `packages/sinan-captcha/src/release/cli.py` | `uv run python -m unittest discover -s tests/python -p 'test_release_cli.py'` |
+| `repo ...` | `repo_cli.py` / `repo_release.py` | `./.venv/bin/python -m unittest discover -s tests/python -p 'test_repo_cli.py'` |
 | `sinan solve ...` | `packages/sinan-captcha/src/solve/cli.py` | 相关 bundle / solve 回归 |
 | `sinan-generator` | `packages/generator/cmd/sinan-generator/main.go` | 在 `packages/generator/` 下执行 `GOCACHE=/tmp/sinan-go-build-cache go test ./...` |
 | `sinanz` | `packages/solver/src/sinanz.py` | `uv run pytest packages/solver/tests -q` |
-| 根目录构建包装器 | `scripts/repo.py` | `./.venv/bin/python -m unittest discover -s tests/python -p 'test_repo_script.py'` |
 
 ## 第三步：准备本机工具
 
@@ -140,23 +138,23 @@ git status --short
 
 ## 第六步：确认你能完成最基本的构建
 
-开发期薄包装入口：
+仓库级统一入口：
 
 ```bash
-uv run python scripts/repo.py paths
-uv run python scripts/repo.py build all
+uv run repo paths
+uv run repo build all
 ```
 
 如果要交叉编译 Windows 版生成器：
 
 ```bash
-uv run python scripts/repo.py build generator --goos windows --goarch amd64
+uv run repo build generator --goos windows --goarch amd64
 ```
 
-正式发布入口：
+上传到 PyPI：
 
 ```bash
-uv run sinan release build-all --project-dir .
+uv run repo publish
 ```
 
 这些命令的输出目录固定为：
@@ -173,12 +171,12 @@ uv run sinan release build-all --project-dir .
 2. `sinan`、`sinan-generator`、`sinanz` 分别负责什么。
 3. `work_home/`、`.opencode/`、`packages/solver/resources/` 分别属于什么边界。
 4. 改完 Python 主线、Go 生成器、`sinanz` 后各自最少跑什么验证。
-5. `scripts/repo.py build all` 和 `sinan release build-all --project-dir .` 的区别。
-6. 当前真正会上传到 PyPI 的是哪个包，版本号从哪里读取。
+5. `repo build all` 和 `repo publish` 的边界分别是什么。
+6. 当前真正会上传到 PyPI 的是哪个包，版本号从哪里读取，token 默认从哪些环境变量读取。
 
 ## 需要立即记住的边界
 
 - 根目录 `.opencode/` 才是受 Git 管理的 OpenCode 资源源目录。
 - `packages/solver/resources/` 不是普通缓存目录；执行 `stage-solver-assets` 后，这里会成为下一次 `sinanz` 打包的真实资源输入。
-- `scripts/` 只放开发辅助脚本，不应被正式运行时代码反向 import。
+- 仓库级 CLI 在根目录 `repo_*.py`；`sinan` 运行时代码不应反向 import 这些仓库运维模块。
 - `work_home/` 下的运行产物默认不进 Git；提交前一定看 `git status --short`。

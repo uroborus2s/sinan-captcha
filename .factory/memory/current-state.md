@@ -1962,3 +1962,27 @@
 - 若 UX/UI 需要可视化评审，优先登记真实设计交付物而不是只写文字
 - 若工作项进入收尾，确认关联 PR 已完成评审并合并
 - 阶段切换前先更新正式文档，再刷新 `/.factory/memory/` 压缩记忆
+- 2026-04-11 当前仓库级构建 / 发版 / 打包链路已完全迁到根目录 `repo` CLI：
+  - 正式入口当前固定为：
+    - `uv run repo build sinan-captcha|generator|solver|all`
+    - `uv run repo publish`
+    - `uv run repo export-solver-assets`
+    - `uv run repo stage-solver-assets`
+    - `uv run repo package-windows`
+  - 当前已删除：
+    - `packages/sinan-captcha/src/release/`
+    - `scripts/repo.py`
+    - `tests/python/test_release_cli.py`
+    - `tests/python/test_repo_script.py`
+  - 当前边界已明确为：
+    - `sinan` 只负责训练仓库功能，不再承载仓库级 release/build/package 命令
+    - `publish` 当前只支持 PyPI，不再维护 TestPyPI 入口
+    - `publish` 默认按 `PYPI_TOKEN -> UV_PUBLISH_TOKEN` 顺序读取 token，也可显式传 `--token-env`
+  - 当前已验证：
+    - `./.venv/bin/python -m unittest discover -s tests/python -p 'test_root_cli.py'`
+    - `./.venv/bin/python -m unittest discover -s tests/python -p 'test_repo_cli.py'`
+    - `./.venv/bin/python -m unittest discover -s tests/python -p 'test_release_service.py'`
+    - `./.venv/bin/python -m unittest discover -s tests/python -p 'test_solver_asset_export_group2.py'`
+    - `./.venv/bin/python -m unittest discover -s tests/python -p 'test_solver_asset_contract.py'`
+    - `./.venv/bin/python -m unittest discover -s tests/python -p 'test_project_metadata.py'`
+    - `git diff --check`

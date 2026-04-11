@@ -66,7 +66,9 @@
 
 对应目录主要是：
 
-- `packages/sinan-captcha/src/release/`
+- `repo_cli.py`
+- `repo_release.py`
+- `repo_solver_export.py`
 - `packages/sinan-captcha/src/solve/`
 - `work_home/reports/solver-assets/`
 
@@ -108,9 +110,9 @@
 当前 solver 资产的正确流向是：
 
 1. 训练产线产生 checkpoint
-2. `sinan release export-solver-assets` 导出一份独立资产目录
-3. `sinan release stage-solver-assets` 把这份资产写入 `packages/solver/resources/`
-4. `sinan release build-solver` 或 `scripts/repo.py build solver` 打出新的 `sinanz` wheel
+2. `repo export-solver-assets` 导出一份独立资产目录
+3. `repo stage-solver-assets` 把这份资产写入 `packages/solver/resources/`
+4. `repo build solver` 打出新的 `sinanz` wheel
 
 用一句话概括：
 

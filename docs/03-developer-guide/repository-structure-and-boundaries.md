@@ -91,12 +91,26 @@ sinan-captcha/
 - 素材整理和聚类
 - 爬取 / 浏览器驱动采样
 - 特定回归和分析脚本
-- `scripts/repo.py` 这类根目录开发包装器
+- 少量一次性开发辅助脚本
 
 硬边界：
 
 - `scripts/` 不是正式 CLI / SDK 入口。
 - 运行时代码不应 import 这里的脚本。
+
+### 仓库级 CLI 模块
+
+当前仓库级正式入口在根目录：
+
+- `repo_cli.py`
+- `repo_release.py`
+- `repo_solver_export.py`
+- `repo_solver_asset_contract.py`
+
+硬边界：
+
+- 这些模块负责 monorepo 的构建、发版、资产导出和交付。
+- `packages/sinan-captcha/src/cli.py` 只负责 `sinan` 训练仓库功能，不再承载仓库级发布命令。
 
 ## 运行目录边界
 

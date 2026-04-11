@@ -1,4 +1,4 @@
-"""PT -> ONNX export helpers for standalone sinanz solver assets."""
+"""Root-level PT -> ONNX export helpers for standalone sinanz solver assets."""
 
 from __future__ import annotations
 
@@ -12,7 +12,7 @@ import shutil
 import tempfile
 from typing import Any
 
-from release.solver_asset_contract import (
+from repo_solver_asset_contract import (
     ExportedModelRecord,
     METADATA_FILES,
     MODEL_FILENAMES,

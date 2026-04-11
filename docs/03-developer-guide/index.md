@@ -7,7 +7,7 @@
 1. 仓库现在是 monorepo，但根 `uv workspace` 只纳入两个 Python 包：
    - `packages/sinan-captcha`
    - `packages/solver`
-2. `packages/generator` 不是 `uv workspace` 成员，而是独立 Go 模块；构建要走 Go toolchain，根目录只提供了 `scripts/repo.py` 和 `sinan release build-generator` 这两个统一入口。
+2. `packages/generator` 不是 `uv workspace` 成员，而是独立 Go 模块；构建要走 Go toolchain，仓库级统一入口是根目录 `repo` CLI。
 3. `work_home/` 是默认本地运行根目录，素材、数据集、报告、缓存都应该落在这里，而不是散落在源码树。
 4. 根目录 `.opencode/` 是唯一受 Git 管理的 OpenCode 资源事实源；包内 `src/auto_train/resources/opencode/` 只允许在构建或训练目录初始化时临时生成。
 
@@ -40,8 +40,8 @@
   Go 生成器工程，正式命令是 `sinan-generator`
 - `packages/solver`
   独立 `sinanz` 求解包与嵌入式 ONNX 资源
-- `scripts/`
-  维护阶段使用的辅助脚本，不属于正式 CLI / SDK 运行时
+- `repo_cli.py` / `repo_release.py` / `repo_solver_export.py`
+  仓库级构建、发版、资产导出和交付入口，不属于 `sinan` 运行时能力
 
 ## 维护原则
 
