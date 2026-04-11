@@ -281,13 +281,17 @@ uv run sinan exam export-reviewed --task group1 --exam-root materials/business_e
 
 在进入训练前确认：
 
-- [ ] `group1` 的 scene 图片已复制到 `scene-yolo/images/train|val|test`
-- [ ] `group1` 的 scene 标签已转换到 `scene-yolo/labels/train|val|test`
-- [ ] `group1` 的 query 图片已复制到 `query-yolo/images/train|val|test`
-- [ ] `group1` 的 query 标签已转换到 `query-yolo/labels/train|val|test`
+- [ ] `group1` 的 scene 图片已复制到 `proposal-yolo/images/train|val|test`
+- [ ] `group1` 的 scene 图片已复制到 `proposal-yolo/images/train|val|test`
+- [ ] `group1` 的 scene 标签已转换到 `proposal-yolo/labels/train|val|test`
+- [ ] `group1` 的 query crop 已写入 `embedding/queries/train|val|test`
+- [ ] `group1` 的 scene candidate crop 已写入 `embedding/candidates/train|val|test`
+- [ ] `group1` 的 `embedding/pairs.jsonl` 与 `embedding/triplets.jsonl` 已生成
+- [ ] `group1` 的 `eval/query|scene/train|val|test` 已生成
+- [ ] `group1` 的 `eval/labels.jsonl` 已生成
 - [ ] `group1` 的 `splits/train|val|test.jsonl` 已生成
 - [ ] `group1` 的 `dataset.json` 已生成
-- [ ] `group1` 类别顺序固定
+- [ ] `group1 proposal-yolo` 单类别名固定为 `icon_object`
 - [ ] `group2` 的 `master/train|val|test` 已生成
 - [ ] `group2` 的 `tile/train|val|test` 已生成
 - [ ] `group2` 的 `splits/train|val|test.jsonl` 已生成

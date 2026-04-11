@@ -31,7 +31,7 @@ class RouteDecision:
 class UnifiedSolverService:
     def __init__(self, bundle: SolverBundle) -> None:
         self.bundle = bundle
-        self._scene_model: Any | None = None
+        self._proposal_model: Any | None = None
         self._query_model: Any | None = None
         self._group2_cache: dict[str, tuple[Any, int, Any]] = {}
 
@@ -93,7 +93,7 @@ class UnifiedSolverService:
         if not inputs.scene_image.exists():
             raise FileNotFoundError(f"未找到 scene_image：{inputs.scene_image}")
 
-        scene_model, query_model = self._load_group1_models()
+        proposal_model, query_model = self._load_group1_models()
         started = time.perf_counter()
         query_result = query_model.predict(
             source=str(inputs.query_image),
@@ -102,7 +102,7 @@ class UnifiedSolverService:
             device=device,
             verbose=False,
         )[0]
-        scene_result = scene_model.predict(
+        proposal_result = proposal_model.predict(
             source=str(inputs.scene_image),
             imgsz=GROUP1_IMGSZ,
             conf=GROUP1_CONF,
@@ -112,7 +112,7 @@ class UnifiedSolverService:
         inference_ms = (time.perf_counter() - started) * 1000.0
 
         query_targets = _serialize_yolo_detections(query_result, ordered=True)
-        scene_detections = _serialize_yolo_detections(scene_result, ordered=False)
+        scene_detections = _serialize_yolo_detections(proposal_result, ordered=False)
         mapping = map_group1_clicks(query_targets, scene_detections)
         payload: dict[str, Any] = {
             "matcher_status": mapping.status,
@@ -160,15 +160,15 @@ class UnifiedSolverService:
         return payload
 
     def _load_group1_models(self) -> tuple[Any, Any]:
-        if self._scene_model is not None and self._query_model is not None:
-            return self._scene_model, self._query_model
+        if self._proposal_model is not None and self._query_model is not None:
+            return self._proposal_model, self._query_model
         try:
             from ultralytics import YOLO
         except Exception as exc:  # pragma: no cover - import path depends on host env
             raise RuntimeError("当前环境缺少 `ultralytics`，无法加载 group1 solver bundle。") from exc
-        self._scene_model = YOLO(str(self.bundle.scene_model_path))
+        self._proposal_model = YOLO(str(self.bundle.proposal_model_path))
         self._query_model = YOLO(str(self.bundle.query_model_path))
-        return self._scene_model, self._query_model
+        return self._proposal_model, self._query_model
 
     def _load_group2_model(self, device: str) -> tuple[Any, int, Any]:
         if device in self._group2_cache:

@@ -15,6 +15,7 @@ from core.train.base import (
     prepare_dataset_yaml_for_ultralytics,
 )
 from core.train.group1 import cli as group1_cli
+from core.train.group1.dataset import load_group1_dataset_config
 from core.train.group1.service import build_group1_training_job
 from core.train.group2 import cli as group2_cli
 from core.train.group2.service import build_group2_prediction_job, build_group2_training_job, run_group2_prediction_job
@@ -48,6 +49,50 @@ def _write_png(path: Path, width: int, height: int, color: tuple[int, int, int])
 
 
 class TrainingJobTests(unittest.TestCase):
+    def test_group1_dataset_loader_accepts_instance_matching_contract(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            dataset_dir = Path(tmpdir) / "datasets" / "group1" / "v2"
+            dataset_dir.mkdir(parents=True)
+            dataset_config_path = dataset_dir / "dataset.json"
+            dataset_config_path.write_text(
+                json.dumps(
+                    {
+                        "task": "group1",
+                        "format": "sinan.group1.instance_matching.v1",
+                        "splits": {
+                            "train": "splits/train.jsonl",
+                            "val": "splits/val.jsonl",
+                            "test": "splits/test.jsonl",
+                        },
+                        "proposal_detector": {
+                            "format": "yolo.detect.v1",
+                            "dataset_yaml": "proposal-yolo/dataset.yaml",
+                        },
+                        "embedding": {
+                            "format": "sinan.group1.embedding.v1",
+                            "queries_dir": "embedding/queries",
+                            "candidates_dir": "embedding/candidates",
+                            "pairs_jsonl": "embedding/pairs.jsonl",
+                            "triplets_jsonl": "embedding/triplets.jsonl",
+                        },
+                        "eval": {
+                            "format": "sinan.group1.eval.v1",
+                            "labels_jsonl": "eval/labels.jsonl",
+                        },
+                    },
+                    ensure_ascii=False,
+                ),
+                encoding="utf-8",
+            )
+
+            config = load_group1_dataset_config(dataset_config_path)
+
+            self.assertEqual(config.format, "sinan.group1.instance_matching.v1")
+            self.assertEqual(config.proposal_component.dataset_yaml, (dataset_dir / "proposal-yolo" / "dataset.yaml").resolve())
+            self.assertEqual(config.embedding_pairs_path, (dataset_dir / "embedding" / "pairs.jsonl").resolve())
+            self.assertEqual(config.eval_labels_path, (dataset_dir / "eval" / "labels.jsonl").resolve())
+            self.assertIsNone(config.query_component)
+
     def test_preferred_checkpoint_path_returns_best_when_available(self) -> None:
         with tempfile.TemporaryDirectory() as tmpdir:
             root = Path(tmpdir)
@@ -76,7 +121,7 @@ class TrainingJobTests(unittest.TestCase):
         self.assertEqual(command[:5], ["uv", "run", "python", "-m", "core.train.group1.runner"])
         self.assertIn("--dataset-config", command)
         self.assertIn("datasets/group1/v1/dataset.json", command)
-        self.assertIn("--scene-model", command)
+        self.assertIn("--proposal-model", command)
         self.assertIn("yolo26n.pt", command)
         self.assertIn("--query-model", command)
         self.assertIn("--epochs", command)
@@ -105,7 +150,7 @@ class TrainingJobTests(unittest.TestCase):
             device="cpu",
         )
         command = job.command()
-        self.assertIn("--scene-model", command)
+        self.assertIn("--proposal-model", command)
         self.assertIn("yolo26s.pt", command)
         self.assertIn("--query-model", command)
         self.assertIn("--epochs", command)
@@ -174,7 +219,7 @@ class TrainingJobTests(unittest.TestCase):
         self.assertEqual(code, 0)
         output = buffer.getvalue()
         self.assertIn("--dataset-config D:/sinan-captcha-work/datasets/group1/firstpass_v2/dataset.json", output)
-        self.assertIn("--scene-model D:/sinan-captcha-work/runs/group1/firstpass/scene-detector/weights/best.pt", output)
+        self.assertIn("--proposal-model D:/sinan-captcha-work/runs/group1/firstpass/proposal-detector/weights/best.pt", output)
         self.assertIn("--query-model D:/sinan-captcha-work/runs/group1/firstpass/query-parser/weights/best.pt", output)
         self.assertIn("--name round2", output)
 
@@ -193,7 +238,7 @@ class TrainingJobTests(unittest.TestCase):
         self.assertEqual(code, 0)
         output = buffer.getvalue()
         self.assertIn("uv run python -m core.train.group1.runner train", output)
-        self.assertIn("--scene-model D:/sinan-captcha-work/runs/group1/firstpass/scene-detector/weights/last.pt", output)
+        self.assertIn("--proposal-model D:/sinan-captcha-work/runs/group1/firstpass/proposal-detector/weights/last.pt", output)
         self.assertIn("--query-model D:/sinan-captcha-work/runs/group1/firstpass/query-parser/weights/last.pt", output)
         self.assertIn("--resume", output)
 
@@ -216,9 +261,9 @@ class TrainingJobTests(unittest.TestCase):
         output = buffer.getvalue()
         self.assertIn("--component query-parser", output)
         self.assertIn("--query-model yolo26n.pt", output)
-        self.assertNotIn("--scene-model", output)
+        self.assertNotIn("--proposal-model", output)
 
-    def test_group1_cli_can_train_only_scene_detector_from_previous_run(self) -> None:
+    def test_group1_cli_can_train_only_proposal_detector_from_previous_run(self) -> None:
         buffer = io.StringIO()
         with patch("core.train.group1.cli.Path.cwd", return_value=Path("D:/sinan-captcha-work")):
             with redirect_stdout(buffer):
@@ -227,9 +272,9 @@ class TrainingJobTests(unittest.TestCase):
                         "--dataset-version",
                         "firstpass_v2",
                         "--name",
-                        "scene_only",
+                        "proposal_only",
                         "--component",
-                        "scene-detector",
+                        "proposal-detector",
                         "--from-run",
                         "firstpass",
                         "--dry-run",
@@ -237,8 +282,8 @@ class TrainingJobTests(unittest.TestCase):
                 )
         self.assertEqual(code, 0)
         output = buffer.getvalue()
-        self.assertIn("--component scene-detector", output)
-        self.assertIn("--scene-model D:/sinan-captcha-work/runs/group1/firstpass/scene-detector/weights/best.pt", output)
+        self.assertIn("--component proposal-detector", output)
+        self.assertIn("--proposal-model D:/sinan-captcha-work/runs/group1/firstpass/proposal-detector/weights/best.pt", output)
         self.assertNotIn("--query-model", output)
 
     def test_group1_prelabel_cli_dry_run_uses_reviewed_exam_and_trained_weights(self) -> None:
@@ -261,7 +306,7 @@ class TrainingJobTests(unittest.TestCase):
         output = buffer.getvalue()
         self.assertIn("uv run python -m core.train.group1.runner predict", output)
         self.assertIn("--dataset-config D:/sinan-captcha-work/datasets/group1/firstpass/dataset.json", output)
-        self.assertIn("--scene-model D:/sinan-captcha-work/runs/group1/round1/scene-detector/weights/best.pt", output)
+        self.assertIn("--proposal-model D:/sinan-captcha-work/runs/group1/round1/proposal-detector/weights/best.pt", output)
         self.assertIn("--query-model D:/sinan-captcha-work/runs/group1/round1/query-parser/weights/best.pt", output)
         self.assertIn("--source materials/business_exams/group1/reviewed-v1/.sinan/prelabel/group1/source.jsonl", output)
 

@@ -1,58 +1,48 @@
 from __future__ import annotations
 
+import io
+import json
 import tempfile
 import unittest
 from contextlib import redirect_stderr
-import io
 from pathlib import Path
 from unittest.mock import patch
+
+from PIL import Image, ImageDraw
 
 from core.common.jsonl import read_jsonl
 from core.materials import query_audit_cli
 from core.materials.query_audit import (
-    DEFAULT_GROUP1_AUDIT_TRACE,
+    DEFAULT_GROUP1_OUTPUT_ROOT,
     DEFAULT_GROUP1_QUERY_DIR,
-    QueryAuditClassificationError,
-    QueryImageClassification,
     QueryIconDecision,
-    parse_ollama_icon_response,
+    TemplateDownloadCandidate,
+    TemplatePlan,
+    VariantManifestEntry,
+    parse_ollama_query_response,
+    parse_ollama_template_response,
     require_repo_root,
     run_group1_query_audit,
 )
 
 
-BACKLOG_TEMPLATE = """# 训练者角色：`group1` 素材类别补齐清单
-
-## 3. 待补齐的新类别
-
-| 建议类别名 | 中文名 | 图形描述 | 不要混到哪些旧类 | 样本状态 | 备注 |
-| --- | --- | --- | --- | --- | --- |
-
-## 3.1 已确认可直接归到现有素材类的案例
-
-| 截图批次 | 图标描述 | 归属现有类 | 备注 |
-| --- | --- | --- | --- |
-
-## 4. 类别判定边界
-"""
-
-
-MANIFEST_TEMPLATE = """classes:
-  - id: 0
-    name: icon_plane
-    zh_name: 飞机
-  - id: 1
-    name: icon_gift
-    zh_name: 礼物
-"""
+def _write_query_image(path: Path, boxes: list[tuple[int, int, int, int]]) -> None:
+    image = Image.new("RGBA", (64, 24), (255, 255, 255, 255))
+    draw = ImageDraw.Draw(image)
+    for x1, y1, x2, y2 in boxes:
+        draw.rectangle((x1, y1, x2, y2), fill=(0, 0, 0, 255))
+    image.save(path)
 
 
 class Group1QueryAuditTests(unittest.TestCase):
-    def test_query_audit_cli_defaults_to_materials_test_group1_query(self) -> None:
+    def test_query_audit_cli_defaults_to_validation_query_and_pack_output(self) -> None:
         parser = query_audit_cli.build_parser()
-        args = parser.parse_args(["--model", "qwen2.5vl:7b"])
+        args = parser.parse_args(["--model", "gemma4:26b"])
         self.assertEqual(args.query_dir, DEFAULT_GROUP1_QUERY_DIR)
-        self.assertEqual(args.trace_jsonl, DEFAULT_GROUP1_AUDIT_TRACE)
+        self.assertEqual(args.output_root, DEFAULT_GROUP1_OUTPUT_ROOT)
+        self.assertIsNone(args.template_report_json)
+        self.assertEqual(args.report_root.name, "20260411")
+        self.assertEqual(args.report_root.parent.as_posix(), Path.cwd().joinpath("reports/group1/materials").as_posix())
         self.assertFalse(args.quiet)
 
     def test_query_audit_cli_prints_clean_error_outside_repo_root(self) -> None:
@@ -60,7 +50,7 @@ class Group1QueryAuditTests(unittest.TestCase):
         with patch("core.materials.query_audit_cli.require_repo_root", side_effect=FileNotFoundError("请到仓库根目录执行")):
             with redirect_stderr(buffer):
                 with self.assertRaises(SystemExit) as exc:
-                    query_audit_cli.main(["--model", "qwen2.5vl:7b"])
+                    query_audit_cli.main(["--model", "gemma4:26b"])
         self.assertEqual(exc.exception.code, 2)
         self.assertIn("请到仓库根目录执行", buffer.getvalue())
 
@@ -72,322 +62,359 @@ class Group1QueryAuditTests(unittest.TestCase):
         expected_repo_root = Path(__file__).resolve().parents[2]
         self.assertEqual(require_repo_root(expected_repo_root), expected_repo_root)
 
-    def test_run_group1_query_audit_resolves_default_query_dir_from_repo_root(self) -> None:
+    def test_parse_ollama_query_response_normalizes_template_ids_and_tags(self) -> None:
+        icons = parse_ollama_query_response(
+            """
+            {
+              "icons": [
+                {
+                  "order": 2,
+                  "template_id": "shopping cart",
+                  "zh_name": "购物车",
+                  "family": "Commerce",
+                  "tags": "shopping, cart / trolley",
+                  "description": "线框购物车",
+                  "reason": "常见购物车图标"
+                },
+                {
+                  "order": 1,
+                  "template_id": "tpl_house",
+                  "zh_name": "房子",
+                  "family": "symbol",
+                  "tags": ["home", "house"],
+                  "description": "房屋外轮廓",
+                  "reason": "房子图标"
+                }
+              ]
+            }
+            """
+        )
+
+        self.assertEqual([icon.template_id for icon in icons], ["tpl_house", "tpl_shopping_cart"])
+        self.assertEqual(icons[1].tags, ("shopping", "cart", "trolley"))
+        self.assertEqual(icons[1].family, "commerce")
+
+    def test_parse_ollama_template_response_normalizes_library_aliases(self) -> None:
+        plans = parse_ollama_template_response(
+            """
+            {
+              "templates": [
+                {
+                  "template_id": "house",
+                  "zh_name": "房子",
+                  "family": "symbol",
+                  "tags": ["home", "house"],
+                  "description": "房屋轮廓",
+                  "target_variant_count": 5,
+                  "download_candidates": [
+                    {"library": "tabler-outline", "slug": "home"},
+                    {"library": "google-material", "slug": "house"}
+                  ]
+                }
+              ]
+            }
+            """,
+            drafts=[
+                type(
+                    "Draft",
+                    (),
+                    {
+                        "template_id": "tpl_house",
+                    },
+                )(),
+            ],
+        )
+
+        self.assertEqual(plans[0].template_id, "tpl_house")
+        self.assertEqual(plans[0].target_variant_count, 5)
+        self.assertEqual(plans[0].download_candidates[0].library, "tabler_outline")
+        self.assertEqual(plans[0].download_candidates[1].library, "google_material")
+
+    def test_run_group1_query_audit_writes_tpl_pack_and_reports(self) -> None:
         with tempfile.TemporaryDirectory() as tmpdir:
             repo_root = Path(tmpdir)
-            query_dir = repo_root / "materials/test/group1/query"
+            query_dir = repo_root / "materials/validation/group1/query"
             query_dir.mkdir(parents=True, exist_ok=True)
-            (query_dir / "a.png").write_bytes(b"a")
+            _write_query_image(query_dir / "a.png", [(4, 6, 16, 18), (38, 2, 44, 22)])
+            _write_query_image(query_dir / "b.png", [(4, 6, 16, 18)])
 
-            backlog_doc = repo_root / "docs/02-user-guide/group1-material-category-backlog.md"
-            backlog_doc.parent.mkdir(parents=True, exist_ok=True)
-            backlog_doc.write_text(BACKLOG_TEMPLATE, encoding="utf-8")
+            output_root = repo_root / "materials/incoming/group1_icon_pack"
+            (output_root / "manifests").mkdir(parents=True, exist_ok=True)
+            (output_root / "manifests/group1.classes.yaml").write_text("legacy: true\n", encoding="utf-8")
 
-            manifest_path = repo_root / "materials/incoming/group1_icon_pack/manifests/group1.classes.yaml"
-            manifest_path.parent.mkdir(parents=True, exist_ok=True)
-            manifest_path.write_text(MANIFEST_TEMPLATE, encoding="utf-8")
-
-            output_jsonl = repo_root / "reports/materials/group1-query-audit.jsonl"
-            trace_jsonl = repo_root / "reports/materials/group1-query-audit-trace.jsonl"
-
-            result = run_group1_query_audit(
-                query_dir=DEFAULT_GROUP1_QUERY_DIR,
-                model="qwen2.5vl:7b",
-                backlog_doc=backlog_doc,
-                manifest_path=manifest_path,
-                output_jsonl=output_jsonl,
-                trace_jsonl=trace_jsonl,
-                repo_root=repo_root,
-                dry_run=True,
-                classifier=lambda *_args: (
-                    QueryIconDecision(
-                        order=1,
-                        decision="existing",
-                        category_name="icon_plane",
-                        category_zh_name="飞机",
-                        description="飞机轮廓图标",
-                        reason="现有类",
-                    ),
-                ),
-            )
-
-            self.assertEqual(result["image_count"], 1)
-            self.assertEqual(
-                result["query_dir"],
-                str((repo_root / "materials/test/group1/query").resolve()),
-            )
-
-    def test_run_group1_query_audit_writes_report_and_updates_backlog(self) -> None:
-        with tempfile.TemporaryDirectory() as tmpdir:
-            repo_root = Path(tmpdir)
-            query_dir = repo_root / "query"
-            query_dir.mkdir(parents=True, exist_ok=True)
-            (query_dir / "b.png").write_bytes(b"b")
-            (query_dir / "a.png").write_bytes(b"a")
-
-            backlog_doc = repo_root / "docs/02-user-guide/group1-material-category-backlog.md"
-            backlog_doc.parent.mkdir(parents=True, exist_ok=True)
-            backlog_doc.write_text(BACKLOG_TEMPLATE, encoding="utf-8")
-
-            manifest_path = repo_root / "materials/incoming/group1_icon_pack/manifests/group1.classes.yaml"
-            manifest_path.parent.mkdir(parents=True, exist_ok=True)
-            manifest_path.write_text(MANIFEST_TEMPLATE, encoding="utf-8")
-
-            output_jsonl = repo_root / "reports/materials/group1-query-audit.jsonl"
-            trace_jsonl = repo_root / "reports/materials/group1-query-audit-trace.jsonl"
-
-            def fake_classifier(image_path: Path, known_categories: object) -> QueryImageClassification:
-                self.assertIn("icon_plane", str(known_categories))
+            def fake_classifier(image_path: Path) -> tuple[QueryIconDecision, ...]:
                 if image_path.name == "a.png":
-                    return QueryImageClassification(
-                        icons=(
-                            QueryIconDecision(
-                                order=1,
-                                decision="existing",
-                                category_name="icon_plane",
-                                category_zh_name="飞机",
-                                description="飞机轮廓图标",
-                                reason="和现有飞机类一致",
-                            ),
-                            QueryIconDecision(
-                                order=2,
-                                decision="new_candidate",
-                                category_name="icon_map_marker",
-                                category_zh_name="地图定位点",
-                                description="地图底座上方带空心定位针的图标",
-                                reason="当前素材类中没有定位点类别",
-                            ),
-                        ),
-                        raw_output='{"icons":[{"order":1,"category_name":"icon_plane"},{"order":2,"category_name":"icon_map_marker"}]}',
-                    )
-                return QueryImageClassification(
-                    icons=(
+                    return (
                         QueryIconDecision(
                             order=1,
-                            decision="existing",
-                            category_name="icon_gift",
-                            category_zh_name="礼物",
-                            description="礼物盒图标",
-                            reason="和现有礼物类一致",
+                            template_id="tpl_house",
+                            zh_name="房子",
+                            family="symbol",
+                            tags=("home", "house"),
+                            description="房屋外轮廓",
+                            reason="房子",
                         ),
                         QueryIconDecision(
                             order=2,
-                            decision="new_candidate",
-                            category_name="icon_map_marker",
-                            category_zh_name="地图定位点",
-                            description="地图底座上方带空心定位针的图标",
-                            reason="重复出现的新类",
+                            template_id="tpl_star",
+                            zh_name="星星",
+                            family="symbol",
+                            tags=("star", "favorite"),
+                            description="五角星图标",
+                            reason="星形",
                         ),
+                    )
+                return (
+                    QueryIconDecision(
+                        order=1,
+                        template_id="tpl_house",
+                        zh_name="房子",
+                        family="symbol",
+                        tags=("home", "house"),
+                        description="房屋外轮廓",
+                        reason="房子",
                     ),
-                    raw_output='{"icons":[{"order":1,"category_name":"icon_gift"},{"order":2,"category_name":"icon_map_marker"}]}',
                 )
 
-            result = run_group1_query_audit(
-                query_dir=query_dir,
-                model="qwen2.5vl:7b",
-                backlog_doc=backlog_doc,
-                manifest_path=manifest_path,
-                output_jsonl=output_jsonl,
-                trace_jsonl=trace_jsonl,
-                repo_root=repo_root,
-                classifier=fake_classifier,
-            )
-
-            self.assertEqual(result["image_count"], 2)
-            self.assertEqual(result["new_category_count"], 1)
-            self.assertTrue(output_jsonl.exists())
-            self.assertTrue(trace_jsonl.exists())
-
-            rows = read_jsonl(output_jsonl)
-            self.assertEqual([row["image_path"] for row in rows], ["query/a.png", "query/b.png"])
-            self.assertEqual(rows[0]["new_categories"], ["icon_map_marker"])
-
-            trace_rows = read_jsonl(trace_jsonl)
-            self.assertEqual(trace_rows[0]["raw_output"], '{"icons":[{"order":1,"category_name":"icon_plane"},{"order":2,"category_name":"icon_map_marker"}]}')
-            self.assertIsNone(trace_rows[0]["response_payload"])
-
-            updated_backlog = backlog_doc.read_text(encoding="utf-8")
-            self.assertIn(
-                "| `icon_map_marker` | 地图定位点 | 地图底座上方带空心定位针的图标 | 待人工确认 | 已有截图 | 自动审计发现；示例图片：query/a.png |",
-                updated_backlog,
-            )
-            self.assertIn("## 3.2 自动审计图片与分类映射（脚本生成）", updated_backlog)
-            self.assertIn("自动审计发现；示例图片：query/a.png", updated_backlog)
-            self.assertIn("1:`icon_plane`；2:`icon_map_marker`", updated_backlog)
-            self.assertIn("1:`icon_gift`；2:`icon_map_marker`", updated_backlog)
-
-    def test_run_group1_query_audit_reports_terminal_progress(self) -> None:
-        with tempfile.TemporaryDirectory() as tmpdir:
-            repo_root = Path(tmpdir)
-            query_dir = repo_root / "query"
-            query_dir.mkdir(parents=True, exist_ok=True)
-            (query_dir / "a.png").write_bytes(b"a")
-
-            backlog_doc = repo_root / "docs/02-user-guide/group1-material-category-backlog.md"
-            backlog_doc.parent.mkdir(parents=True, exist_ok=True)
-            backlog_doc.write_text(BACKLOG_TEMPLATE, encoding="utf-8")
-
-            manifest_path = repo_root / "materials/incoming/group1_icon_pack/manifests/group1.classes.yaml"
-            manifest_path.parent.mkdir(parents=True, exist_ok=True)
-            manifest_path.write_text(MANIFEST_TEMPLATE, encoding="utf-8")
-
-            messages: list[str] = []
-            run_group1_query_audit(
-                query_dir=query_dir,
-                model="qwen2.5vl:7b",
-                backlog_doc=backlog_doc,
-                manifest_path=manifest_path,
-                repo_root=repo_root,
-                dry_run=True,
-                progress_reporter=messages.append,
-                classifier=lambda image_path, _known_categories: QueryImageClassification(
-                    icons=(
-                        QueryIconDecision(
-                            order=1,
-                            decision="existing",
-                            category_name="icon_plane",
-                            category_zh_name="飞机",
-                            description="飞机轮廓图标",
-                            reason="现有类",
+            def fake_enricher(drafts: list[object]) -> tuple[TemplatePlan, ...]:
+                return (
+                    TemplatePlan(
+                        template_id="tpl_house",
+                        zh_name="房子",
+                        family="symbol",
+                        tags=("home", "house"),
+                        description="房屋外轮廓图标",
+                        cluster_ids=("cluster_001",),
+                        target_variant_count=4,
+                        download_candidates=(
+                            TemplateDownloadCandidate("lucide", "house", "outline"),
+                            TemplateDownloadCandidate("bootstrap", "house", "glyph"),
                         ),
                     ),
-                    request_payload={
-                        "model": "qwen2.5vl:7b",
-                        "image_path": str(image_path),
-                        "prompt": "prompt text",
-                    },
-                    raw_output='{"icons":[{"order":1,"category_name":"icon_plane"}]}',
-                    response_payload={"message": {"content": '{"icons":[{"order":1,"category_name":"icon_plane"}]}'}},
-                ),
-            )
+                    TemplatePlan(
+                        template_id="tpl_star",
+                        zh_name="星星",
+                        family="symbol",
+                        tags=("star", "favorite"),
+                        description="五角星图标",
+                        cluster_ids=("cluster_002",),
+                        target_variant_count=3,
+                        download_candidates=(
+                            TemplateDownloadCandidate("lucide", "star", "outline"),
+                            TemplateDownloadCandidate("bootstrap", "star", "glyph"),
+                        ),
+                    ),
+                )
 
-            joined = "\n".join(messages)
-            self.assertIn("开始执行 group1 query 审计", joined)
-            self.assertIn("正在处理图片 1/1", joined)
-            self.assertIn("图片处理完成 1/1", joined)
-            self.assertIn('"image_path": "query/a.png"', joined)
-            self.assertIn('"request_payload"', joined)
-            self.assertIn('"raw_output": "{\\"icons\\":[{\\"order\\":1,\\"category_name\\":\\"icon_plane\\"}]}"', joined)
-            self.assertIn("执行完成", joined)
+            def fake_downloads(**kwargs: object) -> list[VariantManifestEntry]:
+                target_dir = kwargs["target_dir"]
+                min_variants = int(kwargs["min_variants_per_template"])
+                existing_variant_ids = set(kwargs["existing_variant_ids"])
+                created: list[VariantManifestEntry] = []
+                while len(existing_variant_ids) + len(created) < min_variants:
+                    index = len(existing_variant_ids) + len(created) + 1
+                    variant_id = f"var_boot_fake_icon_{chr(ord('a') + index - 1)}"
+                    img = Image.new("RGBA", (24, 24), (255, 255, 255, 0))
+                    ImageDraw.Draw(img).ellipse((4, 4, 20, 20), fill=(0, 0, 0, 255))
+                    img.save(Path(target_dir) / f"{variant_id}.png")
+                    created.append(
+                        VariantManifestEntry(
+                            variant_id=variant_id,
+                            source="fake_library",
+                            source_ref=f"fake_{index:02d}",
+                            style="outline",
+                        )
+                    )
+                return created
+
+            with patch("core.materials.query_audit._download_template_variants", side_effect=fake_downloads):
+                result = run_group1_query_audit(
+                    query_dir=query_dir,
+                    model="gemma4:26b",
+                    output_root=output_root,
+                    report_root=repo_root / "reports/group1/materials/20260411",
+                    repo_root=repo_root,
+                    min_variants_per_template=3,
+                    image_classifier=fake_classifier,
+                    template_enricher=fake_enricher,
+                )
+
+            self.assertEqual(result["status"], "ok")
+            self.assertEqual(result["template_count"], 2)
+            self.assertEqual(result["generated_variant_count"], 7)
+            self.assertFalse((output_root / "manifests/group1.classes.yaml").exists())
+
+            manifest_text = (output_root / "manifests/group1.templates.yaml").read_text(encoding="utf-8")
+            self.assertIn("template_id: tpl_house", manifest_text)
+
+            house_files = sorted(path.stem for path in (output_root / "group1/icons/tpl_house").glob("*.png"))
+            star_files = sorted(path.stem for path in (output_root / "group1/icons/tpl_star").glob("*.png"))
+            self.assertTrue(any(name.startswith("var_real_house_") for name in house_files))
+            self.assertTrue(any(name.startswith("var_real_star_") for name in star_files))
+            self.assertTrue(any(name.startswith("var_boot_fake_icon_") for name in house_files))
+            self.assertTrue(all(len(name) <= 30 for name in (*house_files, *star_files)))
+            self.assertFalse(any(name.endswith("_01") or name.endswith("_02") for name in (*house_files, *star_files)))
+
+            rows = read_jsonl(repo_root / "reports/group1/materials/20260411/group1-query-audit.jsonl")
+            self.assertEqual(rows[0]["template_sequence"], ["tpl_house", "tpl_star"])
+            self.assertEqual(rows[1]["template_sequence"], ["tpl_house"])
+
+            template_report = json.loads(
+                (
+                    repo_root / "reports/group1/materials/20260411/group1-query-audit-templates.json"
+                ).read_text(encoding="utf-8")
+            )
+            self.assertEqual(template_report["template_count"], 2)
+            self.assertEqual(template_report["templates"][0]["template_id"], "tpl_house")
+            self.assertIn("target_variant_count", template_report["templates"][0])
 
     def test_run_group1_query_audit_dry_run_keeps_files_unchanged(self) -> None:
         with tempfile.TemporaryDirectory() as tmpdir:
             repo_root = Path(tmpdir)
             query_dir = repo_root / "query"
             query_dir.mkdir(parents=True, exist_ok=True)
-            (query_dir / "a.png").write_bytes(b"a")
+            _write_query_image(query_dir / "a.png", [(4, 6, 16, 18)])
 
-            backlog_doc = repo_root / "docs/02-user-guide/group1-material-category-backlog.md"
-            backlog_doc.parent.mkdir(parents=True, exist_ok=True)
-            backlog_doc.write_text(BACKLOG_TEMPLATE, encoding="utf-8")
-
-            manifest_path = repo_root / "materials/incoming/group1_icon_pack/manifests/group1.classes.yaml"
-            manifest_path.parent.mkdir(parents=True, exist_ok=True)
-            manifest_path.write_text(MANIFEST_TEMPLATE, encoding="utf-8")
-
-            output_jsonl = repo_root / "reports/materials/group1-query-audit.jsonl"
-            trace_jsonl = repo_root / "reports/materials/group1-query-audit-trace.jsonl"
-            original_backlog = backlog_doc.read_text(encoding="utf-8")
+            output_root = repo_root / "materials/incoming/group1_icon_pack"
+            original_output = output_root.exists()
 
             result = run_group1_query_audit(
                 query_dir=query_dir,
-                model="qwen2.5vl:7b",
-                backlog_doc=backlog_doc,
-                manifest_path=manifest_path,
-                output_jsonl=output_jsonl,
-                trace_jsonl=trace_jsonl,
-                repo_root=repo_root,
-                dry_run=True,
-                classifier=lambda *_args: (
+                    model="gemma4:26b",
+                    output_root=output_root,
+                    report_root=repo_root / "reports/group1/materials/20260411",
+                    repo_root=repo_root,
+                    dry_run=True,
+                image_classifier=lambda _image_path: (
                     QueryIconDecision(
                         order=1,
-                        decision="new_candidate",
-                        category_name="icon_map_marker",
-                        category_zh_name="地图定位点",
-                        description="地图底座上方带空心定位针的图标",
-                        reason="当前素材类中没有定位点类别",
+                        template_id="tpl_house",
+                        zh_name="房子",
+                        family="symbol",
+                        tags=("home",),
+                        description="房屋轮廓",
+                        reason="房子",
+                    ),
+                ),
+                template_enricher=lambda _drafts: (
+                    TemplatePlan(
+                        template_id="tpl_house",
+                        zh_name="房子",
+                        family="symbol",
+                        tags=("home",),
+                        description="房屋轮廓",
+                        cluster_ids=("cluster_001",),
+                        target_variant_count=3,
+                        download_candidates=(),
                     ),
                 ),
             )
 
-            self.assertEqual(result["new_category_count"], 1)
-            self.assertFalse(output_jsonl.exists())
-            self.assertFalse(trace_jsonl.exists())
-            self.assertEqual(backlog_doc.read_text(encoding="utf-8"), original_backlog)
+            self.assertEqual(result["status"], "ok")
+            self.assertEqual(output_root.exists(), original_output)
+            self.assertFalse((repo_root / "reports/group1/materials/20260411/group1-query-audit.jsonl").exists())
 
-    def test_run_group1_query_audit_logs_raw_output_on_parse_error(self) -> None:
+    def test_run_group1_query_audit_reports_terminal_progress(self) -> None:
         with tempfile.TemporaryDirectory() as tmpdir:
             repo_root = Path(tmpdir)
             query_dir = repo_root / "query"
             query_dir.mkdir(parents=True, exist_ok=True)
-            (query_dir / "a.png").write_bytes(b"a")
+            _write_query_image(query_dir / "a.png", [(4, 6, 16, 18)])
 
-            backlog_doc = repo_root / "docs/02-user-guide/group1-material-category-backlog.md"
-            backlog_doc.parent.mkdir(parents=True, exist_ok=True)
-            backlog_doc.write_text(BACKLOG_TEMPLATE, encoding="utf-8")
+            messages: list[str] = []
 
-            manifest_path = repo_root / "materials/incoming/group1_icon_pack/manifests/group1.classes.yaml"
-            manifest_path.parent.mkdir(parents=True, exist_ok=True)
-            manifest_path.write_text(MANIFEST_TEMPLATE, encoding="utf-8")
-
-            output_jsonl = repo_root / "reports/materials/group1-query-audit.jsonl"
-            trace_jsonl = repo_root / "reports/materials/group1-query-audit-trace.jsonl"
-
-            def broken_classifier(_image_path: Path, _known_categories: object) -> QueryImageClassification:
-                raise QueryAuditClassificationError(
-                    "no JSON object found with required keys: icons",
-                    raw_output="this is not json",
-                    response_payload={"message": {"content": "this is not json"}},
+            with patch(
+                "core.materials.query_audit._download_template_variants",
+                return_value=[
+                    VariantManifestEntry(
+                        variant_id="var_boot_house_outline",
+                        source="fake_library",
+                        source_ref="fake",
+                        style="outline",
+                    )
+                ],
+            ):
+                run_group1_query_audit(
+                    query_dir=query_dir,
+                    model="gemma4:26b",
+                    output_root=repo_root / "materials/incoming/group1_icon_pack",
+                    report_root=repo_root / "reports/group1/materials/20260411",
+                    repo_root=repo_root,
+                    min_variants_per_template=2,
+                    progress_reporter=messages.append,
+                    image_classifier=lambda image_path: (
+                        QueryIconDecision(
+                            order=1,
+                            template_id="tpl_house",
+                            zh_name="房子",
+                            family="symbol",
+                            tags=("home",),
+                            description="房屋轮廓",
+                            reason=str(image_path.name),
+                        ),
+                    ),
+                    template_enricher=lambda _drafts: (
+                        TemplatePlan(
+                            template_id="tpl_house",
+                            zh_name="房子",
+                            family="symbol",
+                            tags=("home",),
+                            description="房屋轮廓",
+                            cluster_ids=("cluster_001",),
+                            target_variant_count=2,
+                            download_candidates=(),
+                        ),
+                    ),
                 )
 
-            result = run_group1_query_audit(
-                query_dir=query_dir,
-                model="gemma4:26b",
-                backlog_doc=backlog_doc,
-                manifest_path=manifest_path,
-                output_jsonl=output_jsonl,
-                trace_jsonl=trace_jsonl,
-                repo_root=repo_root,
-                classifier=broken_classifier,
-            )
+            joined = "\n".join(messages)
+            self.assertIn("开始执行 group1 query 审计并生成模板素材", joined)
+            self.assertIn("正在分析 query 图片 1/1", joined)
+            self.assertIn("query 图片处理完成 1/1", joined)
+            self.assertIn("执行完成", joined)
 
-            self.assertEqual(result["error_count"], 1)
-            rows = read_jsonl(trace_jsonl)
-            self.assertEqual(rows[0]["status"], "error")
-            self.assertEqual(rows[0]["raw_output"], "this is not json")
-            self.assertEqual(rows[0]["response_payload"], {"message": {"content": "this is not json"}})
+    def test_run_group1_query_audit_marks_error_when_variants_insufficient(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            repo_root = Path(tmpdir)
+            query_dir = repo_root / "query"
+            query_dir.mkdir(parents=True, exist_ok=True)
+            _write_query_image(query_dir / "a.png", [(4, 6, 16, 18)])
 
-    def test_parse_ollama_icon_response_normalizes_names_and_unknown_categories(self) -> None:
-        icons = parse_ollama_icon_response(
-            """
-            {
-              "icons": [
-                {
-                  "order": 2,
-                  "decision": "existing",
-                  "category_name": "Plane",
-                  "category_zh_name": "飞机",
-                  "description": "飞机轮廓图标",
-                  "reason": "现有类"
-                },
-                {
-                  "order": 1,
-                  "decision": "existing",
-                  "category_name": "map marker",
-                  "category_zh_name": "地图定位点",
-                  "description": "地图底座上方带空心定位针的图标",
-                  "reason": "未知类"
-                }
-              ]
-            }
-            """,
-            {"icon_plane": "飞机"},
-        )
+            with patch("core.materials.query_audit._download_template_variants", return_value=[]):
+                result = run_group1_query_audit(
+                    query_dir=query_dir,
+                    model="gemma4:26b",
+                    output_root=repo_root / "materials/incoming/group1_icon_pack",
+                    report_root=repo_root / "reports/group1/materials/20260411",
+                    repo_root=repo_root,
+                    min_variants_per_template=2,
+                    image_classifier=lambda _image_path: (
+                        QueryIconDecision(
+                            order=1,
+                            template_id="tpl_house",
+                            zh_name="房子",
+                            family="symbol",
+                            tags=("home",),
+                            description="房屋轮廓",
+                            reason="house",
+                        ),
+                    ),
+                    template_enricher=lambda _drafts: (
+                        TemplatePlan(
+                            template_id="tpl_house",
+                            zh_name="房子",
+                            family="symbol",
+                            tags=("home",),
+                            description="房屋轮廓",
+                            cluster_ids=("cluster_001",),
+                            target_variant_count=2,
+                            download_candidates=(),
+                        ),
+                    ),
+                )
 
-        self.assertEqual([icon.category_name for icon in icons], ["icon_map_marker", "icon_plane"])
-        self.assertEqual(icons[0].decision, "new_candidate")
-        self.assertEqual(icons[1].decision, "existing")
-        self.assertEqual(icons[1].category_zh_name, "飞机")
+            self.assertEqual(result["status"], "error")
+            self.assertEqual(result["insufficient_templates"], ["tpl_house"])
 
 
 if __name__ == "__main__":

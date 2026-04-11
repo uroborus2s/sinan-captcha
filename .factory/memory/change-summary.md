@@ -1,5 +1,71 @@
 # 变更摘要
 
+## 2026-04-11 落地 `group1` Python instance-matching cutover 第一阶段
+
+- 已更新：
+  - `core/train/group1/dataset.py`
+  - `core/train/group1/runner.py`
+  - `tests/python/test_training_jobs.py`
+  - `tests/python/test_prediction_and_model_test.py`
+  - `tests/python/test_auto_train_runners.py`
+  - `tests/python/test_auto_train_controller.py`
+  - `docs/04-project-development/05-development-process/group1-instance-matching-refactor-task-breakdown.md`
+  - `.factory/memory/current-state.md`
+  - `.factory/memory/change-summary.md`
+- 当前已完成的目标：
+  - Python `group1 dataset loader` 已接受新合同：
+    - `sinan.group1.instance_matching.v1`
+    - `proposal_detector`
+    - `embedding`
+    - `eval`
+  - `core.train.group1.runner train` 现在会优先消费 `proposal-yolo/dataset.yaml`
+  - 当 `dataset.json` 未提供 `query_parser` 数据集时，显式训练 `query-parser` 会直接报错，避免偷偷回退到旧目录
+  - `auto-train` 与 `modeltest` 相关测试 fixture 已切到新的 `dataset.json` 结构
+- 当前尚未完成：
+  - `query splitter / embedder / matcher` 的真实训练与推理 cutover
+  - `group1 predict / test / prelabel` 的用户文案与组件命名收口
+- 已运行验证：
+  - `uv run python -m unittest discover -s tests/python -p 'test_training_jobs.py'`
+  - `uv run python -m unittest discover -s tests/python -p 'test_prediction_and_model_test.py'`
+  - `uv run python -m unittest discover -s tests/python -p 'test_auto_train_runners.py'`
+  - `uv run python -m unittest discover -s tests/python -p 'test_auto_train_controller.py'`
+  - `uv run python -m unittest discover -s tests/python -p 'test_root_cli.py'`
+
+## 2026-04-11 切换 generator `group1` 导出为纯 instance-matching 目录
+
+- 已更新：
+  - `generator/internal/dataset/build.go`
+  - `generator/internal/app/make_dataset.go`
+  - `generator/internal/app/make_dataset_test.go`
+  - `README.md`
+  - `docs/02-user-guide/prepare-training-data-with-generator.md`
+  - `docs/03-developer-guide/repository-structure-and-boundaries.md`
+  - `docs/04-project-development/05-development-process/generator-task-breakdown.md`
+  - `docs/04-project-development/05-development-process/data-export-auto-labeling-checklist.md`
+  - `.factory/memory/current-state.md`
+  - `.factory/memory/tech-stack.summary.md`
+  - `.factory/memory/change-summary.md`
+- 当前已完成的目标：
+  - `sinan-generator make-dataset --task group1` 现在只写出：
+    - `proposal-yolo/`
+    - `embedding/`
+    - `eval/`
+    - `splits/`
+    - `dataset.json`
+  - `proposal-yolo/` 已改为单类别 `icon_object`
+  - `embedding/` 已产出：
+    - `queries/`
+    - `candidates/`
+    - `pairs.jsonl`
+    - `triplets.jsonl`
+  - `eval/` 已产出：
+    - `query/`
+    - `scene/`
+    - `labels.jsonl`
+  - generator 不再写出 `scene-yolo/`、`query-yolo/` 兼容目录
+- 已运行验证：
+  - `env GOCACHE=/tmp/go-cache go test ./internal/app ./cmd/sinan-generator`（cwd=`generator/`)
+
 ## 2026-04-11 冻结 `group1` 新素材库规范并切换 generator 到 `template/variant` 协议
 
 - 已更新：
@@ -102,7 +168,7 @@
     - `NFR-010`：单一正式方案与代码清洁性
   - 当前正式设计主线已收口为：
     - `query splitter`
-    - `scene proposal detector`
+    - `proposal detector`
     - `icon embedder`
     - `matcher`
   - 当前已新增专项设计文档：
@@ -133,20 +199,70 @@
 - 当前已完成的目标：
   - 当前 `group1` 已支持显式按组件训练：
     - `uv run sinan train group1 --component query-parser ...`
-    - `uv run sinan train group1 --component scene-detector ...`
+    - `uv run sinan train group1 --component proposal-detector ...`
   - 当前默认 `uv run sinan train group1 ...` 仍保持兼容：
-    - 顺序训练 `query-parser + scene-detector`
+    - 顺序训练 `query-parser + proposal-detector`
   - 当前生成器继续输出同一份 `group1 pipeline dataset`，训练侧按组件复用其中的：
     - `query-yolo/`
     - `scene-yolo/`
   - 当前 `uv run sinan test group1 ...` 的中文报告已明确写成：
     - 最终位置挑选验证
-    - 即 `query-parser + scene-detector + matcher` 整链路
+    - 即 `query-parser + proposal-detector + matcher` 整链路
 - 已运行验证：
   - `uv run python -m unittest discover -s tests/python -p 'test_training_jobs.py'`
   - `uv run python -m unittest discover -s tests/python -p 'test_prediction_and_model_test.py'`
   - `uv run python -m unittest discover -s tests/python -p 'test_root_cli.py'`
   - `uv run python -m unittest discover -s tests/python -p 'test_auto_train_runners.py'`
+
+## 2026-04-11 收口 `group1` proposal-detector 正式命名与默认路径
+
+- 已更新：
+  - `core/train/group1/service.py`
+  - `core/train/group1/cli.py`
+  - `core/train/group1/runner.py`
+  - `core/predict/cli.py`
+  - `core/modeltest/cli.py`
+  - `core/modeltest/service.py`
+  - `core/train/prelabel.py`
+  - `core/auto_train/runners/train.py`
+  - `core/auto_train/runners/test.py`
+  - `core/auto_train/business_eval.py`
+  - `core/solve/bundle.py`
+  - `core/solve/service.py`
+  - `core/release/solver_asset_contract.py`
+  - `tests/python/test_training_jobs.py`
+  - `tests/python/test_prediction_and_model_test.py`
+  - `tests/python/test_auto_train_runners.py`
+  - `tests/python/test_train_prelabel_service.py`
+  - `tests/python/test_solve_service.py`
+  - `tests/python/test_solver_asset_contract.py`
+  - `README.md`
+  - `.factory/memory/current-state.md`
+  - `.factory/memory/tech-stack.summary.md`
+  - `.factory/memory/change-summary.md`
+- 当前已完成的目标：
+  - 当前 `group1` 训练、预测、模型测试、预标注和 solver bundle 的正式入口已统一到 `proposal-detector`
+  - 当前默认权重目录与 dry-run 命令已切到：
+    - `runs/group1/<train-name>/proposal-detector/weights/*.pt`
+    - `--proposal-model`
+    - `--component proposal-detector`
+  - 当前旧 `scene-detector` / `--scene-model` 仅作为兼容别名保留：
+    - CLI 仍可解析
+    - 读取历史 run 和 solver bundle 时会回退旧目录或旧 manifest key
+  - 当前 solver ONNX 资产合同也已切到：
+    - `click_proposal_detector`
+    - `proposal_detector`
+  - 当前 `group1 modeltest` 中文报告口径已同步为：
+    - `query parser + proposal detector + matcher`
+- 已运行验证：
+  - `PYTHONPYCACHEPREFIX=/tmp/pycache python3 -m py_compile core/train/group1/service.py core/train/group1/cli.py core/train/group1/runner.py core/predict/cli.py core/modeltest/cli.py core/modeltest/service.py core/train/prelabel.py core/auto_train/runners/train.py core/auto_train/runners/test.py core/auto_train/business_eval.py core/solve/bundle.py core/solve/service.py core/release/solver_asset_contract.py tests/python/test_training_jobs.py tests/python/test_prediction_and_model_test.py tests/python/test_auto_train_runners.py tests/python/test_train_prelabel_service.py tests/python/test_solve_service.py tests/python/test_solver_asset_contract.py`
+  - `uv run python -m unittest discover -s tests/python -p 'test_training_jobs.py'`
+  - `uv run python -m unittest discover -s tests/python -p 'test_prediction_and_model_test.py'`
+  - `uv run python -m unittest discover -s tests/python -p 'test_auto_train_runners.py'`
+  - `uv run python -m unittest discover -s tests/python -p 'test_train_prelabel_service.py'`
+  - `uv run python -m unittest discover -s tests/python -p 'test_solve_service.py'`
+  - `uv run python -m unittest discover -s tests/python -p 'test_solver_asset_contract.py'`
+  - `uv run python -m unittest discover -s tests/python -p 'test_root_cli.py'`
 
 ## 2026-04-10 新增 `uv run sinan train group1 prelabel-query-dir`：对单独一批 query 图片执行本地模型预标注
 
@@ -237,6 +353,49 @@
     - `--dry-run`
 - 已运行验证：
   - `uv run python -m unittest tests.python.test_group1_query_audit tests.python.test_root_cli`
+
+## 2026-04-11 重构 `sinan materials audit-group1-query`：直接生成 `tpl_* / var_*` 的 `group1` 模板素材包
+
+- 已更新：
+  - `core/cli.py`
+  - `core/materials/group1_query_icons.py`
+  - `core/materials/query_audit.py`
+  - `core/materials/query_audit_cli.py`
+  - `tests/python/test_group1_query_audit.py`
+  - `docs/02-user-guide/group1-material-category-backlog.md`
+  - `.factory/memory/current-state.md`
+  - `.factory/memory/change-summary.md`
+- 当前已完成的目标：
+  - 保留原命令名：
+    - `uv run sinan materials audit-group1-query`
+  - 但命令语义已整体切换为：
+    - 从 `materials/validation/group1/query` 扫描 query 图片
+    - 本地切分与聚类图标实例
+    - 逐张把 query 图片发送给本地 Ollama 多模态模型
+    - 为每个图标生成 `tpl_<snake_case>` 格式的 `template_id`
+    - 聚合全部 query 结果后再次调用 Ollama 补全模板元数据与下载候选
+    - 自动写出 `group1/icons/<template_id>/<variant_id>.png`
+    - 自动写出 `manifests/group1.templates.yaml`
+  - 当前旧行为已删除：
+    - 不再读取 `group1.classes.yaml`
+    - 不再使用 `icon_*` 类名作为正式输出
+    - 不再回写 `docs/02-user-guide/group1-material-category-backlog.md` 的自动映射区
+    - 不再保留 `--manifest` / `--backlog-doc` 旧参数
+  - 当前命令新增或切换的关键参数：
+    - `--output-root`
+    - `--template-report-json`
+    - `--cache-dir`
+    - `--min-variants-per-template`
+    - `--overwrite`
+  - 当前命令默认输出：
+    - `reports/materials/group1-query-audit.jsonl`
+    - `reports/materials/group1-query-audit-trace.jsonl`
+    - `reports/materials/group1-query-audit-templates.json`
+    - `materials/incoming/group1_icon_pack/manifests/materials.yaml`
+    - `materials/incoming/group1_icon_pack/manifests/group1.templates.yaml`
+- 已运行验证：
+  - `env PYTHONPATH=. ./.venv/bin/python -m unittest discover -s tests/python -p 'test_group1_query_audit.py'`
+  - `env PYTHONPATH=. ./.venv/bin/python -m unittest discover -s tests/python -p 'test_root_cli.py'`
 
 ## 2026-04-10 统一 `group2` 重复阈值语义到共享常量
 

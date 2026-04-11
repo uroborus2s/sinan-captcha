@@ -38,10 +38,11 @@
   - `sinan auto-train`
 - 当前稳定数据交接面：
   - `group1`
-    - pipeline dataset 目录
+    - instance-matching dataset 目录
     - `dataset.json`
-    - `scene-yolo/`
-    - `query-yolo/`
+    - `proposal-yolo/`
+    - `embedding/`
+    - `eval/`
     - `splits/`
   - `group2`
     - paired dataset 目录
@@ -63,12 +64,12 @@
 3. 用 `sinan-generator materials import|fetch --workspace <generator-workspace>` 准备素材
 4. 用 `sinan-generator make-dataset --workspace <generator-workspace>` 生成正式训练数据集
 5. 用 `uv run sinan train group1` 或 `uv run sinan train group2` 启动训练
-   - `group1` 默认顺序训练 `query-parser + scene-detector`
+   - `group1` 默认顺序训练 `query-parser + proposal-detector`
    - 也可以显式拆开：
      - `uv run sinan train group1 --component query-parser ...`
-     - `uv run sinan train group1 --component scene-detector ...`
+     - `uv run sinan train group1 --component proposal-detector ...`
 6. 用 `uv run sinan test group1|group2` 做一键预测 + 评估
-   - `group1` 的 `test` 当前验证的是最终位置挑选链路：`query-parser + scene-detector + matcher`
+   - `group1` 的 `test` 当前验证的是最终位置挑选链路：`query-parser + proposal-detector + matcher`
 7. 用 `uv run sinan auto-train ...` 启动自主训练 study
 
 典型命令：
@@ -84,7 +85,7 @@ Set-Location D:\sinan-captcha-work
 opencode serve --port 4096
 uv run sinan train group1 --dataset-version firstpass --name firstpass
 uv run sinan train group1 --dataset-version firstpass --name g1_query --component query-parser
-uv run sinan train group1 --dataset-version firstpass --name g1_scene --component scene-detector
+uv run sinan train group1 --dataset-version firstpass --name g1_proposal --component proposal-detector
 uv run sinan train group2 --dataset-version firstpass --name firstpass
 uv run sinan test group1 --dataset-version firstpass --train-name firstpass
 uv run sinan test group2 --dataset-version firstpass --train-name firstpass

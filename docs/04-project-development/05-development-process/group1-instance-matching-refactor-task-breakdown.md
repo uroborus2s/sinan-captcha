@@ -25,7 +25,7 @@
 | `TASK-G1-REF-003` | 重构素材库主键与 manifest | `asset_id/template_id/variant_id` 规则 | 素材主键冻结 |
 | `TASK-G1-REF-004` | 重构生成器 `group1` 导出链 | `proposal-yolo/embedding/eval` 数据产物 | 生成链冻结 |
 | `TASK-G1-REF-005` | 重构商业试卷与 reviewed 导出 | 新试卷标注规则与导出器 | 试卷合同冻结 |
-| `TASK-G1-REF-006` | 实现 `scene proposal detector` | 训练、预测、评估入口 | proposal 可用 |
+| `TASK-G1-REF-006` | 实现 `proposal detector` | 训练、预测、评估入口 | proposal 可用 |
 | `TASK-G1-REF-007` | 实现 `icon embedder` | metric learning 训练与检索验证 | embedder 可用 |
 | `TASK-G1-REF-008` | 实现 `matcher` 与整链路推理 | 相似度分配、歧义判定、统一输出 | E2E 可用 |
 | `TASK-G1-REF-009` | 重构预标注与人工审核工具 | query/scene 新预标注合同 | 预标主线冻结 |
@@ -104,6 +104,16 @@
   - `embedding/`
   - `eval/labels.jsonl`
 - 必须能从 `asset_id` 追溯回素材来源
+
+### `TASK-G1-REF-006`
+
+- 第一阶段已要求：
+  - Python `group1 dataset loader` 能读取 `sinan.group1.instance_matching.v1`
+  - `train group1` 至少能消费 `proposal-yolo/dataset.yaml`
+  - 当 `dataset.json` 未提供 `query_parser` 数据集时，训练入口必须显式拒绝该组件，而不是静默读旧目录
+- 第二阶段再进入：
+  - `proposal detector` 真实训练指标
+  - embedder / matcher 主线接管最终位置挑选
 
 ### `TASK-G1-REF-005`
 

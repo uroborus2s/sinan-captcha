@@ -29,7 +29,7 @@ IMAGE_EXTENSIONS = {".png", ".jpg", ".jpeg"}
 class Group1PrelabelRequest:
     exam_root: Path
     dataset_config: Path
-    scene_model_path: Path
+    proposal_model_path: Path
     query_model_path: Path
     project_dir: Path
     run_name: str = "prelabel"
@@ -150,7 +150,7 @@ def build_group1_prelabel_plan(request: Group1PrelabelRequest) -> Group1Prelabel
     source_labels_path = _generated_dir(request.exam_root, "group1") / "source.jsonl"
     job = build_group1_prediction_job(
         dataset_config=request.dataset_config,
-        scene_model_path=request.scene_model_path,
+        proposal_model_path=request.proposal_model_path,
         query_model_path=request.query_model_path,
         source=source_labels_path,
         project_dir=request.project_dir,

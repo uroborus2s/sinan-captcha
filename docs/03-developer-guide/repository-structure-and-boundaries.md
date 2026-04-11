@@ -154,10 +154,11 @@ D:\sinan-solver\
 
 稳定交接面有两个专项合同：
 
-- `group1`：pipeline dataset 目录
+- `group1`：instance-matching dataset 目录
 - `group1/dataset.json`
-- `group1/scene-yolo/`
-- `group1/query-yolo/`
+- `group1/proposal-yolo/`
+- `group1/embedding/`
+- `group1/eval/`
 - `group1/splits/`
 - `group2`：paired dataset 目录
 - `group2/dataset.json`

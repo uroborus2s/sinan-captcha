@@ -5,8 +5,9 @@ import (
 	"encoding/json"
 	"fmt"
 	"image"
+	"image/draw"
 	_ "image/jpeg"
-	_ "image/png"
+	"image/png"
 	"io"
 	"os"
 	"path/filepath"
@@ -60,30 +61,35 @@ func Build(request BuildRequest) (BuildResult, error) {
 	assignments := splitRecords(records)
 	switch request.Task {
 	case "group1":
-		classMap, err := collectClassMap(request.Task, records)
-		if err != nil {
-			return result, err
-		}
 		splitRows := map[string][]export.SampleRecord{
 			"train": {},
 			"val":   {},
 			"test":  {},
 		}
+		evalRows := make([]export.SampleRecord, 0, len(assignments))
+		embeddingPairs := []group1EmbeddingPairRecord{}
+		embeddingTriplets := []group1EmbeddingTripletRecord{}
 		for _, assignment := range assignments {
-			row, err := writeGroup1Assignment(request, assignment)
+			artifacts, err := writeGroup1Assignment(request, assignment)
 			if err != nil {
 				return result, err
 			}
-			splitRows[assignment.Split] = append(splitRows[assignment.Split], row)
+			splitRows[assignment.Split] = append(splitRows[assignment.Split], artifacts.SplitRow)
+			evalRows = append(evalRows, artifacts.EvalRow)
+			embeddingPairs = append(embeddingPairs, artifacts.EmbeddingPairs...)
+			embeddingTriplets = append(embeddingTriplets, artifacts.EmbeddingTriplets...)
 			result.SplitCounts[assignment.Split]++
 		}
-		if err := writeDatasetYAML(filepath.Join(request.DatasetDir, "scene-yolo", "dataset.yaml"), classMap); err != nil {
+		if err := writeDatasetYAML(filepath.Join(request.DatasetDir, "proposal-yolo", "dataset.yaml"), map[int]string{0: "icon_object"}); err != nil {
 			return result, err
 		}
-		if err := writeDatasetYAML(filepath.Join(request.DatasetDir, "query-yolo", "dataset.yaml"), classMap); err != nil {
+		if err := writeGroup1DatasetConfig(result.DatasetConfig); err != nil {
 			return result, err
 		}
-		if err := writeGroup1DatasetConfig(result.DatasetConfig, classMap); err != nil {
+		if err := writeGroup1EvalJSONL(request.DatasetDir, evalRows); err != nil {
+			return result, err
+		}
+		if err := writeGroup1EmbeddingJSONL(request.DatasetDir, embeddingPairs, embeddingTriplets); err != nil {
 			return result, err
 		}
 		if err := writeGroup1SplitJSONL(request.DatasetDir, splitRows); err != nil {
@@ -118,13 +124,50 @@ type assignment struct {
 	Record export.SampleRecord
 }
 
+type group1AssignmentArtifacts struct {
+	SplitRow          export.SampleRecord
+	EvalRow           export.SampleRecord
+	EmbeddingPairs    []group1EmbeddingPairRecord
+	EmbeddingTriplets []group1EmbeddingTripletRecord
+}
+
+type group1EmbeddingPairRecord struct {
+	Split          string              `json:"split"`
+	SampleID       string              `json:"sample_id"`
+	Label          int                 `json:"label"`
+	QueryImage     string              `json:"query_image"`
+	CandidateImage string              `json:"candidate_image"`
+	QueryItem      export.ObjectRecord `json:"query_item"`
+	Candidate      export.ObjectRecord `json:"candidate"`
+	CandidateRole  string              `json:"candidate_role"`
+}
+
+type group1EmbeddingTripletRecord struct {
+	Split         string              `json:"split"`
+	SampleID      string              `json:"sample_id"`
+	AnchorImage   string              `json:"anchor_image"`
+	PositiveImage string              `json:"positive_image"`
+	NegativeImage string              `json:"negative_image"`
+	Anchor        export.ObjectRecord `json:"anchor"`
+	Positive      export.ObjectRecord `json:"positive"`
+	Negative      export.ObjectRecord `json:"negative"`
+	NegativeRole  string              `json:"negative_role"`
+}
+
+type group1EmbeddingCrop struct {
+	RelativePath string
+	Object       export.ObjectRecord
+	Role         string
+}
+
 func prepareDatasetDir(task string, datasetDir string, force bool) error {
 	var managedPaths []string
 	switch task {
 	case "group1":
 		managedPaths = []string{
-			filepath.Join(datasetDir, "scene-yolo"),
-			filepath.Join(datasetDir, "query-yolo"),
+			filepath.Join(datasetDir, "proposal-yolo"),
+			filepath.Join(datasetDir, "embedding"),
+			filepath.Join(datasetDir, "eval"),
 			filepath.Join(datasetDir, "splits"),
 			filepath.Join(datasetDir, "dataset.json"),
 		}
@@ -153,16 +196,22 @@ func prepareDatasetDir(task string, datasetDir string, force bool) error {
 	switch task {
 	case "group1":
 		for _, split := range []string{"train", "val", "test"} {
-			if err := os.MkdirAll(filepath.Join(datasetDir, "scene-yolo", "images", split), 0o755); err != nil {
+			if err := os.MkdirAll(filepath.Join(datasetDir, "proposal-yolo", "images", split), 0o755); err != nil {
 				return err
 			}
-			if err := os.MkdirAll(filepath.Join(datasetDir, "scene-yolo", "labels", split), 0o755); err != nil {
+			if err := os.MkdirAll(filepath.Join(datasetDir, "proposal-yolo", "labels", split), 0o755); err != nil {
 				return err
 			}
-			if err := os.MkdirAll(filepath.Join(datasetDir, "query-yolo", "images", split), 0o755); err != nil {
+			if err := os.MkdirAll(filepath.Join(datasetDir, "embedding", "queries", split), 0o755); err != nil {
 				return err
 			}
-			if err := os.MkdirAll(filepath.Join(datasetDir, "query-yolo", "labels", split), 0o755); err != nil {
+			if err := os.MkdirAll(filepath.Join(datasetDir, "embedding", "candidates", split), 0o755); err != nil {
+				return err
+			}
+			if err := os.MkdirAll(filepath.Join(datasetDir, "eval", "query", split), 0o755); err != nil {
+				return err
+			}
+			if err := os.MkdirAll(filepath.Join(datasetDir, "eval", "scene", split), 0o755); err != nil {
 				return err
 			}
 		}
@@ -275,58 +324,75 @@ func collectClassMap(task string, records []export.SampleRecord) (map[int]string
 	return classMap, nil
 }
 
-func writeGroup1Assignment(request BuildRequest, item assignment) (export.SampleRecord, error) {
+func writeGroup1Assignment(request BuildRequest, item assignment) (group1AssignmentArtifacts, error) {
 	record := item.Record
 	sceneSource := filepath.Join(request.BatchRoot, filepath.FromSlash(record.SceneImage))
 	querySource := filepath.Join(request.BatchRoot, filepath.FromSlash(record.QueryImage))
 	if _, err := os.Stat(sceneSource); err != nil {
-		return export.SampleRecord{}, err
+		return group1AssignmentArtifacts{}, err
 	}
 	if _, err := os.Stat(querySource); err != nil {
-		return export.SampleRecord{}, err
+		return group1AssignmentArtifacts{}, err
 	}
 
-	sceneRelative := filepath.ToSlash(filepath.Join("scene-yolo", "images", item.Split, filepath.Base(sceneSource)))
-	queryRelative := filepath.ToSlash(filepath.Join("query-yolo", "images", item.Split, filepath.Base(querySource)))
-	if err := copyFile(sceneSource, filepath.Join(request.DatasetDir, filepath.FromSlash(sceneRelative))); err != nil {
-		return export.SampleRecord{}, err
+	proposalRelative := filepath.ToSlash(filepath.Join("proposal-yolo", "images", item.Split, filepath.Base(sceneSource)))
+	evalSceneRelative := filepath.ToSlash(filepath.Join("eval", "scene", item.Split, filepath.Base(sceneSource)))
+	evalQueryRelative := filepath.ToSlash(filepath.Join("eval", "query", item.Split, filepath.Base(querySource)))
+	if err := copyFile(sceneSource, filepath.Join(request.DatasetDir, filepath.FromSlash(proposalRelative))); err != nil {
+		return group1AssignmentArtifacts{}, err
 	}
-	if err := copyFile(querySource, filepath.Join(request.DatasetDir, filepath.FromSlash(queryRelative))); err != nil {
-		return export.SampleRecord{}, err
+	if err := copyFile(sceneSource, filepath.Join(request.DatasetDir, filepath.FromSlash(evalSceneRelative))); err != nil {
+		return group1AssignmentArtifacts{}, err
+	}
+	if err := copyFile(querySource, filepath.Join(request.DatasetDir, filepath.FromSlash(evalQueryRelative))); err != nil {
+		return group1AssignmentArtifacts{}, err
 	}
 
 	sceneWidth, sceneHeight, err := imageSize(sceneSource)
 	if err != nil {
-		return export.SampleRecord{}, err
-	}
-	queryWidth, queryHeight, err := imageSize(querySource)
-	if err != nil {
-		return export.SampleRecord{}, err
+		return group1AssignmentArtifacts{}, err
 	}
 
 	sceneObjects := append([]export.ObjectRecord(nil), record.SceneTargets...)
 	sceneObjects = append(sceneObjects, record.Distractors...)
-	sceneLines := make([]string, 0, len(sceneObjects))
+	proposalLines := make([]string, 0, len(sceneObjects))
 	for _, object := range sceneObjects {
-		sceneLines = append(sceneLines, toYOLOLine(object, sceneWidth, sceneHeight))
+		proposalLines = append(proposalLines, toYOLOLine(withClass(object, 0, "icon_object"), sceneWidth, sceneHeight))
 	}
-	sceneLabelPath := filepath.Join(request.DatasetDir, "scene-yolo", "labels", item.Split, stringsTrimExt(filepath.Base(sceneSource))+".txt")
-	if err := os.WriteFile(sceneLabelPath, []byte(joinLines(sceneLines)), 0o644); err != nil {
-		return export.SampleRecord{}, err
-	}
-
-	queryLines := make([]string, 0, len(record.QueryTargets))
-	for _, object := range record.QueryTargets {
-		queryLines = append(queryLines, toYOLOLine(object, queryWidth, queryHeight))
-	}
-	queryLabelPath := filepath.Join(request.DatasetDir, "query-yolo", "labels", item.Split, stringsTrimExt(filepath.Base(querySource))+".txt")
-	if err := os.WriteFile(queryLabelPath, []byte(joinLines(queryLines)), 0o644); err != nil {
-		return export.SampleRecord{}, err
+	proposalLabelPath := filepath.Join(request.DatasetDir, "proposal-yolo", "labels", item.Split, stringsTrimExt(filepath.Base(sceneSource))+".txt")
+	if err := os.WriteFile(proposalLabelPath, []byte(joinLines(proposalLines)), 0o644); err != nil {
+		return group1AssignmentArtifacts{}, err
 	}
 
-	record.SceneImage = sceneRelative
-	record.QueryImage = queryRelative
-	return record, nil
+	queryImage, err := decodeImage(querySource)
+	if err != nil {
+		return group1AssignmentArtifacts{}, err
+	}
+	sceneImage, err := decodeImage(sceneSource)
+	if err != nil {
+		return group1AssignmentArtifacts{}, err
+	}
+	queryCrops, err := writeGroup1QueryCrops(request.DatasetDir, item.Split, record.SampleID, queryImage, record.QueryTargets)
+	if err != nil {
+		return group1AssignmentArtifacts{}, err
+	}
+	targetCrops, distractorCrops, err := writeGroup1CandidateCrops(request.DatasetDir, item.Split, record.SampleID, sceneImage, record.SceneTargets, record.Distractors)
+	if err != nil {
+		return group1AssignmentArtifacts{}, err
+	}
+	embeddingPairs, embeddingTriplets, err := buildGroup1EmbeddingRecords(item.Split, record.SampleID, queryCrops, targetCrops, distractorCrops)
+	if err != nil {
+		return group1AssignmentArtifacts{}, err
+	}
+
+	record.SceneImage = evalSceneRelative
+	record.QueryImage = evalQueryRelative
+	return group1AssignmentArtifacts{
+		SplitRow:          record,
+		EvalRow:           record,
+		EmbeddingPairs:    embeddingPairs,
+		EmbeddingTriplets: embeddingTriplets,
+	}, nil
 }
 
 func writeGroup2Assignment(request BuildRequest, item assignment) (export.SampleRecord, error) {
@@ -408,47 +474,53 @@ type yoloComponentConfig struct {
 	DatasetYAML string `json:"dataset_yaml"`
 }
 
-type group1MatcherConfig struct {
-	Strategy string `json:"strategy"`
-}
-
 type group1DatasetConfig struct {
-	Task       string                         `json:"task"`
-	Format     string                         `json:"format"`
-	Splits     map[string]string              `json:"splits"`
-	Components map[string]yoloComponentConfig `json:"components"`
-	Matcher    group1MatcherConfig            `json:"matcher"`
-	Classes    map[string]string              `json:"classes"`
+	Task             string                `json:"task"`
+	Format           string                `json:"format"`
+	Splits           map[string]string     `json:"splits"`
+	ProposalDetector yoloComponentConfig   `json:"proposal_detector"`
+	Embedding        group1EmbeddingConfig `json:"embedding"`
+	Eval             group1EvalConfig      `json:"eval"`
 }
 
-func writeGroup1DatasetConfig(path string, classMap map[int]string) error {
-	classes := map[string]string{}
-	for classID, className := range classMap {
-		classes[fmt.Sprintf("%d", classID)] = className
-	}
+type group1EmbeddingConfig struct {
+	Format        string `json:"format"`
+	QueriesDir    string `json:"queries_dir"`
+	CandidatesDir string `json:"candidates_dir"`
+	PairsJSONL    string `json:"pairs_jsonl"`
+	TripletsJSONL string `json:"triplets_jsonl"`
+}
+
+type group1EvalConfig struct {
+	Format      string `json:"format"`
+	LabelsJSONL string `json:"labels_jsonl"`
+}
+
+func writeGroup1DatasetConfig(path string) error {
 	content, err := json.MarshalIndent(
 		group1DatasetConfig{
 			Task:   "group1",
-			Format: "sinan.group1.pipeline.v1",
+			Format: "sinan.group1.instance_matching.v1",
 			Splits: map[string]string{
 				"train": "splits/train.jsonl",
 				"val":   "splits/val.jsonl",
 				"test":  "splits/test.jsonl",
 			},
-			Components: map[string]yoloComponentConfig{
-				"scene_detector": {
-					Format:      "yolo.detect.v1",
-					DatasetYAML: "scene-yolo/dataset.yaml",
-				},
-				"query_parser": {
-					Format:      "yolo.detect.v1",
-					DatasetYAML: "query-yolo/dataset.yaml",
-				},
+			ProposalDetector: yoloComponentConfig{
+				Format:      "yolo.detect.v1",
+				DatasetYAML: "proposal-yolo/dataset.yaml",
 			},
-			Matcher: group1MatcherConfig{
-				Strategy: "ordered_class_match_v1",
+			Embedding: group1EmbeddingConfig{
+				Format:        "sinan.group1.embedding.v1",
+				QueriesDir:    "embedding/queries",
+				CandidatesDir: "embedding/candidates",
+				PairsJSONL:    "embedding/pairs.jsonl",
+				TripletsJSONL: "embedding/triplets.jsonl",
 			},
-			Classes: classes,
+			Eval: group1EvalConfig{
+				Format:      "sinan.group1.eval.v1",
+				LabelsJSONL: "eval/labels.jsonl",
+			},
 		},
 		"",
 		"  ",
@@ -483,16 +555,7 @@ func writeGroup2DatasetConfig(path string) error {
 
 func writeGroup1SplitJSONL(datasetDir string, splitRows map[string][]export.SampleRecord) error {
 	for _, split := range []string{"train", "val", "test"} {
-		rows := splitRows[split]
-		content := make([]string, 0, len(rows))
-		for _, row := range rows {
-			line, err := json.Marshal(row)
-			if err != nil {
-				return err
-			}
-			content = append(content, string(line))
-		}
-		if err := os.WriteFile(filepath.Join(datasetDir, "splits", split+".jsonl"), []byte(joinLines(content)), 0o644); err != nil {
+		if err := writeJSONL(filepath.Join(datasetDir, "splits", split+".jsonl"), splitRows[split]); err != nil {
 			return err
 		}
 	}
@@ -501,21 +564,162 @@ func writeGroup1SplitJSONL(datasetDir string, splitRows map[string][]export.Samp
 
 func writeGroup2SplitJSONL(datasetDir string, splitRows map[string][]export.SampleRecord) error {
 	for _, split := range []string{"train", "val", "test"} {
-		rows := splitRows[split]
-		content := make([]byte, 0, len(rows)*256)
-		for _, row := range rows {
-			line, err := json.Marshal(row)
-			if err != nil {
-				return err
-			}
-			content = append(content, line...)
-			content = append(content, '\n')
-		}
-		if err := os.WriteFile(filepath.Join(datasetDir, "splits", split+".jsonl"), content, 0o644); err != nil {
+		if err := writeJSONL(filepath.Join(datasetDir, "splits", split+".jsonl"), splitRows[split]); err != nil {
 			return err
 		}
 	}
 	return nil
+}
+
+func writeGroup1EvalJSONL(datasetDir string, rows []export.SampleRecord) error {
+	return writeJSONL(filepath.Join(datasetDir, "eval", "labels.jsonl"), rows)
+}
+
+func writeGroup1EmbeddingJSONL(datasetDir string, pairs []group1EmbeddingPairRecord, triplets []group1EmbeddingTripletRecord) error {
+	if err := writeJSONL(filepath.Join(datasetDir, "embedding", "pairs.jsonl"), pairs); err != nil {
+		return err
+	}
+	return writeJSONL(filepath.Join(datasetDir, "embedding", "triplets.jsonl"), triplets)
+}
+
+func writeGroup1QueryCrops(datasetDir string, split string, sampleID string, queryImage image.Image, queryTargets []export.ObjectRecord) ([]group1EmbeddingCrop, error) {
+	crops := make([]group1EmbeddingCrop, 0, len(queryTargets))
+	for index, object := range queryTargets {
+		order := object.Order
+		if order <= 0 {
+			order = index + 1
+		}
+		relativePath := filepath.ToSlash(filepath.Join("embedding", "queries", split, fmt.Sprintf("%s__query_%02d.png", sampleID, order)))
+		if err := writeCroppedPNG(filepath.Join(datasetDir, filepath.FromSlash(relativePath)), queryImage, object.BBox); err != nil {
+			return nil, err
+		}
+		crops = append(crops, group1EmbeddingCrop{
+			RelativePath: relativePath,
+			Object:       object,
+			Role:         "query_item",
+		})
+	}
+	return crops, nil
+}
+
+func writeGroup1CandidateCrops(datasetDir string, split string, sampleID string, sceneImage image.Image, sceneTargets []export.ObjectRecord, distractors []export.ObjectRecord) ([]group1EmbeddingCrop, []group1EmbeddingCrop, error) {
+	targetCrops := make([]group1EmbeddingCrop, 0, len(sceneTargets))
+	for index, object := range sceneTargets {
+		order := object.Order
+		if order <= 0 {
+			order = index + 1
+		}
+		relativePath := filepath.ToSlash(filepath.Join("embedding", "candidates", split, fmt.Sprintf("%s__target_%02d.png", sampleID, order)))
+		if err := writeCroppedPNG(filepath.Join(datasetDir, filepath.FromSlash(relativePath)), sceneImage, object.BBox); err != nil {
+			return nil, nil, err
+		}
+		targetCrops = append(targetCrops, group1EmbeddingCrop{
+			RelativePath: relativePath,
+			Object:       object,
+			Role:         "scene_target",
+		})
+	}
+
+	distractorCrops := make([]group1EmbeddingCrop, 0, len(distractors))
+	for index, object := range distractors {
+		relativePath := filepath.ToSlash(filepath.Join("embedding", "candidates", split, fmt.Sprintf("%s__distractor_%02d.png", sampleID, index+1)))
+		if err := writeCroppedPNG(filepath.Join(datasetDir, filepath.FromSlash(relativePath)), sceneImage, object.BBox); err != nil {
+			return nil, nil, err
+		}
+		distractorCrops = append(distractorCrops, group1EmbeddingCrop{
+			RelativePath: relativePath,
+			Object:       object,
+			Role:         "distractor",
+		})
+	}
+	return targetCrops, distractorCrops, nil
+}
+
+func buildGroup1EmbeddingRecords(split string, sampleID string, queryCrops []group1EmbeddingCrop, targetCrops []group1EmbeddingCrop, distractorCrops []group1EmbeddingCrop) ([]group1EmbeddingPairRecord, []group1EmbeddingTripletRecord, error) {
+	pairs := []group1EmbeddingPairRecord{}
+	triplets := []group1EmbeddingTripletRecord{}
+	for _, queryCrop := range queryCrops {
+		positiveCrop, ok := findMatchingTargetCrop(queryCrop.Object, targetCrops)
+		if !ok {
+			return nil, nil, fmt.Errorf("group1 sample %s query order %d missing matching scene target", sampleID, queryCrop.Object.Order)
+		}
+		pairs = append(pairs, group1EmbeddingPairRecord{
+			Split:          split,
+			SampleID:       sampleID,
+			Label:          1,
+			QueryImage:     queryCrop.RelativePath,
+			CandidateImage: positiveCrop.RelativePath,
+			QueryItem:      queryCrop.Object,
+			Candidate:      positiveCrop.Object,
+			CandidateRole:  positiveCrop.Role,
+		})
+
+		negativeCrops := make([]group1EmbeddingCrop, 0, len(targetCrops)+len(distractorCrops))
+		for _, targetCrop := range targetCrops {
+			if targetCrop.RelativePath == positiveCrop.RelativePath {
+				continue
+			}
+			negativeCrops = append(negativeCrops, targetCrop)
+		}
+		negativeCrops = append(negativeCrops, distractorCrops...)
+		for _, negativeCrop := range negativeCrops {
+			pairs = append(pairs, group1EmbeddingPairRecord{
+				Split:          split,
+				SampleID:       sampleID,
+				Label:          0,
+				QueryImage:     queryCrop.RelativePath,
+				CandidateImage: negativeCrop.RelativePath,
+				QueryItem:      queryCrop.Object,
+				Candidate:      negativeCrop.Object,
+				CandidateRole:  negativeCrop.Role,
+			})
+			triplets = append(triplets, group1EmbeddingTripletRecord{
+				Split:         split,
+				SampleID:      sampleID,
+				AnchorImage:   queryCrop.RelativePath,
+				PositiveImage: positiveCrop.RelativePath,
+				NegativeImage: negativeCrop.RelativePath,
+				Anchor:        queryCrop.Object,
+				Positive:      positiveCrop.Object,
+				Negative:      negativeCrop.Object,
+				NegativeRole:  negativeCrop.Role,
+			})
+		}
+	}
+	return pairs, triplets, nil
+}
+
+func findMatchingTargetCrop(queryObject export.ObjectRecord, targetCrops []group1EmbeddingCrop) (group1EmbeddingCrop, bool) {
+	for _, targetCrop := range targetCrops {
+		if queryObject.Order > 0 && targetCrop.Object.Order == queryObject.Order {
+			return targetCrop, true
+		}
+	}
+	for _, targetCrop := range targetCrops {
+		if targetCrop.Object.AssetID == queryObject.AssetID && targetCrop.Object.TemplateID == queryObject.TemplateID && targetCrop.Object.VariantID == queryObject.VariantID {
+			return targetCrop, true
+		}
+	}
+	return group1EmbeddingCrop{}, false
+}
+
+func writeJSONL[T any](path string, rows []T) error {
+	content := make([]byte, 0, len(rows)*256)
+	for _, row := range rows {
+		line, err := json.Marshal(row)
+		if err != nil {
+			return err
+		}
+		content = append(content, line...)
+		content = append(content, '\n')
+	}
+	return os.WriteFile(path, content, 0o644)
+}
+
+func withClass(object export.ObjectRecord, classID int, className string) export.ObjectRecord {
+	object.ClassID = classID
+	object.Class = className
+	return object
 }
 
 func copyFile(source string, destination string) error {
@@ -534,6 +738,45 @@ func copyFile(source string, destination string) error {
 	defer out.Close()
 	_, err = io.Copy(out, in)
 	return err
+}
+
+func decodeImage(path string) (image.Image, error) {
+	file, err := os.Open(path)
+	if err != nil {
+		return nil, err
+	}
+	defer file.Close()
+	imageData, _, err := image.Decode(file)
+	if err != nil {
+		return nil, err
+	}
+	return imageData, nil
+}
+
+func writeCroppedPNG(path string, source image.Image, bbox [4]int) error {
+	x1, y1, x2, y2 := clampBBox(source.Bounds(), bbox)
+	if x2 <= x1 || y2 <= y1 {
+		return fmt.Errorf("invalid crop bbox: %v", bbox)
+	}
+	dst := image.NewRGBA(image.Rect(0, 0, x2-x1, y2-y1))
+	draw.Draw(dst, dst.Bounds(), source, image.Point{X: x1, Y: y1}, draw.Src)
+	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+		return err
+	}
+	file, err := os.Create(path)
+	if err != nil {
+		return err
+	}
+	defer file.Close()
+	return png.Encode(file, dst)
+}
+
+func clampBBox(bounds image.Rectangle, bbox [4]int) (int, int, int, int) {
+	x1 := maxInt(bounds.Min.X, bbox[0])
+	y1 := maxInt(bounds.Min.Y, bbox[1])
+	x2 := minInt(bounds.Max.X, bbox[2])
+	y2 := minInt(bounds.Max.Y, bbox[3])
+	return x1, y1, x2, y2
 }
 
 func imageSize(path string) (int, int, error) {
@@ -572,6 +815,13 @@ func joinLines(lines []string) string {
 
 func maxInt(left int, right int) int {
 	if left > right {
+		return left
+	}
+	return right
+}
+
+func minInt(left int, right int) int {
+	if left < right {
 		return left
 	}
 	return right

@@ -1,4 +1,4 @@
-"""CLI for group1 two-model training command generation."""
+"""CLI for group1 proposal-detector/query-parser training command generation."""
 
 from __future__ import annotations
 
@@ -9,12 +9,13 @@ from pathlib import Path
 from core.train.base import default_project_dir
 from core.train.group1.service import (
     ALL_COMPONENTS,
+    PROPOSAL_COMPONENT,
     QUERY_COMPONENT,
-    SCENE_COMPONENT,
     build_group1_training_job,
     execute_group1_training_job,
-    group1_component_best_weights,
-    group1_component_last_weights,
+    normalize_group1_component,
+    resolve_group1_component_best_weights,
+    resolve_group1_component_last_weights,
 )
 from core.train.prelabel import (
     Group1PrelabelRequest,
@@ -27,7 +28,7 @@ from core.train.prelabel import (
 
 
 def build_parser() -> argparse.ArgumentParser:
-    parser = argparse.ArgumentParser(description="Run the group1 two-model training command.")
+    parser = argparse.ArgumentParser(description="Run the group1 proposal-detector/query-parser training command.")
     parser.add_argument(
         "--dataset-config",
         type=Path,
@@ -42,9 +43,10 @@ def build_parser() -> argparse.ArgumentParser:
         help="optional; defaults to <cwd>/runs/group1",
     )
     parser.add_argument("--name", default="v1")
-    parser.add_argument("--component", choices=[ALL_COMPONENTS, SCENE_COMPONENT, QUERY_COMPONENT], default=ALL_COMPONENTS)
+    parser.add_argument("--component", default=ALL_COMPONENTS, help="all | proposal-detector | query-parser")
     parser.add_argument("--model", default=None, help="shared base model/checkpoint for both sub-models")
-    parser.add_argument("--scene-model", default=None, help="optional override for the scene detector")
+    parser.add_argument("--proposal-model", dest="proposal_model", default=None, help="optional override for the proposal detector")
+    parser.add_argument("--scene-model", dest="proposal_model", default=None, help=argparse.SUPPRESS)
     parser.add_argument("--query-model", default=None, help="optional override for the query parser")
     parser.add_argument(
         "--from-run",
@@ -81,7 +83,8 @@ def build_prelabel_parser() -> argparse.ArgumentParser:
         help="optional; defaults to <exam-root>/.sinan/prelabel/group1/predict",
     )
     parser.add_argument("--train-name", default="v1")
-    parser.add_argument("--scene-model", type=Path, required=False)
+    parser.add_argument("--proposal-model", dest="proposal_model", type=Path, required=False)
+    parser.add_argument("--scene-model", dest="proposal_model", type=Path, required=False, help=argparse.SUPPRESS)
     parser.add_argument("--query-model", type=Path, required=False)
     parser.add_argument("--name", default="prelabel")
     parser.add_argument("--conf", type=float, default=0.25)
@@ -125,41 +128,42 @@ def main(argv: list[str] | None = None) -> int:
     args = parser.parse_args(args_list)
     if args.resume and args.from_run:
         parser.error("不能同时传 --resume 和 --from-run。")
-    if args.from_run and any(value is not None for value in (args.model, args.scene_model, args.query_model)):
-        parser.error("传入 --from-run 时不要再同时传 --model / --scene-model / --query-model。")
+    if args.from_run and any(value is not None for value in (args.model, args.proposal_model, args.query_model)):
+        parser.error("传入 --from-run 时不要再同时传 --model / --proposal-model / --query-model。")
 
     train_root = Path.cwd()
     dataset_config = args.dataset_config or (train_root / "datasets" / "group1" / args.dataset_version / "dataset.json")
     project_dir = args.project or default_project_dir(train_root, "group1")
+    component = normalize_group1_component(args.component)
 
     shared_model = args.model or "yolo26n.pt"
-    scene_model: str | None = None
+    proposal_model: str | None = None
     query_model: str | None = None
-    if args.component in {ALL_COMPONENTS, SCENE_COMPONENT}:
-        scene_model = args.scene_model or shared_model
-    if args.component in {ALL_COMPONENTS, QUERY_COMPONENT}:
+    if component in {ALL_COMPONENTS, PROPOSAL_COMPONENT}:
+        proposal_model = args.proposal_model or shared_model
+    if component in {ALL_COMPONENTS, QUERY_COMPONENT}:
         query_model = args.query_model or shared_model
     if args.resume:
-        if args.component in {ALL_COMPONENTS, SCENE_COMPONENT}:
-            scene_model = str(group1_component_last_weights(train_root, args.name, SCENE_COMPONENT))
-        if args.component in {ALL_COMPONENTS, QUERY_COMPONENT}:
-            query_model = str(group1_component_last_weights(train_root, args.name, QUERY_COMPONENT))
+        if component in {ALL_COMPONENTS, PROPOSAL_COMPONENT}:
+            proposal_model = str(resolve_group1_component_last_weights(train_root, args.name, PROPOSAL_COMPONENT))
+        if component in {ALL_COMPONENTS, QUERY_COMPONENT}:
+            query_model = str(resolve_group1_component_last_weights(train_root, args.name, QUERY_COMPONENT))
     elif args.from_run is not None:
-        if args.component in {ALL_COMPONENTS, SCENE_COMPONENT}:
-            scene_model = str(group1_component_best_weights(train_root, args.from_run, SCENE_COMPONENT))
-        if args.component in {ALL_COMPONENTS, QUERY_COMPONENT}:
-            query_model = str(group1_component_best_weights(train_root, args.from_run, QUERY_COMPONENT))
+        if component in {ALL_COMPONENTS, PROPOSAL_COMPONENT}:
+            proposal_model = str(resolve_group1_component_best_weights(train_root, args.from_run, PROPOSAL_COMPONENT))
+        if component in {ALL_COMPONENTS, QUERY_COMPONENT}:
+            query_model = str(resolve_group1_component_best_weights(train_root, args.from_run, QUERY_COMPONENT))
 
     job = build_group1_training_job(
         dataset_config=dataset_config,
         project_dir=project_dir,
         model=shared_model,
-        scene_model=scene_model,
+        proposal_model=proposal_model,
         query_model=query_model,
         run_name=args.name,
         epochs=args.epochs,
         batch=args.batch,
-        component=args.component,
+        component=component,
         imgsz=args.imgsz,
         device=args.device,
         resume=args.resume,
@@ -180,13 +184,13 @@ def _run_prelabel_cli(argv: list[str]) -> int:
     train_root = Path.cwd()
     exam_root = args.exam_root
     dataset_config = args.dataset_config or (train_root / "datasets" / "group1" / args.dataset_version / "dataset.json")
-    scene_model = args.scene_model or group1_component_best_weights(train_root, args.train_name, SCENE_COMPONENT)
-    query_model = args.query_model or group1_component_best_weights(train_root, args.train_name, QUERY_COMPONENT)
+    proposal_model = args.proposal_model or resolve_group1_component_best_weights(train_root, args.train_name, PROPOSAL_COMPONENT)
+    query_model = args.query_model or resolve_group1_component_best_weights(train_root, args.train_name, QUERY_COMPONENT)
     project_dir = args.project or (exam_root / ".sinan" / "prelabel" / "group1" / "predict")
     request = Group1PrelabelRequest(
         exam_root=exam_root,
         dataset_config=dataset_config,
-        scene_model_path=scene_model,
+        proposal_model_path=proposal_model,
         query_model_path=query_model,
         project_dir=project_dir,
         run_name=args.name,
@@ -214,7 +218,7 @@ def _run_prelabel_query_dir_cli(argv: list[str]) -> int:
 
     train_root = Path.cwd()
     input_dir = args.input_dir
-    query_model = args.query_model or group1_component_best_weights(train_root, args.train_name, QUERY_COMPONENT)
+    query_model = args.query_model or resolve_group1_component_best_weights(train_root, args.train_name, QUERY_COMPONENT)
     project_dir = args.project or (input_dir / ".sinan" / "prelabel" / "group1" / "query")
     request = Group1QueryDirectoryPrelabelRequest(
         input_dir=input_dir,

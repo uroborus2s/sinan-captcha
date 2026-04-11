@@ -511,8 +511,9 @@ Set-Location D:\sinan-captcha-generator
 至少应有：
 
 - `dataset.json`
-- `scene-yolo/`
-- `query-yolo/`
+- `proposal-yolo/`
+- `embedding/`
+- `eval/`
 - `splits/`
 - `.sinan/raw/`
 - `.sinan/manifest.json`

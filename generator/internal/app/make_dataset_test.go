@@ -33,10 +33,15 @@ func TestMakeDatasetBuildsGroup1TrainingDirectory(t *testing.T) {
 	}
 
 	assertFileExists(t, filepath.Join(trainingDir, "dataset.json"))
-	assertDirHasFiles(t, filepath.Join(trainingDir, "scene-yolo", "images", "train"))
-	assertDirHasFiles(t, filepath.Join(trainingDir, "scene-yolo", "labels", "train"))
-	assertDirHasFiles(t, filepath.Join(trainingDir, "query-yolo", "images", "train"))
-	assertDirHasFiles(t, filepath.Join(trainingDir, "query-yolo", "labels", "train"))
+	assertDirHasFiles(t, filepath.Join(trainingDir, "proposal-yolo", "images", "train"))
+	assertDirHasFiles(t, filepath.Join(trainingDir, "proposal-yolo", "labels", "train"))
+	assertDirHasFiles(t, filepath.Join(trainingDir, "embedding", "queries", "train"))
+	assertDirHasFiles(t, filepath.Join(trainingDir, "embedding", "candidates", "train"))
+	assertFileExists(t, filepath.Join(trainingDir, "embedding", "pairs.jsonl"))
+	assertFileExists(t, filepath.Join(trainingDir, "embedding", "triplets.jsonl"))
+	assertDirHasFiles(t, filepath.Join(trainingDir, "eval", "query", "train"))
+	assertDirHasFiles(t, filepath.Join(trainingDir, "eval", "scene", "train"))
+	assertFileExists(t, filepath.Join(trainingDir, "eval", "labels.jsonl"))
 	assertFileExists(t, filepath.Join(trainingDir, "splits", "train.jsonl"))
 	assertFileExists(t, filepath.Join(trainingDir, "splits", "val.jsonl"))
 	assertFileExists(t, filepath.Join(trainingDir, "splits", "test.jsonl"))
@@ -46,6 +51,9 @@ func TestMakeDatasetBuildsGroup1TrainingDirectory(t *testing.T) {
 	assertDirHasFiles(t, filepath.Join(trainingDir, ".sinan", "raw", filepath.Base(result.BatchRoot), "query"))
 	assertGroup1DatasetJSONReferencesPipelineArtifacts(t, filepath.Join(trainingDir, "dataset.json"))
 	assertGroup1SplitCarriesInstanceIdentity(t, filepath.Join(trainingDir, "splits", "train.jsonl"))
+	assertGroup1EvalCarriesInstanceIdentity(t, filepath.Join(trainingDir, "eval", "labels.jsonl"))
+	assertGroup1EmbeddingMetadataCarriesInstanceIdentity(t, filepath.Join(trainingDir, "embedding", "pairs.jsonl"))
+	assertGroup1EmbeddingTripletsCarryInstanceIdentity(t, filepath.Join(trainingDir, "embedding", "triplets.jsonl"))
 	assertGroup1RawBatchCarriesInstanceIdentity(t, filepath.Join(trainingDir, ".sinan", "raw", filepath.Base(result.BatchRoot), "labels.jsonl"))
 	if !strings.Contains(result.DatasetConfig, filepath.Join(trainingDir, "dataset.json")) {
 		t.Fatalf("unexpected dataset config path: %s", result.DatasetConfig)
@@ -639,16 +647,65 @@ func assertGroup1DatasetJSONReferencesPipelineArtifacts(t *testing.T, path strin
 	text := string(content)
 	for _, expected := range []string{
 		`"task": "group1"`,
-		`"format": "sinan.group1.pipeline.v1"`,
-		`"scene_detector"`,
-		`"scene-yolo/dataset.yaml"`,
-		`"query_parser"`,
-		`"query-yolo/dataset.yaml"`,
+		`"format": "sinan.group1.instance_matching.v1"`,
+		`"proposal_detector"`,
+		`"proposal-yolo/dataset.yaml"`,
+		`"embedding"`,
+		`"pairs_jsonl": "embedding/pairs.jsonl"`,
+		`"triplets_jsonl": "embedding/triplets.jsonl"`,
+		`"eval"`,
+		`"labels_jsonl": "eval/labels.jsonl"`,
 		`"train": "splits/train.jsonl"`,
-		`"strategy": "ordered_class_match_v1"`,
 	} {
 		if !strings.Contains(text, expected) {
 			t.Fatalf("dataset json missing %s:\n%s", expected, text)
+		}
+	}
+	for _, unexpected := range []string{`"scene-yolo/`, `"query-yolo/`, `"scene_detector"`, `"query_parser"`, `"matcher"`} {
+		if strings.Contains(text, unexpected) {
+			t.Fatalf("dataset json should not contain legacy field %s:\n%s", unexpected, text)
+		}
+	}
+}
+
+func assertGroup1EvalCarriesInstanceIdentity(t *testing.T, path string) {
+	t.Helper()
+	content, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatalf("read eval labels %s: %v", path, err)
+	}
+	text := string(content)
+	for _, expected := range []string{`"query_items"`, `"scene_targets"`, `"asset_id"`, `"template_id"`, `"variant_id"`} {
+		if !strings.Contains(text, expected) {
+			t.Fatalf("eval labels missing %s:\n%s", expected, text)
+		}
+	}
+}
+
+func assertGroup1EmbeddingMetadataCarriesInstanceIdentity(t *testing.T, path string) {
+	t.Helper()
+	content, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatalf("read embedding pairs %s: %v", path, err)
+	}
+	text := string(content)
+	for _, expected := range []string{`"query_item"`, `"candidate"`, `"label"`, `"asset_id"`, `"template_id"`, `"variant_id"`} {
+		if !strings.Contains(text, expected) {
+			t.Fatalf("embedding pairs missing %s:\n%s", expected, text)
+		}
+	}
+}
+
+func assertGroup1EmbeddingTripletsCarryInstanceIdentity(t *testing.T, path string) {
+	t.Helper()
+	content, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatalf("read embedding triplets %s: %v", path, err)
+	}
+	text := string(content)
+	for _, expected := range []string{`"anchor"`, `"positive"`, `"negative"`, `"asset_id"`, `"template_id"`, `"variant_id"`} {
+		if !strings.Contains(text, expected) {
+			t.Fatalf("embedding triplets missing %s:\n%s", expected, text)
 		}
 	}
 }

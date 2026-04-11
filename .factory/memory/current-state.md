@@ -61,7 +61,7 @@
 - 2026-04-11 当前正式文档基线已将 `group1` 的目标方案切换为“实例匹配求解”：
   - 正式设计主线：
     - `query splitter`
-    - `scene proposal detector`
+    - `proposal detector`
     - `icon embedder`
     - `matcher`
   - 当前新增正式文档：
@@ -73,21 +73,67 @@
   - 当前这代表：
     - 后续 `group1` 实施必须围绕实例匹配主线推进
     - 旧闭集类名路线不再是正式设计基线
-- 2026-04-11 当前代码实现层的 `group1` 训练/验证工作流仍停留在旧闭集类名路线：
-  - 当前 `sinan-generator make-dataset --task group1` 继续输出同一份 `group1 pipeline dataset`
-  - 当前 `uv run sinan train group1` 默认仍会顺序训练双组件
+- 2026-04-11 当前代码实现层的 `group1` 训练/验证工作流仍处于“新生成器合同 + 旧训练链路”过渡期：
+  - 当前 `sinan-generator make-dataset --task group1` 已切到纯 instance-matching dataset 导出：
+    - `proposal-yolo/`
+    - `embedding/`
+    - `eval/`
+    - `splits/`
+    - `dataset.json`
+  - 当前 Python `group1 dataset loader` 已接受：
+    - `sinan.group1.instance_matching.v1`
+    - `proposal_detector`
+    - `embedding`
+    - `eval`
+  - 当前 `uv run sinan train group1` 已能用新 `dataset.json` 读取 `proposal-yolo/dataset.yaml`
+  - 当前若显式请求 `query-parser`、但 `dataset.json` 未提供对应数据集，会直接报错而不是回退读旧目录
+  - 当前 `group1` Python 正式入口已切到 `proposal-detector` 命名：
+    - `uv run sinan train group1 --component proposal-detector ...`
+    - `uv run sinan predict group1 --proposal-model ...`
+    - `uv run sinan test group1 --proposal-model ...`
+  - 当前旧 `scene-detector` / `--scene-model` 只保留为隐式兼容别名：
+    - 旧 CLI 参数仍可解析
+    - 读取历史 run/bundle 时会优先找新目录，再回退旧 `scene-detector`
   - 当前也已支持显式按组件训练：
     - `uv run sinan train group1 --component query-parser ...`
-    - `uv run sinan train group1 --component scene-detector ...`
+    - `uv run sinan train group1 --component proposal-detector ...`
   - 当前 `uv run sinan test group1 ...` 的报告口径已明确为：
     - 最终位置挑选验证
-    - 即 `query-parser + scene-detector + matcher` 的整链路验证
+    - 即 `query-parser + proposal-detector + matcher` 的整链路验证
   - 当前已验证：
     - `uv run python -m unittest discover -s tests/python -p 'test_training_jobs.py'`
     - `uv run python -m unittest discover -s tests/python -p 'test_prediction_and_model_test.py'`
     - `uv run python -m unittest discover -s tests/python -p 'test_root_cli.py'`
     - `uv run python -m unittest discover -s tests/python -p 'test_auto_train_runners.py'`
+    - `uv run python -m unittest discover -s tests/python -p 'test_train_prelabel_service.py'`
+    - `uv run python -m unittest discover -s tests/python -p 'test_solve_service.py'`
+    - `uv run python -m unittest discover -s tests/python -p 'test_solver_asset_contract.py'`
   - 当前该实现已降级为待重构实现差距，不再代表正式设计目标
+- 2026-04-11 当前 `sinan materials audit-group1-query` 已从旧的“类别 backlog 审计”切到新的 `group1` 模板素材生成流水线：
+  - 当前命令必须在仓库根目录执行；如果在 `solver/` 等子目录运行，会直接提示返回根目录
+  - 当前默认输入目录已切到：
+    - `materials/validation/group1/query`
+  - 当前默认输出会直接生成：
+    - `materials/incoming/group1_icon_pack/group1/icons/tpl_*/var_*.png`
+    - `materials/incoming/group1_icon_pack/manifests/materials.yaml`
+    - `materials/incoming/group1_icon_pack/manifests/group1.templates.yaml`
+  - 当前命令会顺序执行：
+    - 本地切分 query 小图标
+    - 按 query 图逐张调用本地 Ollama 多模态模型
+    - 聚类归并到 `template_id`
+    - 再次调用 Ollama 补全 `zh_name / family / tags / download_candidates`
+    - 自动从互联网补齐每个模板至少 `6` 个变体
+  - 当前输出报告已改为：
+    - `reports/materials/group1-query-audit.jsonl`
+    - `reports/materials/group1-query-audit-trace.jsonl`
+    - `reports/materials/group1-query-audit-templates.json`
+  - 当前旧行为已删除：
+    - 不再读取 `group1.classes.yaml`
+    - 不再产出或回写 `icon_*` 类名 backlog 映射
+    - 不再更新 `docs/02-user-guide/group1-material-category-backlog.md` 的自动区
+  - 当前已验证：
+    - `env PYTHONPATH=. ./.venv/bin/python -m unittest discover -s tests/python -p 'test_group1_query_audit.py'`
+    - `env PYTHONPATH=. ./.venv/bin/python -m unittest discover -s tests/python -p 'test_root_cli.py'`
 - 2026-04-10 当前仓库已新增 `uv run sinan train group1 prelabel-query-dir`，用于对单独一批 `group1 query` 图片执行本地模型预标注：
   - 当前该命令使用本地 `runs/group1/<train-name>/query-parser/weights/best.pt`
   - 当前输入目录中的每张图片会直接生成同名 `json` 标注文件，供 `X-AnyLabeling` 打开
@@ -1073,7 +1119,7 @@
 - 已修复 `validate-materials` 漏检截断 JPEG 的问题，当前会对背景图和图标做完整解码校验，坏素材会在生成前被拦截
 - 已隔离 5 张损坏背景图到 `materials/quarantine/backgrounds/`，并同步修正 `backgrounds.csv` 索引，避免素材目录与 manifest 漂移
 - 已完成 `group1` click 和 `group2` slide 两批 firstpass 原始样本生成，各 200 条，批次 QA 全部通过
-- 已完成 `datasets/group1/firstpass` pipeline dataset 转换和 `datasets/group2/firstpass` paired dataset 导出；两批数据当前都为 160/20/20 的 train/val/test 划分
+- 已完成 `datasets/group1/firstpass` instance-matching dataset 转换和 `datasets/group2/firstpass` paired dataset 导出；两批数据当前都为 160/20/20 的 train/val/test 划分
 - 当前训练数据链路已可用，但本机 Python 环境仍缺少 `torch` 与 `ultralytics`，尚不能直接启动训练
 - 已将正式入口收口为两个 CLI：Go 侧 `sinan-generator`，Python 侧 `sinan`
 - `sinan-generator` 当前负责 `workspace init|show`、`materials import|fetch`、`make-dataset`
@@ -1089,11 +1135,12 @@
 - 已新增本地发布与交付命令：`uv run sinan release build`、`uv run sinan release publish`、`uv run sinan release package-windows`
 - 已将 `sinan-captcha[train]` 作为训练扩展依赖收口到 Python 包中，`torch` 继续通过训练目录运行时 `pyproject.toml` 和 PyTorch index 配置安装
 - 已把生成器与训练 CLI 的交接面重新收口为双合同：
-  - `group1`：pipeline dataset 目录，入口为 `dataset.json`，内部包含 `scene-yolo/`、`query-yolo/`、`splits/`
+  - `group1`：instance-matching dataset 目录，入口为 `dataset.json`，内部包含 `proposal-yolo/`、`embedding/`、`eval/`、`splits/`
   - `group2`：paired dataset 目录，入口为 `dataset.json`
 - `group2` 生成器当前已改为使用图标 alpha mask 雕刻缺口，并导出 `master/`、`tile/`、`splits/*.jsonl`
 - `group2` 训练/预测/测试 CLI 当前已切到自定义 paired-input runner，正式入口固定为 `dataset.json`
-- 新生成器产出的 `group1 dataset.json` 固定引用 `scene-yolo/dataset.yaml`、`query-yolo/dataset.yaml` 与 `splits/*.jsonl`
+- 新生成器产出的 `group1 dataset.json` 固定引用 `proposal-yolo/dataset.yaml`、`embedding/*`、`eval/labels.jsonl` 与 `splits/*.jsonl`
+- `group1` 生成器不再写出 `scene-yolo/`、`query-yolo/` 兼容目录
 - 旧的 `scripts/*` 薄包装入口和分散命令名已移除，避免对外口径继续漂移
 - 已重新构建正式交付物：
   - `generator/dist/generator/darwin-arm64/sinan-generator`
@@ -1639,7 +1686,7 @@
 
 - 先校验忽略规则，确认运行时数据、构建产物和本地环境不会误入仓库
 - 先确认 PyPI 发布 token 和远程仓库权限已就绪，再执行真正的发布动作
-- 先把生成器 `make-dataset -> group1 dataset.json + scene-yolo/query-yolo/splits / group2 dataset.json + master/tile/splits` 的交接契约当作稳定基线保住
+- 先把生成器 `make-dataset -> group1 dataset.json + proposal-yolo/embedding/eval/splits / group2 dataset.json + master/tile/splits` 的交接契约当作稳定基线保住
 - 下一步先在目标训练机安装 `torch` 与 `ultralytics`，确认 `group1/group2 firstpass` 的训练命令可实际起跑
 - 下一步补一条“生成器产出数据集 -> 训练 CLI dry-run”的跨边界回归，防止 `group1/group2` 数据集契约再次漂移
 - 下一步自主训练应补一条从 `PLAN` 到 `STOP` 的整合测试路径，并在 Windows + NVIDIA 训练机演练恢复/停止/fallback

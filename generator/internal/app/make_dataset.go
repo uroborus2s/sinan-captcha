@@ -263,6 +263,9 @@ func runtimeConfig(base config.Config, task string, presetName string, runSeed i
 
 func prepareDatasetDir(datasetDir string, force bool) error {
 	managedPaths := []string{
+		filepath.Join(datasetDir, "proposal-yolo"),
+		filepath.Join(datasetDir, "embedding"),
+		filepath.Join(datasetDir, "eval"),
 		filepath.Join(datasetDir, "scene-yolo"),
 		filepath.Join(datasetDir, "query-yolo"),
 		filepath.Join(datasetDir, "master"),

@@ -235,7 +235,7 @@
 | 协作角色 | 生成器实现者、数据契约负责人 |
 | 前置条件 | TASK-GEN-010 已通过 |
 | 主要输入 | 导出契约、字段表、QA 规则表 |
-| 操作步骤 | 1. 固定 Python 读取 `labels.jsonl` 的方式。<br>2. 固定 `group1` JSONL 到 `scene-yolo/query-yolo + splits + dataset.json` 的映射，以及 `group2` JSONL 到 paired dataset 的映射。<br>3. 固定训练脚本只读取正式入口 `dataset.json`。<br>4. 固定出错时的责任边界，区分“生成器错”和“训练链路错”。 |
+| 操作步骤 | 1. 固定 Python 读取 `labels.jsonl` 的方式。<br>2. 固定 `group1` JSONL 到 `proposal-yolo/embedding/eval + splits + dataset.json` 的映射，以及 `group2` JSONL 到 paired dataset 的映射。<br>3. 固定训练脚本只读取正式入口 `dataset.json`。<br>4. 固定出错时的责任边界，区分“生成器错”和“训练链路错”。 |
 | 输出产物 | Python 文件接口说明、字段映射表、责任边界说明 |
 | 验收标准 | 训练链路实现者无需进入 Go 代码内部，也能消费生成器产物 |
 | 阻断条件 | 仍依赖共享内存对象、服务接口或临时手工改文件 |

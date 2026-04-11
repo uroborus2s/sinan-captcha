@@ -1,4 +1,4 @@
-"""Two-model group1 train/predict runner."""
+"""Current group1 training/prediction runner."""
 
 from __future__ import annotations
 
@@ -13,19 +13,20 @@ from core.common.jsonl import write_jsonl
 from core.inference.service import map_group1_clicks
 from core.train.base import prepare_dataset_yaml_for_ultralytics
 from core.train.group1.dataset import load_group1_dataset_config, load_group1_rows, resolve_group1_path
-from core.train.group1.service import ALL_COMPONENTS, QUERY_COMPONENT, SCENE_COMPONENT
+from core.train.group1.service import ALL_COMPONENTS, PROPOSAL_COMPONENT, QUERY_COMPONENT, normalize_group1_component
 
 
 def build_parser() -> argparse.ArgumentParser:
-    parser = argparse.ArgumentParser(description="Run two-model group1 train/predict flows.")
+    parser = argparse.ArgumentParser(description="Run current group1 train/predict flows.")
     subparsers = parser.add_subparsers(dest="command", required=True)
 
-    train_parser = subparsers.add_parser("train", help="train the group1 scene detector and query parser")
+    train_parser = subparsers.add_parser("train", help="train current group1 components from dataset.json")
     train_parser.add_argument("--dataset-config", type=Path, required=True)
     train_parser.add_argument("--project", type=Path, required=True)
     train_parser.add_argument("--name", required=True)
-    train_parser.add_argument("--component", choices=[ALL_COMPONENTS, SCENE_COMPONENT, QUERY_COMPONENT], default=ALL_COMPONENTS)
-    train_parser.add_argument("--scene-model", default=None)
+    train_parser.add_argument("--component", default=ALL_COMPONENTS, help="all | proposal-detector | query-parser")
+    train_parser.add_argument("--proposal-model", dest="proposal_model", default=None)
+    train_parser.add_argument("--scene-model", dest="proposal_model", default=None, help=argparse.SUPPRESS)
     train_parser.add_argument("--query-model", default=None)
     train_parser.add_argument("--epochs", type=int, default=120)
     train_parser.add_argument("--batch", type=int, default=16)
@@ -35,7 +36,7 @@ def build_parser() -> argparse.ArgumentParser:
 
     predict_parser = subparsers.add_parser("predict", help="run group1 pipeline prediction")
     predict_parser.add_argument("--dataset-config", type=Path, required=True)
-    predict_parser.add_argument("--scene-model", type=Path, required=True)
+    predict_parser.add_argument("--proposal-model", "--scene-model", dest="proposal_model", type=Path, required=True)
     predict_parser.add_argument("--query-model", type=Path, required=True)
     predict_parser.add_argument("--source", type=Path, required=True)
     predict_parser.add_argument("--project", type=Path, required=True)
@@ -65,63 +66,73 @@ def _run_train(args: argparse.Namespace) -> None:
     dataset_config = load_group1_dataset_config(args.dataset_config)
     run_dir = args.project / args.name
     run_dir.mkdir(parents=True, exist_ok=True)
+    component = normalize_group1_component(args.component)
 
     commands: dict[str, list[str]] = {}
     component_summaries: dict[str, dict[str, Any]] = {}
 
-    if args.component in {ALL_COMPONENTS, SCENE_COMPONENT}:
-        scene_model = _resolve_component_model(
-            component=SCENE_COMPONENT,
-            model=args.scene_model,
+    if component in {ALL_COMPONENTS, PROPOSAL_COMPONENT}:
+        proposal_model = _resolve_component_model(
+            component=PROPOSAL_COMPONENT,
+            model=args.proposal_model,
             resume=args.resume,
         )
-        scene_yaml = prepare_dataset_yaml_for_ultralytics(dataset_config.components["scene_detector"].dataset_yaml)
-        commands[SCENE_COMPONENT] = _build_train_command(
-            dataset_yaml=scene_yaml,
+        proposal_yaml = prepare_dataset_yaml_for_ultralytics(dataset_config.proposal_dataset_yaml)
+        commands[PROPOSAL_COMPONENT] = _build_train_command(
+            dataset_yaml=proposal_yaml,
             project_dir=run_dir,
-            run_name=SCENE_COMPONENT,
-            model=scene_model,
+            run_name=PROPOSAL_COMPONENT,
+            model=proposal_model,
             epochs=args.epochs,
             batch=args.batch,
             imgsz=args.imgsz,
             device=args.device,
             resume=args.resume,
         )
-        component_summaries[SCENE_COMPONENT] = {
-            "dataset_yaml": str(scene_yaml),
+        component_summaries[PROPOSAL_COMPONENT] = {
+            "role": "proposal_detector" if dataset_config.is_instance_matching else "scene_detector",
+            "dataset_yaml": str(proposal_yaml),
             "weights": {
-                "best": str(run_dir / SCENE_COMPONENT / "weights" / "best.pt"),
-                "last": str(run_dir / SCENE_COMPONENT / "weights" / "last.pt"),
+                "best": str(run_dir / PROPOSAL_COMPONENT / "weights" / "best.pt"),
+                "last": str(run_dir / PROPOSAL_COMPONENT / "weights" / "last.pt"),
             },
-            "command": " ".join(commands[SCENE_COMPONENT]),
+            "command": " ".join(commands[PROPOSAL_COMPONENT]),
         }
 
-    if args.component in {ALL_COMPONENTS, QUERY_COMPONENT}:
-        query_model = _resolve_component_model(
-            component=QUERY_COMPONENT,
-            model=args.query_model,
-            resume=args.resume,
-        )
-        query_yaml = prepare_dataset_yaml_for_ultralytics(dataset_config.components["query_parser"].dataset_yaml)
-        commands[QUERY_COMPONENT] = _build_train_command(
-            dataset_yaml=query_yaml,
-            project_dir=run_dir,
-            run_name=QUERY_COMPONENT,
-            model=query_model,
-            epochs=args.epochs,
-            batch=args.batch,
-            imgsz=args.imgsz,
-            device=args.device,
-            resume=args.resume,
-        )
-        component_summaries[QUERY_COMPONENT] = {
-            "dataset_yaml": str(query_yaml),
-            "weights": {
-                "best": str(run_dir / QUERY_COMPONENT / "weights" / "best.pt"),
-                "last": str(run_dir / QUERY_COMPONENT / "weights" / "last.pt"),
-            },
-            "command": " ".join(commands[QUERY_COMPONENT]),
-        }
+    if component in {ALL_COMPONENTS, QUERY_COMPONENT}:
+        if dataset_config.query_component is None:
+            if component == QUERY_COMPONENT:
+                raise RuntimeError(
+                    "当前 group1 dataset.json 未提供 query_parser 数据集。"
+                    "请先完成 query splitter / embedder 主线，再显式训练该组件。"
+                )
+        else:
+            query_model = _resolve_component_model(
+                component=QUERY_COMPONENT,
+                model=args.query_model,
+                resume=args.resume,
+            )
+            query_yaml = prepare_dataset_yaml_for_ultralytics(dataset_config.query_component.dataset_yaml)
+            commands[QUERY_COMPONENT] = _build_train_command(
+                dataset_yaml=query_yaml,
+                project_dir=run_dir,
+                run_name=QUERY_COMPONENT,
+                model=query_model,
+                epochs=args.epochs,
+                batch=args.batch,
+                imgsz=args.imgsz,
+                device=args.device,
+                resume=args.resume,
+            )
+            component_summaries[QUERY_COMPONENT] = {
+                "role": "query_parser",
+                "dataset_yaml": str(query_yaml),
+                "weights": {
+                    "best": str(run_dir / QUERY_COMPONENT / "weights" / "best.pt"),
+                    "last": str(run_dir / QUERY_COMPONENT / "weights" / "last.pt"),
+                },
+                "command": " ".join(commands[QUERY_COMPONENT]),
+            }
 
     for command in commands.values():
         subprocess.run(command, check=True)
@@ -130,7 +141,7 @@ def _run_train(args: argparse.Namespace) -> None:
         "task": "group1",
         "dataset_config": str(args.dataset_config),
         "run_dir": str(run_dir),
-        "requested_component": args.component,
+        "requested_component": component,
         "components": component_summaries,
     }
     (run_dir / "summary.json").write_text(json.dumps(summary, ensure_ascii=False, indent=2), encoding="utf-8")
@@ -141,7 +152,7 @@ def _run_predict(args: argparse.Namespace) -> None:
         from ultralytics import YOLO
     except Exception as exc:  # pragma: no cover - import error depends on host env
         raise RuntimeError(
-            "当前环境缺少 `ultralytics`，无法执行 group1 双模型预测。"
+            "当前环境缺少 `ultralytics`，无法执行 group1 proposal-detector/query-parser 预测。"
             "请先完成训练环境安装后再重试。"
         ) from exc
 
@@ -150,7 +161,7 @@ def _run_predict(args: argparse.Namespace) -> None:
     if not rows:
         raise RuntimeError("group1 预测输入为空。")
 
-    scene_model = YOLO(str(args.scene_model))
+    proposal_model = YOLO(str(args.proposal_model))
     query_model = YOLO(str(args.query_model))
     output_dir = args.project / args.name
     output_dir.mkdir(parents=True, exist_ok=True)
@@ -167,7 +178,7 @@ def _run_predict(args: argparse.Namespace) -> None:
             device=args.device,
             verbose=False,
         )[0]
-        scene_result = scene_model.predict(
+        proposal_result = proposal_model.predict(
             source=str(scene_path),
             imgsz=args.imgsz,
             conf=args.conf,
@@ -177,7 +188,7 @@ def _run_predict(args: argparse.Namespace) -> None:
         elapsed_ms = (time.perf_counter() - started) * 1000.0
 
         predicted_query_targets = _serialize_detections(query_result, ordered=True)
-        predicted_scene_targets = _serialize_detections(scene_result, ordered=False)
+        predicted_scene_targets = _serialize_detections(proposal_result, ordered=False)
         mapping = map_group1_clicks(predicted_query_targets, predicted_scene_targets)
         predictions.append(_build_prediction_row(row, predicted_query_targets, mapping, elapsed_ms))
 
@@ -188,7 +199,7 @@ def _run_predict(args: argparse.Namespace) -> None:
                 "task": "group1",
                 "dataset_config": str(args.dataset_config),
                 "source": str(args.source),
-                "scene_model": str(args.scene_model),
+                "proposal_model": str(args.proposal_model),
                 "query_model": str(args.query_model),
                 "sample_count": len(predictions),
                 "labels_path": str(output_dir / "labels.jsonl"),

@@ -10,7 +10,11 @@ import shutil
 from typing import Any
 
 from core.train.base import default_best_weights
-from core.train.group1.service import QUERY_COMPONENT, SCENE_COMPONENT, group1_component_best_weights
+from core.train.group1.service import (
+    PROPOSAL_COMPONENT,
+    QUERY_COMPONENT,
+    resolve_group1_component_best_weights,
+)
 
 BUNDLE_FORMAT = "sinan.solver.bundle.v1"
 ROUTER_STRATEGY = "task_hint_or_input_shape_v1"
@@ -26,7 +30,7 @@ class SolverBundle:
     root: Path
     bundle_version: str
     manifest_path: Path
-    scene_model_path: Path
+    proposal_model_path: Path
     query_model_path: Path
     matcher_config_path: Path
     group2_model_path: Path
@@ -37,7 +41,7 @@ class SolverBundle:
             "bundle_version": self.bundle_version,
             "manifest": str(self.manifest_path),
             "router_strategy": self.router_strategy,
-            "scene_model": str(self.scene_model_path),
+            "proposal_model": str(self.proposal_model_path),
             "query_model": str(self.query_model_path),
             "matcher_config": str(self.matcher_config_path),
             "group2_model": str(self.group2_model_path),
@@ -53,11 +57,11 @@ def build_solver_bundle(
     bundle_version: str | None = None,
     force: bool = False,
 ) -> SolverBundle:
-    scene_source = group1_component_best_weights(train_root, group1_run, SCENE_COMPONENT)
-    query_source = group1_component_best_weights(train_root, group1_run, QUERY_COMPONENT)
+    proposal_source = resolve_group1_component_best_weights(train_root, group1_run, PROPOSAL_COMPONENT)
+    query_source = resolve_group1_component_best_weights(train_root, group1_run, QUERY_COMPONENT)
     group2_source = default_best_weights(train_root, "group2", group2_run)
     for label, source in (
-        ("group1 scene-detector", scene_source),
+        ("group1 proposal-detector", proposal_source),
         ("group1 query-parser", query_source),
         ("group2 locator", group2_source),
     ):
@@ -70,11 +74,11 @@ def build_solver_bundle(
         shutil.rmtree(bundle_dir)
 
     version = bundle_version or bundle_dir.name
-    scene_target = bundle_dir / "models" / "group1" / SCENE_COMPONENT / "model.pt"
+    proposal_target = bundle_dir / "models" / "group1" / PROPOSAL_COMPONENT / "model.pt"
     query_target = bundle_dir / "models" / "group1" / QUERY_COMPONENT / "model.pt"
     matcher_target = bundle_dir / "models" / "group1" / "matcher" / "config.json"
     group2_target = bundle_dir / "models" / "group2" / "locator" / "model.pt"
-    _copy_with_metadata(scene_source, scene_target, source_run=group1_run, component=SCENE_COMPONENT)
+    _copy_with_metadata(proposal_source, proposal_target, source_run=group1_run, component=PROPOSAL_COMPONENT)
     _copy_with_metadata(query_source, query_target, source_run=group1_run, component=QUERY_COMPONENT)
     _copy_with_metadata(group2_source, group2_target, source_run=group2_run, component="locator")
     matcher_target.parent.mkdir(parents=True, exist_ok=True)
@@ -90,10 +94,10 @@ def build_solver_bundle(
         "router": {"strategy": ROUTER_STRATEGY},
         "models": {
             "group1": {
-                "scene_detector": {
+                "proposal_detector": {
                     "format": "ultralytics.detect.pt.v1",
-                    "path": scene_target.relative_to(bundle_dir).as_posix(),
-                    "metadata": scene_target.with_name("metadata.json").relative_to(bundle_dir).as_posix(),
+                    "path": proposal_target.relative_to(bundle_dir).as_posix(),
+                    "metadata": proposal_target.with_name("metadata.json").relative_to(bundle_dir).as_posix(),
                 },
                 "query_parser": {
                     "format": "ultralytics.detect.pt.v1",
@@ -147,7 +151,12 @@ def load_solver_bundle(bundle_dir: Path) -> SolverBundle:
         raise SolverBundleError("bundle manifest 缺少 `models` 对象。")
     group1 = _require_dict(models.get("group1"), field="models.group1")
     group2 = _require_dict(models.get("group2"), field="models.group2")
-    scene_model = _resolve_model_path(bundle_dir, _require_dict(group1.get("scene_detector"), field="models.group1.scene_detector"))
+    proposal_payload = group1.get("proposal_detector")
+    proposal_field = "models.group1.proposal_detector"
+    if proposal_payload is None:
+        proposal_payload = group1.get("scene_detector")
+        proposal_field = "models.group1.scene_detector"
+    proposal_model = _resolve_model_path(bundle_dir, _require_dict(proposal_payload, field=proposal_field))
     query_model = _resolve_model_path(bundle_dir, _require_dict(group1.get("query_parser"), field="models.group1.query_parser"))
     matcher = _require_dict(group1.get("matcher"), field="models.group1.matcher")
     matcher_config = _resolve_relative_path(bundle_dir, matcher.get("path"), field="models.group1.matcher.path")
@@ -158,7 +167,7 @@ def load_solver_bundle(bundle_dir: Path) -> SolverBundle:
         root=bundle_dir.resolve(),
         bundle_version=bundle_version,
         manifest_path=manifest_path.resolve(),
-        scene_model_path=scene_model,
+        proposal_model_path=proposal_model,
         query_model_path=query_model,
         matcher_config_path=matcher_config,
         group2_model_path=group2_model,
@@ -198,4 +207,3 @@ def _require_dict(value: Any, *, field: str) -> dict[str, Any]:
     if not isinstance(value, dict):
         raise SolverBundleError(f"`{field}` 必须是对象。")
     return value
-

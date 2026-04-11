@@ -1,4 +1,4 @@
-"""Two-model training and prediction job helpers for group1."""
+"""Proposal-detector + query-parser training and prediction job helpers for group1."""
 
 from __future__ import annotations
 
@@ -10,15 +10,17 @@ from core.common.jsonl import read_jsonl
 from core.train.base import _ensure_training_dependencies
 
 ALL_COMPONENTS = "all"
-SCENE_COMPONENT = "scene-detector"
+PROPOSAL_COMPONENT = "proposal-detector"
+LEGACY_SCENE_COMPONENT = "scene-detector"
 QUERY_COMPONENT = "query-parser"
+SCENE_COMPONENT = PROPOSAL_COMPONENT
 
 
 @dataclass(frozen=True)
 class Group1TrainingJob:
     dataset_config: Path
     project_dir: Path
-    scene_model: str | None
+    proposal_model: str | None
     query_model: str | None
     epochs: int
     batch: int
@@ -53,8 +55,8 @@ class Group1TrainingJob:
             "--device",
             self.device,
         ]
-        if self.scene_model is not None:
-            command.extend(["--scene-model", self.scene_model])
+        if self.proposal_model is not None:
+            command.extend(["--proposal-model", self.proposal_model])
         if self.query_model is not None:
             command.extend(["--query-model", self.query_model])
         if self.resume:
@@ -68,7 +70,7 @@ class Group1TrainingJob:
 @dataclass(frozen=True)
 class Group1PredictionJob:
     dataset_config: Path
-    scene_model_path: Path
+    proposal_model_path: Path
     query_model_path: Path
     source: Path
     project_dir: Path
@@ -90,8 +92,8 @@ class Group1PredictionJob:
             "predict",
             "--dataset-config",
             str(self.dataset_config),
-            "--scene-model",
-            str(self.scene_model_path),
+            "--proposal-model",
+            str(self.proposal_model_path),
             "--query-model",
             str(self.query_model_path),
             "--source",
@@ -126,7 +128,7 @@ def build_group1_training_job(
     model: str = "yolo26n.pt",
     run_name: str = "v1",
     *,
-    scene_model: str | None = None,
+    proposal_model: str | None = None,
     query_model: str | None = None,
     epochs: int | None = None,
     batch: int | None = None,
@@ -135,23 +137,22 @@ def build_group1_training_job(
     device: str = "0",
     resume: bool = False,
 ) -> Group1TrainingJob:
-    if component not in {ALL_COMPONENTS, SCENE_COMPONENT, QUERY_COMPONENT}:
-        raise RuntimeError(f"不支持的 group1 训练组件：{component}")
-    resolved_scene_model = scene_model or model
+    normalized_component = normalize_group1_component(component)
+    resolved_proposal_model = proposal_model or model
     resolved_query_model = query_model or model
-    if component == SCENE_COMPONENT:
+    if normalized_component == PROPOSAL_COMPONENT:
         resolved_query_model = None
-    elif component == QUERY_COMPONENT:
-        resolved_scene_model = None
+    elif normalized_component == QUERY_COMPONENT:
+        resolved_proposal_model = None
     return Group1TrainingJob(
         dataset_config=dataset_config,
         project_dir=project_dir,
-        scene_model=resolved_scene_model,
+        proposal_model=resolved_proposal_model,
         query_model=resolved_query_model,
         epochs=120 if epochs is None else epochs,
         batch=16 if batch is None else batch,
         run_name=run_name,
-        component=component,
+        component=normalized_component,
         imgsz=imgsz,
         device=device,
         resume=resume,
@@ -160,7 +161,7 @@ def build_group1_training_job(
 
 def build_group1_prediction_job(
     dataset_config: Path,
-    scene_model_path: Path,
+    proposal_model_path: Path,
     query_model_path: Path,
     source: Path,
     project_dir: Path,
@@ -172,7 +173,7 @@ def build_group1_prediction_job(
 ) -> Group1PredictionJob:
     return Group1PredictionJob(
         dataset_config=dataset_config,
-        scene_model_path=scene_model_path,
+        proposal_model_path=proposal_model_path,
         query_model_path=query_model_path,
         source=source,
         project_dir=project_dir,
@@ -188,7 +189,7 @@ def execute_group1_training_job(job: Group1TrainingJob) -> int:
     if not job.dataset_config.exists():
         raise RuntimeError(f"未找到 group1 数据集配置文件：{job.dataset_config}")
     for component_name, model in (
-        (SCENE_COMPONENT, job.scene_model),
+        (PROPOSAL_COMPONENT, job.proposal_model),
         (QUERY_COMPONENT, job.query_model),
     ):
         if model is None:
@@ -209,8 +210,8 @@ def run_group1_prediction_job(job: Group1PredictionJob) -> Group1PredictionResul
     _ensure_training_dependencies()
     if not job.dataset_config.exists():
         raise RuntimeError(f"未找到 group1 数据集配置文件：{job.dataset_config}")
-    if not job.scene_model_path.exists():
-        raise RuntimeError(f"未找到 group1 scene detector 权重：{job.scene_model_path}")
+    if not job.proposal_model_path.exists():
+        raise RuntimeError(f"未找到 group1 proposal detector 权重：{job.proposal_model_path}")
     if not job.query_model_path.exists():
         raise RuntimeError(f"未找到 group1 query parser 权重：{job.query_model_path}")
     if not job.source.exists():
@@ -236,8 +237,44 @@ def run_group1_prediction_job(job: Group1PredictionJob) -> Group1PredictionResul
 
 
 def group1_component_best_weights(train_root: Path, run_name: str, component: str) -> Path:
-    return train_root / "runs" / "group1" / run_name / component / "weights" / "best.pt"
+    return train_root / "runs" / "group1" / run_name / normalize_group1_component(component) / "weights" / "best.pt"
 
 
 def group1_component_last_weights(train_root: Path, run_name: str, component: str) -> Path:
-    return train_root / "runs" / "group1" / run_name / component / "weights" / "last.pt"
+    return train_root / "runs" / "group1" / run_name / normalize_group1_component(component) / "weights" / "last.pt"
+
+
+def resolve_group1_component_best_weights(train_root: Path, run_name: str, component: str) -> Path:
+    preferred = group1_component_best_weights(train_root, run_name, component)
+    return _resolve_legacy_component_path(train_root, run_name, component, preferred, kind="best")
+
+
+def resolve_group1_component_last_weights(train_root: Path, run_name: str, component: str) -> Path:
+    preferred = group1_component_last_weights(train_root, run_name, component)
+    return _resolve_legacy_component_path(train_root, run_name, component, preferred, kind="last")
+
+
+def normalize_group1_component(component: str) -> str:
+    normalized = component.strip()
+    if normalized == LEGACY_SCENE_COMPONENT:
+        return PROPOSAL_COMPONENT
+    if normalized in {ALL_COMPONENTS, PROPOSAL_COMPONENT, QUERY_COMPONENT}:
+        return normalized
+    raise RuntimeError(f"不支持的 group1 训练组件：{component}")
+
+
+def _resolve_legacy_component_path(
+    train_root: Path,
+    run_name: str,
+    component: str,
+    preferred: Path,
+    *,
+    kind: str,
+) -> Path:
+    normalized_component = normalize_group1_component(component)
+    if normalized_component != PROPOSAL_COMPONENT or preferred.exists():
+        return preferred
+    legacy = train_root / "runs" / "group1" / run_name / LEGACY_SCENE_COMPONENT / "weights" / f"{kind}.pt"
+    if legacy.exists():
+        return legacy
+    return preferred

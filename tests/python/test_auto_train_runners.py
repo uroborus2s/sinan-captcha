@@ -100,12 +100,12 @@ class AutoTrainTrainRunnerTests(unittest.TestCase):
             train_root = Path(tmpdir)
             dataset_config = train_root / "datasets" / "group1" / "firstpass_v2" / "dataset.json"
             dataset_config.parent.mkdir(parents=True)
-            dataset_config.write_text('{"task":"group1","format":"sinan.group1.pipeline.v1","splits":{"train":"splits/train.jsonl","val":"splits/val.jsonl","test":"splits/test.jsonl"},"components":{"scene_detector":{"format":"yolo.detect.v1","dataset_yaml":"scene-yolo/dataset.yaml"},"query_parser":{"format":"yolo.detect.v1","dataset_yaml":"query-yolo/dataset.yaml"}},"matcher":{"strategy":"ordered_class_match_v1"}}', encoding="utf-8")
-            scene_best = train_root / "runs" / "group1" / "trial_0001" / "scene-detector" / "weights" / "best.pt"
+            dataset_config.write_text('{"task":"group1","format":"sinan.group1.instance_matching.v1","splits":{"train":"splits/train.jsonl","val":"splits/val.jsonl","test":"splits/test.jsonl"},"proposal_detector":{"format":"yolo.detect.v1","dataset_yaml":"proposal-yolo/dataset.yaml"},"embedding":{"format":"sinan.group1.embedding.v1","queries_dir":"embedding/queries","candidates_dir":"embedding/candidates","pairs_jsonl":"embedding/pairs.jsonl","triplets_jsonl":"embedding/triplets.jsonl"},"eval":{"format":"sinan.group1.eval.v1","labels_jsonl":"eval/labels.jsonl"}}', encoding="utf-8")
+            proposal_best = train_root / "runs" / "group1" / "trial_0001" / "proposal-detector" / "weights" / "best.pt"
             query_best = train_root / "runs" / "group1" / "trial_0001" / "query-parser" / "weights" / "best.pt"
-            scene_best.parent.mkdir(parents=True)
+            proposal_best.parent.mkdir(parents=True)
             query_best.parent.mkdir(parents=True)
-            scene_best.write_text("weights", encoding="utf-8")
+            proposal_best.write_text("weights", encoding="utf-8")
             query_best.write_text("weights", encoding="utf-8")
 
             captured_jobs: list[object] = []
@@ -127,10 +127,10 @@ class AutoTrainTrainRunnerTests(unittest.TestCase):
             self.assertEqual(result.record.train_name, "trial_0002")
             self.assertEqual(result.record.resumed_from, "trial_0001")
             self.assertEqual(result.record.run_dir, str(train_root / "runs" / "group1" / "trial_0002"))
-            self.assertEqual(result.record.best_weights, str(train_root / "runs" / "group1" / "trial_0002" / "scene-detector" / "weights" / "best.pt"))
+            self.assertEqual(result.record.best_weights, str(train_root / "runs" / "group1" / "trial_0002" / "proposal-detector" / "weights" / "best.pt"))
             self.assertEqual(result.record.params["query_model_best"], str(train_root / "runs" / "group1" / "trial_0002" / "query-parser" / "weights" / "best.pt"))
-            self.assertIn("--scene-model", result.command)
-            self.assertIn(str(scene_best), result.command)
+            self.assertIn("--proposal-model", result.command)
+            self.assertIn(str(proposal_best), result.command)
             self.assertIn("--query-model", result.command)
             self.assertIn(str(query_best), result.command)
             self.assertEqual(len(captured_jobs), 1)
@@ -195,13 +195,13 @@ class AutoTrainTestRunnerTests(unittest.TestCase):
             train_root = Path(tmpdir)
             dataset_config = train_root / "datasets" / "group1" / "firstpass" / "dataset.json"
             source = train_root / "datasets" / "group1" / "firstpass" / "splits" / "val.jsonl"
-            scene_model_path = train_root / "runs" / "group1" / "trial_0001" / "scene-detector" / "weights" / "best.pt"
+            proposal_model_path = train_root / "runs" / "group1" / "trial_0001" / "proposal-detector" / "weights" / "best.pt"
             query_model_path = train_root / "runs" / "group1" / "trial_0001" / "query-parser" / "weights" / "best.pt"
-            for path in (dataset_config.parent, source.parent, scene_model_path.parent, query_model_path.parent):
+            for path in (dataset_config.parent, source.parent, proposal_model_path.parent, query_model_path.parent):
                 path.mkdir(parents=True, exist_ok=True)
-            dataset_config.write_text('{"task":"group1","format":"sinan.group1.pipeline.v1","splits":{"train":"splits/train.jsonl","val":"splits/val.jsonl","test":"splits/test.jsonl"},"components":{"scene_detector":{"format":"yolo.detect.v1","dataset_yaml":"scene-yolo/dataset.yaml"},"query_parser":{"format":"yolo.detect.v1","dataset_yaml":"query-yolo/dataset.yaml"}},"matcher":{"strategy":"ordered_class_match_v1"}}', encoding="utf-8")
-            source.write_text('{"sample_id":"g1_000001","query_image":"query-yolo/images/val/g1_000001.png","scene_image":"scene-yolo/images/val/g1_000001.png","query_targets":[{"order":1,"class":"icon_house","class_id":0,"bbox":[8,8,28,28],"center":[18,18]}],"scene_targets":[{"order":1,"class":"icon_house","class_id":0,"bbox":[80,32,120,72],"center":[100,52]}],"distractors":[],"label_source":"gold","source_batch":"batch_0001"}\n', encoding="utf-8")
-            scene_model_path.write_text("weights", encoding="utf-8")
+            dataset_config.write_text('{"task":"group1","format":"sinan.group1.instance_matching.v1","splits":{"train":"splits/train.jsonl","val":"splits/val.jsonl","test":"splits/test.jsonl"},"proposal_detector":{"format":"yolo.detect.v1","dataset_yaml":"proposal-yolo/dataset.yaml"},"embedding":{"format":"sinan.group1.embedding.v1","queries_dir":"embedding/queries","candidates_dir":"embedding/candidates","pairs_jsonl":"embedding/pairs.jsonl","triplets_jsonl":"embedding/triplets.jsonl"},"eval":{"format":"sinan.group1.eval.v1","labels_jsonl":"eval/labels.jsonl"}}', encoding="utf-8")
+            source.write_text('{"sample_id":"g1_000001","query_image":"eval/query/val/g1_000001.png","scene_image":"eval/scene/val/g1_000001.png","query_items":[{"order":1,"asset_id":"asset_house","template_id":"tpl_house","variant_id":"var_outline","bbox":[8,8,28,28],"center":[18,18]}],"scene_targets":[{"order":1,"asset_id":"asset_house","template_id":"tpl_house","variant_id":"var_outline","bbox":[80,32,120,72],"center":[100,52]}],"distractors":[],"label_source":"gold","source_batch":"batch_0001"}\n', encoding="utf-8")
+            proposal_model_path.write_text("weights", encoding="utf-8")
             query_model_path.write_text("weights", encoding="utf-8")
 
             result = test.run_test_request(
@@ -215,7 +215,7 @@ class AutoTrainTestRunnerTests(unittest.TestCase):
                     task="group1",
                     dataset_version="firstpass",
                     train_name="trial_0001",
-                    model_path=scene_model_path,
+                    model_path=proposal_model_path,
                     query_model_path=query_model_path,
                     dataset_config=dataset_config,
                     source=source,

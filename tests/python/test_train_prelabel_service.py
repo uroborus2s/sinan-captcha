@@ -151,7 +151,7 @@ class TrainPrelabelServiceTests(unittest.TestCase):
                     Group1PrelabelRequest(
                         exam_root=exam_root,
                         dataset_config=root / "datasets" / "group1" / "v1" / "dataset.json",
-                        scene_model_path=root / "runs" / "group1" / "demo" / "scene-detector" / "weights" / "best.pt",
+                        proposal_model_path=root / "runs" / "group1" / "demo" / "proposal-detector" / "weights" / "best.pt",
                         query_model_path=root / "runs" / "group1" / "demo" / "query-parser" / "weights" / "best.pt",
                         project_dir=prediction_dir,
                     )
@@ -205,7 +205,7 @@ class TrainPrelabelServiceTests(unittest.TestCase):
                     Group1PrelabelRequest(
                         exam_root=exam_root,
                         dataset_config=root / "datasets" / "group1" / "v1" / "dataset.json",
-                        scene_model_path=root / "runs" / "group1" / "demo" / "scene-detector" / "weights" / "best.pt",
+                        proposal_model_path=root / "runs" / "group1" / "demo" / "proposal-detector" / "weights" / "best.pt",
                         query_model_path=root / "runs" / "group1" / "demo" / "query-parser" / "weights" / "best.pt",
                         project_dir=root / "reports" / "group1",
                     )

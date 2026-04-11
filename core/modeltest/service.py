@@ -142,7 +142,7 @@ class ModelTestResult:
         next_actions = "\n".join(f"- {item}" for item in self.next_actions)
         workflow_line = ""
         if self.task == "group1":
-            workflow_line = "- 本次重点验证最终位置挑选：query parser + scene detector + matcher。"
+            workflow_line = "- 本次重点验证最终位置挑选：query parser + proposal detector + matcher。"
         elif self.task == "group2":
             workflow_line = "- 本次重点验证最终定位结果，而不是单纯看中间特征。"
         return "\n".join(
@@ -198,7 +198,7 @@ def build_model_test_jobs(
             raise RuntimeError("group1 模型测试缺少 query_model_path。")
         prediction_job = build_group1_prediction_job(
             dataset_config=request.dataset_config,
-            scene_model_path=request.model_path,
+            proposal_model_path=request.model_path,
             query_model_path=request.query_model_path,
             source=request.source,
             project_dir=request.project_dir,
@@ -313,7 +313,7 @@ def _run_group1_model_test(request: ModelTestRequest) -> ModelTestResult:
     if request.query_model_path is None:
         raise RuntimeError("group1 模型测试缺少 query parser 权重。")
     if not request.model_path.exists():
-        raise RuntimeError(f"未找到 group1 scene detector 权重：{request.model_path}")
+        raise RuntimeError(f"未找到 group1 proposal detector 权重：{request.model_path}")
     if not request.query_model_path.exists():
         raise RuntimeError(f"未找到 group1 query parser 权重：{request.query_model_path}")
     if not request.source.exists():
@@ -323,7 +323,7 @@ def _run_group1_model_test(request: ModelTestRequest) -> ModelTestResult:
     gold_rows = load_group1_rows(dataset_config, request.source)
     prediction_job = build_group1_prediction_job(
         dataset_config=request.dataset_config,
-        scene_model_path=request.model_path,
+        proposal_model_path=request.model_path,
         query_model_path=request.query_model_path,
         source=request.source,
         project_dir=request.project_dir,
@@ -601,7 +601,7 @@ def _build_next_actions(task: str, metrics: dict[str, float | None]) -> list[str
         if order_error_rate is not None and order_error_rate > 0.2:
             next_actions.append("重点检查 query parser 的检测排序和 matcher 规则，确认 query_targets 的 order 恢复是否稳定。")
         if center_error is not None and center_error > 12:
-            next_actions.append("当前更像是 scene detector 定位偏差偏大，建议固定数据集后单独调 imgsz、batch 或继续训练轮数。")
+            next_actions.append("当前更像是 proposal detector 定位偏差偏大，建议固定数据集后单独调 imgsz、batch 或继续训练轮数。")
         if not next_actions:
             next_actions.append("保留当前 pipeline dataset 不动，再开一个新训练名做对照实验，避免把好结果覆盖掉。")
         next_actions.append("如果只是训练被打断，用 `--resume` 继续；如果是沿用上一轮最佳权重开新实验，用 `--from-run`。")
@@ -669,7 +669,7 @@ def _render_markdown(result: ModelTestResult) -> str:
         f"- {result.verdict_detail}",
         "- 这是一份入门级阅读口径，方便你先判断“这轮值不值得继续”。",
         *(
-            ["- 这次重点验证最终位置挑选链路：query parser + scene detector + matcher。"]
+            ["- 这次重点验证最终位置挑选链路：query parser + proposal detector + matcher。"]
             if result.task == "group1"
             else []
         ),

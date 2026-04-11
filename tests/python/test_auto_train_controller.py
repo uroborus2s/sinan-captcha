@@ -30,17 +30,27 @@ def _write_dataset_config(train_root: Path, task: str, dataset_version: str) -> 
     if task == "group1":
         payload = {
             "task": "group1",
-            "format": "sinan.group1.pipeline.v1",
+            "format": "sinan.group1.instance_matching.v1",
             "splits": {
                 "train": "splits/train.jsonl",
                 "val": "splits/val.jsonl",
                 "test": "splits/test.jsonl",
             },
-            "components": {
-                "scene_detector": {"format": "yolo.detect.v1", "dataset_yaml": "scene-yolo/dataset.yaml"},
-                "query_parser": {"format": "yolo.detect.v1", "dataset_yaml": "query-yolo/dataset.yaml"},
+            "proposal_detector": {
+                "format": "yolo.detect.v1",
+                "dataset_yaml": "proposal-yolo/dataset.yaml",
             },
-            "matcher": {"strategy": "ordered_class_match_v1"},
+            "embedding": {
+                "format": "sinan.group1.embedding.v1",
+                "queries_dir": "embedding/queries",
+                "candidates_dir": "embedding/candidates",
+                "pairs_jsonl": "embedding/pairs.jsonl",
+                "triplets_jsonl": "embedding/triplets.jsonl",
+            },
+            "eval": {
+                "format": "sinan.group1.eval.v1",
+                "labels_jsonl": "eval/labels.jsonl",
+            },
         }
     else:
         payload = {

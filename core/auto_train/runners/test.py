@@ -15,7 +15,7 @@ from core.train.base import (
     default_predict_source,
     default_report_dir,
 )
-from core.train.group1.service import QUERY_COMPONENT, SCENE_COMPONENT, group1_component_best_weights
+from core.train.group1.service import PROPOSAL_COMPONENT, QUERY_COMPONENT, resolve_group1_component_best_weights
 
 ModelTestExecutor = Callable[[ModelTestRequest], ModelTestResult]
 
@@ -81,8 +81,8 @@ def _build_model_test_request(request: TestRunnerRequest) -> ModelTestRequest:
     task = request.task
     dataset_config = request.dataset_config or default_dataset_config(request.train_root, task, request.dataset_version)
     if task == "group1":
-        model_path = request.model_path or group1_component_best_weights(request.train_root, request.train_name, SCENE_COMPONENT)
-        query_model_path = group1_component_best_weights(request.train_root, request.train_name, QUERY_COMPONENT)
+        model_path = request.model_path or resolve_group1_component_best_weights(request.train_root, request.train_name, PROPOSAL_COMPONENT)
+        query_model_path = resolve_group1_component_best_weights(request.train_root, request.train_name, QUERY_COMPONENT)
     else:
         model_path = request.model_path or default_best_weights(request.train_root, task, request.train_name)
         query_model_path = None

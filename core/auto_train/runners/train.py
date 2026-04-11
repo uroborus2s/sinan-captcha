@@ -21,10 +21,10 @@ from core.train.base import (
 )
 from core.train.group1.service import Group1TrainingJob, build_group1_training_job, execute_group1_training_job
 from core.train.group1.service import (
+    PROPOSAL_COMPONENT,
     QUERY_COMPONENT,
-    SCENE_COMPONENT,
-    group1_component_best_weights,
-    group1_component_last_weights,
+    resolve_group1_component_best_weights,
+    resolve_group1_component_last_weights,
 )
 from core.train.group2.service import Group2TrainingJob, build_group2_training_job, execute_group2_training_job
 
@@ -74,11 +74,15 @@ def run_training_request(
 
     if request.train_mode in {"resume", "from_run"}:
         if request.task == "group1":
-            component_resolver = group1_component_last_weights if request.train_mode == "resume" else group1_component_best_weights
+            component_resolver = (
+                resolve_group1_component_last_weights
+                if request.train_mode == "resume"
+                else resolve_group1_component_best_weights
+            )
             require_existing_path(
-                component_resolver(request.train_root, request.train_name if request.train_mode == "resume" else request.base_run or "", SCENE_COMPONENT),
+                component_resolver(request.train_root, request.train_name if request.train_mode == "resume" else request.base_run or "", PROPOSAL_COMPONENT),
                 stage="TRAIN",
-                label="group1 scene detector 检查点",
+                label="group1 proposal detector 检查点",
             )
             require_existing_path(
                 component_resolver(request.train_root, request.train_name if request.train_mode == "resume" else request.base_run or "", QUERY_COMPONENT),
@@ -141,10 +145,10 @@ def run_training_request(
     best_weights = default_best_weights(request.train_root, request.task, request.train_name)
     last_weights = default_last_weights(request.train_root, request.task, request.train_name)
     if request.task == "group1":
-        best_weights = group1_component_best_weights(request.train_root, request.train_name, SCENE_COMPONENT)
-        last_weights = group1_component_last_weights(request.train_root, request.train_name, SCENE_COMPONENT)
-        params["query_model_best"] = str(group1_component_best_weights(request.train_root, request.train_name, QUERY_COMPONENT))
-        params["query_model_last"] = str(group1_component_last_weights(request.train_root, request.train_name, QUERY_COMPONENT))
+        best_weights = resolve_group1_component_best_weights(request.train_root, request.train_name, PROPOSAL_COMPONENT)
+        last_weights = resolve_group1_component_last_weights(request.train_root, request.train_name, PROPOSAL_COMPONENT)
+        params["query_model_best"] = str(resolve_group1_component_best_weights(request.train_root, request.train_name, QUERY_COMPONENT))
+        params["query_model_last"] = str(resolve_group1_component_last_weights(request.train_root, request.train_name, QUERY_COMPONENT))
     return TrainRunnerResult(
         record=contracts.TrainRecord(
             task=request.task,
@@ -170,7 +174,7 @@ def _resolve_model(request: TrainRunnerRequest) -> str:
 
     if request.train_mode == "resume":
         if request.task == "group1":
-            return str(group1_component_last_weights(request.train_root, request.train_name, SCENE_COMPONENT))
+            return str(resolve_group1_component_last_weights(request.train_root, request.train_name, PROPOSAL_COMPONENT))
         return request.model or str(default_last_weights(request.train_root, request.task, request.train_name))
 
     if request.train_mode == "from_run":
@@ -189,7 +193,7 @@ def _resolve_model(request: TrainRunnerRequest) -> str:
                 retryable=False,
             )
         if request.task == "group1":
-            return str(_preferred_group1_component_weights(request.train_root, request.base_run, SCENE_COMPONENT))
+            return str(_preferred_group1_component_weights(request.train_root, request.base_run, PROPOSAL_COMPONENT))
         return str(preferred_run_checkpoint(request.train_root, request.task, request.base_run))
 
     if request.model is not None:
@@ -213,19 +217,19 @@ def _build_training_job(
     model: str,
 ) -> object:
     if request.task == "group1":
-        scene_model = None
+        proposal_model = None
         query_model = None
         if request.train_mode == "resume":
-            scene_model = str(group1_component_last_weights(request.train_root, request.train_name, SCENE_COMPONENT))
-            query_model = str(group1_component_last_weights(request.train_root, request.train_name, QUERY_COMPONENT))
+            proposal_model = str(resolve_group1_component_last_weights(request.train_root, request.train_name, PROPOSAL_COMPONENT))
+            query_model = str(resolve_group1_component_last_weights(request.train_root, request.train_name, QUERY_COMPONENT))
         elif request.train_mode == "from_run" and request.base_run is not None:
-            scene_model = str(_preferred_group1_component_weights(request.train_root, request.base_run, SCENE_COMPONENT))
+            proposal_model = str(_preferred_group1_component_weights(request.train_root, request.base_run, PROPOSAL_COMPONENT))
             query_model = str(_preferred_group1_component_weights(request.train_root, request.base_run, QUERY_COMPONENT))
         return build_group1_training_job(
             dataset_config=dataset_config,
             project_dir=project_dir,
             model=model,
-            scene_model=scene_model,
+            proposal_model=proposal_model,
             query_model=query_model,
             run_name=request.train_name,
             epochs=request.epochs,
@@ -255,6 +259,6 @@ def _build_training_job(
 
 
 def _preferred_group1_component_weights(train_root: Path, run_name: str, component: str) -> Path:
-    best = group1_component_best_weights(train_root, run_name, component)
-    last = group1_component_last_weights(train_root, run_name, component)
+    best = resolve_group1_component_best_weights(train_root, run_name, component)
+    last = resolve_group1_component_last_weights(train_root, run_name, component)
     return preferred_checkpoint_path(best, last)

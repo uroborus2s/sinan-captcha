@@ -12,7 +12,7 @@ class SolverAssetContractTests(unittest.TestCase):
         self.assertEqual(
             contract.MODEL_FILENAMES,
             {
-                "click_scene_detector": "click_scene_detector.onnx",
+                "click_proposal_detector": "click_proposal_detector.onnx",
                 "click_query_parser": "click_query_parser.onnx",
                 "slider_gap_locator": "slider_gap_locator.onnx",
             },
@@ -20,9 +20,9 @@ class SolverAssetContractTests(unittest.TestCase):
 
     def test_manifest_payload_contains_runtime_and_relative_paths(self) -> None:
         scene = contract.SolverOnnxModelAsset(
-            model_id="click_scene_detector",
+            model_id="click_proposal_detector",
             task="group1",
-            component="scene_detector",
+            component="proposal_detector",
             opset=17,
             input_names=("images",),
             output_names=("predictions",),
@@ -68,8 +68,8 @@ class SolverAssetContractTests(unittest.TestCase):
             "models/slider_gap_locator.onnx",
         )
         self.assertEqual(
-            payload["models"]["click_scene_detector"]["metadata"],
-            "metadata/click_scene_detector.json",
+            payload["models"]["click_proposal_detector"]["metadata"],
+            "metadata/click_proposal_detector.json",
         )
         self.assertEqual(
             payload["models"]["slider_gap_locator"]["input"]["image_size"],
@@ -88,10 +88,10 @@ class SolverAssetContractTests(unittest.TestCase):
             exported_at="2026-04-05T12:00:00Z",
             exported_models=(
                 contract.ExportedModelRecord(
-                    model_id="click_scene_detector",
-                    source_checkpoint="runs/group1/g1_firstpass/scene-detector/weights/best.pt",
-                    exported_model_path="models/click_scene_detector.onnx",
-                    exported_metadata_path="metadata/click_scene_detector.json",
+                    model_id="click_proposal_detector",
+                    source_checkpoint="runs/group1/g1_firstpass/proposal-detector/weights/best.pt",
+                    exported_model_path="models/click_proposal_detector.onnx",
+                    exported_metadata_path="metadata/click_proposal_detector.json",
                     sha256="abc123",
                 ),
                 contract.ExportedModelRecord(
@@ -108,7 +108,7 @@ class SolverAssetContractTests(unittest.TestCase):
 
         self.assertEqual(payload["group1_run"], "g1_firstpass")
         self.assertEqual(payload["group2_run"], "g2_firstpass")
-        self.assertEqual(payload["exported_models"][0]["model_id"], "click_scene_detector")
+        self.assertEqual(payload["exported_models"][0]["model_id"], "click_proposal_detector")
         self.assertFalse(payload["exported_models"][0]["source_checkpoint"].startswith("/"))
         self.assertFalse(payload["exported_models"][0]["exported_model_path"].startswith("/"))
 

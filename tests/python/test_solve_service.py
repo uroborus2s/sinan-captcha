@@ -46,10 +46,10 @@ class SolveBundleTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmpdir:
             root = Path(tmpdir)
             train_root = root / "train-root"
-            scene_weight = train_root / "runs" / "group1" / "firstpass" / "scene-detector" / "weights" / "best.pt"
+            proposal_weight = train_root / "runs" / "group1" / "firstpass" / "proposal-detector" / "weights" / "best.pt"
             query_weight = train_root / "runs" / "group1" / "firstpass" / "query-parser" / "weights" / "best.pt"
             group2_weight = train_root / "runs" / "group2" / "firstpass" / "weights" / "best.pt"
-            for path in (scene_weight, query_weight, group2_weight):
+            for path in (proposal_weight, query_weight, group2_weight):
                 path.parent.mkdir(parents=True, exist_ok=True)
                 path.write_text("weights", encoding="utf-8")
 
@@ -63,7 +63,7 @@ class SolveBundleTests(unittest.TestCase):
             loaded = bundle.load_solver_bundle(built.root)
             self.assertEqual(loaded.bundle_version, "current")
             self.assertTrue(loaded.manifest_path.exists())
-            self.assertTrue(loaded.scene_model_path.exists())
+            self.assertTrue(loaded.proposal_model_path.exists())
             self.assertTrue(loaded.query_model_path.exists())
             self.assertTrue(loaded.group2_model_path.exists())
 
@@ -169,7 +169,7 @@ def _fake_bundle() -> bundle.SolverBundle:
         root=fake_root,
         bundle_version="bundle_20260405",
         manifest_path=fake_root / "manifest.json",
-        scene_model_path=fake_root / "models" / "group1" / "scene-detector" / "model.pt",
+        proposal_model_path=fake_root / "models" / "group1" / "proposal-detector" / "model.pt",
         query_model_path=fake_root / "models" / "group1" / "query-parser" / "model.pt",
         matcher_config_path=fake_root / "models" / "group1" / "matcher" / "config.json",
         group2_model_path=fake_root / "models" / "group2" / "locator" / "model.pt",

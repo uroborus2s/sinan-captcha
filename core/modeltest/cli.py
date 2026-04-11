@@ -8,9 +8,9 @@ from pathlib import Path
 from core.modeltest.service import ModelTestRequest, build_model_test_jobs, run_model_test
 from core.train.base import default_best_weights, default_dataset_config, default_predict_source, default_report_dir
 from core.train.group1.service import (
+    PROPOSAL_COMPONENT,
     QUERY_COMPONENT,
-    SCENE_COMPONENT,
-    group1_component_best_weights,
+    resolve_group1_component_best_weights,
 )
 
 
@@ -28,7 +28,8 @@ def build_parser() -> argparse.ArgumentParser:
         help="optional; defaults to <cwd>/datasets/group1/<dataset-version>/dataset.json",
     )
     group1_parser.add_argument("--dataset-version", default="v1")
-    group1_parser.add_argument("--scene-model", type=Path, required=False)
+    group1_parser.add_argument("--proposal-model", dest="proposal_model", type=Path, required=False)
+    group1_parser.add_argument("--scene-model", dest="proposal_model", type=Path, required=False, help=argparse.SUPPRESS)
     group1_parser.add_argument("--query-model", type=Path, required=False)
     group1_parser.add_argument("--train-name", default="v1")
     group1_parser.add_argument(
@@ -97,14 +98,14 @@ def main(argv: list[str] | None = None) -> int:
     report_dir = args.report_dir or (project_dir / f"test_{args.train_name}")
 
     if task == "group1":
-        scene_model = args.scene_model or group1_component_best_weights(train_root, args.train_name, SCENE_COMPONENT)
-        query_model = args.query_model or group1_component_best_weights(train_root, args.train_name, QUERY_COMPONENT)
+        proposal_model = args.proposal_model or resolve_group1_component_best_weights(train_root, args.train_name, PROPOSAL_COMPONENT)
+        query_model = args.query_model or resolve_group1_component_best_weights(train_root, args.train_name, QUERY_COMPONENT)
         request = ModelTestRequest(
             task=task,
             dataset_version=args.dataset_version,
             train_name=args.train_name,
             dataset_config=dataset_config,
-            model_path=scene_model,
+            model_path=proposal_model,
             query_model_path=query_model,
             source=source,
             project_dir=project_dir,

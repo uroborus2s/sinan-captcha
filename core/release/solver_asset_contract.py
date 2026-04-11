@@ -19,7 +19,7 @@ METADATA_FILES = {
     "export_report": "metadata/export_report.json",
 }
 MODEL_FILENAMES = {
-    "click_scene_detector": "click_scene_detector.onnx",
+    "click_proposal_detector": "click_proposal_detector.onnx",
     "click_query_parser": "click_query_parser.onnx",
     "slider_gap_locator": "slider_gap_locator.onnx",
 }

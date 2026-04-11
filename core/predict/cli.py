@@ -8,10 +8,10 @@ from pathlib import Path
 from core.predict.service import PredictionJob, execute_prediction_job
 from core.train.base import default_best_weights, default_dataset_config, default_predict_source, default_report_dir
 from core.train.group1.service import (
+    PROPOSAL_COMPONENT,
     QUERY_COMPONENT,
-    SCENE_COMPONENT,
     build_group1_prediction_job,
-    group1_component_best_weights,
+    resolve_group1_component_best_weights,
     run_group1_prediction_job,
 )
 from core.train.group2.service import build_group2_prediction_job, run_group2_prediction_job
@@ -30,7 +30,8 @@ def build_parser() -> argparse.ArgumentParser:
         required=False,
         help="optional; defaults to <cwd>/datasets/group1/<dataset-version>/dataset.json",
     )
-    group1_parser.add_argument("--scene-model", type=Path, required=False)
+    group1_parser.add_argument("--proposal-model", dest="proposal_model", type=Path, required=False)
+    group1_parser.add_argument("--scene-model", dest="proposal_model", type=Path, required=False, help=argparse.SUPPRESS)
     group1_parser.add_argument("--query-model", type=Path, required=False)
     group1_parser.add_argument("--train-name", default="v1")
     group1_parser.add_argument(
@@ -84,11 +85,11 @@ def main(argv: list[str] | None = None) -> int:
     if task == "group1":
         dataset_config = args.dataset_config or default_dataset_config(train_root, task, args.dataset_version)
         source = args.source or default_predict_source(train_root, task, args.dataset_version)
-        scene_model = args.scene_model or group1_component_best_weights(train_root, args.train_name, SCENE_COMPONENT)
-        query_model = args.query_model or group1_component_best_weights(train_root, args.train_name, QUERY_COMPONENT)
+        proposal_model = args.proposal_model or resolve_group1_component_best_weights(train_root, args.train_name, PROPOSAL_COMPONENT)
+        query_model = args.query_model or resolve_group1_component_best_weights(train_root, args.train_name, QUERY_COMPONENT)
         job = build_group1_prediction_job(
             dataset_config=dataset_config,
-            scene_model_path=scene_model,
+            proposal_model_path=proposal_model,
             query_model_path=query_model,
             source=source,
             project_dir=project_dir,

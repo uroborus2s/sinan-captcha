@@ -32,7 +32,7 @@ class PredictionCliTests(unittest.TestCase):
         output = buffer.getvalue()
         self.assertIn("uv run python -m core.train.group1.runner predict", output)
         self.assertIn("--dataset-config D:/sinan-captcha-work/datasets/group1/firstpass/dataset.json", output)
-        self.assertIn("--scene-model D:/sinan-captcha-work/runs/group1/firstpass/scene-detector/weights/best.pt", output)
+        self.assertIn("--proposal-model D:/sinan-captcha-work/runs/group1/firstpass/proposal-detector/weights/best.pt", output)
         self.assertIn("--query-model D:/sinan-captcha-work/runs/group1/firstpass/query-parser/weights/best.pt", output)
         self.assertIn("--source D:/sinan-captcha-work/datasets/group1/firstpass/splits/val.jsonl", output)
         self.assertIn("--project D:/sinan-captcha-work/reports/group1", output)
@@ -73,17 +73,15 @@ class ModelTestServiceTests(unittest.TestCase):
                 (
                     "{\n"
                     '  "task": "group1",\n'
-                    '  "format": "sinan.group1.pipeline.v1",\n'
+                    '  "format": "sinan.group1.instance_matching.v1",\n'
                     '  "splits": {\n'
                     '    "train": "splits/train.jsonl",\n'
                     '    "val": "splits/val.jsonl",\n'
                     '    "test": "splits/test.jsonl"\n'
                     "  },\n"
-                    '  "components": {\n'
-                    '    "scene_detector": {"format":"yolo.detect.v1","dataset_yaml":"scene-yolo/dataset.yaml"},\n'
-                    '    "query_parser": {"format":"yolo.detect.v1","dataset_yaml":"query-yolo/dataset.yaml"}\n'
-                    "  },\n"
-                    '  "matcher": {"strategy":"ordered_class_match_v1"}\n'
+                    '  "proposal_detector": {"format":"yolo.detect.v1","dataset_yaml":"proposal-yolo/dataset.yaml"},\n'
+                    '  "embedding": {"format":"sinan.group1.embedding.v1","queries_dir":"embedding/queries","candidates_dir":"embedding/candidates","pairs_jsonl":"embedding/pairs.jsonl","triplets_jsonl":"embedding/triplets.jsonl"},\n'
+                    '  "eval": {"format":"sinan.group1.eval.v1","labels_jsonl":"eval/labels.jsonl"}\n'
                     "}\n"
                 ),
                 encoding="utf-8",
@@ -91,19 +89,19 @@ class ModelTestServiceTests(unittest.TestCase):
             source = dataset_dir / "splits" / "val.jsonl"
             source.write_text(
                 (
-                    '{"sample_id":"g1_000001","query_image":"query-yolo/images/val/g1_000001.png",'
-                    '"scene_image":"scene-yolo/images/val/g1_000001.png","query_targets":[{"order":1,"class":"icon_house",'
-                    '"class_id":0,"bbox":[8,8,28,28],"center":[18,18]}],"scene_targets":[{"order":1,"class":"icon_house",'
-                    '"class_id":0,"bbox":[80,32,120,72],"center":[100,52]}],"distractors":[],"label_source":"gold",'
+                    '{"sample_id":"g1_000001","query_image":"eval/query/val/g1_000001.png",'
+                    '"scene_image":"eval/scene/val/g1_000001.png","query_items":[{"order":1,"asset_id":"asset_house","template_id":"tpl_house","variant_id":"var_outline",'
+                    '"bbox":[8,8,28,28],"center":[18,18]}],"scene_targets":[{"order":1,"asset_id":"asset_house","template_id":"tpl_house",'
+                    '"variant_id":"var_outline","bbox":[80,32,120,72],"center":[100,52]}],"distractors":[],"label_source":"gold",'
                     '"source_batch":"batch_0001"}\n'
                 ),
                 encoding="utf-8",
             )
-            scene_model_path = root / "runs" / "group1" / "firstpass" / "scene-detector" / "weights" / "best.pt"
+            proposal_model_path = root / "runs" / "group1" / "firstpass" / "proposal-detector" / "weights" / "best.pt"
             query_model_path = root / "runs" / "group1" / "firstpass" / "query-parser" / "weights" / "best.pt"
-            scene_model_path.parent.mkdir(parents=True)
+            proposal_model_path.parent.mkdir(parents=True)
             query_model_path.parent.mkdir(parents=True)
-            scene_model_path.write_bytes(b"pt")
+            proposal_model_path.write_bytes(b"pt")
             query_model_path.write_bytes(b"pt")
 
             project_dir = root / "reports" / "group1"
@@ -137,7 +135,7 @@ class ModelTestServiceTests(unittest.TestCase):
                                 dataset_version="firstpass",
                                 train_name="firstpass",
                                 dataset_config=dataset_config,
-                                model_path=scene_model_path,
+                                model_path=proposal_model_path,
                                 query_model_path=query_model_path,
                                 source=source,
                                 project_dir=project_dir,
