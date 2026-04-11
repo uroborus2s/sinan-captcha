@@ -1433,7 +1433,40 @@ def _rasterize_svg(
                 if generated.exists():
                     _emit_progress(progress_reporter, "SVG 光栅化成功", {"command": command[0]})
                     return Image.open(generated).convert("RGBA")
-    raise RuntimeError("could not rasterize svg with sips, qlmanage, magick, rsvg-convert or inkscape")
+        _emit_progress(progress_reporter, "尝试光栅化 SVG", {"command": "svglib"})
+        try:
+            image = _load_svglib_renderer()(prepared_svg)
+        except Exception as exc:
+            _emit_progress(
+                progress_reporter,
+                "SVG 光栅化命令失败",
+                {"command": "svglib", "error": str(exc)},
+            )
+        else:
+            _emit_progress(progress_reporter, "SVG 光栅化成功", {"command": "svglib"})
+            return image
+    raise RuntimeError(
+        "could not rasterize svg with sips, qlmanage, magick, "
+        "rsvg-convert, inkscape or svglib"
+    )
+
+
+def _load_svglib_renderer() -> Callable[[str], Any]:
+    try:
+        from reportlab.graphics import renderPM
+        from svglib.svglib import svg2rlg
+    except Exception as exc:  # pragma: no cover - host env dependent
+        raise RuntimeError(
+            "当前环境缺少 svglib/reportlab，请重新执行 `uv sync --group train`，或重建训练目录环境。"
+        ) from exc
+
+    def _render(svg_markup: str) -> Any:
+        drawing = svg2rlg(io.BytesIO(svg_markup.encode("utf-8")))
+        if drawing is None:
+            raise RuntimeError("svglib returned no drawing")
+        return renderPM.drawToPIL(drawing).convert("RGBA")
+
+    return _render
 
 
 def _prepare_svg_markup(svg_text: str) -> str:

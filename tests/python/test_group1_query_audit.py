@@ -490,6 +490,29 @@ class Group1QueryAuditTests(unittest.TestCase):
         self.assertIn("下载候选图标成功", joined)
         self.assertIn("模板下载候选处理完成", joined)
 
+    def test_rasterize_svg_falls_back_to_svglib_when_system_commands_are_unavailable(self) -> None:
+        messages: list[str] = []
+        expected = Image.new("RGBA", (32, 32), (0, 0, 0, 255))
+
+        with patch(
+            "materials.query_audit.subprocess.run",
+            side_effect=FileNotFoundError("[WinError 2]"),
+        ):
+            with patch(
+                "materials.query_audit._load_svglib_renderer",
+                return_value=lambda _svg: expected,
+            ):
+                image = query_audit_module._rasterize_svg(
+                    '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"></svg>',
+                    progress_reporter=messages.append,
+                )
+
+        self.assertEqual(image.size, (32, 32))
+        joined = "\n".join(messages)
+        self.assertIn("SVG 光栅化命令失败", joined)
+        self.assertIn('"command": "svglib"', joined)
+        self.assertIn("SVG 光栅化成功", joined)
+
     def test_run_group1_query_audit_count_mismatch_is_warning_not_error(self) -> None:
         with tempfile.TemporaryDirectory() as tmpdir:
             repo_root = Path(tmpdir)

@@ -246,7 +246,7 @@ uv run sinan materials audit-group1-query \
 | `--quiet` | 关闭执行进度日志。默认会输出逐图识别、模板汇总、候选图标下载与 SVG 光栅化进度。 |
 | `--yes` | 非交互模式接受默认路径。 |
 
-自动下载的候选图标大多来自 SVG 图标库。Windows 环境若要稳定使用这些候选源，建议安装 ImageMagick、librsvg 或 Inkscape，并确保 `magick`、`rsvg-convert` 或 `inkscape` 可在 PowerShell 中直接执行；未安装时命令会继续尝试其他候选源，并在日志里输出具体失败命令。
+自动下载的候选图标大多来自 SVG 图标库。当前命令会优先尝试系统级 SVG 光栅化工具（如 `magick`、`rsvg-convert`、`inkscape`），若这些命令不存在，再回退到训练环境内置的 `svglib/reportlab` Python 光栅化链路。Windows 环境若是通过 `env setup-train` 创建的标准训练目录，更新到最新 `sinan-captcha[train]` 后通常不需要额外安装图形工具；若仍想提高成功率，仍可额外安装 ImageMagick、librsvg 或 Inkscape。
 
 #### 最小示例
 
