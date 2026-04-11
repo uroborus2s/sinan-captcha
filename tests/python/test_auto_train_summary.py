@@ -4,8 +4,8 @@ import tempfile
 import unittest
 from pathlib import Path
 
-from core.auto_train import contracts, layout, storage, summary
-from core.group2_semantics import GROUP2_LOCALIZATION_ALERT_CENTER_ERROR_PX
+from auto_train import contracts, layout, storage, summary
+from group2_semantics import GROUP2_LOCALIZATION_ALERT_CENTER_ERROR_PX
 
 
 class AutoTrainSummaryTests(unittest.TestCase):

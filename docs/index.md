@@ -51,19 +51,19 @@ mkdocs:
         - title: 概览
           path: 03-developer-guide/index.md
           access: public
-        - title: 独立 solver 包迁移与集成边界
+        - title: `sinanz` 集成与资产 staging
           path: 03-developer-guide/solver-bundle-and-integration.md
           access: private
-        - title: 开发者快速上手
+        - title: 接手与冷启动
           path: 03-developer-guide/maintainer-quickstart.md
           access: private
         - title: 仓库结构与边界
           path: 03-developer-guide/repository-structure-and-boundaries.md
           access: private
-        - title: 模块编译与本地验证
+        - title: 日常开发与验证
           path: 03-developer-guide/local-development-workflow.md
           access: private
-        - title: 打包与上传发布
+        - title: 构建、发版与交付
           path: 03-developer-guide/release-and-delivery-workflow.md
           access: private
     - title: 项目开发文档（内）

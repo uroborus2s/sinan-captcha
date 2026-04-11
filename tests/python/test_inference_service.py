@@ -4,24 +4,20 @@ import unittest
 from pathlib import Path
 from unittest.mock import patch
 
-from core.inference.service import map_group1_instances
+from inference.service import map_group1_instances
 
 
 class InferenceServiceTests(unittest.TestCase):
     def test_map_group1_instances_matches_by_visual_similarity(self) -> None:
-        query_targets = [
+        query_items = [
             {
                 "order": 1,
-                "class": "query_item_01",
-                "class_id": 0,
                 "bbox": [0, 0, 20, 20],
                 "center": [10, 10],
                 "image_path": "query_red",
             },
             {
                 "order": 2,
-                "class": "query_item_02",
-                "class_id": 1,
                 "bbox": [0, 0, 20, 20],
                 "center": [10, 10],
                 "image_path": "query_blue",
@@ -30,8 +26,6 @@ class InferenceServiceTests(unittest.TestCase):
         scene_detections = [
             {
                 "order": 1,
-                "class": "icon_object",
-                "class_id": 0,
                 "bbox": [0, 0, 20, 20],
                 "center": [10, 10],
                 "score": 0.98,
@@ -39,8 +33,6 @@ class InferenceServiceTests(unittest.TestCase):
             },
             {
                 "order": 2,
-                "class": "icon_object",
-                "class_id": 0,
                 "bbox": [0, 0, 20, 20],
                 "center": [10, 10],
                 "score": 0.97,
@@ -48,8 +40,6 @@ class InferenceServiceTests(unittest.TestCase):
             },
             {
                 "order": 3,
-                "class": "icon_object",
-                "class_id": 0,
                 "bbox": [0, 0, 20, 20],
                 "center": [10, 10],
                 "score": 0.96,
@@ -68,21 +58,20 @@ class InferenceServiceTests(unittest.TestCase):
             del fallback_image_path, embedding_provider
             return vectors[str(target["image_path"])]
 
-        with patch("core.inference.service._embedding_vector", side_effect=fake_embedding_vector):
-            result = map_group1_instances(query_targets, scene_detections)
+        with patch("inference.service._embedding_vector", side_effect=fake_embedding_vector):
+            result = map_group1_instances(query_items, scene_detections)
 
         self.assertEqual(result.status, "ok")
-        self.assertEqual([target.class_name for target in result.ordered_targets], ["query_item_01", "query_item_02"])
+        self.assertEqual([target.order for target in result.ordered_targets], [1, 2])
+        self.assertEqual([target.center for target in result.ordered_targets], [[10, 10], [10, 10]])
         self.assertEqual([target.score for target in result.ordered_targets], [1.0, 1.0])
         self.assertEqual(result.missing_orders, [])
         self.assertEqual(result.ambiguous_orders, [])
 
     def test_map_group1_instances_can_use_embedding_provider_for_crops(self) -> None:
-        query_targets = [
+        query_items = [
             {
                 "order": 1,
-                "class": "query_item_01",
-                "class_id": 0,
                 "bbox": [0, 0, 20, 20],
                 "center": [10, 10],
                 "embed_id": "query_red",
@@ -91,8 +80,6 @@ class InferenceServiceTests(unittest.TestCase):
         scene_detections = [
             {
                 "order": 1,
-                "class": "icon_object",
-                "class_id": 0,
                 "bbox": [20, 0, 40, 20],
                 "center": [30, 10],
                 "score": 0.98,
@@ -100,8 +87,6 @@ class InferenceServiceTests(unittest.TestCase):
             },
             {
                 "order": 2,
-                "class": "icon_object",
-                "class_id": 0,
                 "bbox": [40, 0, 60, 20],
                 "center": [50, 10],
                 "score": 0.97,
@@ -117,7 +102,7 @@ class InferenceServiceTests(unittest.TestCase):
         )
 
         result = map_group1_instances(
-            query_targets,
+            query_items,
             scene_detections,
             query_image_path=Path("/tmp/query.png"),
             scene_image_path=Path("/tmp/scene.png"),

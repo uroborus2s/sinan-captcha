@@ -1,5 +1,82 @@
 # 变更摘要
 
+## 2026-04-11 基于最新 monorepo 结构重构 `docs/03-developer-guide` 并同步开发者阅读路径
+
+- 已更新：
+  - `docs/03-developer-guide/index.md`
+  - `docs/03-developer-guide/maintainer-quickstart.md`
+  - `docs/03-developer-guide/repository-structure-and-boundaries.md`
+  - `docs/03-developer-guide/local-development-workflow.md`
+  - `docs/03-developer-guide/release-and-delivery-workflow.md`
+  - `docs/03-developer-guide/solver-bundle-and-integration.md`
+  - `packages/solver/README.md`
+  - `docs/index.md`
+  - `.factory/memory/current-state.md`
+  - `.factory/memory/change-summary.md`
+- 当前已完成的目标：
+  - 开发者指南已不再混用旧 `core/` 时代路径和新版 `src/` 直出布局
+  - 已明确根 `uv workspace`、独立 Go 模块、`work_home/`、`.opencode/` 和 `packages/solver/resources/` 的真实边界
+  - 已把开发者阅读路径重排为“接手 -> 边界 -> 日常开发 -> 构建发版 -> solver 集成”
+  - 已补上“命令入口 -> 代码入口”的冷启动索引
+  - 已补齐 `sinan release build-all`、`publish`、`export-solver-assets`、`stage-solver-assets`、`package-windows` 的当前行为说明
+  - 已明确 `sinanz` 的函数式入口、`CaptchaSolver` facade 与公共异常 / 类型边界
+  - 已修正 `packages/solver/README.md` 中对 solver 运行时依赖的过时表述
+  - 已明确 `packages/solver/resources/` 属于发布前 staging 输入而不是普通缓存
+- 待补充验证：
+  - 冷启动读者审查与意见回收
+
+## 2026-04-11 收口 `auto_train` 的 OpenCode 资源来源，并增加 pytest 结束后的脏数据自动清理
+
+- 已更新：
+  - `packages/sinan-captcha/src/auto_train/opencode_assets.py`
+  - `scripts/repo.py`
+  - `tests/python/conftest.py`
+  - `tests/python/test_auto_train_opencode_assets.py`
+  - `tests/python/test_repo_script.py`
+  - `tests/python/test_release_service.py`
+  - `tests/python/test_test_artifact_cleanup.py`
+  - `README.md`
+  - `docs/03-developer-guide/local-development-workflow.md`
+  - `docs/03-developer-guide/maintainer-quickstart.md`
+  - `.factory/memory/current-state.md`
+  - `.factory/memory/change-summary.md`
+- 当前已完成的目标：
+  - 根目录 `.opencode/` 已固定为唯一受 Git 管理的 OpenCode command / skill 事实源
+  - `packages/sinan-captcha/src/auto_train/resources/opencode` 不再作为常驻源码目录存在，只在 Python 包构建时临时 stage
+  - wheel / sdist 仍会带上 OpenCode 资源，安装包场景不受影响
+  - pytest 结束后会自动清理常见 Python 测试和构建脏数据，避免 `__pycache__`、`build/`、`*.egg-info`、工具缓存继续留在工作区
+- 已运行验证：
+  - `uv run pytest tests/python/test_auto_train_opencode_assets.py tests/python/test_setup_train.py tests/python/test_release_service.py tests/python/test_repo_script.py tests/python/test_auto_train_opencode_commands.py tests/python/test_auto_train_opencode_skills.py -q`
+  - `./.venv/bin/python scripts/repo.py build sinan-captcha`
+
+## 2026-04-11 将 `packages/sinan-captcha` 收口为真正的 `src/` 直出布局，并重划基础 CLI / 训练依赖边界
+
+- 已更新：
+  - `packages/sinan-captcha/pyproject.toml`
+  - `pyproject.toml`
+  - `packages/sinan-captcha/src/**`
+  - `tests/python/test_project_metadata.py`
+  - `tests/python/test_root_cli.py`
+  - `tests/python/test_release_service.py`
+  - `README.md`
+  - `packages/sinan-captcha/README.md`
+  - `docs/03-developer-guide/maintainer-quickstart.md`
+  - `docs/03-developer-guide/local-development-workflow.md`
+  - `docs/03-developer-guide/solver-bundle-and-integration.md`
+  - `scripts/README.md`
+  - `.factory/memory/current-state.md`
+  - `.factory/memory/change-summary.md`
+- 已删除：
+  - `packages/sinan-captcha/src/__init__.py`
+  - `packages/sinan-captcha/src/py.typed`
+- 当前已完成的目标：
+  - `packages/sinan-captcha` 已不再保留 `core/` 包前缀，源码现在直接落在 `src/auto_train`、`src/train`、`src/solve` 等功能包
+  - `sinan` CLI 入口已改为 `cli:main`
+  - 根 workspace 默认依赖已回到基础 `sinan-captcha`，训练栈改为显式 `uv sync --group train`
+  - `sinan-captcha[train]` 已收紧为非 CUDA 专属训练依赖；训练目录继续由 `setup-train` 按 backend 单独安装 `torch/torchvision/torchaudio`
+  - 根目录 `scripts/repo.py build ...` 与 `sinan release build-*` 当前已改为直接调用 Python 子项目的 `setuptools` build backend；Go 构建默认把 `GOCACHE` 写到 `work_home/.cache/go/`
+  - 用户指南、开发者指南和设计基线中与 `core/`、`materials/` 相关的当前路径说明已同步到 `packages/.../src` 与 `work_home/...`
+
 ## 2026-04-11 收口 `group1` reviewed / prelabel / auto-train` 的实例匹配合同
 
 - 已更新：
@@ -38,6 +115,56 @@
   - `./.venv/bin/python -m unittest discover -s tests/python -p 'test_evaluate_service.py'`
   - `./.venv/bin/python -m unittest discover -s tests/python -p 'test_auto_train_business_eval.py'`
   - `./.venv/bin/python -m unittest discover -s tests/python -p 'test_auto_train_runners.py'`
+
+## 2026-04-11 新增 `group1 prelabel-vlm`：本地 Ollama 多模态模型预标注入口
+
+- 已更新：
+  - `packages/sinan-captcha/src/train/prelabel.py`
+  - `packages/sinan-captcha/src/train/group1/cli.py`
+  - `tests/python/test_train_prelabel_service.py`
+  - `tests/python/test_training_jobs.py`
+  - `README.md`
+  - `docs/02-user-guide/prepare-business-exam-with-x-anylabeling.md`
+  - `docs/04-project-development/04-design/group1-instance-matching-refactor.md`
+  - `docs/04-project-development/05-development-process/group1-instance-matching-refactor-task-breakdown.md`
+  - `.factory/memory/current-state.md`
+  - `.factory/memory/change-summary.md`
+- 当前已完成的目标：
+  - `uv run sinan train group1 prelabel-vlm` 可直接扫描同名 `query + scene|scence` 图片对
+  - 该命令会调用本地 Ollama 多模态模型，并强制其返回 `query_items / scene_targets` 的严格 JSON
+  - 结果会转换为 `reviewed/query/*.json` 与 `reviewed/scene/*.json`，供 X-AnyLabeling 人工复核
+  - 中间产物会写入 `<pair-root>/.sinan/prelabel/group1/vlm/`：
+    - `source.jsonl`
+    - `labels.jsonl`
+    - `trace.jsonl`
+    - `summary.json`
+  - `query_items` 会按框中心自动重排为从左到右的 `order=1..N`
+  - `scene_targets` 会按模型返回顺序号归一化，并兼容缺失或重复顺序号
+- 已运行验证：
+  - `uv run pytest tests/python/test_train_prelabel_service.py tests/python/test_training_jobs.py -q`
+  - `uv run pytest tests/python/test_root_cli.py -q`
+
+## 2026-04-11 为 `group1 prelabel-vlm` 增加实时日志输出
+
+- 已更新：
+  - `packages/sinan-captcha/src/train/prelabel.py`
+  - `tests/python/test_train_prelabel_service.py`
+  - `.factory/memory/current-state.md`
+  - `.factory/memory/change-summary.md`
+- 当前已完成的目标：
+  - `uv run sinan train group1 prelabel-vlm ...` 执行时不再静默等待
+  - 命令会持续向 `stderr` 打印：
+    - 当前阶段
+    - sample_id
+    - prompt 内容
+    - 发送请求到 Ollama 的节点
+    - Ollama 原始响应 payload
+    - 提取后的模型文本内容
+    - 归一化后的目标数量
+  - 最终结构化结果仍只写到 `stdout`，不会污染原有 JSON 结果输出
+- 已运行验证：
+  - `uv run pytest tests/python/test_train_prelabel_service.py tests/python/test_training_jobs.py -q`
+  - `uv run pytest tests/python/test_root_cli.py -q`
 
 ## 2026-04-11 修复 `group1 query audit` 的部分落盘与失败重试
 
@@ -344,9 +471,10 @@
     - `asset_id`
     - `template_id`
     - `variant_id`
-  - 当前 `validate_group1_row()` 已支持新旧双读：
-    - 新 schema 走 `query_items + 实例身份`
-    - 旧 schema 暂时继续兼容 `query_targets + class/class_id`
+  - 当前 `validate_group1_row()` 已只保留新 schema：
+    - `query_items + scene_targets + asset_id/template_id/variant_id`
+    - reviewed 稀疏答案允许 `order + bbox + center`
+    - 旧 `query_targets + class/class_id` 已彻底删除
   - 当前 generator 的 `group1` 原始批次与 split JSONL 已改为输出：
     - 顶层 `query_items`
     - 对象级 `asset_id / template_id / variant_id`
@@ -469,12 +597,13 @@
     - `runs/group1/<train-name>/proposal-detector/weights/*.pt`
     - `--proposal-model`
     - `--component proposal-detector`
-  - 当前旧 `scene-detector` / `--scene-model` 仅作为兼容别名保留：
-    - CLI 仍可解析
-    - 读取历史 run 和 solver bundle 时会回退旧目录或旧 manifest key
+  - 当前旧 `scene-detector` / `--scene-model` 兼容别名已删除：
+    - CLI 不再解析旧参数
+    - solver bundle 不再回退旧目录或旧 manifest key
   - 当前 solver ONNX 资产合同也已切到：
     - `click_proposal_detector`
     - `proposal_detector`
+  - 当前旧 `class_names.json` 占位文件也已删除，只保留 `click_matcher.json`
   - 当前 `group1 modeltest` 中文报告口径已同步为：
     - `query parser + proposal detector + matcher`
 - 已运行验证：

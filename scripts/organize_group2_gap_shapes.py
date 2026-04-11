@@ -10,7 +10,7 @@ from dataclasses import asdict, dataclass
 from pathlib import Path
 from typing import Any
 
-from core.solve import group2_runtime
+from solve import group2_runtime
 
 ROOT_DIR = Path(__file__).resolve().parents[1]
 WORK_HOME_DIR = ROOT_DIR / "work_home"

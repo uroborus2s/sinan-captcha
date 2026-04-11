@@ -7,8 +7,8 @@ import unittest
 import zlib
 from pathlib import Path
 
-from core.common.jsonl import read_jsonl
-from core.exam.service import (
+from common.jsonl import read_jsonl
+from exam.service import (
     export_group1_reviewed_labels,
     export_group2_reviewed_labels,
     prepare_group1_exam_sources,

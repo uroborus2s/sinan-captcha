@@ -166,7 +166,7 @@ flowchart LR
 - 生成器控制层和数据导出主链路已存在
 - 训练 / 测试 / 评估主链路已存在
 - 自主训练控制器与 study 账本已存在
-- `core/solve` 与统一求解合同骨架已存在
+- `packages/sinan-captcha/src/solve` 与统一求解合同骨架已存在
 
 ### 当前仍需继续提升的部分
 

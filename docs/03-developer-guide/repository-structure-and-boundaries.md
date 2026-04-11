@@ -2,280 +2,228 @@
 
 - 文档状态：生效
 - 当前阶段：IMPLEMENTATION
-- 目标读者：维护仓库、调整 CLI、整理交付物的开发者
-- 负责人：Codex
+- 目标读者：维护仓库、排查路径问题、调整构建和交付边界的开发者
 - 最近更新：2026-04-11
 
-## 0. 这页解决什么问题
+## 这页解决什么问题
 
-这页只回答一件事：
+这页只回答一个问题：当前仓库里哪些是源码，哪些是默认运行目录，哪些是发布产物，哪些是中间 staging 目录。
 
-- 这个项目的源码仓库、运行目录、交付目录和 Git 边界到底怎么分
+如果边界没分清，最容易发生 4 类问题：
 
-如果这一层没先分清，后面最容易出现的问题就是：
+1. 把 `work_home/` 下的运行结果误提交进 Git。
+2. 把 `packages/solver/resources/` 当成普通缓存，导致 `sinanz` 打包资源失真。
+3. 把 `packages/generator` 错当成 `uv workspace` 成员，最后构建命令和依赖方式都写错。
+4. 把 `scripts/` 里的辅助脚本写成正式运行时依赖。
 
-- 把训练目录当成源码仓库的一部分
-- 把生成器工作区误当成安装目录
-- 把运行时产物提交进 Git
-- 把用户指南、开发者指南和内部设计文档混写
+## 顶层结构速览
 
-## 1. 先区分 5 个层次
-
-### 1.1 源码仓库
-
-也就是当前 Git 仓库本身。
-
-主要目录：
-
-- `packages/sinan-captcha/`
-- `packages/generator/`
-- `packages/solver/`
-- `scripts/`
-- `configs/`
-- `docs/`
-- `.factory/`
-- `bundles/`
-- `work_home/`
-
-这是维护者改代码、改文档、跑测试、构建交付物的地方。
-
-### 1.2 生成器安装目录
-
-这是交付给 Windows 机器使用的运行目录，不是源码目录。
-
-典型结构：
+当前仓库最关键的目录是：
 
 ```text
-D:\sinan-captcha-generator\
-  sinan-generator.exe
+sinan-captcha/
+  packages/
+    sinan-captcha/
+    generator/
+    solver/
+  docs/
+  scripts/
+  tests/
+  work_home/
+  .opencode/
+  .factory/
+  pyproject.toml
+  uv.lock
 ```
 
-这里放：
+## 源码边界
 
-- 生成器二进制
+### `packages/sinan-captcha/`
 
-说明：
+这是 Python 主线工程，负责：
 
-- 普通用户不需要在安装目录手工维护 `configs/*.yaml`
-- 生成器预设会在首次运行时自动展开到工作区 `presets/`
+- `sinan` CLI
+- 训练、预测、评估、发布
+- 自主训练控制器
+- 训练仓库内的本地 solver bundle 调试入口
 
-### 1.3 生成器工作区
+关键事实：
 
-这也是运行目录，但它承载的是生成器状态，不是安装文件。
+- 当前源码是 `src/` 直出布局，不再使用 `core/` 前缀。
+- 顶层功能包包括 `auto_train`、`train`、`solve`、`release`、`materials`、`predict` 等。
+- 根目录 `tests/python/` 是这条主线的主要测试面。
 
-典型结构：
+### `packages/generator/`
 
-```text
-D:\sinan-captcha-generator\workspace\
-  workspace.json
-  presets\
-  materials\
-  cache\
-  jobs\
-  logs\
-```
+这是独立 Go 模块，负责：
 
-这里放：
+- `sinan-generator`
+- 工作区管理
+- 素材导入 / 拉取
+- 训练数据集导出
+- 生成侧 QA
 
-- 当前激活素材集
-- 任务记录
-- 中间缓存
-- 日志
+关键事实：
 
-### 1.4 训练目录
+- 它不属于根 `uv workspace`。
+- 构建由 Go toolchain 完成，根目录只是额外提供了统一包装入口。
+- `configs/`、`cmd/`、`internal/` 都属于源码。
 
-训练目录同样是运行目录，不是源码目录。仓库内默认本地训练目录现在统一收口到 `work_home/`。
+### `packages/solver/`
 
-典型结构：
+这是独立 `sinanz` 包，负责：
 
-```text
-D:\sinan-captcha-work\
-  datasets\
-  runs\
-  reports\
-  materials\
-  .cache\
-```
+- 对外公开的 solver API
+- `onnxruntime` 纯 Python 运行时
+- 嵌入式 `resources/` 资产
 
-这里放：
+关键事实：
 
-- 数据集
-- 训练输出
-- 评估报告
-- 素材与缓存
+- 这是 `uv workspace` 成员。
+- `src/` 保存公共 API 和运行时代码。
+- `resources/` 是包资源的一部分，不是普通缓存目录。
+- `sinanz` 的独立包边界在这里；训练仓库里另有 `packages/sinan-captcha/src/solve/` 作为参考实现和 bundle 调试路径，不要混成同一层。
 
-### 1.5 solver 交付目录
+### `scripts/`
 
-最终调用方使用的 solver 目录也应独立于源码仓库和训练目录。
+这里只放开发期辅助脚本，例如：
 
-目标结构：
+- 素材整理和聚类
+- 爬取 / 浏览器驱动采样
+- 特定回归和分析脚本
+- `scripts/repo.py` 这类根目录开发包装器
 
-```text
-D:\sinan-solver\
-  python\
-  bundle\
-```
+硬边界：
 
-这里放：
+- `scripts/` 不是正式 CLI / SDK 入口。
+- 运行时代码不应 import 这里的脚本。
 
-- 可安装的 solver package/library
-- 独立复制的 bundle manifest 和模型文件
+## 运行目录边界
 
-这里不应放：
+### `work_home/`
 
-- 训练目录里的 `runs/`
-- 生成器工作区
-- 源码仓库副本
+这是仓库默认的本地运行根目录，`common.paths` 也会把它当成默认工作根。
 
-## 2. 双 CLI 的稳定边界
-
-### 2.1 `sinan-generator`
-
-职责只到这里为止：
-
-- 初始化工作区
-- 导入或同步素材
-- 生成训练样本
-- 做生成侧 QA
-- 直接导出任务专属训练数据集目录
-
-### 2.2 `sinan`
-
-职责从这里开始：
-
-- 初始化训练目录
-- 检查训练环境
-- 做数据工程和转换
-- 启动训练
-- 执行评估
-- 构建发布和交付物
-
-### 2.3 两者怎么交接
-
-稳定交接面有两个专项合同：
-
-- `group1`：instance-matching dataset 目录
-- `group1/dataset.json`
-- `group1/proposal-yolo/`
-- `group1/embedding/`
-- `group1/eval/`
-- `group1/splits/`
-- `group2`：paired dataset 目录
-- `group2/dataset.json`
-- `group2/master/`
-- `group2/tile/`
-- `group2/splits/`
-- `.sinan/`
-
-训练 CLI 的正式输入分别是：
-
-- `group1`：`--dataset-config <dataset-dir>/dataset.json`
-- `group2`：`--dataset-config <dataset-dir>/dataset.json`
-
-不要让训练 CLI 去直接读取生成器工作区，也不要让生成器承担训练环境初始化。
-
-## 3. 哪些目录是源码，哪些只是运行资产
-
-### 3.1 需要认真维护的源码目录
-
-- `packages/sinan-captcha/`
-- `packages/generator/`
-- `packages/solver/`
-- `scripts/`
-- `docs/`
-- `.factory/`
-- `configs/`
-- 根目录 `pyproject.toml`
-
-补充边界：
-
-- `packages/solver/` 是独立 solver 项目的源码目录。
-- `scripts/` 只放开发期辅助脚本，不进入正式 CLI / SDK 运行时边界。
-- `scripts/crawl/ctrip_login.py` 当前用于开发阶段采集携程验证码素材：
-  - 点选模式输出到 `work_home/materials/group1/`
-  - 滑块模式输出到 `work_home/materials/result/`
-  - 滑块图片当前保存为 `bg.jpg` 和 `gap.jpg`
-  - `两者都保存` 模式会连续保存滑块组，直到切到点选后再保存一组点选图并结束当前浏览器会话
-- `scripts/organize_group2_gap_shapes.py` 当前用于整理 `work_home/materials/result/*/gap.jpg`：
-  - 按轮廓特征做稳定去重
-  - 文件名按“短家族名 + 短特征码”生成，不再依赖 `_alt_001` 这类数字补丁名
-  - 基名当前控制在 `20` 个字符以内，且保持无数字命名
-  - 当短特征码碰撞时，当前会自动拉长特征码，但仍不超过 `20` 个字符
-  - 代表图输出到 `work_home/materials/incoming/group2/`
-  - 同一轮廓特征只保留一个代表图，并写出 `manifest.json`
-
-### 3.2 可以出现样例或占位，但不应把运行结果当源码维护的目录
+这里通常出现：
 
 - `work_home/materials/`
 - `work_home/datasets/`
 - `work_home/reports/`
 - `work_home/.cache/`
-- `dist/`
+
+这些内容属于本地运行产物，不是正式源码事实源。
+
+### 训练目录
+
+真实训练机不必直接使用仓库根目录，而应通过下面命令创建独立训练目录：
+
+```bash
+uv run sinan env setup-train --train-root <训练目录>
+```
+
+这个目录通常包含：
+
+- `datasets/`
+- `runs/`
+- `reports/`
+- `.opencode/`
+
+它是运行目录，不是源码目录。
+
+### 生成器安装目录与工作区
+
+生成器交付后通常拆成两层：
+
+- 安装目录：
+  放 `sinan-generator` 可执行文件
+- 工作区：
+  放 `workspace.json`、素材包、缓存、日志、任务状态
+
+不要把生成器工作区混进源码仓库，也不要让训练 CLI 直接读取生成器工作区内部状态。
+
+## 构建与 staging 边界
+
+### `packages/*/dist/`
+
+这些是构建产物目录：
+
 - `packages/sinan-captcha/dist/`
 - `packages/generator/dist/`
 - `packages/solver/dist/`
 
-这些目录里允许存在：
+特点：
 
-- `.gitkeep`
-- 样例结构
-- 交付产物占位
+- 每次构建前会被清理。
+- 它们是输出，不是源码。
+- 一般不应把构建文件长期提交进 Git。
 
-但不应把运行时生成结果当成长久事实源。
+### `packages/solver/resources/`
 
-## 4. 什么不能提交到 Git
+这是最容易误判的目录。
 
-至少包括：
+它既不是普通临时目录，也不是训练产线原始输出目录。它的角色是：
+
+- `sinanz` 打包时的真实资源输入
+- `stage-solver-assets` 的目标目录
+- 下一次 `packages/solver/dist/` 构建时会被一起打入 wheel 的资产区
+
+因此这里的改动要分两类看：
+
+- `README.md`、占位结构、资源契约说明：
+  属于源码
+- `stage-solver-assets` 写入的 `manifest.json`、`metadata/*.json`、`models/*`：
+  属于有意的发布前 staging 变更，应结合当前资产版本审阅，而不是当成随机缓存直接忽略
+
+### `.opencode/`
+
+根目录 `.opencode/` 是唯一受 Git 管理的资源源目录。
+
+两个派生位置都不应当被当作主事实源：
+
+- `packages/sinan-captcha/src/auto_train/resources/opencode/`
+  只在构建 wheel / sdist 时临时 stage
+- `<训练目录>/.opencode/`
+  只在 `env setup-train` 时复制给训练机使用
+
+## Git 边界
+
+默认需要认真维护的目录：
+
+- `packages/`
+- `docs/`
+- `scripts/`
+- `tests/`
+- `.factory/`
+- `.opencode/`
+- 根目录 `pyproject.toml`
+- 根目录 `uv.lock`
+
+默认需要警惕的运行 / 构建目录：
 
 - `.venv/`
-- `__pycache__/`
-- `*.egg-info`
-- `packages/*/dist/` 下的构建产物
-- 训练输出 `runs/`
-- 评估导出物
-- 运行时生成的 `backgrounds.csv`、`group1.icons.csv`、`group2.shapes.csv`
 - `work_home/`
+- `packages/*/dist/`
+- `packages/*/build/`
+- `*.egg-info`
+- `__pycache__/`
+- `.pytest_cache`
+- `.ruff_cache`
+- `.mypy_cache`
 
 提交前至少做两件事：
 
-1. 看一次 `git status --short`
-2. 跑一次 `git diff --check`
+```bash
+git status --short
+git diff --check
+```
 
-## 5. 文档也有边界
+## 文档边界
 
-### 5.1 用户指南
+- `docs/02-user-guide/`
+  面向训练机使用者和业务接入者
+- `docs/03-developer-guide/`
+  面向维护源码仓库的人
+- `docs/04-project-development/`
+  面向内部设计、需求、计划和追踪
 
-只回答：
-
-- 怎样在 Windows 机器上安装、生成、训练、验证
-
-不要把维护者阅读顺序、源码目录说明和内部演进记录塞回用户指南。
-
-### 5.2 开发者指南
-
-只回答：
-
-- 维护者如何接手、修改、验证和发布这套工程
-
-### 5.3 项目开发文档（内）
-
-这里才放：
-
-- 治理
-- 需求
-- 设计
-- 过程
-- 发布策略
-- 运维规则
-
-开发者指南不要复制一整套内部设计结论，只链接到需要看的地方。
-
-## 6. 这页完成标志
-
-如果你已经能清楚回答下面 5 个问题，就说明这页目的达到了：
-
-1. 源码仓库和训练目录是不是一回事
-2. 生成器安装目录和生成器工作区是不是一回事
-3. `sinan-generator` 和 `sinan` 的交接面是什么
-4. 哪些运行时目录不该进 Git
-5. 某条说明应该写进用户指南、开发者指南还是内部设计文档
+不要把“如何维护仓库”和“如何使用交付包”写在同一页，也不要把内部设计决策塞回开发者快速手册。

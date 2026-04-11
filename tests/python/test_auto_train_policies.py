@@ -2,8 +2,8 @@ from __future__ import annotations
 
 import unittest
 
-from core.auto_train import contracts, policies
-from core.group2_semantics import GROUP2_LOCALIZATION_ALERT_CENTER_ERROR_PX
+from auto_train import contracts, policies
+from group2_semantics import GROUP2_LOCALIZATION_ALERT_CENTER_ERROR_PX
 
 
 def _group1_summary(

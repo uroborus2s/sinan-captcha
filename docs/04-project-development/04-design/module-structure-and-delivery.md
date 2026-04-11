@@ -43,34 +43,28 @@ sinan-captcha/
   uv.lock
   README.md
   .gitignore
+  packages/
+    sinan-captcha/
+    generator/
+    solver/
+  scripts/
   docs/
-  generator/
-  core/
-  solver/
-  script/
   tests/
   configs/
-  materials/
-  datasets/
-  reports/
-  bundles/
-  dist/
+  work_home/
+  .factory/
 ```
 
 说明：
 
-- `generator/`：Go 生成器工程
-- `core/`：Python 训练、评估、发布、自主训练与迁移期 solver 参考实现
-- `solver/`：独立 solver Python 项目过渡目录，后续可抽离为单独仓库
-- `solver/native/`：独立 solver 的 Rust 原生扩展工程
-- `script/`：开发期辅助脚本目录，不属于正式运行时模块
+- `packages/sinan-captcha/`：Python 训练、评估、发布、自主训练与迁移期 solver 参考实现
+- `packages/generator/`：Go 生成器工程
+- `packages/solver/`：独立 solver Python 项目过渡目录，后续可抽离为单独仓库
+- `scripts/`：开发期辅助脚本目录，不属于正式运行时模块
 - `tests/`：Go 和 Python 测试
 - `configs/`：运行配置
-- `materials/`：素材或素材包构建结果
-- `datasets/`：运行时数据目录
-- `reports/`：评估与 QA 报告
-- `bundles/`：训练仓库导出的推理资产或迁移期 bundle
-- `dist/`：构建产物目录
+- `work_home/`：开发期运行目录，统一放素材、数据、报告、缓存与 bundle
+- `.factory/`：工厂控制面与项目记忆
 
 ## 3. 正式代码模块
 
@@ -100,7 +94,7 @@ sinan-captcha/
 ## 4. Go 主线目录
 
 ```text
-generator/
+packages/generator/
   go.mod
   cmd/
     sinan-generator/
@@ -117,7 +111,7 @@ generator/
     truth/
 ```
 
-### 4.1 `generator/cmd/sinan-generator`
+### 4.1 `packages/generator/cmd/sinan-generator`
 
 - 职责：
   - 生成器总 CLI
@@ -125,12 +119,12 @@ generator/
   - `materials import|fetch`
   - `make-dataset`
 - 构建：
-  - `go build -o ../dist/generator/windows-amd64/sinan-generator.exe ./cmd/sinan-generator`
+  - `uv run python scripts/repo.py build generator --goos windows --goarch amd64`
 - 交付：
   - Windows 下单独 `.exe`
   - Linux 下单独二进制
 
-### 4.2 `generator/internal/*`
+### 4.2 `packages/generator/internal/*`
 
 - `material`：素材骨架与完整解码校验
 - `backend`：`native` 与未来 adapter 接口
@@ -141,26 +135,29 @@ generator/
 ## 5. Python 主线目录
 
 ```text
-core/
-  __init__.py
-  cli.py
-  common/
-  dataset/
-  materials/
-  autolabel/
-  convert/
-  ops/
-  release/
-  solve/
-  auto_train/
-  train/
-    group1/
-    group2/
-  inference/
-  evaluate/
+packages/sinan-captcha/
+  pyproject.toml
+  src/
+    cli.py
+    common/
+    dataset/
+    materials/
+    autolabel/
+    ops/
+    release/
+    solve/
+    auto_train/
+    train/
+      group1/
+      group2/
+    inference/
+    evaluate/
+    predict/
+    modeltest/
+    exam/
 ```
 
-### 5.1 `core/cli.py`
+### 5.1 `packages/sinan-captcha/src/cli.py`
 
 - 职责：
   - Python 侧总入口
@@ -169,47 +166,47 @@ core/
   - 不承担最终 solver 公开入口
   - 训练仓库里的 `solve` 只保留迁移期调试和资产验收价值
 
-### 5.2 `core/dataset`
+### 5.2 `packages/sinan-captcha/src/dataset`
 
 - 职责：
   - JSONL schema 校验
   - 数据集元信息
   - 类别表加载
 
-### 5.3 `core/materials`
+### 5.3 `packages/sinan-captcha/src/materials`
 
 - 职责：
   - 构建离线 `materials/` 包
-  - 生成 `materials.yaml`、`group1.classes.yaml`、`group2.shapes.yaml`
+  - 生成 `materials.yaml`、`group1.templates.yaml`、`group2.shapes.yaml`
   - 生成 `backgrounds.csv`、`group1.icons.csv`、`group2.shapes.csv`
 
-### 5.4 `core/autolabel` 与 `core/convert`
+### 5.4 `packages/sinan-captcha/src/autolabel`
 
 - 职责：
   - 预标注
   - 审核结果转训练数据
   - 输出 `group1` pipeline dataset 和 `group2` paired dataset
 
-### 5.5 `core/train/group1`
+### 5.5 `packages/sinan-captcha/src/train/group1`
 
 - 职责：
-  - `group1` 双模型训练
+  - `group1` 训练
   - 训练参数组织、校验与摘要
 
-### 5.6 `core/train/group2`
+### 5.6 `packages/sinan-captcha/src/train/group2`
 
 - 职责：
   - `group2` paired-input 训练
   - 检查点、超参数和训练摘要
 
-### 5.7 `core/inference` 与 `core/evaluate`
+### 5.7 `packages/sinan-captcha/src/inference` 与 `packages/sinan-captcha/src/evaluate`
 
-- `core/inference`：
+- `packages/sinan-captcha/src/inference`：
   - 推理结果到业务语义的映射
-- `core/evaluate`：
+- `packages/sinan-captcha/src/evaluate`：
   - 任务级指标、失败样本和报告
 
-### 5.8 `core/auto_train`
+### 5.8 `packages/sinan-captcha/src/auto_train`
 
 - 职责：
   - study / trial 账本
@@ -217,7 +214,7 @@ core/
   - `opencode` runtime 接入
   - fallback 和策略控制
 
-### 5.9 `core/solve`
+### 5.9 `packages/sinan-captcha/src/solve`
 
 - 职责：
   - 迁移期参考实现
@@ -228,21 +225,24 @@ core/
   - 代码已存在
   - 不应继续被定义为最终公开产品边界
 
-### 5.10 `solver/`
+### 5.10 `packages/solver/`
 
 - 目标目录：
 
 ```text
-solver/
+packages/solver/
   pyproject.toml
   resources/
     models/
     metadata/
+  cli.py
   src/
     sinanz.py
     sinanz_errors.py
     sinanz_types.py
     sinanz_image_io.py
+    sinanz_group1_runtime.py
+    sinanz_group1_service.py
     sinanz_group2_runtime.py
     sinanz_group2_service.py
     sinanz_resources.py
@@ -258,7 +258,7 @@ solver/
   - 第一阶段允许作为当前仓库内的独立 Python 子项目存在
   - 第二阶段可整体抽离为独立仓库，不改变包名和函数名
 
-### 5.11 `core/release`
+### 5.11 `packages/sinan-captcha/src/release`
 
 - 职责：
   - 本地构建 wheel / sdist
@@ -271,7 +271,7 @@ solver/
 
 ## 6. 资产目录
 
-### 6.1 `materials/`
+### 6.1 `work_home/materials/`
 
 - 内容：
   - 背景图
@@ -288,7 +288,7 @@ solver/
   - 不打进 Go 二进制
   - 作为独立运行资产管理
 
-### 6.2 `datasets/`
+### 6.2 `work_home/datasets/`
 
 - 内容：
   - 原始样本
@@ -296,14 +296,14 @@ solver/
   - `group1` pipeline dataset
   - `group2` paired dataset
 
-### 6.3 `reports/`
+### 6.3 `work_home/reports/`
 
 - 内容：
   - QA 报告
   - 评估报告
   - 失败样本清单
 
-### 6.4 `bundles/`
+### 6.4 `work_home/bundles/`
 
 - 内容：
   - `solver/<bundle-name>/manifest.json`
@@ -321,7 +321,7 @@ solver/
 - 开发期运行：
   - `go run ./cmd/sinan-generator --help`
 - 正式编译：
-  - `go build -o ../dist/generator/windows-amd64/sinan-generator.exe ./cmd/sinan-generator`
+  - `uv run python scripts/repo.py build generator`
 - 交付形态：
   - `sinan-generator.exe`
   - 可选素材包
@@ -332,18 +332,18 @@ solver/
   - `uv sync`
   - `uv run python -m unittest discover -s tests/python -p 'test_*.py'`
 - 正式打包：
-  - `uv build`
+  - `uv run python scripts/repo.py build sinan-captcha`
 - 交付形态：
-  - `dist/*.whl`
-  - `dist/*.tar.gz`
+  - `packages/sinan-captcha/dist/*.whl`
+  - `packages/sinan-captcha/dist/*.tar.gz`
 
 ### 7.3 内部 solver 资产包
 
 - 设计目标入口：
   - `uv run sinan release export-solver-assets --project-dir . --group2-checkpoint runs/group2/<train-name>/weights/best.pt --group2-run <train-name> --output-dir dist/solver-assets/<version> --asset-version <version>`
 - 交接形态：
-  - `bundles/solver/<bundle-name>/`
-  - 或 `dist/solver-assets/<version>/`
+  - `work_home/bundles/solver/<bundle-name>/`
+  - 或 `packages/sinan-captcha/dist/solver-assets/<version>/`
 - 说明：
   - 这批资产用于喂给独立 solver 项目构建 wheel
   - 不再视为最终调用方主安装面
@@ -364,9 +364,9 @@ solver/
 ### 7.5 独立 solver 包
 
 - 目标目录：
-  - `solver/`
+  - `packages/solver/`
 - 正式打包：
-  - `cd solver && uv build`
+  - `uv run python scripts/repo.py build solver`
 - 正式交付形态：
   - `sinanz-<version>-cp312-<platform>.whl`
 - 安装形态：
@@ -380,30 +380,30 @@ solver/
 
 | 子模块 | 语言 | 打包产物 | 部署位置 |
 |---|---|---|---|
-| `generator/cmd/sinan-generator` | Go | `.exe` / 二进制 | 训练机本地 |
-| `core/cli.py` | Python | wheel console script | Python 环境 |
-| `core/train/*` | Python | wheel 内部模块 | Python 环境 |
-| `core/auto_train/*` | Python | wheel 内部模块 | Python 环境 |
-| `core/solve/*` | Python | 迁移参考实现 / 内部调试能力 | 训练仓库内部 |
-| `solver/src/sinanz/*` | Python | 独立 solver wheel（含内嵌推理资产） | 调用方 Python 环境 |
-| `core/release/*` | Python | wheel 内部模块 | Python 环境 |
-| `materials/*` | 图片 / YAML | 素材包 | 训练机本地 |
-| `datasets/*` | 图片 / JSONL | 数据目录 | 训练机本地 |
-| `bundles/solver/*` | PT / JSON | 推理资产交接目录 | 训练仓库 / 构建流程 |
-| `reports/*` | Markdown / JSON / CSV | 报告目录 | 训练机本地 / 归档目录 |
+| `packages/generator/cmd/sinan-generator` | Go | `.exe` / 二进制 | 训练机本地 |
+| `packages/sinan-captcha/src/cli.py` | Python | wheel console script | Python 环境 |
+| `packages/sinan-captcha/src/train/*` | Python | wheel 内部模块 | Python 环境 |
+| `packages/sinan-captcha/src/auto_train/*` | Python | wheel 内部模块 | Python 环境 |
+| `packages/sinan-captcha/src/solve/*` | Python | 迁移参考实现 / 内部调试能力 | 训练仓库内部 |
+| `packages/solver/src/*` | Python | 独立 solver wheel（含内嵌推理资产） | 调用方 Python 环境 |
+| `packages/sinan-captcha/src/release/*` | Python | wheel 内部模块 | Python 环境 |
+| `work_home/materials/*` | 图片 / YAML | 素材包 | 训练机本地 |
+| `work_home/datasets/*` | 图片 / JSONL | 数据目录 | 训练机本地 |
+| `work_home/bundles/solver/*` | PT / JSON | 推理资产交接目录 | 训练仓库 / 构建流程 |
+| `work_home/reports/*` | Markdown / JSON / CSV | 报告目录 | 训练机本地 / 归档目录 |
 
 ## 9. 推荐实现顺序
 
-1. `generator/`
-2. `core/dataset`
-3. `core/train/group2`
-4. `core/train/group1`
-5. `core/inference`
-6. `core/evaluate`
-7. `core/auto_train`
+1. `packages/generator/`
+2. `packages/sinan-captcha/src/dataset`
+3. `packages/sinan-captcha/src/train/group2`
+4. `packages/sinan-captcha/src/train/group1`
+5. `packages/sinan-captcha/src/inference`
+6. `packages/sinan-captcha/src/evaluate`
+7. `packages/sinan-captcha/src/auto_train`
 8. 训练仓库导出推理资产
-9. `solver/` 独立项目
-10. `core/solve` 运行时抽离 / 内部调试降级
+9. `packages/solver/` 独立项目
+10. `packages/sinan-captcha/src/solve` 运行时抽离 / 内部调试降级
 11. solver 发布链路与 PyPI 收口
 
 不要先做：

@@ -4,7 +4,7 @@ import tempfile
 import unittest
 from pathlib import Path
 
-from core.auto_train import contracts, layout, recovery, storage
+from auto_train import contracts, layout, recovery, storage
 
 
 class AutoTrainLayoutTests(unittest.TestCase):

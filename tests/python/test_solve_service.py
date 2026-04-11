@@ -5,8 +5,8 @@ import unittest
 from pathlib import Path
 from unittest.mock import patch
 
-from core.solve import bundle, contracts, service
-from core.inference.service import ClickPoint, Group1ClickTarget, Group1MappingResult
+from solve import bundle, contracts, service
+from inference.service import ClickPoint, Group1ClickTarget, Group1MappingResult
 
 
 class SolveContractsTests(unittest.TestCase):
@@ -91,21 +91,18 @@ class UnifiedSolverServiceTests(unittest.TestCase):
                 ),
             )
 
-            fake_query_targets = [
+            fake_query_items = [
                 {
                     "order": 1,
-                    "class": "query_item_01",
-                    "class_id": 0,
                     "bbox": [8, 8, 28, 28],
                     "center": [18, 18],
                     "score": 0.99,
+                    "class_guess": "icon_lock",
                 }
             ]
             fake_scene_targets = [
                 {
                     "order": 1,
-                    "class": "icon_object",
-                    "class_id": 0,
                     "bbox": [80, 32, 120, 72],
                     "center": [100, 52],
                     "score": 0.98,
@@ -116,8 +113,6 @@ class UnifiedSolverServiceTests(unittest.TestCase):
                 ordered_targets=[
                     Group1ClickTarget(
                         order=1,
-                        class_id=0,
-                        class_name="query_item_01",
                         bbox=[80, 32, 120, 72],
                         center=[100, 52],
                         score=1.0,
@@ -130,16 +125,17 @@ class UnifiedSolverServiceTests(unittest.TestCase):
 
             with (
                 patch.object(service.UnifiedSolverService, "_load_group1_models", return_value=(_FakeGroup1Model(), _FakeGroup1Model())),
-                patch("core.solve.service._serialize_yolo_detections", side_effect=[fake_query_targets, fake_scene_targets]),
-                patch("core.solve.service.map_group1_instances", return_value=fake_mapping) as matcher,
+                patch.object(service.UnifiedSolverService, "_load_group1_embedder", return_value=None),
+                patch("solve.service._serialize_yolo_detections", side_effect=[fake_query_items, fake_scene_targets]),
+                patch("solve.service.map_group1_instances", return_value=fake_mapping) as matcher,
             ):
                 response = solver.solve(request)
 
             self.assertEqual(response.status, "ok")
             self.assertEqual(response.result["matcher_status"], "ok")
-            self.assertEqual(response.result["ordered_clicks"], [{"order": 1, "x": 100, "y": 52, "class_id": 0, "class_name": "query_item_01", "score": 1.0}])
+            self.assertEqual(response.result["ordered_clicks"], [{"order": 1, "x": 100, "y": 52, "score": 1.0}])
             matcher.assert_called_once_with(
-                fake_query_targets,
+                fake_query_items,
                 fake_scene_targets,
                 query_image_path=query,
                 scene_image_path=scene,
@@ -174,8 +170,8 @@ class UnifiedSolverServiceTests(unittest.TestCase):
             with (
                 patch.object(service.UnifiedSolverService, "_load_group1_models", return_value=(_FakeGroup1Model(), _FakeGroup1Model())),
                 patch.object(service.UnifiedSolverService, "_load_group1_embedder", return_value=fake_embedder),
-                patch("core.solve.service._serialize_yolo_detections", side_effect=[[], []]),
-                patch("core.solve.service.map_group1_instances", return_value=fake_mapping) as matcher,
+                patch("solve.service._serialize_yolo_detections", side_effect=[[], []]),
+                patch("solve.service.map_group1_instances", return_value=fake_mapping) as matcher,
             ):
                 response = solver.solve(request)
 
@@ -210,12 +206,12 @@ class UnifiedSolverServiceTests(unittest.TestCase):
             with (
                 patch.object(service.UnifiedSolverService, "_load_group2_model", return_value=(_FakeGroup2Model(), 192, "cpu")),
                 patch(
-                    "core.solve.service.group2_runtime.prepare_inputs",
+                    "solve.service.group2_runtime.prepare_inputs",
                     return_value=(_FakeTensor(), _FakeTensor(), {"meta": 1}),
                 ),
-                patch("core.solve.service.group2_runtime.torch_no_grad", return_value=_null_context()),
-                patch("core.solve.service.group2_runtime.decode_bbox", return_value=[80, 24, 120, 64]),
-                patch("core.solve.service.group2_runtime.bbox_center", return_value=[100, 44]),
+                patch("solve.service.group2_runtime.torch_no_grad", return_value=_null_context()),
+                patch("solve.service.group2_runtime.decode_bbox", return_value=[80, 24, 120, 64]),
+                patch("solve.service.group2_runtime.bbox_center", return_value=[100, 44]),
             ):
                 response = solver.solve(request)
 
@@ -246,12 +242,12 @@ class UnifiedSolverServiceTests(unittest.TestCase):
             with (
                 patch.object(service.UnifiedSolverService, "_load_group2_model", return_value=(_FakeGroup2Model(), 192, "cpu")),
                 patch(
-                    "core.solve.service.group2_runtime.prepare_inputs",
+                    "solve.service.group2_runtime.prepare_inputs",
                     return_value=(_FakeTensor(), _FakeTensor(), {"meta": 1}),
                 ),
-                patch("core.solve.service.group2_runtime.torch_no_grad", return_value=_null_context()),
-                patch("core.solve.service.group2_runtime.decode_bbox", return_value=[80, 24, 120, 64]),
-                patch("core.solve.service.group2_runtime.bbox_center", return_value=[100, 44]),
+                patch("solve.service.group2_runtime.torch_no_grad", return_value=_null_context()),
+                patch("solve.service.group2_runtime.decode_bbox", return_value=[80, 24, 120, 64]),
+                patch("solve.service.group2_runtime.bbox_center", return_value=[100, 44]),
             ):
                 response = solver.solve(request)
 
@@ -295,11 +291,7 @@ def _fake_bundle(*, icon_embedder: bool = False) -> bundle.SolverBundle:
         manifest_path=fake_root / "manifest.json",
         proposal_model_path=fake_root / "models" / "group1" / "proposal-detector" / "model.pt",
         query_model_path=fake_root / "models" / "group1" / "query-parser" / "model.pt",
-        icon_embedder_model_path=(
-            fake_root / "models" / "group1" / "icon-embedder" / "model.pt"
-            if icon_embedder
-            else None
-        ),
+        icon_embedder_model_path=fake_root / "models" / "group1" / "icon-embedder" / "model.pt",
         matcher_config_path=fake_root / "models" / "group1" / "matcher" / "config.json",
         group2_model_path=fake_root / "models" / "group2" / "locator" / "model.pt",
         router_strategy=bundle.ROUTER_STRATEGY,

@@ -6,7 +6,7 @@ import unittest
 from pathlib import Path
 from unittest.mock import patch
 
-from core.release.solver_export import (
+from release.solver_export import (
     ExportedOnnxInfo,
     ExportGroup2SolverAssetsRequest,
     ExportSolverAssetsRequest,
@@ -33,7 +33,7 @@ class Group2SolverAssetExportTests(unittest.TestCase):
                 exported_at="2026-04-05T12:00:00Z",
             )
 
-            with patch("core.release.solver_export._export_group2_onnx_from_checkpoint") as export_mock:
+            with patch("release.solver_export._export_group2_onnx_from_checkpoint") as export_mock:
                 export_mock.side_effect = self._write_fake_onnx
                 result = export_group2_solver_assets(request)
 
@@ -41,7 +41,6 @@ class Group2SolverAssetExportTests(unittest.TestCase):
             model_metadata = json.loads(result.model_metadata_path.read_text(encoding="utf-8"))
             report_payload = json.loads(result.export_report_path.read_text(encoding="utf-8"))
             click_matcher_payload = json.loads((output_dir / "metadata" / "click_matcher.json").read_text(encoding="utf-8"))
-            class_names_payload = json.loads((output_dir / "metadata" / "class_names.json").read_text(encoding="utf-8"))
 
             self.assertEqual(
                 export_mock.call_args.kwargs,
@@ -89,10 +88,6 @@ class Group2SolverAssetExportTests(unittest.TestCase):
                 click_matcher_payload["status"],
                 "pending_TASK-SOLVER-MIG-009",
             )
-            self.assertEqual(
-                class_names_payload["status"],
-                "pending_TASK-SOLVER-MIG-009",
-            )
 
     def test_export_solver_assets_writes_group1_onnx_assets_matcher_metadata_and_report(self) -> None:
         with tempfile.TemporaryDirectory() as tmpdir:
@@ -122,9 +117,9 @@ class Group2SolverAssetExportTests(unittest.TestCase):
             )
 
             with (
-                patch("core.release.solver_export._export_yolo_onnx_from_checkpoint") as yolo_export,
-                patch("core.release.solver_export._export_icon_embedder_onnx_from_checkpoint") as embedder_export,
-                patch("core.release.solver_export._export_group2_onnx_from_checkpoint") as group2_export,
+                patch("release.solver_export._export_yolo_onnx_from_checkpoint") as yolo_export,
+                patch("release.solver_export._export_icon_embedder_onnx_from_checkpoint") as embedder_export,
+                patch("release.solver_export._export_group2_onnx_from_checkpoint") as group2_export,
             ):
                 yolo_export.side_effect = self._write_fake_yolo_onnx
                 embedder_export.side_effect = self._write_fake_embedder_onnx
@@ -134,7 +129,6 @@ class Group2SolverAssetExportTests(unittest.TestCase):
             manifest_payload = json.loads(result.manifest_path.read_text(encoding="utf-8"))
             report_payload = json.loads(result.export_report_path.read_text(encoding="utf-8"))
             matcher_payload = json.loads((output_dir / "metadata" / "click_matcher.json").read_text(encoding="utf-8"))
-            class_names_payload = json.loads((output_dir / "metadata" / "class_names.json").read_text(encoding="utf-8"))
 
             self.assertEqual(
                 yolo_export.call_args_list[0].kwargs,
@@ -183,7 +177,6 @@ class Group2SolverAssetExportTests(unittest.TestCase):
             self.assertEqual(matcher_payload["models"]["icon_embedder"], "click_icon_embedder")
             self.assertEqual(matcher_payload["similarity_threshold"], 0.9)
             self.assertEqual(matcher_payload["ambiguity_margin"], 0.015)
-            self.assertEqual(class_names_payload["status"], "instance_matching_v1")
             self.assertEqual(report_payload["group1_run"], group1_run)
             self.assertEqual(report_payload["group2_run"], group2_run)
             self.assertEqual(

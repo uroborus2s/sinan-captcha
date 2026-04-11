@@ -7,16 +7,16 @@ import tempfile
 import unittest
 from unittest.mock import patch
 
-from core.modeltest.service import ModelTestRequest, run_model_test
-from core.predict import cli as predict_cli
-from core.train.group1.service import Group1PredictionResult
-from core.train.group2.service import Group2PredictionResult
+from modeltest.service import ModelTestRequest, run_model_test
+from predict import cli as predict_cli
+from train.group1.service import Group1PredictionResult
+from train.group2.service import Group2PredictionResult
 
 
 class PredictionCliTests(unittest.TestCase):
     def test_group1_predict_cli_uses_default_paths_from_training_root(self) -> None:
         buffer = io.StringIO()
-        with patch("core.predict.cli.Path.cwd", return_value=Path("D:/sinan-captcha-work")):
+        with patch("predict.cli.Path.cwd", return_value=Path("D:/sinan-captcha-work")):
             with redirect_stdout(buffer):
                 code = predict_cli.main(
                     [
@@ -30,7 +30,7 @@ class PredictionCliTests(unittest.TestCase):
                 )
         self.assertEqual(code, 0)
         output = buffer.getvalue()
-        self.assertIn("uv run python -m core.train.group1.runner predict", output)
+        self.assertIn("uv run python -m train.group1.runner predict", output)
         self.assertIn("--dataset-config D:/sinan-captcha-work/datasets/group1/firstpass/dataset.json", output)
         self.assertIn("--proposal-model D:/sinan-captcha-work/runs/group1/firstpass/proposal-detector/weights/best.pt", output)
         self.assertIn("--query-model D:/sinan-captcha-work/runs/group1/firstpass/query-parser/weights/best.pt", output)
@@ -41,7 +41,7 @@ class PredictionCliTests(unittest.TestCase):
 
     def test_group2_predict_cli_uses_paired_dataset_defaults(self) -> None:
         buffer = io.StringIO()
-        with patch("core.predict.cli.Path.cwd", return_value=Path("D:/sinan-captcha-work")):
+        with patch("predict.cli.Path.cwd", return_value=Path("D:/sinan-captcha-work")):
             with redirect_stdout(buffer):
                 code = predict_cli.main(
                     [
@@ -55,7 +55,7 @@ class PredictionCliTests(unittest.TestCase):
                 )
         self.assertEqual(code, 0)
         output = buffer.getvalue()
-        self.assertIn("uv run python -m core.train.group2.runner predict", output)
+        self.assertIn("uv run python -m train.group2.runner predict", output)
         self.assertIn("--dataset-config D:/sinan-captcha-work/datasets/group2/firstpass/dataset.json", output)
         self.assertIn("--source D:/sinan-captcha-work/datasets/group2/firstpass/splits/val.jsonl", output)
         self.assertIn("--model D:/sinan-captcha-work/runs/group2/firstpass/weights/best.pt", output)
@@ -110,15 +110,15 @@ class ModelTestServiceTests(unittest.TestCase):
 
             project_dir = root / "reports" / "group1"
             report_dir = project_dir / "test_firstpass"
-            with patch("core.modeltest.service._ensure_training_dependencies") as ensure_deps:
-                with patch("core.modeltest.service.run_group1_prediction_job") as run_predict:
-                    with patch("core.modeltest.service.evaluate_model") as evaluate_model:
+            with patch("modeltest.service._ensure_training_dependencies") as ensure_deps:
+                with patch("modeltest.service.run_group1_prediction_job") as run_predict:
+                    with patch("modeltest.service.evaluate_model") as evaluate_model:
                         ensure_deps.return_value = None
                         run_predict.return_value = Group1PredictionResult(
                             output_dir=project_dir / "predict_firstpass",
                             labels_path=project_dir / "predict_firstpass" / "labels.jsonl",
                             sample_count=1,
-                            command="uv run python -m core.train.group1.runner predict ...",
+                            command="uv run python -m train.group1.runner predict ...",
                         )
                         evaluate_model.return_value = type("EvalResult", (), {
                             "task": "group1",
@@ -201,15 +201,15 @@ class ModelTestServiceTests(unittest.TestCase):
             project_dir = root / "reports" / "group2"
             report_dir = project_dir / "test_firstpass"
 
-            with patch("core.modeltest.service._ensure_training_dependencies") as ensure_deps:
-                with patch("core.modeltest.service.run_group2_prediction_job") as run_predict:
-                    with patch("core.modeltest.service.evaluate_model") as evaluate_model:
+            with patch("modeltest.service._ensure_training_dependencies") as ensure_deps:
+                with patch("modeltest.service.run_group2_prediction_job") as run_predict:
+                    with patch("modeltest.service.evaluate_model") as evaluate_model:
                         ensure_deps.return_value = None
                         run_predict.return_value = Group2PredictionResult(
                             output_dir=project_dir / "predict_firstpass",
                             labels_path=project_dir / "predict_firstpass" / "labels.jsonl",
                             sample_count=1,
-                            command="uv run python -m core.train.group2.runner predict ...",
+                            command="uv run python -m train.group2.runner predict ...",
                         )
                         evaluate_model.return_value = type("EvalResult", (), {
                             "task": "group2",

@@ -6,8 +6,8 @@ import unittest
 import zlib
 from pathlib import Path
 
-from core.autolabel.service import AutolabelRequest, run_autolabel
-from core.common.jsonl import read_jsonl
+from autolabel.service import AutolabelRequest, run_autolabel
+from common.jsonl import read_jsonl
 
 
 def _write_png(path: Path, width: int, height: int, color: tuple[int, int, int]) -> None:
@@ -48,10 +48,11 @@ class AutolabelServiceTests(unittest.TestCase):
             (input_dir / "labels.jsonl").write_text(
                 (
                     '{"sample_id":"g1_000001","query_image":"query/g1_000001.png",'
-                    '"scene_image":"scene/g1_000001.png","query_targets":[{"order":1,"class":"icon_house",'
-                    '"class_id":0,"bbox":[8,8,26,26],"center":[17,17]}],"scene_targets":[{"order":1,"class":"icon_house",'
-                    '"class_id":0,"bbox":[10,20,40,50],"center":[25,35]}],"distractors":[{"class":"icon_leaf",'
-                    '"class_id":1,"bbox":[70,40,100,70],"center":[85,55]}],"label_source":"gold",'
+                    '"scene_image":"scene/g1_000001.png","query_items":[{"order":1,"asset_id":"asset_house_main",'
+                    '"template_id":"tpl_house","variant_id":"var_outline","bbox":[8,8,26,26],"center":[17,17]}],'
+                    '"scene_targets":[{"order":1,"asset_id":"asset_house_main","template_id":"tpl_house",'
+                    '"variant_id":"var_outline","bbox":[10,20,40,50],"center":[25,35]}],"distractors":[{"asset_id":"asset_leaf_alt",'
+                    '"template_id":"tpl_leaf","variant_id":"var_fill","bbox":[70,40,100,70],"center":[85,55]}],"label_source":"gold",'
                     '"source_batch":"batch_0001","seed":100}\n'
                 ),
                 encoding="utf-8",

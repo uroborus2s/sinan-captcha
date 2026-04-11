@@ -14,8 +14,8 @@ from pathlib import Path
 from urllib.error import URLError
 from urllib.request import Request
 
-from core.common.images import get_image_size
-from core.materials.service import (
+from common.images import get_image_size
+from materials.service import (
     BackgroundSourceConfig,
     ClassSpec,
     Group1Spec,
@@ -75,7 +75,7 @@ class MaterialsServiceTests(unittest.TestCase):
                 ]
             }
 
-            with patch("core.materials.service._open_with_retries") as open_with_retries:
+            with patch("materials.service._open_with_retries") as open_with_retries:
                 open_with_retries.return_value.__enter__.return_value = io.BytesIO(
                     json.dumps(payload).encode("utf-8")
                 )
@@ -110,7 +110,7 @@ class MaterialsServiceTests(unittest.TestCase):
                     return self._data
 
             with patch(
-                "core.materials.service._open_with_retries",
+                "materials.service._open_with_retries",
                 side_effect=[
                     _Response(b"{}", fail=True),
                     _Response(json.dumps(payload).encode("utf-8")),
@@ -181,7 +181,7 @@ class MaterialsServiceTests(unittest.TestCase):
                 archive_url="https://example.com/master.zip",
             )
 
-            with patch("core.materials.service.urlopen", side_effect=fake_urlopen):
+            with patch("materials.service.urlopen", side_effect=fake_urlopen):
                 archive_path = _ensure_google_icons_archive(config, cache_dir)
 
             self.assertEqual(archive_path, destination)
@@ -253,7 +253,7 @@ class MaterialsServiceTests(unittest.TestCase):
                     headers={"Content-Range": "bytes 4-9/10"},
                 )
 
-            with patch("core.materials.service.urlopen", side_effect=fake_urlopen):
+            with patch("materials.service.urlopen", side_effect=fake_urlopen):
                 _download_binary("https://example.com/master.zip", destination)
 
             self.assertEqual(requests, [None, "bytes=4-"])
@@ -323,7 +323,7 @@ class MaterialsServiceTests(unittest.TestCase):
                     headers={"Content-Range": "bytes 6-9/10"},
                 )
 
-            with patch("core.materials.service.urlopen", side_effect=fake_urlopen):
+            with patch("materials.service.urlopen", side_effect=fake_urlopen):
                 _download_binary("https://example.com/master.zip", destination)
 
             self.assertEqual(requests, [None, "bytes=6-"])
@@ -351,7 +351,7 @@ class MaterialsServiceTests(unittest.TestCase):
                 raise URLError("temporary network issue")
             return _Response()
 
-        with patch("core.materials.service.urlopen", side_effect=fake_urlopen):
+        with patch("materials.service.urlopen", side_effect=fake_urlopen):
             with _open_with_retries(request, description="test") as response:
                 self.assertEqual(response.read(), b"ok")
 
@@ -378,7 +378,7 @@ class MaterialsServiceTests(unittest.TestCase):
                 raise RemoteDisconnected("remote end closed")
             return _Response()
 
-        with patch("core.materials.service.urlopen", side_effect=fake_urlopen):
+        with patch("materials.service.urlopen", side_effect=fake_urlopen):
             with _open_with_retries(request, description="test") as response:
                 self.assertEqual(response.read(), b"ok")
 
@@ -715,10 +715,10 @@ class MaterialsServiceTests(unittest.TestCase):
 
             output_root = root / "materials"
             with patch(
-                "core.materials.service._resolve_google_icon_entry",
+                "materials.service._resolve_google_icon_entry",
                 side_effect=lambda icon_name, cache_dir: resolved_entries[icon_name],
             ):
-                with patch("core.materials.service._download_binary", side_effect=fake_download):
+                with patch("materials.service._download_binary", side_effect=fake_download):
                     result = build_offline_pack(spec, output_root=output_root, cache_dir=root / "cache")
 
             self.assertEqual(result.background_count, 1)

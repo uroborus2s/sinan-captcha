@@ -181,7 +181,7 @@ dist/
 
 本轮合同冻结后，仓库内的代码事实源是：
 
-- [solver_asset_contract.py](/Users/uroborus/AiProject/sinan-captcha/core/release/solver_asset_contract.py)
+- [solver_asset_contract.py](/Users/uroborus/AiProject/sinan-captcha/packages/sinan-captcha/src/release/solver_asset_contract.py)
 - [test_solver_asset_contract.py](/Users/uroborus/AiProject/sinan-captcha/tests/python/test_solver_asset_contract.py)
 
 如果未来实现修改了文件名、字段名或 provider 顺序，必须先更新这两处，再更新导出实现。

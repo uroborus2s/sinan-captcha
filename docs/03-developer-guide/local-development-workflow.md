@@ -1,265 +1,255 @@
-# 模块编译与本地验证
+# 日常开发与验证
 
 - 文档状态：生效
 - 当前阶段：IMPLEMENTATION
-- 目标读者：会在本仓库内改代码、改文档、改发布流程的开发者
+- 目标读者：在本仓库中改代码、改合同、改构建链路的开发者
 - 最近更新：2026-04-11
 
-## 0. 这页解决什么问题
+## 这页解决什么问题
 
-这页回答的是：
+这页回答三个问题：
 
-- 每个模块平时应该怎么开发、怎么编译、怎么验证
-- 跨模块改动时，最少要补哪些检查
+1. 日常开发该从哪个入口启动。
+2. 按改动范围最少要跑哪些验证。
+3. 哪些改动必须同步文档和 `.factory` 记忆层。
 
-## 1. 开发前先判断你改了哪一层
+## 先选你在改哪一层
 
-### 1.1 `packages/sinan-captcha`
+### Python 主线：`packages/sinan-captcha`
 
 典型改动：
 
 - `sinan` 子命令
-- 训练、评估、自主训练
-- 发布打包逻辑
+- 训练、预测、评估
+- `release` 发布逻辑
+- `auto_train` 控制器
+- 训练仓库内的 bundle 调试与 `solve` 入口
 
-主要目录：
-
-- `packages/sinan-captcha/core/`
-- `tests/python/`
-- `packages/sinan-captcha/pyproject.toml`
-
-### 1.2 `packages/generator`
+### Go 生成器：`packages/generator`
 
 典型改动：
 
-- 工作区
-- 素材导入/拉取
+- 工作区和 preset
+- 素材校验
+- 样本渲染
 - 数据集导出
-- 生成侧 QA
+- 生成器 CLI 参数
 
-主要目录：
-
-- `packages/generator/`
-
-### 1.3 `packages/solver`
+### 独立 solver：`packages/solver`
 
 典型改动：
 
 - `sinanz` 公共 API
-- 包资源
-- Rust 原生桥接
+- ONNX Runtime 运行时
+- `resources/` 里的嵌入式资产
 
-主要目录：
-
-- `packages/solver/src/`
-- `packages/solver/resources/`
-- `packages/solver/tests/`
-
-### 1.4 跨模块契约
+### 跨模块合同
 
 典型改动：
 
 - `dataset.json` 结构
-- 训练目录或交付目录结构
+- `work_home/` 路径约定
 - solver 资产导出合同
-- 发布和打包入口
+- Windows 交付包结构
+- build / publish / stage 命令行为
 
-这类改动一定要同步：
+这类改动不能只改代码，必须同步文档和 `.factory/memory/`。
 
-- 代码
-- `docs/03-developer-guide/`
-- 对应用户指南
-- `.factory/memory/`
+## 开发环境常用入口
 
-### 1.5 根目录统一编译入口
-
-如果你这次同时改了训练 CLI、生成器或 solver 的发布边界，优先直接在仓库根目录执行：
+### 基础源码环境
 
 ```bash
+uv sync
+```
+
+适合：
+
+- 改 CLI
+- 改文档
+- 改构建逻辑
+- 跑轻量 Python 回归
+
+### 含训练栈的源码环境
+
+```bash
+uv sync --group train
+```
+
+适合：
+
+- 跑训练相关测试
+- 导出 solver 资产
+- 处理 `onnx` / `ultralytics` / `optuna` 相关改动
+
+### 独立训练目录
+
+如果你要复现真实训练机，而不是只在源码仓库里开发：
+
+```bash
+uv run sinan env setup-train --train-root <训练目录>
+```
+
+这会生成独立训练目录、安装 `sinan-captcha[train] + torch/torchvision/torchaudio`，并复制 `.opencode/` 资源。
+
+## 根目录开发命令
+
+### 查看当前 monorepo 路径
+
+```bash
+uv run python scripts/repo.py paths
+```
+
+### 构建一个或全部模块
+
+```bash
+uv run python scripts/repo.py build sinan-captcha
+uv run python scripts/repo.py build generator
+uv run python scripts/repo.py build solver
 uv run python scripts/repo.py build all
 ```
 
-如果要顺手产出 Windows 版生成器：
+如果要交叉编译 Windows 版生成器：
 
 ```bash
 uv run python scripts/repo.py build generator --goos windows --goarch amd64
 ```
 
-正式发布链路仍然是：
+说明：
 
-```bash
-uv run sinan release build-all --project-dir .
-```
+- `scripts/repo.py` 是开发期薄包装，适合本地快速确认构建仍然可用。
+- 正式发布链路仍然应优先看 `sinan release ...`。
 
-如果要顺手产出 Windows 版生成器：
+## 最小验证矩阵
 
-```bash
-uv run sinan release build-all --project-dir . --goos windows --goarch amd64
-```
+| 改动范围 | 最少验证 |
+| --- | --- |
+| 只改 `docs/03-developer-guide/` 或 `.factory/memory/` | `git diff --check` |
+| 只改 `packages/sinan-captcha/src/` | `uv run python -m unittest discover -s tests/python -p 'test_*.py'` |
+| 只改 `packages/generator/` | 在 `packages/generator/` 下执行 `GOCACHE=/tmp/sinan-go-build-cache go test ./...` |
+| 只改 `packages/solver/` | `uv run pytest packages/solver/tests -q` |
+| 改 `scripts/repo.py`、`release`、打包逻辑 | Python 回归 + `uv run python scripts/repo.py build all` |
+| 改 solver 资产导出 / staging / `sinanz` 资源路径 | Python 回归 + solver 测试 + 相关构建 |
+| 改 `dataset.json`、训练目录结构、跨模块合同 | Python 回归 + Go 测试 + solver 测试 |
 
-输出目录固定为：
+## Python 主线的常用工作流
 
-- `packages/sinan-captcha/dist/`
-- `packages/generator/dist/<goos>-<goarch>/`
-- `packages/solver/dist/`
-
-当前行为：
-
-- 编译前会先清理对应输出目录
-- `.gitignore` 会保留
-- 生成器构建后会校验目标二进制是否真的生成
-
-## 2. 根仓库 Python 模块工作流
-
-### 2.1 常用命令
-
-跑测试：
+### 跑整套 Python 回归
 
 ```bash
 uv run python -m unittest discover -s tests/python -p 'test_*.py'
 ```
 
-构建包：
+### 只看 CLI 是否还能分发命令
+
+```bash
+uv run python -m unittest discover -s tests/python -p 'test_root_cli.py'
+```
+
+### 构建 `sinan-captcha`
 
 ```bash
 uv run python scripts/repo.py build sinan-captcha
 ```
 
-安装烟测：
+构建行为要点：
+
+- 直接调用 `setuptools` build backend
+- 构建前清空 `packages/sinan-captcha/dist/`
+- 根目录 `.opencode/` 会被临时 stage 到包内资源目录
+- 构建结束后会自动清理临时 `.opencode` 目录、`build/` 和 `*.egg-info`
+
+## Go 生成器的常用工作流
+
+### 跑 Go 测试
+
+在 `packages/generator/` 目录执行：
 
 ```bash
-uvx --from ./packages/sinan-captcha/dist/sinan_captcha-<version>-py3-none-any.whl sinan --help
-```
-
-### 2.2 什么时候至少跑这一层
-
-- 改了 `packages/sinan-captcha/core/`
-- 改了 `packages/sinan-captcha/pyproject.toml`
-- 改了 `.opencode/` 资源
-- 改了发布命令
-
-## 3. Go 生成器模块工作流
-
-### 3.1 常用命令
-
-跑测试：
-
-```bash
-cd packages/generator
 GOCACHE=/tmp/sinan-go-build-cache go test ./...
-cd ..
 ```
 
-从根目录构建当前 Go 目标：
+### 从根目录构建生成器
 
 ```bash
 uv run python scripts/repo.py build generator
 ```
 
-输出进入：
+当前输出目录：
 
 - `packages/generator/dist/<goos>-<goarch>/`
 
-当前会先清空该目标目录，再写入新的二进制。
+当前规则：
 
-目标平台构建：
+- 构建前会清空对应目标目录
+- `GOCACHE` 默认收口到 `work_home/.cache/go/`
+- 若请求 Windows 目标，输出文件名会自动切到 `sinan-generator.exe`
 
-```bash
-uv run python scripts/repo.py build generator --goos windows --goarch amd64
-```
+## `sinanz` 的常用工作流
 
-### 3.2 什么时候至少跑这一层
-
-- 改了 `packages/generator/cmd/`
-- 改了 `packages/generator/internal/`
-- 改了生成器 CLI 参数
-- 改了工作区、素材或数据集导出逻辑
-
-## 4. 独立 solver 包模块工作流
-
-### 4.1 常用命令
-
-跑测试：
+### 跑 `sinanz` 测试
 
 ```bash
-cd packages/solver
-uv run pytest
-cd ..
+uv run pytest packages/solver/tests -q
 ```
 
-构建包：
+### 构建 `sinanz`
 
 ```bash
 uv run python scripts/repo.py build solver
 ```
 
-### 4.2 什么时候至少跑这一层
+如果你刚执行过 solver 资产 staging，建议立即重新构建一次，确认资源和 wheel 能对齐。
 
-- 改了 `packages/solver/src/`
-- 改了 `packages/solver/resources/`
-- 改了 solver 资产加载方式
-- 改了独立 API 或资源目录结构
+## 正式发布入口
 
-## 5. 跨模块改动的最低验证矩阵
+如果你要验证“当前发布子命令是否还能用”，不要只跑 `scripts/repo.py`，还应跑正式入口：
 
-| 改动类型 | 最少验证 |
-| --- | --- |
-| 只改开发者文档 | `git diff --check` |
-| 只改根仓库 Python | `uv run python -m unittest discover -s tests/python -p 'test_*.py'` |
-| 只改 Go 生成器 | `cd packages/generator && GOCACHE=/tmp/sinan-go-build-cache go test ./...` |
-| 只改 `solver` | `cd packages/solver && uv run pytest` |
-| 改发布链路 | 根仓库 Python 测试 + `uv run sinan release build --project-dir .` |
-| 改交付包结构 | 根仓库 Python 测试 + 生成器构建 + `package-windows` 烟测 |
-| 改数据/资产交接合同 | 根仓库 Python 测试 + Go 测试 + `solver` 测试 |
+```bash
+uv run sinan release build-all --project-dir .
+```
 
-## 6. 改完后必须同步哪些文档
+可选 Windows 版生成器：
 
-### 6.1 改对外命令或安装流程
+```bash
+uv run sinan release build-all --project-dir . --goos windows --goarch amd64
+```
+
+## 改完后必须同步什么
+
+### 改了目录结构、命令入口、构建路径
 
 同步：
 
 - `README.md`
-- `docs/02-user-guide/`
-- `docs/03-developer-guide/`
-
-### 6.2 改维护者工作流
-
-同步：
-
 - `docs/03-developer-guide/`
 - `.factory/memory/current-state.md`
 - `.factory/memory/change-summary.md`
 
-### 6.3 改设计边界或正式合同
+### 改了用户也会感知到的安装 / 训练 / 交付路径
 
 同步：
 
-- `docs/04-project-development/`
+- `docs/02-user-guide/`
+- `docs/03-developer-guide/`
+- 必要时 `docs/index.md`
+
+### 改了设计基线或正式合同
+
+同步：
+
+- `docs/04-project-development/04-design/`
+- `docs/04-project-development/05-development-process/`
 - `.factory/memory/current-state.md`
 
-## 7. 提交前最后检查
-
-至少执行：
+## 提交前最后检查
 
 ```bash
 git diff --check
 git status --short
 ```
 
-不要提交这些内容：
+特别注意两类误提交：
 
-- `.venv/`
-- `dist/` 构建产物
-- `packages/generator/dist/` 二进制
-- `packages/solver/dist/` 构建产物
-- `runs/`
-- `work_home/reports/`
-- 本地缓存
-
-## 8. 一条推荐的本地维护闭环
-
-1. 先判定改动属于哪个模块。
-2. 只跑与该模块匹配的最小回归。
-3. 如果改动越过模块边界，升级成跨模块验证。
-4. 同步用户指南、开发者指南和 `.factory`。
-5. 最后做 `git diff --check` 和 `git status --short`。
+- `work_home/`、缓存目录、构建产物
+- 构建后遗留的 `build/`、`*.egg-info`、`__pycache__`

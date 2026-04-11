@@ -10,7 +10,7 @@
   - `docs/04-project-development/03-requirements/requirements-analysis.md`
   - `docs/04-project-development/04-design/technical-selection.md`
 - 下游交付：
-  - `core/auto_train/` 模块设计
+  - `packages/sinan-captcha/src/auto_train/` 模块设计
   - `.opencode/commands/` 与 `.opencode/skills/` 设计
   - 自主训练任务拆解与后续实施顺序
 - 关联需求：`REQ-007`、`REQ-011`、`REQ-012`、`REQ-013`、`NFR-006`、`NFR-009`

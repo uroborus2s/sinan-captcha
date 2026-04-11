@@ -5,7 +5,7 @@ import unittest
 from pathlib import Path
 from unittest.mock import patch
 
-from core.auto_train import cli, contracts, storage
+from auto_train import cli, contracts, storage
 
 
 class AutoTrainCliTests(unittest.TestCase):
@@ -68,7 +68,7 @@ class AutoTrainCliTests(unittest.TestCase):
                         },
                     )()
 
-            with patch("core.auto_train.cli.controller.AutoTrainController", FakeController):
+            with patch("auto_train.cli.controller.AutoTrainController", FakeController):
                 code = cli.main(
                     [
                         "run",
@@ -114,7 +114,7 @@ class AutoTrainCliTests(unittest.TestCase):
                 def run(self, *, max_steps: int) -> object:
                     return type("Result", (), {"executed": [], "final_stage": "PLAN"})()
 
-            with patch("core.auto_train.cli.controller.AutoTrainController", FakeController):
+            with patch("auto_train.cli.controller.AutoTrainController", FakeController):
                 code = cli.main(
                     [
                         "run",
@@ -158,7 +158,7 @@ class AutoTrainCliTests(unittest.TestCase):
                     type(self).max_steps = max_steps
                     return type("Result", (), {"executed": [], "final_stage": "PLAN"})()
 
-            with patch("core.auto_train.cli.controller.AutoTrainController", FakeController):
+            with patch("auto_train.cli.controller.AutoTrainController", FakeController):
                 code = cli.main(
                     [
                         "run",
@@ -229,7 +229,7 @@ class AutoTrainCliTests(unittest.TestCase):
                         },
                     )()
 
-            with patch("core.auto_train.cli.controller.AutoTrainController", FakeController):
+            with patch("auto_train.cli.controller.AutoTrainController", FakeController):
                 code = cli.main(
                     [
                         "run",

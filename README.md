@@ -78,6 +78,9 @@
      - `query` 标 `query_item`
      - `scene` 标两位顺序号 `NN`
      - 可选类别提示仅保存在 `shape.flags.class_guess`
+   - 如果手头只有同名配对的 `query/ + scene|scence/` 原图，也可以直接用本地 Ollama 多模态模型先生成 reviewed 初稿：
+     - `uv run sinan train group1 prelabel-vlm --pair-root work_home/materials/validation/group1 --model qwen2.5vl:7b`
+     - 该命令只会生成 `reviewed/*.json` 预标注草稿，最终仍需人工复核后再执行 `exam export-reviewed`
 
 典型命令：
 
@@ -104,6 +107,7 @@ uv run sinan test group2 --dataset-version firstpass --train-name firstpass
 - 训练、测试、评估主链路已经可用
 - 自主训练已经具备控制器骨架和 `opencode` JUDGE runtime 接入
 - `env setup-train` 当前会自动把 `.opencode/commands` 与 `.opencode/skills` 铺到训练目录
+- 根目录 `.opencode/` 当前是唯一受 Git 管理的 OpenCode 资源事实源；`packages/sinan-captcha/src/auto_train/resources/` 只在构建 wheel/sdist 时临时 stage，构建后自动删除
 - 统一求解与 bundle 已经是正式需求和代码方向，但仍需继续收口为正式对外交付主线
 
 ## Monorepo 开发入口
@@ -112,6 +116,7 @@ uv run sinan test group2 --dataset-version firstpass --train-name firstpass
 
 - `packages/sinan-captcha/`
   - Python 训练、评估、发布与自主训练 CLI
+  - 源码布局：`src/auto_train`、`src/train`、`src/solve` 等顶层功能包
 - `packages/generator/`
   - Go 生成器工程
 - `packages/solver/`
@@ -130,6 +135,16 @@ uv run python scripts/repo.py build solver
 uv run python scripts/repo.py build all
 ```
 
+这些根目录构建命令当前直接调用各 Python 子项目的 `setuptools` build backend；生成器构建的 `GOCACHE` 默认落到 `work_home/.cache/go/`。
+
+根目录提交流程保持原生 `git`：
+
+```bash
+git status --short
+git add pyproject.toml uv.lock packages/sinan-captcha packages/generator packages/solver scripts tests docs .factory
+git commit -m "refactor: adjust monorepo package layout"
+```
+
 如果要交叉编译 Windows 版生成器：
 
 ```bash
@@ -141,6 +156,18 @@ uv run python scripts/repo.py build generator --goos windows --goarch amd64
 - `packages/sinan-captcha/dist/`
 - `packages/generator/dist/<goos>-<goarch>/`
 - `packages/solver/dist/`
+
+根目录依赖分层当前是：
+
+- 基础源码环境：`uv sync`
+- 含训练栈的源码环境：`uv sync --group train`
+- 训练目录运行时：`uv run sinan env setup-train --train-root <dir>`
+
+边界说明：
+
+- `uv sync` 只保证根目录 CLI、发布链路和轻量开发命令可用
+- `uv sync --group train` 额外安装训练仓库开发所需的重依赖
+- `env setup-train` 生成的独立训练目录会安装 `sinan-captcha[train]`，并按目标机器单独选择 `torch/torchvision/torchaudio` 后端
 
 ## 根目录统一编译与发布
 

@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import unittest
 
-from core.auto_train import contracts, decision_protocol
+from auto_train import contracts, decision_protocol
 
 
 def _summary(

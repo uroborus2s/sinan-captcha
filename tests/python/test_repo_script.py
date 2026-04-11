@@ -47,23 +47,18 @@ class RepoScriptTests(unittest.TestCase):
         (layout.sinan_dir / "pyproject.toml").write_text("[project]\nname='sinan-captcha'\n", encoding="utf-8")
         (layout.sinan_dir / "dist" / "stale.txt").parent.mkdir(parents=True)
         (layout.sinan_dir / "dist" / "stale.txt").write_text("old", encoding="utf-8")
+        source_root = layout.repo_root / ".opencode" / "commands"
+        source_root.mkdir(parents=True)
+        (source_root / "judge-trial.md").write_text("judge", encoding="utf-8")
 
-        with patch.object(self.repo.subprocess, "run") as run_mock:
+        with patch.object(self.repo, "_build_setuptools_distribution") as build_mock:
             self.repo.build_target("sinan-captcha", layout=layout)
 
         self.assertTrue((layout.sinan_dir / "dist").is_dir())
         self.assertFalse((layout.sinan_dir / "dist" / "stale.txt").exists())
-        run_mock.assert_called_once_with(
-            [
-                "uv",
-                "build",
-                "--package",
-                "sinan-captcha",
-                "--out-dir",
-                "packages/sinan-captcha/dist",
-            ],
-            check=True,
-            cwd=layout.repo_root,
+        build_mock.assert_called_once_with(
+            package_dir=layout.sinan_dir,
+            output_dir=layout.sinan_dir / "dist",
         )
 
     def test_build_generator_uses_package_dist_target(self) -> None:
@@ -101,6 +96,8 @@ class RepoScriptTests(unittest.TestCase):
             cwd=layout.generator_dir,
             env=unittest.mock.ANY,
         )
+        build_env = run_mock.call_args.kwargs["env"]
+        self.assertEqual(build_env["GOCACHE"], str((layout.repo_root / "work_home" / ".cache" / "go").resolve()))
 
     def test_build_all_dispatches_all_members(self) -> None:
         layout = self._make_layout()
@@ -109,12 +106,81 @@ class RepoScriptTests(unittest.TestCase):
         (layout.generator_dir / "go.mod").write_text("module example.com/generator\n", encoding="utf-8")
 
         with (
+            patch.object(self.repo, "_build_setuptools_distribution") as build_mock,
             patch.object(self.repo.subprocess, "check_output", side_effect=["darwin\n", "arm64\n"]),
             patch.object(self.repo.subprocess, "run") as run_mock,
         ):
             self.repo.build_target("all", layout=layout)
 
-        self.assertEqual(run_mock.call_count, 3)
+        self.assertEqual(build_mock.call_count, 2)
+        self.assertEqual(run_mock.call_count, 1)
+
+    def test_stage_and_clear_repo_opencode_assets(self) -> None:
+        layout = self._make_layout()
+        source_root = layout.repo_root / ".opencode" / "commands"
+        source_root.mkdir(parents=True)
+        (source_root / "judge-trial.md").write_text("judge", encoding="utf-8")
+
+        staged = self.repo._stage_repo_opencode_assets(layout.sinan_dir)
+
+        self.assertEqual(
+            staged,
+            layout.sinan_dir / "src" / "auto_train" / "resources" / "opencode",
+        )
+        self.assertEqual(
+            (staged / "commands" / "judge-trial.md").read_text(encoding="utf-8"),
+            "judge",
+        )
+
+        self.repo._clear_staged_opencode_assets(layout.sinan_dir)
+        self.assertFalse(staged.exists())
+
+    def test_publish_uses_pypi_token_by_default(self) -> None:
+        layout = self._make_layout()
+        (layout.sinan_dir / "pyproject.toml").write_text(
+            "[project]\nname='sinan-captcha'\nversion='1.2.3'\n",
+            encoding="utf-8",
+        )
+        dist_dir = layout.sinan_dir / "dist"
+        dist_dir.mkdir()
+        (dist_dir / "sinan_captcha-1.2.3-py3-none-any.whl").write_text("wheel", encoding="utf-8")
+        (dist_dir / "sinan_captcha-1.2.3.tar.gz").write_text("sdist", encoding="utf-8")
+
+        with (
+            patch.dict(self.repo.os.environ, {"PYPI_TOKEN": "secret"}, clear=True),
+            patch.object(self.repo.subprocess, "run") as run_mock,
+        ):
+            self.repo.publish_distribution(self.repo.PublishRequest(project_dir=layout.repo_root))
+
+        self.assertEqual(run_mock.call_args.kwargs["env"]["UV_PUBLISH_TOKEN"], "secret")
+        self.assertIn("https://upload.pypi.org/legacy/", run_mock.call_args.kwargs["args"])
+
+    def test_publish_falls_back_to_uv_publish_token(self) -> None:
+        layout = self._make_layout()
+        (layout.sinan_dir / "pyproject.toml").write_text(
+            "[project]\nname='sinan-captcha'\nversion='1.2.3'\n",
+            encoding="utf-8",
+        )
+        dist_dir = layout.sinan_dir / "dist"
+        dist_dir.mkdir()
+        (dist_dir / "sinan_captcha-1.2.3-py3-none-any.whl").write_text("wheel", encoding="utf-8")
+        (dist_dir / "sinan_captcha-1.2.3.tar.gz").write_text("sdist", encoding="utf-8")
+
+        with (
+            patch.dict(self.repo.os.environ, {"UV_PUBLISH_TOKEN": "secret"}, clear=True),
+            patch.object(self.repo.subprocess, "run") as run_mock,
+        ):
+            self.repo.publish_distribution(self.repo.PublishRequest(project_dir=layout.repo_root))
+
+        self.assertEqual(run_mock.call_args.kwargs["env"]["UV_PUBLISH_TOKEN"], "secret")
+
+    def test_main_dispatches_publish(self) -> None:
+        layout = self._make_layout()
+        with patch.object(self.repo, "publish_distribution") as publish_mock:
+            code = self.repo.main(["publish"], layout=layout)
+
+        self.assertEqual(code, 0)
+        publish_mock.assert_called_once_with(self.repo.PublishRequest(project_dir=layout.repo_root, token_env=None))
 
 
 if __name__ == "__main__":

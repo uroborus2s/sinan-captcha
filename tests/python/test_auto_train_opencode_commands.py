@@ -4,7 +4,7 @@ import tempfile
 import unittest
 from pathlib import Path
 
-from core.auto_train import opencode_commands
+from auto_train import opencode_commands
 
 
 class AutoTrainOpenCodeCommandsTests(unittest.TestCase):

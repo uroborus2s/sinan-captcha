@@ -176,7 +176,7 @@
 
 相关实现见：
 
-- [导出 `query_items` 的顺序恢复逻辑](../../core/exam/service.py#L295)
+- [导出 `query_items` 的顺序恢复逻辑](/Users/uroborus/AiProject/sinan-captcha/packages/sinan-captcha/src/exam/service.py)
 
 ### 5.2 `scene`
 
@@ -196,7 +196,7 @@
 
 相关实现见：
 
-- [导出 `scene_targets` 的顺序解析逻辑](../../core/exam/service.py#L316)
+- [导出 `scene_targets` 的顺序解析逻辑](/Users/uroborus/AiProject/sinan-captcha/packages/sinan-captcha/src/exam/service.py)
 
 ## 6. 人工审核时怎样确认标签是否正确
 
@@ -275,16 +275,16 @@
 2. 也不要在当前冻结的 `reviewed-v1` 里临时热修业务合同。
 3. 先把这个样本记为“新类别待处理”。
 4. 回到生成器素材层做正式扩类：
-   - 追加 `manifests/group1.classes.yaml`
-   - 追加 `group1/icons/<new_class_name>/`
+   - 追加 `group1.templates.yaml` 中对应模板/变体定义
+   - 追加 `group1/templates/<template_id>/...`
    - 重新生成数据集版本
-   - 重新训练 `query-parser` 和 `scene-detector`
+   - 重新训练 `query-parser`、`proposal-detector` 和 `icon-embedder`
 5. 如果业务试卷池已经冻结，建议新开 `reviewed-v2`，不要静默改旧版 `reviewed-v1`。
 
 为什么要这么做：
 
-- 当前 `group1` 是闭集类表路线，模型没有“现场学会新类别”的能力。
-- 类别体系不稳定时，项目要求发起设计变更，而不是在实现或标注现场临时热修。
+- 当前 `group1` 是冻结模板库路线，模型没有“现场学会新模板”的能力。
+- 模板体系不稳定时，项目要求发起设计变更，而不是在实现或标注现场临时热修。
 
 相关边界见：
 

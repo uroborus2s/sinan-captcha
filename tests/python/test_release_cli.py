@@ -4,12 +4,12 @@ import unittest
 from pathlib import Path
 from unittest.mock import patch
 
-from core.release import cli
+from release import cli
 
 
 class ReleaseCliTests(unittest.TestCase):
     def test_dispatches_build_generator(self) -> None:
-        with patch("core.release.cli.build_generator_distribution") as handler:
+        with patch("release.cli.build_generator_distribution") as handler:
             code = cli.main(
                 [
                     "build-generator",
@@ -29,7 +29,7 @@ class ReleaseCliTests(unittest.TestCase):
         self.assertEqual(request.goarch, "amd64")
 
     def test_dispatches_build_solver(self) -> None:
-        with patch("core.release.cli.build_solver_distribution") as handler:
+        with patch("release.cli.build_solver_distribution") as handler:
             code = cli.main(["build-solver", "--project-dir", "."])
 
         self.assertEqual(code, 0)
@@ -37,7 +37,7 @@ class ReleaseCliTests(unittest.TestCase):
         self.assertEqual(request.project_dir, Path("."))
 
     def test_dispatches_build_all(self) -> None:
-        with patch("core.release.cli.build_all_distributions") as handler:
+        with patch("release.cli.build_all_distributions") as handler:
             code = cli.main(
                 [
                     "build-all",
@@ -57,7 +57,7 @@ class ReleaseCliTests(unittest.TestCase):
         self.assertEqual(request.goarch, "amd64")
 
     def test_dispatches_export_solver_assets(self) -> None:
-        with patch("core.release.cli.export_solver_assets") as handler:
+        with patch("release.cli.export_solver_assets") as handler:
             code = cli.main(
                 [
                     "export-solver-assets",
@@ -104,7 +104,7 @@ class ReleaseCliTests(unittest.TestCase):
         self.assertEqual(request.asset_version, "20260405")
 
     def test_dispatches_stage_solver_assets(self) -> None:
-        with patch("core.release.cli.stage_solver_assets") as handler:
+        with patch("release.cli.stage_solver_assets") as handler:
             code = cli.main(
                 [
                     "stage-solver-assets",

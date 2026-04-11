@@ -107,7 +107,7 @@ solver = CaptchaSolver(
 
 - 只依赖 `sinanz` 暴露出来的函数和结果类型。
 - 不要让业务应用直接读取训练目录 `datasets/`、`runs/` 或 `weights/`。
-- 不要让业务应用直接调用训练仓库内部的 `core.solve`。
+- 不要让业务应用直接调用训练仓库内部的 `packages/sinan-captcha/src/solve/`。
 - 如果维护者提供的是内嵌模型的 wheel，业务代码不需要手工传模型路径。
 - 如果你自己从源码安装，确保 `onnxruntime` 能正常安装到当前 Python 环境。
 

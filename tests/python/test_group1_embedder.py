@@ -7,7 +7,7 @@ import unittest
 import zlib
 from pathlib import Path
 
-from core.train.group1.embedder import (
+from train.group1.embedder import (
     Group1TripletDataset,
     IconEmbedder,
     evaluate_retrieval,
@@ -15,8 +15,8 @@ from core.train.group1.embedder import (
     load_icon_embedder_runtime,
     train_icon_embedder,
 )
-from core.train.group1.dataset import load_group1_dataset_config
-from core.train.group1 import runner as group1_runner
+from train.group1.dataset import load_group1_dataset_config
+from train.group1 import runner as group1_runner
 
 
 def _write_png(path: Path, width: int, height: int, color: tuple[int, int, int]) -> None:

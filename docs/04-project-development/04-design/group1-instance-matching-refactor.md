@@ -282,6 +282,13 @@ group1/
 
 本地多模态模型可以作为辅助工具，但不是正式真值源。
 
+当前已实现一个 reviewed 预标注入口：
+
+- `uv run sinan train group1 prelabel-vlm --pair-root <query+scene目录> --model <ollama-vlm>`
+- 输入为同名配对的 `query/` 与 `scene/` 或历史 `scence/`
+- 输出为 `reviewed/query|scene/*.json` 的人工复核草稿，以及 `.sinan/prelabel/group1/vlm/*.jsonl`
+- 最终仍必须经过人工审核，再导出 `reviewed/labels.jsonl`
+
 适合做：
 
 - 判断 query 里大概有几个图标

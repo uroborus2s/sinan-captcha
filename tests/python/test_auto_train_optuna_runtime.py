@@ -5,7 +5,7 @@ import types
 import unittest
 from pathlib import Path
 
-from core.auto_train import contracts, optimize, optuna_runtime
+from auto_train import contracts, optimize, optuna_runtime
 
 
 class _FakeDistribution:

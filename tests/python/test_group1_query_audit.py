@@ -10,9 +10,9 @@ from unittest.mock import Mock, patch
 
 from PIL import Image, ImageDraw
 
-from core.common.jsonl import read_jsonl
-from core.materials import query_audit_cli
-from core.materials.query_audit import (
+from common.jsonl import read_jsonl
+from materials import query_audit_cli
+from materials.query_audit import (
     DEFAULT_GROUP1_OUTPUT_ROOT,
     DEFAULT_GROUP1_QUERY_DIR,
     QueryAuditClassificationError,
@@ -53,7 +53,7 @@ class Group1QueryAuditTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmp:
             work_dir = Path(tmp)
             with patch("pathlib.Path.cwd", return_value=work_dir):
-                with patch("core.materials.query_audit_cli.run_group1_query_audit", return_value=result) as audit:
+                with patch("materials.query_audit_cli.run_group1_query_audit", return_value=result) as audit:
                     code = query_audit_cli.main(
                         [
                             "--model",
@@ -87,7 +87,7 @@ class Group1QueryAuditTests(unittest.TestCase):
             work_dir = Path(tmp)
             audit = Mock(return_value={"status": "ok"})
             with patch("pathlib.Path.cwd", return_value=work_dir):
-                with patch("core.materials.query_audit_cli.run_group1_query_audit", audit):
+                with patch("materials.query_audit_cli.run_group1_query_audit", audit):
                     code = query_audit_cli.main(["--model", "gemma4:26b", "--yes"])
 
         self.assertEqual(code, 0)
@@ -259,7 +259,7 @@ class Group1QueryAuditTests(unittest.TestCase):
                     )
                 return created
 
-            with patch("core.materials.query_audit._download_template_variants", side_effect=fake_downloads):
+            with patch("materials.query_audit._download_template_variants", side_effect=fake_downloads):
                 result = run_group1_query_audit(
                     query_dir=query_dir,
                     model="gemma4:26b",
@@ -356,7 +356,7 @@ class Group1QueryAuditTests(unittest.TestCase):
             messages: list[str] = []
 
             with patch(
-                "core.materials.query_audit._download_template_variants",
+                "materials.query_audit._download_template_variants",
                 return_value=[
                     VariantManifestEntry(
                         variant_id="var_boot_house_outline",
@@ -412,7 +412,7 @@ class Group1QueryAuditTests(unittest.TestCase):
             query_dir.mkdir(parents=True, exist_ok=True)
             _write_query_image(query_dir / "a.png", [(4, 6, 16, 18)])
 
-            with patch("core.materials.query_audit._download_template_variants", return_value=[]):
+            with patch("materials.query_audit._download_template_variants", return_value=[]):
                 result = run_group1_query_audit(
                     query_dir=query_dir,
                     model="gemma4:26b",
@@ -474,7 +474,7 @@ class Group1QueryAuditTests(unittest.TestCase):
                 )
 
             with patch(
-                "core.materials.query_audit._download_template_variants",
+                "materials.query_audit._download_template_variants",
                 return_value=[
                     VariantManifestEntry(
                         variant_id="var_boot_house_outline",
@@ -596,7 +596,7 @@ class Group1QueryAuditTests(unittest.TestCase):
                     ),
                 )
 
-            with patch("core.materials.query_audit._download_template_variants", return_value=[]):
+            with patch("materials.query_audit._download_template_variants", return_value=[]):
                 result = run_group1_query_audit(
                     query_dir=query_dir,
                     model="gemma4:26b",

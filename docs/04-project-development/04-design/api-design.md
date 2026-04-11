@@ -182,7 +182,7 @@ click_result = sn_match_targets(
 
 - 顶层业务函数成功时只返回结果对象，不混入错误包装层。
 - 调用方看到函数名就应知道业务含义，不需要理解 `group1` / `group2` 内部编排。
-- 训练仓库内现有 `core/solve` CLI 只保留迁移期调试价值，不再视为最终用户主入口。
+- 训练仓库内现有 `packages/sinan-captcha/src/solve` CLI 只保留迁移期调试价值，不再视为最终用户主入口。
 
 ## API-002 推理资产导出合同
 
@@ -253,7 +253,7 @@ dist/
 - 这是训练仓库与独立 solver 项目之间的内部交接物，不是最终调用方安装目录。
 - 导出物必须是推理专用 ONNX 资产，不得继续携带训练态 `optimizer_state`、绝对路径和运行目录引用。
 - 独立 solver 项目构建时，会把这批资产复制到 wheel 资源目录中，由纯 Python `onnxruntime` 运行时加载。
-- 字段级合同、命名规则和 provider 顺序以 [solver-asset-export-contract.md](/Users/uroborus/AiProject/sinan-captcha/docs/04-project-development/04-design/solver-asset-export-contract.md) 和 [solver_asset_contract.py](/Users/uroborus/AiProject/sinan-captcha/core/release/solver_asset_contract.py) 为准。
+- 字段级合同、命名规则和 provider 顺序以 [solver-asset-export-contract.md](/Users/uroborus/AiProject/sinan-captcha/docs/04-project-development/04-design/solver-asset-export-contract.md) 和 [solver_asset_contract.py](/Users/uroborus/AiProject/sinan-captcha/packages/sinan-captcha/src/release/solver_asset_contract.py) 为准。
 
 ## API-003 独立 solver 构建产物合同
 

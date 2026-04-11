@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import unittest
 
-from core.auto_train import contracts, optimize
+from auto_train import contracts, optimize
 
 
 def _decision(decision: str = "RETUNE", *, base_run: str = "trial_0003") -> contracts.DecisionRecord:

@@ -104,12 +104,32 @@ uv run sinan train group1 prelabel-query-dir --input-dir materials/test/group1/q
 
 这条命令会直接使用本地 `query-parser` 权重，为 `query` 目录里的每张图片写同名 `json` 标注文件，并把汇总结果写到该目录下的 `.sinan/prelabel/group1/query/`。
 
-这两条命令会做 4 件事：
+如果你手头还没有 `manifest.json`，只有一批同名配对的 `group1 query + scene` 原图，例如：
+
+- `work_home/materials/validation/group1/query/*.png`
+- `work_home/materials/validation/group1/scence/*.png`
+
+也可以直接让本地 Ollama 多模态模型先生成 reviewed 初稿：
+
+```bash
+uv run sinan train group1 prelabel-vlm \
+  --pair-root work_home/materials/validation/group1 \
+  --model qwen2.5vl:7b
+```
+
+这条命令会自动按文件名配对 `query/<name>` 和 `scene/<name>`；为了兼容历史目录，也接受 `scence/<name>`。模型只会输出 reviewed 稀疏预标注草稿，不会直接生成最终答案。
+
+整套试卷的 `prelabel` 和 `prelabel-vlm` 会做 4 件事：
 
 1. 从 `manifest.json` 读取试卷样本。
 2. 用当前训练好的模型跑预测。
 3. 把预测结果转换成 `X-AnyLabeling` 可直接打开的 `json`。
 4. 把要复核的图片复制到 `reviewed/` 目录。
+
+如果使用 `prelabel-vlm`，第 1、2 步会替换成：
+
+1. 按同名文件自动配对 `query + scene|scence`。
+2. 把“标注要求 + query 图 + scene 图”发给本地 Ollama 多模态模型，请它返回严格 JSON。
 
 执行后你会看到：
 
@@ -158,6 +178,8 @@ materials/business_exams/group2/reviewed-v1/
 
 - `import/` 里的原始图片不会被改。
 - `prelabel` 命令会把复核用副本写到 `reviewed/`。
+- `prelabel-vlm` 会把原始配对图复制到 `reviewed/query` 和 `reviewed/scene`，并把 VLM 返回结果写成同名 `json`。
+- `prelabel-vlm` 的中间结果会写到 `<pair-root>/.sinan/prelabel/group1/vlm/`，包括 `source.jsonl`、`labels.jsonl`、`trace.jsonl` 和 `summary.json`。
 - `group2 prelabel` 当前会逐样本跑预测，因此 `import/tile` 里的紧边界透明 `png` 可以保留各自尺寸，不需要再人工补白到统一大小。
 - 这一步只会新增单图 `json` 标注文件，不会直接生成最终 `reviewed/labels.jsonl`。
 - 如果 `reviewed/*.json` 已经有人工复核结果，默认会拒绝覆盖；只有显式加 `--overwrite` 才会重跑。

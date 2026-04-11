@@ -7,7 +7,7 @@ import tempfile
 import unittest
 from pathlib import Path
 
-from core.auto_train import controller, contracts, storage
+from auto_train import controller, contracts, storage
 
 
 def _train_result(task: str, train_root: Path, train_name: str) -> controller.runners.train.TrainRunnerResult:
@@ -596,7 +596,7 @@ class AutoTrainControllerTests(unittest.TestCase):
     def test_default_generator_executable_uses_windows_name_on_nt(self) -> None:
         from unittest.mock import patch
 
-        with patch("core.auto_train.controller.os.name", "nt"):
+        with patch("auto_train.controller.os.name", "nt"):
             self.assertEqual(controller.default_generator_executable(), "sinan-generator.exe")
 
     def test_evaluate_stage_uses_test_outputs_when_request_dirs_are_not_supplied(self) -> None:

@@ -24,7 +24,7 @@ D:\
 
 ## 3. 业务应用不要直接依赖的东西
 
-- `core.solve`
+- `packages/sinan-captcha/src/solve/`
 - `runs/`
 - `weights/best.pt`
 - 训练仓库内部脚本

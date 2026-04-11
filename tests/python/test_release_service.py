@@ -9,7 +9,7 @@ import unittest
 from pathlib import Path
 from unittest.mock import patch
 
-from core.release.service import (
+from release.service import (
     BuildAllReleaseRequest,
     BuildGeneratorRequest,
     BuildReleaseRequest,
@@ -45,8 +45,8 @@ class ReleaseServiceTests(unittest.TestCase):
         sinan_dir = root / "packages" / "sinan-captcha"
         solver_dir = root / "packages" / "solver"
         generator_dir = root / "packages" / "generator"
-        (sinan_dir / "core").mkdir(parents=True, exist_ok=True)
-        (sinan_dir / "core" / "__init__.py").write_text("__all__ = []\n", encoding="utf-8")
+        (sinan_dir / "src").mkdir(parents=True, exist_ok=True)
+        (sinan_dir / "src" / "cli.py").write_text("def main(argv=None):\n    return 0\n", encoding="utf-8")
         solver_dir.mkdir(parents=True, exist_ok=True)
         generator_dir.mkdir(parents=True, exist_ok=True)
         return sinan_dir, solver_dir, generator_dir
@@ -56,21 +56,19 @@ class ReleaseServiceTests(unittest.TestCase):
             project_dir = Path(tmpdir)
             sinan_dir, _, _ = self._create_repo_layout(project_dir)
             self._write_package_pyproject(sinan_dir, "0.0.0")
+            source_root = project_dir / ".opencode" / "commands"
+            source_root.mkdir(parents=True)
+            (source_root / "judge-trial.md").write_text("judge", encoding="utf-8")
             dist_dir = sinan_dir / "dist"
             dist_dir.mkdir()
             (dist_dir / "stale.whl").write_text("old", encoding="utf-8")
             (dist_dir / ".gitignore").write_text("*\n", encoding="utf-8")
-            with patch("core.release.service.subprocess.run") as subprocess_run:
-                subprocess_run.return_value.returncode = 0
+            with patch("release.service._build_setuptools_distribution") as build_dist:
                 build_distribution(BuildReleaseRequest(project_dir=project_dir))
 
             self.assertFalse((dist_dir / "stale.whl").exists())
             self.assertTrue((dist_dir / ".gitignore").exists())
-            subprocess_run.assert_called_once_with(
-                ["uv", "build", "--out-dir", "dist"],
-                check=True,
-                cwd=sinan_dir.resolve(),
-            )
+            build_dist.assert_called_once_with(package_dir=sinan_dir.resolve(), output_dir=dist_dir.resolve())
 
     def test_build_generator_distribution_cleans_target_dir_and_uses_resolved_output_path(self) -> None:
         with tempfile.TemporaryDirectory() as tmpdir:
@@ -88,7 +86,7 @@ class ReleaseServiceTests(unittest.TestCase):
                     Path(args[0][3]).write_text("exe", encoding="utf-8")
                 return subprocess.CompletedProcess(args[0], 0)
 
-            with patch("core.release.service.subprocess.run", side_effect=fake_run) as subprocess_run:
+            with patch("release.service.subprocess.run", side_effect=fake_run) as subprocess_run:
                 current_dir = Path.cwd()
                 os.chdir(project_dir)
                 try:
@@ -119,7 +117,7 @@ class ReleaseServiceTests(unittest.TestCase):
                     return subprocess.CompletedProcess(args[0], 0, stdout="windows\namd64\n")
                 return subprocess.CompletedProcess(args[0], 0)
 
-            with patch("core.release.service.subprocess.run", side_effect=fake_run):
+            with patch("release.service.subprocess.run", side_effect=fake_run):
                 with self.assertRaisesRegex(ValueError, "expected generator binary was not created"):
                     build_generator_distribution(BuildGeneratorRequest(project_dir=project_dir))
 
@@ -132,17 +130,38 @@ class ReleaseServiceTests(unittest.TestCase):
             dist_dir.mkdir()
             (dist_dir / "stale.whl").write_text("old", encoding="utf-8")
             (dist_dir / ".gitignore").write_text("*\n", encoding="utf-8")
-            with patch("core.release.service.subprocess.run") as subprocess_run:
-                subprocess_run.return_value.returncode = 0
+            with patch("release.service._build_setuptools_distribution") as build_dist:
                 build_solver_distribution(BuildSolverRequest(project_dir=project_dir))
 
             self.assertFalse((dist_dir / "stale.whl").exists())
             self.assertTrue((dist_dir / ".gitignore").exists())
-            subprocess_run.assert_called_once_with(
-                ["uv", "build", "--out-dir", "dist"],
-                check=True,
-                cwd=solver_dir.resolve(),
+            build_dist.assert_called_once_with(package_dir=solver_dir.resolve(), output_dir=dist_dir.resolve())
+
+    def test_stage_and_clear_repo_opencode_assets(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            project_dir = Path(tmpdir)
+            sinan_dir, _, _ = self._create_repo_layout(project_dir)
+            source_root = project_dir / ".opencode" / "commands"
+            source_root.mkdir(parents=True)
+            (source_root / "judge-trial.md").write_text("judge", encoding="utf-8")
+
+            staged = __import__("release.service", fromlist=["_stage_repo_opencode_assets"])._stage_repo_opencode_assets(
+                sinan_dir
             )
+
+            self.assertEqual(
+                staged,
+                sinan_dir / "src" / "auto_train" / "resources" / "opencode",
+            )
+            self.assertEqual(
+                (staged / "commands" / "judge-trial.md").read_text(encoding="utf-8"),
+                "judge",
+            )
+
+            __import__("release.service", fromlist=["_clear_staged_opencode_assets"])._clear_staged_opencode_assets(
+                sinan_dir
+            )
+            self.assertFalse(staged.exists())
 
     def test_build_all_distributions_runs_three_build_steps(self) -> None:
         with tempfile.TemporaryDirectory() as tmpdir:
@@ -150,9 +169,9 @@ class ReleaseServiceTests(unittest.TestCase):
             self._create_repo_layout(project_dir)
             request = BuildAllReleaseRequest(project_dir=project_dir, goos="windows", goarch="amd64")
 
-            with patch("core.release.service.build_distribution") as build_root:
-                with patch("core.release.service.build_generator_distribution") as build_generator:
-                    with patch("core.release.service.build_solver_distribution") as build_solver:
+            with patch("release.service.build_distribution") as build_root:
+                with patch("release.service.build_generator_distribution") as build_generator:
+                    with patch("release.service.build_solver_distribution") as build_solver:
                         build_all_distributions(request)
 
             build_root.assert_called_once_with(BuildReleaseRequest(project_dir=project_dir.resolve()))
@@ -216,7 +235,7 @@ class ReleaseServiceTests(unittest.TestCase):
             env = os.environ.copy()
             env["PYPI_TOKEN"] = "secret-token"
             with patch.dict(os.environ, env, clear=True):
-                with patch("core.release.service.subprocess.run") as subprocess_run:
+                with patch("release.service.subprocess.run") as subprocess_run:
                     subprocess_run.return_value.returncode = 0
                     publish_distribution(request)
 
@@ -224,6 +243,14 @@ class ReleaseServiceTests(unittest.TestCase):
             self.assertIn("--publish-url", command)
             self.assertIn("https://upload.pypi.org/legacy/", command)
             self.assertEqual(subprocess_run.call_args.kwargs["env"]["UV_PUBLISH_TOKEN"], "secret-token")
+            self.assertEqual(
+                subprocess_run.call_args.kwargs["env"]["UV_CACHE_DIR"],
+                str((project_dir / "work_home" / ".cache" / "uv").resolve()),
+            )
+            self.assertEqual(
+                subprocess_run.call_args.kwargs["env"]["GOCACHE"],
+                str((project_dir / "work_home" / ".cache" / "go").resolve()),
+            )
             self.assertTrue(any(item.endswith(f"sinan_captcha-{package_version}-py3-none-any.whl") for item in command))
             self.assertTrue(any(item.endswith(f"sinan_captcha-{package_version}.tar.gz") for item in command))
             self.assertFalse(any(item.endswith("sinan_captcha-0.1.13-py3-none-any.whl") for item in command))

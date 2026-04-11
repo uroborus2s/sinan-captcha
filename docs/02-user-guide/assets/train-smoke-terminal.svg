@@ -10,14 +10,14 @@
   <g fill="#e2e8f0" font-family="Menlo, Consolas, monospace" font-size="21">
     <text x="48" y="108">&gt; uv run sinan train group1 --dataset-version firstpass --name smoke --epochs 1 --batch 8</text>
     <text x="48" y="140">group1 runner: dataset=datasets/group1/firstpass/dataset.json</text>
-    <text x="48" y="188">[scene-detector] Ultralytics 8.x  Python-3.12  torch-2.x  CUDA:0</text>
+    <text x="48" y="188">[proposal-detector] Ultralytics 8.x  Python-3.12  torch-2.x  CUDA:0</text>
     <text x="48" y="224">train: scanning datasets/group1/firstpass/scene-yolo/labels/train... 160 images</text>
     <text x="48" y="260">val: scanning datasets/group1/firstpass/scene-yolo/labels/val... 20 images</text>
     <text x="48" y="296">[query-parser] train: scanning datasets/group1/firstpass/query-yolo/labels/train...</text>
     <text x="48" y="332">[query-parser] val: scanning datasets/group1/firstpass/query-yolo/labels/val...</text>
-    <text x="48" y="380">Results saved to runs/group1/smoke/scene-detector</text>
+    <text x="48" y="380">Results saved to runs/group1/smoke/proposal-detector</text>
     <text x="48" y="416">Results saved to runs/group1/smoke/query-parser</text>
-    <text x="48" y="452">scene-detector/weights/best.pt</text>
+    <text x="48" y="452">proposal-detector/weights/best.pt</text>
     <text x="48" y="488">query-parser/weights/best.pt</text>
   </g>
 </svg>

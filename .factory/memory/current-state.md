@@ -17,6 +17,56 @@
 
 ## 当前事实
 
+- 2026-04-11 当前 `docs/03-developer-guide` 已按最新 monorepo 结构与代码入口完成一轮整体验收级重写：
+  - 当前已明确：
+    - 根 `uv workspace` 只包含 `packages/sinan-captcha` 与 `packages/solver`
+    - `packages/generator` 是独立 Go 模块，不属于 workspace
+    - `work_home/` 是默认本地运行根目录
+    - 根目录 `.opencode/` 是唯一受 Git 管理的 OpenCode 资源源目录
+    - `packages/solver/resources/` 是 `sinanz` 打包输入，不是普通缓存目录
+  - 当前开发者指南已重排为：
+    - 接手与冷启动
+    - 仓库结构与边界
+    - 日常开发与验证
+    - 构建、发版与交付
+    - `sinanz` 集成与资产 staging
+  - 当前文档目标是让未接触过项目的维护者能直接按页完成：
+    - 仓库识别
+    - 最小验证
+    - 构建与发版
+    - solver 资产导出与 staging
+
+- 2026-04-11 当前 `packages/sinan-captcha` 已切到真正的 `src/` 直出布局：
+  - 当前源码入口已从 `packages/sinan-captcha/core/` 迁到：
+    - `packages/sinan-captcha/src/cli.py`
+    - `packages/sinan-captcha/src/train/...`
+    - `packages/sinan-captcha/src/solve/...`
+    - `packages/sinan-captcha/src/auto_train/...`
+  - 当前 import 前缀已不再使用 `core.*`
+  - 当前 `packages/sinan-captcha/pyproject.toml` 已改成：
+    - `tool.setuptools.package-dir = {"" = "src"}`
+    - `project.scripts.sinan = "cli:main"`
+  - 当前依赖边界已收口为：
+    - 基础 CLI / 仓库源码环境：`uv sync`
+    - 含训练栈的仓库源码环境：`uv sync --group train`
+    - 训练目录安装：`sinan-captcha[train] + torch/torchvision/torchaudio`
+  - 当前 `train` extra 已收紧为非 CUDA 专属训练依赖；PyTorch 三件套继续由训练目录按 backend 单独安装
+  - 当前根目录构建链路已改为：
+    - Python 子项目直接走 `setuptools` build backend
+    - Go 子项目默认把 `GOCACHE` 收口到 `work_home/.cache/go`
+  - 当前根目录 `.opencode/` 已固定为唯一受 Git 管理的 OpenCode command / skill 事实源
+  - 当前 `packages/sinan-captcha/src/auto_train/resources/opencode` 不再常驻源码树，只在 wheel / sdist 构建时临时 stage，并在构建结束后自动清理
+  - 当前 `tests/python/conftest.py` 已在 pytest 结束后自动清理：
+    - `__pycache__`
+    - `packages/*/build`
+    - `packages/*/*.egg-info`
+    - `packages/*/src/*.egg-info`
+    - `.pytest_cache`
+    - `.ruff_cache`
+    - `.mypy_cache`
+    - `htmlcov`
+    - `.coverage*`
+
 - 2026-04-11 当前 `group1 reviewed / prelabel / auto-train` 已完成一轮实例匹配合同收口：
   - 当前 `reviewed` 正式人工标注合同已切为：
     - `query` 写 `query_item`
@@ -32,6 +82,18 @@
     - LabelMe `query` 统一写 `query_item`
     - LabelMe `scene` 统一写 `NN`
     - 旧类别提示写入 `shape.flags.class_guess`
+  - 当前 `train group1 prelabel-vlm` 已新增本地大模型预标注入口：
+    - 直接扫描同名 `query + scene|scence` 图片对，不依赖 `manifest.json`
+    - 调用本地 Ollama 多模态模型，要求其返回严格 JSON
+    - 输出 `reviewed/query|scene/*.json` 供人工审核
+    - 中间产物写入 `<pair-root>/.sinan/prelabel/group1/vlm/`
+    - 预测行当前标记为 `label_source=vlm_pred`
+    - 当前命令默认会持续向 `stderr` 打印进度日志：
+      - 启动参数与发现到的样本数
+      - 每个 sample 的 prompt
+      - 发送到 Ollama 的请求节点
+      - Ollama 原始响应 payload 与提取后的文本内容
+      - 归一化后的 `query_items / scene_targets` 数量
   - 当前 `auto-train train/test/business-eval` 已补齐 `icon-embedder` 生命周期：
     - `TrainRecord.params` 记录 `embedder_model_best/last`
     - `test` / `business_eval` 会在实例匹配数据集上透传 `icon-embedder`
@@ -46,6 +108,7 @@
     - `./.venv/bin/python -m unittest discover -s tests/python -p 'test_evaluate_service.py'`
     - `./.venv/bin/python -m unittest discover -s tests/python -p 'test_auto_train_business_eval.py'`
     - `./.venv/bin/python -m unittest discover -s tests/python -p 'test_auto_train_runners.py'`
+    - `uv run pytest tests/python/test_train_prelabel_service.py tests/python/test_training_jobs.py tests/python/test_root_cli.py -q`
 
 - 2026-04-11 当前 `uv run sinan materials audit-group1-query` 已补齐“部分成功可落盘 + 失败项可重试”恢复语义：
   - 当前即使存在 `error_count > 0`，也会基于成功图片先写出可用的 `group1` 模板素材包，而不是整批阻断
@@ -113,9 +176,10 @@
   - 当前 Python 数据契约层已支持新的 `group1` 实例字段：
     - 顶层 `query_items`
     - 对象级 `asset_id / template_id / variant_id`
-  - 当前 `validate_group1_row()` 已改为双读：
-    - 新数据可直接走 `query_items + 实例身份`
-    - 旧数据仍可暂时走 `query_targets + class/class_id`
+  - 当前 `validate_group1_row()` 已只接受正式新合同：
+    - gold/pred 数据统一走 `query_items + scene_targets + 实例身份`
+    - reviewed 试卷允许 `order + bbox + center` 的稀疏标注
+    - 旧 `query_targets + class/class_id` 已删除，不再兼容
   - 当前 generator 的 `group1` 原始批次与 `splits/*.jsonl` 已开始输出：
     - `query_items`
     - `asset_id`
@@ -167,9 +231,9 @@
     - `uv run sinan train group1 --component proposal-detector ...`
     - `uv run sinan predict group1 --proposal-model ...`
     - `uv run sinan test group1 --proposal-model ...`
-  - 当前旧 `scene-detector` / `--scene-model` 只保留为隐式兼容别名：
-    - 旧 CLI 参数仍可解析
-    - 读取历史 run/bundle 时会优先找新目录，再回退旧 `scene-detector`
+  - 当前旧 `scene-detector` / `--scene-model` 兼容别名已删除：
+    - CLI 只接受 `proposal-detector` / `--proposal-model`
+    - solver bundle 只接受 `proposal_detector`
   - 当前也已支持显式按组件训练：
     - `uv run sinan train group1 --component query-parser ...`
     - `uv run sinan train group1 --component proposal-detector ...`
@@ -1188,7 +1252,7 @@
   - 已新增 `tests/python/test_release_cli.py`
   - `uv run sinan release export-solver-assets` 当前已支持 `group2` 的 `PT -> ONNX` 导出
   - 当前会产出 `manifest.json`、`models/slider_gap_locator.onnx`、`metadata/slider_gap_locator.json`、`metadata/export_report.json`
-  - 当前会同步写出 `click_matcher.json` 与 `class_names.json` 的 `TASK-SOLVER-MIG-009` 占位文件
+  - 当前会同步写出 `click_matcher.json`；旧 `class_names.json` 占位文件已删除
 - 2026-04-05 `sinanz` 的 `group2` 公开服务已完成首轮 ONNX runtime 边界切换：
   - `group2` 当前改为查找 `slider_gap_locator.onnx`
   - 当前运行时目标已冻结为纯 Python `onnxruntime`

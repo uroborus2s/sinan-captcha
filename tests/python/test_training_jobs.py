@@ -8,19 +8,19 @@ import tempfile
 from unittest.mock import patch
 import zlib
 
-from core.common.jsonl import read_jsonl
-from core.inference.service import ClickPoint, Group1ClickTarget, Group1MappingResult
-from core.train.base import (
+from common.jsonl import read_jsonl
+from inference.service import ClickPoint, Group1ClickTarget, Group1MappingResult
+from train.base import (
     preferred_checkpoint_path,
     preferred_run_checkpoint,
     prepare_dataset_yaml_for_ultralytics,
 )
-from core.train.group1 import cli as group1_cli
-from core.train.group1.dataset import load_group1_dataset_config
-from core.train.group1.runner import _build_prediction_row
-from core.train.group1.service import build_group1_training_job
-from core.train.group2 import cli as group2_cli
-from core.train.group2.service import build_group2_prediction_job, build_group2_training_job, run_group2_prediction_job
+from train.group1 import cli as group1_cli
+from train.group1.dataset import load_group1_dataset_config
+from train.group1.runner import _build_prediction_row
+from train.group1.service import build_group1_training_job
+from train.group2 import cli as group2_cli
+from train.group2.service import build_group2_prediction_job, build_group2_training_job, run_group2_prediction_job
 
 
 def _write_png(path: Path, width: int, height: int, color: tuple[int, int, int]) -> None:
@@ -72,14 +72,13 @@ class TrainingJobTests(unittest.TestCase):
         }
         prediction = _build_prediction_row(
             row,
-            predicted_query_targets=[
+            predicted_query_items=[
                 {
                     "order": 1,
-                    "class": "query_item_01",
-                    "class_id": 0,
                     "bbox": [8, 8, 28, 28],
                     "center": [18, 18],
                     "score": 0.99,
+                    "class_guess": "icon_house",
                 }
             ],
             mapping=Group1MappingResult(
@@ -87,8 +86,6 @@ class TrainingJobTests(unittest.TestCase):
                 ordered_targets=[
                     Group1ClickTarget(
                         order=1,
-                        class_id=0,
-                        class_name="query_item_01",
                         bbox=[80, 32, 120, 72],
                         center=[100, 52],
                         score=0.97,
@@ -99,13 +96,13 @@ class TrainingJobTests(unittest.TestCase):
                 ambiguous_orders=[],
             ),
             elapsed_ms=7.5,
-            instance_matching=True,
         )
 
         scene_target = prediction["scene_targets"][0]
         self.assertEqual(scene_target["asset_id"], "asset_house")
         self.assertEqual(scene_target["template_id"], "tpl_house")
         self.assertEqual(scene_target["variant_id"], "var_outline")
+        self.assertEqual(prediction["query_items"][0]["class_guess"], "icon_house")
         self.assertNotIn("class_id", scene_target)
         self.assertNotIn("class", scene_target)
 
@@ -178,7 +175,7 @@ class TrainingJobTests(unittest.TestCase):
     def test_group1_uses_expected_defaults(self) -> None:
         job = build_group1_training_job(Path("datasets/group1/v1/dataset.json"), Path("runs/group1"))
         command = job.command()
-        self.assertEqual(command[:5], ["uv", "run", "python", "-m", "core.train.group1.runner"])
+        self.assertEqual(command[:5], ["uv", "run", "python", "-m", "train.group1.runner"])
         self.assertIn("--dataset-config", command)
         self.assertIn("datasets/group1/v1/dataset.json", command)
         self.assertIn("--proposal-model", command)
@@ -190,7 +187,7 @@ class TrainingJobTests(unittest.TestCase):
     def test_group2_uses_expected_defaults(self) -> None:
         job = build_group2_training_job(Path("datasets/group2/v1/dataset.json"), Path("runs/group2"))
         command = job.command()
-        self.assertEqual(command[:5], ["uv", "run", "python", "-m", "core.train.group2.runner"])
+        self.assertEqual(command[:5], ["uv", "run", "python", "-m", "train.group2.runner"])
         self.assertIn("--dataset-config", command)
         self.assertIn("datasets/group2/v1/dataset.json", command)
         self.assertIn("--model", command)
@@ -235,7 +232,7 @@ class TrainingJobTests(unittest.TestCase):
         )
 
         command = job.command()
-        self.assertEqual(command[:5], ["uv", "run", "python", "-m", "core.train.group1.runner"])
+        self.assertEqual(command[:5], ["uv", "run", "python", "-m", "train.group1.runner"])
         self.assertIn("--component", command)
         self.assertIn("icon-embedder", command)
         self.assertIn("--epochs", command)
@@ -248,7 +245,7 @@ class TrainingJobTests(unittest.TestCase):
         self.assertNotIn("--query-model", command)
 
     def test_group1_prediction_job_includes_icon_embedder_model(self) -> None:
-        from core.train.group1.service import build_group1_prediction_job
+        from train.group1.service import build_group1_prediction_job
 
         job = build_group1_prediction_job(
             dataset_config=Path("datasets/group1/v2/dataset.json"),
@@ -280,7 +277,7 @@ class TrainingJobTests(unittest.TestCase):
             )
         self.assertEqual(code, 0)
         output = buffer.getvalue()
-        self.assertIn("uv run python -m core.train.group1.runner train", output)
+        self.assertIn("uv run python -m train.group1.runner train", output)
         self.assertIn("--batch 8", output)
         self.assertIn("--dataset-config datasets/group1/v1/dataset.json", output)
 
@@ -308,7 +305,7 @@ class TrainingJobTests(unittest.TestCase):
 
     def test_group1_cli_uses_default_paths_from_training_root(self) -> None:
         buffer = io.StringIO()
-        with patch("core.train.group1.cli.Path.cwd", return_value=Path("D:/sinan-captcha-work")):
+        with patch("train.group1.cli.Path.cwd", return_value=Path("D:/sinan-captcha-work")):
             with redirect_stdout(buffer):
                 code = group1_cli.main(
                     [
@@ -327,7 +324,7 @@ class TrainingJobTests(unittest.TestCase):
 
     def test_group1_cli_uses_previous_best_checkpoint_from_training_root(self) -> None:
         buffer = io.StringIO()
-        with patch("core.train.group1.cli.Path.cwd", return_value=Path("D:/sinan-captcha-work")):
+        with patch("train.group1.cli.Path.cwd", return_value=Path("D:/sinan-captcha-work")):
             with redirect_stdout(buffer):
                 code = group1_cli.main(
                     [
@@ -349,7 +346,7 @@ class TrainingJobTests(unittest.TestCase):
 
     def test_group1_cli_resumes_same_run_from_last_checkpoint(self) -> None:
         buffer = io.StringIO()
-        with patch("core.train.group1.cli.Path.cwd", return_value=Path("D:/sinan-captcha-work")):
+        with patch("train.group1.cli.Path.cwd", return_value=Path("D:/sinan-captcha-work")):
             with redirect_stdout(buffer):
                 code = group1_cli.main(
                     [
@@ -361,14 +358,14 @@ class TrainingJobTests(unittest.TestCase):
                 )
         self.assertEqual(code, 0)
         output = buffer.getvalue()
-        self.assertIn("uv run python -m core.train.group1.runner train", output)
+        self.assertIn("uv run python -m train.group1.runner train", output)
         self.assertIn("--proposal-model D:/sinan-captcha-work/runs/group1/firstpass/proposal-detector/weights/last.pt", output)
         self.assertIn("--query-model D:/sinan-captcha-work/runs/group1/firstpass/query-parser/weights/last.pt", output)
         self.assertIn("--resume", output)
 
     def test_group1_cli_can_train_only_query_parser(self) -> None:
         buffer = io.StringIO()
-        with patch("core.train.group1.cli.Path.cwd", return_value=Path("D:/sinan-captcha-work")):
+        with patch("train.group1.cli.Path.cwd", return_value=Path("D:/sinan-captcha-work")):
             with redirect_stdout(buffer):
                 code = group1_cli.main(
                     [
@@ -389,7 +386,7 @@ class TrainingJobTests(unittest.TestCase):
 
     def test_group1_cli_can_train_only_proposal_detector_from_previous_run(self) -> None:
         buffer = io.StringIO()
-        with patch("core.train.group1.cli.Path.cwd", return_value=Path("D:/sinan-captcha-work")):
+        with patch("train.group1.cli.Path.cwd", return_value=Path("D:/sinan-captcha-work")):
             with redirect_stdout(buffer):
                 code = group1_cli.main(
                     [
@@ -412,7 +409,7 @@ class TrainingJobTests(unittest.TestCase):
 
     def test_group1_prelabel_cli_dry_run_uses_reviewed_exam_and_trained_weights(self) -> None:
         buffer = io.StringIO()
-        with patch("core.train.group1.cli.Path.cwd", return_value=Path("D:/sinan-captcha-work")):
+        with patch("train.group1.cli.Path.cwd", return_value=Path("D:/sinan-captcha-work")):
             with redirect_stdout(buffer):
                 code = group1_cli.main(
                     [
@@ -428,7 +425,7 @@ class TrainingJobTests(unittest.TestCase):
                 )
         self.assertEqual(code, 0)
         output = buffer.getvalue()
-        self.assertIn("uv run python -m core.train.group1.runner predict", output)
+        self.assertIn("uv run python -m train.group1.runner predict", output)
         self.assertIn("--dataset-config D:/sinan-captcha-work/datasets/group1/firstpass/dataset.json", output)
         self.assertIn("--proposal-model D:/sinan-captcha-work/runs/group1/round1/proposal-detector/weights/best.pt", output)
         self.assertIn("--query-model D:/sinan-captcha-work/runs/group1/round1/query-parser/weights/best.pt", output)
@@ -436,7 +433,7 @@ class TrainingJobTests(unittest.TestCase):
 
     def test_group1_query_directory_prelabel_cli_dry_run_uses_query_parser_weights(self) -> None:
         buffer = io.StringIO()
-        with patch("core.train.group1.cli.Path.cwd", return_value=Path("D:/sinan-captcha-work")):
+        with patch("train.group1.cli.Path.cwd", return_value=Path("D:/sinan-captcha-work")):
             with redirect_stdout(buffer):
                 code = group1_cli.main(
                     [
@@ -455,6 +452,26 @@ class TrainingJobTests(unittest.TestCase):
         self.assertIn('"project_dir": "materials/test/group1/query/.sinan/prelabel/group1/query"', output)
         self.assertIn('"run_name": "prelabel-query"', output)
 
+    def test_group1_vlm_prelabel_cli_dry_run_uses_pair_root_and_local_model(self) -> None:
+        buffer = io.StringIO()
+        with patch("train.group1.cli.Path.cwd", return_value=Path("D:/sinan-captcha-work")):
+            with redirect_stdout(buffer):
+                code = group1_cli.main(
+                    [
+                        "prelabel-vlm",
+                        "--pair-root",
+                        "materials/validation/group1",
+                        "--model",
+                        "qwen2.5vl:7b",
+                        "--dry-run",
+                    ]
+                )
+        self.assertEqual(code, 0)
+        output = buffer.getvalue()
+        self.assertIn('"pair_root": "materials/validation/group1"', output)
+        self.assertIn('"model": "qwen2.5vl:7b"', output)
+        self.assertIn('"project_dir": "materials/validation/group1/.sinan/prelabel/group1/vlm"', output)
+
     def test_group2_cli_executes_training_command(self) -> None:
         with tempfile.TemporaryDirectory() as tmpdir:
             root = Path(tmpdir)
@@ -464,8 +481,8 @@ class TrainingJobTests(unittest.TestCase):
                 '{"task":"group2","format":"sinan.group2.paired.v1","splits":{"train":"splits/train.jsonl","val":"splits/val.jsonl","test":"splits/test.jsonl"}}',
                 encoding="utf-8",
             )
-            with patch("core.train.group2.service._ensure_group2_training_dependencies") as ensure_deps:
-                with patch("core.train.group2.service.subprocess.run") as subprocess_run:
+            with patch("train.group2.service._ensure_group2_training_dependencies") as ensure_deps:
+                with patch("train.group2.service.subprocess.run") as subprocess_run:
                     ensure_deps.return_value = None
                     subprocess_run.return_value.returncode = 0
                     code = group2_cli.main(
@@ -485,7 +502,7 @@ class TrainingJobTests(unittest.TestCase):
         self.assertEqual(command[1], "run")
         self.assertEqual(command[2], "python")
         self.assertEqual(command[3], "-m")
-        self.assertEqual(command[4], "core.train.group2.runner")
+        self.assertEqual(command[4], "train.group2.runner")
         self.assertIn("--dataset-config", command)
         self.assertIn(str(dataset_config), command)
         self.assertIn("--epochs", command)
@@ -495,7 +512,7 @@ class TrainingJobTests(unittest.TestCase):
 
     def test_group2_cli_uses_default_paths_from_training_root(self) -> None:
         buffer = io.StringIO()
-        with patch("core.train.group2.cli.Path.cwd", return_value=Path("D:/sinan-captcha-work")):
+        with patch("train.group2.cli.Path.cwd", return_value=Path("D:/sinan-captcha-work")):
             with redirect_stdout(buffer):
                 code = group2_cli.main(
                     [
@@ -514,7 +531,7 @@ class TrainingJobTests(unittest.TestCase):
 
     def test_group2_prelabel_cli_dry_run_uses_reviewed_exam_and_trained_weights(self) -> None:
         buffer = io.StringIO()
-        with patch("core.train.group2.cli.Path.cwd", return_value=Path("D:/sinan-captcha-work")):
+        with patch("train.group2.cli.Path.cwd", return_value=Path("D:/sinan-captcha-work")):
             with redirect_stdout(buffer):
                 code = group2_cli.main(
                     [
@@ -530,7 +547,7 @@ class TrainingJobTests(unittest.TestCase):
                 )
         self.assertEqual(code, 0)
         output = buffer.getvalue()
-        self.assertIn("uv run python -m core.train.group2.runner predict", output)
+        self.assertIn("uv run python -m train.group2.runner predict", output)
         self.assertIn("--dataset-config D:/sinan-captcha-work/datasets/group2/firstpass/dataset.json", output)
         self.assertIn("--model D:/sinan-captcha-work/runs/group2/round2/weights/best.pt", output)
         self.assertIn("--source materials/business_exams/group2/reviewed-v1/.sinan/prelabel/group2/source.jsonl", output)
@@ -641,8 +658,8 @@ class TrainingJobTests(unittest.TestCase):
                 )
                 return type("Completed", (), {"returncode": 0})()
 
-            with patch("core.train.group2.service._ensure_group2_training_dependencies") as ensure_deps:
-                with patch("core.train.group2.service.subprocess.run", side_effect=_fake_run) as subprocess_run:
+            with patch("train.group2.service._ensure_group2_training_dependencies") as ensure_deps:
+                with patch("train.group2.service.subprocess.run", side_effect=_fake_run) as subprocess_run:
                     ensure_deps.return_value = None
                     result = run_group2_prediction_job(job)
 

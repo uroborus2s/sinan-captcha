@@ -8,37 +8,49 @@ version = "0.1.40"
 description = "Training and data engineering workspace for graphical captcha models."
 readme = "README.md"
 requires-python = ">=3.12"
+# Keep the default install lightweight; command-specific heavy dependencies are loaded lazily.
 dependencies = []
 
 [project.optional-dependencies]
 train = [
-  "matplotlib",
+  # Non-backend-specific training/runtime dependencies shared by repo dev and setup-train.
   "numpy",
   "onnx",
   "onnxscript",
-  "onnxruntime",
-  "opencv-python",
   "optuna",
-  "pandas",
   "pillow",
-  "pyyaml",
-  "scikit-image",
-  "tqdm",
   "ultralytics",
 ]
 
 [project.scripts]
-sinan = "core.cli:main"
+sinan = "cli:main"
 
 [tool.setuptools]
+package-dir = {"" = "src"}
+py-modules = ["cli", "group2_semantics", "project_metadata"]
 include-package-data = true
 
 [tool.setuptools.packages.find]
-where = ["."]
-include = ["core*"]
+where = ["src"]
+include = [
+  "auto_train*",
+  "autolabel*",
+  "common*",
+  "dataset*",
+  "evaluate*",
+  "exam*",
+  "inference*",
+  "materials*",
+  "modeltest*",
+  "ops*",
+  "predict*",
+  "release*",
+  "solve*",
+  "train*",
+]
 
 [tool.setuptools.package-data]
-"core.auto_train" = [
+"auto_train" = [
   "resources/opencode/commands/*.md",
   "resources/opencode/skills/*/SKILL.md",
 ]
@@ -52,6 +64,6 @@ select = ["E", "F", "I", "UP", "B"]
 
 [tool.mypy]
 python_version = "3.12"
-packages = ["core"]
+files = ["src"]
 strict = true
 warn_unused_configs = true

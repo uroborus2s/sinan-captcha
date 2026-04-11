@@ -1,41 +1,81 @@
-# 开发者快速上手
+# 接手与冷启动
 
 - 文档状态：生效
 - 当前阶段：IMPLEMENTATION
-- 目标读者：第一次接手本仓库，或准备开始发版的维护者
+- 目标读者：第一次接手仓库、准备改代码或准备处理发版的维护者
 - 最近更新：2026-04-11
 
-## 0. 这页解决什么问题
+## 这页解决什么问题
 
-这页只做一件事：
+这页给新维护者一条最短上手路径：先读哪些事实、先装哪些工具、先跑哪些命令，怎样在第一个小时内确认自己已经具备维护能力。
 
-- 让开发者在 30 分钟内看懂仓库、跑通最小验证、知道各模块怎么编译
+## 第一步：先建立正确心智模型
 
-## 1. 先读哪些事实源
+先记住下面 5 件事，再开始跑命令：
 
-第一次进入仓库，按这个顺序看：
+1. 仓库主线不是公网 API，而是“模型生产仓库 + 独立 solver 包”的组合工程。
+2. `sinan` 负责训练、评估、发布和自主训练；`sinan-generator` 负责素材、样本和数据集生成；`sinanz` 是独立 solver 包。
+3. 根 `uv workspace` 当前只纳入 `packages/sinan-captcha` 和 `packages/solver`；`packages/generator` 仍通过 Go 构建。
+4. 当前正式发布命令由 `sinan release ...` 驱动，但 `publish` 只上传 `sinan-captcha` 当前版本的 wheel 与 sdist。
+5. `work_home/` 是默认本地运行根；不要把数据集、缓存、报告和构建脏数据直接塞回源码目录。
+
+## 第二步：先读这些事实源
+
+按这个顺序读，效率最高：
 
 1. `AGENTS.md`
-2. `.factory/project.json`
-3. `.factory/memory/current-state.md`
-4. `.factory/memory/change-summary.md`
-5. `docs/index.md`
-6. [开发者指南概览](./index.md)
+2. `docs/04-project-development/01-governance/project-charter.md`
+3. `docs/04-project-development/02-discovery/input.md`
+4. `.factory/memory/current-state.md`
+5. `.factory/memory/change-summary.md`
+6. [开发者指南](./index.md)
 7. [仓库结构与边界](./repository-structure-and-boundaries.md)
+8. `README.md`
 
-目的很简单：
+如果你这次要改发布、目录合同或 solver 交接，再补读：
 
-- 先知道项目当前处于什么阶段
-- 再知道哪些发布链路已经稳定，哪些仍在迁移
-- 最后再开始跑命令
+1. `docs/04-project-development/04-design/technical-selection.md`
+2. `docs/04-project-development/04-design/module-structure-and-delivery.md`
+3. `docs/04-project-development/04-design/solver-asset-export-contract.md`
 
-## 2. 本机最少工具要求
+## 第二步补充：先知道命令从哪儿进代码
 
-至少准备：
+第一次排查命令或改 CLI 时，先看这些入口，效率最高：
+
+| 你要排查什么 | 先看哪个文件 |
+| --- | --- |
+| `sinan` 根命令分发 | `packages/sinan-captcha/src/cli.py` |
+| `sinan release ...` | `packages/sinan-captcha/src/release/cli.py` 和 `packages/sinan-captcha/src/release/service.py` |
+| `sinan solve ...` | `packages/sinan-captcha/src/solve/cli.py` |
+| 训练目录初始化 | `packages/sinan-captcha/src/ops/setup_train.py` |
+| 根目录构建包装器 | `scripts/repo.py` |
+| `sinan-generator` | `packages/generator/cmd/sinan-generator/main.go` |
+| `sinanz` 公共 API | `packages/solver/src/sinanz.py` |
+
+补充边界：
+
+- `packages/sinan-captcha/src/solve/cli.py` 是训练仓库内的 bundle 调试入口。
+- `packages/solver/src/` 才是独立 `sinanz` 包的公共边界。
+- 如果你要改业务接入合同，先看 `packages/solver/src/`；如果你要改训练仓库里的调试、导出或 bundle 验证，再看 `packages/sinan-captcha/src/solve/`。
+
+如果你只想先记一张最短表，记下面这个：
+
+| 命令 / 目标 | 入口文件 | 最小验证 |
+| --- | --- | --- |
+| `sinan` 根命令 | `packages/sinan-captcha/src/cli.py` | `uv run python -m unittest discover -s tests/python -p 'test_root_cli.py'` |
+| `sinan release ...` | `packages/sinan-captcha/src/release/cli.py` | `uv run python -m unittest discover -s tests/python -p 'test_release_cli.py'` |
+| `sinan solve ...` | `packages/sinan-captcha/src/solve/cli.py` | 相关 bundle / solve 回归 |
+| `sinan-generator` | `packages/generator/cmd/sinan-generator/main.go` | 在 `packages/generator/` 下执行 `GOCACHE=/tmp/sinan-go-build-cache go test ./...` |
+| `sinanz` | `packages/solver/src/sinanz.py` | `uv run pytest packages/solver/tests -q` |
+| 根目录构建包装器 | `scripts/repo.py` | `./.venv/bin/python -m unittest discover -s tests/python -p 'test_repo_script.py'` |
+
+## 第三步：准备本机工具
+
+至少需要：
 
 - `uv`
 - Python 3.12
-- Go 1.22+
+- 与 `packages/generator/go.mod` 对齐的 Go toolchain
 - `git`
 
 建议先确认：
@@ -47,199 +87,98 @@ go version
 git --version
 ```
 
-## 3. 仓库里最重要的 3 个模块
+## 第四步：初始化仓库开发环境
 
-### 3.1 `packages/sinan-captcha`
-
-目录：
-
-- `packages/sinan-captcha/core/`
-- `tests/python/`
-- `packages/sinan-captcha/pyproject.toml`
-
-职责：
-
-- 提供 `sinan` CLI
-- 管训练、测试、评估、发布打包、自主训练
-
-### 3.2 `packages/generator`
-
-目录：
-
-- `packages/generator/`
-
-职责：
-
-- 提供 `sinan-generator`
-- 管工作区、素材导入、数据集生成
-
-### 3.3 `packages/solver`
-
-目录：
-
-- `packages/solver/`
-
-职责：
-
-- 演进中的独立 `sinanz` 包
-- 提供未来面向业务方的独立求解库主线
-
-当前状态：
-
-- 可本地构建和测试
-- 不是根仓库主发布链路
-
-## 4. 第一次进仓库先跑什么
-
-### 4.1 根仓库 Python 最小回归
+在仓库根目录执行：
 
 ```bash
 uv python install 3.12
+uv sync
+```
+
+只有在你要跑训练、导出 solver 资产、验证 `ultralytics/onnx/optuna` 等重依赖时，再补：
+
+```bash
+uv sync --group train
+```
+
+补充说明：
+
+- 默认源码环境是“轻量 CLI + 构建 + 文档维护”优先。
+- 训练目录环境不是靠根仓库 `.venv` 代替的；如果要模拟真实训练机，请改用 `uv run sinan env setup-train --train-root <目录>`。
+
+## 第五步：跑最小验证
+
+### 根仓库 Python 回归
+
+```bash
 uv run python -m unittest discover -s tests/python -p 'test_*.py'
 ```
 
-### 4.2 Go 生成器最小回归
+### Go 生成器回归
+
+在 `packages/generator/` 目录执行：
 
 ```bash
-cd packages/generator
 GOCACHE=/tmp/sinan-go-build-cache go test ./...
-cd ..
 ```
 
-### 4.3 独立 solver 包最小回归
+### `sinanz` 回归
+
+在仓库根目录执行：
 
 ```bash
-cd packages/solver
-uv run pytest
-cd ..
+uv run pytest packages/solver/tests -q
 ```
 
-### 4.4 补丁和文档完整性检查
+### 工作区健康检查
 
 ```bash
 git diff --check
 git status --short
 ```
 
-## 5. 各模块最快编译命令
+## 第六步：确认你能完成最基本的构建
 
-### 5.0 根目录统一编译
+开发期薄包装入口：
 
 ```bash
+uv run python scripts/repo.py paths
 uv run python scripts/repo.py build all
 ```
 
-如果要同时产出 Windows 版生成器：
+如果要交叉编译 Windows 版生成器：
 
 ```bash
 uv run python scripts/repo.py build generator --goos windows --goarch amd64
 ```
 
-正式发布链路仍然是：
+正式发布入口：
 
 ```bash
 uv run sinan release build-all --project-dir .
 ```
 
-如果要同时产出 Windows 版生成器：
-
-```bash
-uv run sinan release build-all --project-dir . --goos windows --goarch amd64
-```
-
-输出目录：
+这些命令的输出目录固定为：
 
 - `packages/sinan-captcha/dist/`
 - `packages/generator/dist/<goos>-<goarch>/`
 - `packages/solver/dist/`
 
-当前会先清理对应输出目录，再写入新的编译结果。
+## 第一个小时结束前，你应该能回答的问题
 
-### 5.1 编译根仓库 Python 包
+如果下面 6 个问题都能答上来，就说明你已经完成冷启动：
 
-```bash
-uv run python scripts/repo.py build sinan-captcha
-```
+1. 哪两个包是根 `uv workspace` 成员，哪个模块不是。
+2. `sinan`、`sinan-generator`、`sinanz` 分别负责什么。
+3. `work_home/`、`.opencode/`、`packages/solver/resources/` 分别属于什么边界。
+4. 改完 Python 主线、Go 生成器、`sinanz` 后各自最少跑什么验证。
+5. `scripts/repo.py build all` 和 `sinan release build-all --project-dir .` 的区别。
+6. 当前真正会上传到 PyPI 的是哪个包，版本号从哪里读取。
 
-构建结果：
+## 需要立即记住的边界
 
-- `packages/sinan-captcha/dist/sinan_captcha-<version>-py3-none-any.whl`
-- `packages/sinan-captcha/dist/sinan_captcha-<version>.tar.gz`
-
-### 5.2 编译 Go 生成器
-
-当前目标：
-
-```bash
-uv run python scripts/repo.py build generator
-```
-
-Windows amd64：
-
-```bash
-uv run python scripts/repo.py build generator --goos windows --goarch amd64
-```
-
-### 5.3 编译独立 solver 包
-
-```bash
-uv run python scripts/repo.py build solver
-```
-
-构建结果：
-
-- `packages/solver/dist/*.whl`
-- `packages/solver/dist/*.tar.gz`
-
-## 6. 最快发一版根仓库 Python 包
-
-如果版本号已经更新到 `packages/sinan-captcha/pyproject.toml`，最短路径是：
-
-```bash
-uv run sinan release build-all --project-dir . --goos windows --goarch amd64
-uv run sinan release publish --project-dir . --token-env UV_PUBLISH_TOKEN
-```
-
-如果你们把 token 放在别的环境变量里：
-
-```bash
-uv run sinan release publish --project-dir . --token-env PYPI_TOKEN
-```
-
-## 7. 最快组装 Windows 训练交付包
-
-前提：
-
-- 根仓库 wheel 已生成
-- `packages/generator/dist/windows-amd64/sinan-generator.exe` 已生成
-
-命令：
-
-```bash
-uv run sinan release package-windows \
-  --project-dir . \
-  --generator-exe packages/generator/dist/windows-amd64/sinan-generator.exe \
-  --output-dir dist/windows-bundle-<version>
-```
-
-如果还要带 solver bundle、数据集或素材：
-
-```bash
-uv run sinan release package-windows \
-  --project-dir . \
-  --generator-exe packages/generator/dist/windows-amd64/sinan-generator.exe \
-  --bundle-dir bundles/solver/current \
-  --datasets-dir work_home/datasets \
-  --materials-dir work_home/materials \
-  --output-dir dist/windows-bundle-<version>
-```
-
-## 8. 接手成功的最低标准
-
-做到下面这些，才算真正能维护：
-
-1. 知道根仓库 Python 包、Go 生成器、`solver` 分别怎么编译
-2. 跑过根仓库 Python、Go、`solver` 三类最小回归
-3. 知道根仓库主发布链路是 `sinan-captcha`，不是 `sinanz`
-4. 知道 Windows 交付包依赖 wheel + `sinan-generator.exe`
-5. 改完文档或流程后会同步 `.factory`
+- 根目录 `.opencode/` 才是受 Git 管理的 OpenCode 资源源目录。
+- `packages/solver/resources/` 不是普通缓存目录；执行 `stage-solver-assets` 后，这里会成为下一次 `sinanz` 打包的真实资源输入。
+- `scripts/` 只放开发辅助脚本，不应被正式运行时代码反向 import。
+- `work_home/` 下的运行产物默认不进 Git；提交前一定看 `git status --short`。

@@ -3,7 +3,7 @@ from __future__ import annotations
 import unittest
 from pathlib import Path
 
-from core.auto_train import opencode_skills
+from auto_train import opencode_skills
 
 
 class AutoTrainOpenCodeSkillsTests(unittest.TestCase):

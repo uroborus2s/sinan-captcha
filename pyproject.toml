@@ -1,16 +1,22 @@
+[build-system]
+requires = ["setuptools>=69", "wheel"]
+build-backend = "setuptools.build_meta"
+
 [project]
 name = "sinan-captcha-workspace"
 version = "0.1.0"
 description = "Monorepo workspace root for sinan-captcha packages."
 readme = "README.md"
 requires-python = ">=3.12"
+scripts = { repo = "repo_cli:main" }
 dependencies = [
-  "sinan-captcha[train]",
+  # Root workspace keeps the lightweight CLI package available by default.
+  "sinan-captcha",
   "sinanz",
 ]
 
 [tool.uv]
-package = false
+package = true
 
 [tool.uv.workspace]
 members = [
@@ -22,6 +28,9 @@ members = [
 sinan-captcha = { workspace = true }
 sinanz = { workspace = true }
 
+[tool.setuptools]
+py-modules = ["repo_cli"]
+
 [tool.ruff]
 target-version = "py312"
 line-length = 100
@@ -31,12 +40,12 @@ select = ["E", "F", "I", "UP", "B"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests/python"]
-pythonpath = ["packages/sinan-captcha"]
+pythonpath = ["packages/sinan-captcha/src"]
 addopts = "-q"
 
 [tool.mypy]
 python_version = "3.12"
-files = ["packages/sinan-captcha/core", "tests/python"]
+files = ["packages/sinan-captcha/src", "tests/python"]
 strict = true
 warn_unused_configs = true
 
@@ -47,4 +56,12 @@ dev = [
   "playwright",
   "pytest>=8.3",
   "ruff>=0.6",
+]
+train = [
+  # Training repo developers opt into the heavy stack explicitly.
+  "sinan-captcha[train]",
+  # Torch remains outside the package extra because setup-train chooses the backend per machine.
+  "torch",
+  "torchaudio",
+  "torchvision",
 ]

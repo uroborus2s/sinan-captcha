@@ -177,17 +177,16 @@
 ## 推荐实现目录
 
 ```text
-generator/
+packages/generator/
   cmd/
   internal/
-core/
+packages/sinan-captcha/src/
   cli.py
   release/
   solve/
   auto_train/
   dataset/
   autolabel/
-  convert/
   train/
     group1/
     group2/

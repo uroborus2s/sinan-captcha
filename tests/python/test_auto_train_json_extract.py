@@ -3,7 +3,7 @@ from __future__ import annotations
 import json
 import unittest
 
-from core.auto_train import json_extract
+from auto_train import json_extract
 
 
 class AutoTrainJsonExtractTests(unittest.TestCase):

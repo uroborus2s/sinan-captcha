@@ -4,7 +4,7 @@ import tempfile
 import unittest
 from pathlib import Path
 
-from core.auto_train import contracts, state_machine, stop_rules, storage
+from auto_train import contracts, state_machine, stop_rules, storage
 
 
 class AutoTrainStateMachineTests(unittest.TestCase):

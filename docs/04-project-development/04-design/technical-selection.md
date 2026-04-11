@@ -164,7 +164,7 @@
 
 设计判断：
 
-- 当前 `core/solve` 已经存在，说明统一求解主线不应再被视为“未来想法”。
+- 当前 `packages/sinan-captcha/src/solve` 已经存在，说明统一求解主线不应再被视为“未来想法”。
 - 当前 `sinanz` 仍处于 Python/PyTorch 迁移过渡期；正式对外交付仍需补齐 ONNX 导出、Rust bridge 和平台 wheel 发布链路。
 
 ## 3. 生成与数据策略
@@ -214,9 +214,9 @@
 - Go 侧正式入口：`sinan-generator`
 - Python 侧正式入口：`sinan`
 - solver 侧正式能力归属：
-  - 当前迁移参考实现在 `core/solve`
-  - 正式公开入口应在 `solver/src/*.py`
-  - 正式模型资源应在 `solver/resources/`
+  - 当前迁移参考实现在 `packages/sinan-captcha/src/solve`
+  - 正式公开入口应在 `packages/solver/src/*.py`
+  - 正式模型资源应在 `packages/solver/resources/`
   - 正式运行时方案为纯 Python + `onnxruntime`
 - 不再允许 `scripts/*` 成为正式对外入口。
 
@@ -227,7 +227,7 @@
 ```bash
 uv run ruff check .
 uv run ruff format --check .
-uv run mypy core tests
+uv run mypy packages/sinan-captcha/src tests/python
 uv run python -m unittest discover -s tests/python -p 'test_*.py'
 ```
 
@@ -264,7 +264,7 @@ go test ./...
 - Go 生成器工作区、素材、QA 与数据导出主线
 - Python 训练、测试、评估与发布主线
 - 自主训练控制器骨架与 `opencode` JUDGE/PLAN/READ/STATUS + `Optuna` RETUNE 运行时接入
-- `core/solve` 的合同和统一求解骨架
+- `packages/sinan-captcha/src/solve` 的合同和统一求解骨架
 
 ### 仍待继续补齐的正式主线
 

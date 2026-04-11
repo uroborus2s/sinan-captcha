@@ -4,10 +4,10 @@ import tempfile
 import unittest
 from pathlib import Path
 
-from core.auto_train.runners import dataset, evaluate, test, train
-from core.train.group1.service import Group1TrainingJob
-from core.evaluate.service import EvaluationResult
-from core.modeltest.service import ModelTestResult
+from auto_train.runners import dataset, evaluate, test, train
+from train.group1.service import Group1TrainingJob
+from evaluate.service import EvaluationResult
+from modeltest.service import ModelTestResult
 
 
 class AutoTrainDatasetRunnerTests(unittest.TestCase):
@@ -244,7 +244,7 @@ class AutoTrainTestRunnerTests(unittest.TestCase):
                     verdict_title="可继续优化",
                     verdict_detail="这轮模型已经比较稳。",
                     next_actions=["继续补弱类"],
-                    predict_command="uv run python -m core.train.group1.runner predict ...",
+                    predict_command="uv run python -m train.group1.runner predict ...",
                     val_command="uv run sinan evaluate --task group1 ...",
                 )
 

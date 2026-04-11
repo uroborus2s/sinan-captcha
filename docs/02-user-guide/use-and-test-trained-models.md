@@ -21,8 +21,9 @@ uv run sinan train group2 prelabel --exam-root materials/business_exams/group2/r
 
 至少检查：
 
-- `runs/group1/<train-name>/scene-detector/weights/best.pt`
+- `runs/group1/<train-name>/proposal-detector/weights/best.pt`
 - `runs/group1/<train-name>/query-parser/weights/best.pt`
+- `runs/group1/<train-name>/icon-embedder/weights/best.pt`
 
 ### `group2`
 

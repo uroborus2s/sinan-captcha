@@ -7,8 +7,8 @@ import zlib
 from pathlib import Path
 from unittest.mock import patch
 
-from core.auto_train import business_eval, controller, contracts, storage
-from core.common.jsonl import write_jsonl
+from auto_train import business_eval, controller, contracts, storage
+from common.jsonl import write_jsonl
 
 
 def _write_png(path: Path, width: int, height: int, color: tuple[int, int, int]) -> None:
@@ -263,7 +263,7 @@ class BusinessEvalExamTests(unittest.TestCase):
                     },
                 )()
 
-            with patch("core.auto_train.business_eval.evaluate_model") as evaluate_model:
+            with patch("auto_train.business_eval.evaluate_model") as evaluate_model:
                 evaluate_model.return_value = type(
                     "EvalResult",
                     (),
@@ -353,7 +353,7 @@ class BusinessEvalExamTests(unittest.TestCase):
                     },
                 )()
 
-            with patch("core.auto_train.business_eval.evaluate_model") as evaluate_model:
+            with patch("auto_train.business_eval.evaluate_model") as evaluate_model:
                 evaluate_model.return_value = type(
                     "EvalResult",
                     (),
@@ -458,8 +458,8 @@ class BusinessEvalExamTests(unittest.TestCase):
                 "scene_image": "/tmp/scene/case_0101.png",
                 "query_items": [],
                 "scene_targets": [
-                    {"order": 1, "class": "wrong_a", "class_id": 7, "bbox": [10, 20, 30, 40], "center": [20, 30]},
-                    {"order": 2, "class": "wrong_b", "class_id": 9, "bbox": [50, 60, 74, 86], "center": [62, 73]},
+                    {"order": 1, "asset_id": "pred_asset_01", "template_id": "pred_tpl_01", "variant_id": "pred_var_01", "bbox": [10, 20, 30, 40], "center": [20, 30]},
+                    {"order": 2, "asset_id": "pred_asset_02", "template_id": "pred_tpl_02", "variant_id": "pred_var_02", "bbox": [50, 60, 74, 86], "center": [62, 73]},
                 ],
                 "distractors": [],
                 "label_source": "pred",

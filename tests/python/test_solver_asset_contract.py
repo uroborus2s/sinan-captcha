@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import unittest
 
-from core.release import solver_asset_contract as contract
+from release import solver_asset_contract as contract
 
 
 class SolverAssetContractTests(unittest.TestCase):

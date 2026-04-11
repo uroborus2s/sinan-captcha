@@ -5,8 +5,8 @@ import tempfile
 import unittest
 from pathlib import Path
 
-from core.common.jsonl import write_jsonl
-from core.evaluate.service import EvaluationRequest, evaluate_model
+from common.jsonl import write_jsonl
+from evaluate.service import EvaluationRequest, evaluate_model
 
 
 class EvaluateServiceTests(unittest.TestCase):
@@ -24,18 +24,20 @@ class EvaluateServiceTests(unittest.TestCase):
                     "sample_id": "g1_000001",
                     "query_image": "query/g1_000001.png",
                     "scene_image": "scene/g1_000001.png",
-                    "query_targets": [
+                    "query_items": [
                         {
                             "order": 1,
-                            "class": "icon_house",
-                            "class_id": 0,
+                            "asset_id": "asset_house_main",
+                            "template_id": "tpl_house",
+                            "variant_id": "var_outline",
                             "bbox": [5, 6, 23, 24],
                             "center": [14, 15],
                         },
                         {
                             "order": 2,
-                            "class": "icon_leaf",
-                            "class_id": 1,
+                            "asset_id": "asset_leaf_main",
+                            "template_id": "tpl_leaf",
+                            "variant_id": "var_fill",
                             "bbox": [29, 6, 47, 24],
                             "center": [38, 15],
                         },
@@ -43,15 +45,17 @@ class EvaluateServiceTests(unittest.TestCase):
                     "scene_targets": [
                         {
                             "order": 1,
-                            "class": "icon_house",
-                            "class_id": 0,
+                            "asset_id": "asset_house_main",
+                            "template_id": "tpl_house",
+                            "variant_id": "var_outline",
                             "bbox": [10, 20, 30, 40],
                             "center": [20, 30],
                         },
                         {
                             "order": 2,
-                            "class": "icon_leaf",
-                            "class_id": 1,
+                            "asset_id": "asset_leaf_main",
+                            "template_id": "tpl_leaf",
+                            "variant_id": "var_fill",
                             "bbox": [50, 60, 74, 86],
                             "center": [62, 73],
                         },
@@ -191,8 +195,8 @@ class EvaluateServiceTests(unittest.TestCase):
                         "scene_image": "scene/exam_0001.png",
                         "query_items": [],
                         "scene_targets": [
-                            {"order": 1, "class": "wrong_a", "class_id": 7, "bbox": [10, 20, 30, 40], "center": [20, 30]},
-                            {"order": 2, "class": "wrong_b", "class_id": 9, "bbox": [50, 60, 74, 86], "center": [62, 73]},
+                            {"order": 1, "asset_id": "pred_asset_01", "template_id": "pred_tpl_01", "variant_id": "pred_var_01", "bbox": [10, 20, 30, 40], "center": [20, 30]},
+                            {"order": 2, "asset_id": "pred_asset_02", "template_id": "pred_tpl_02", "variant_id": "pred_var_02", "bbox": [50, 60, 74, 86], "center": [62, 73]},
                         ],
                         "distractors": [],
                         "label_source": "pred",

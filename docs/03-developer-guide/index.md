@@ -1,61 +1,54 @@
-# 开发者指南概览
+# 开发者指南
 
-本目录面向会直接维护源码仓库的开发者。目标不是解释业务背景，而是让维护者尽快回答 3 个问题：
+本目录面向直接维护 `sinan-captcha` 源码仓库的人，不面向只使用训练机交付包或最终 solver 的使用者。目标只有一个：让维护者能基于当前仓库事实，快速判断应该去哪里改、改完跑什么、怎样构建和交付。
 
-1. 仓库里有哪些模块，分别怎么编译。
-2. 改动后最少要跑哪些验证。
-3. 怎样把 Python 包、Go 生成器和 Windows 交付包稳定打出来并上传。
+## 当前仓库的 4 个稳定事实
 
-## 1. 先记住当前发布边界
+1. 仓库现在是 monorepo，但根 `uv workspace` 只纳入两个 Python 包：
+   - `packages/sinan-captcha`
+   - `packages/solver`
+2. `packages/generator` 不是 `uv workspace` 成员，而是独立 Go 模块；构建要走 Go toolchain，根目录只提供了 `scripts/repo.py` 和 `sinan release build-generator` 这两个统一入口。
+3. `work_home/` 是默认本地运行根目录，素材、数据集、报告、缓存都应该落在这里，而不是散落在源码树。
+4. 根目录 `.opencode/` 是唯一受 Git 管理的 OpenCode 资源事实源；包内 `src/auto_train/resources/opencode/` 只允许在构建或训练目录初始化时临时生成。
 
-- 当前主发布包是根仓库 Python 包 `sinan-captcha`。
-- 当前正式 CLI 是：
-  - `sinan`
-  - `sinan-generator`
-- 当前稳定交付链路是：
-  - 根仓库 wheel + sdist
-  - `generator/` 下的 `sinan-generator` 二进制
-  - 基于两者组装的 Windows 训练交付包
-- `solver/` 是独立 solver 包主线的迁移工程，当前可以本地编译和验证，但还不是根仓库主发布入口。
+## 推荐阅读顺序
 
-## 2. 本目录推荐阅读顺序
-
-按这个顺序读，最快能上手：
-
-1. [开发者快速上手](./maintainer-quickstart.md)
+1. [接手与冷启动](./maintainer-quickstart.md)
 2. [仓库结构与边界](./repository-structure-and-boundaries.md)
-3. [模块编译与本地验证](./local-development-workflow.md)
-4. [打包与上传发布](./release-and-delivery-workflow.md)
-5. [独立 solver 包迁移与集成边界](./solver-bundle-and-integration.md)
+3. [日常开发与验证](./local-development-workflow.md)
+4. [构建、发版与交付](./release-and-delivery-workflow.md)
+5. [`sinanz` 集成与资产 staging](./solver-bundle-and-integration.md)
 
-## 3. 如果你只想完成一件事
+## 按任务找页面
 
 - 第一次接手仓库：
-  - 看 [开发者快速上手](./maintainer-quickstart.md)
-- 想知道某个目录能不能改、该不该提交：
-  - 看 [仓库结构与边界](./repository-structure-and-boundaries.md)
-- 想在本地编译某个模块：
-  - 看 [模块编译与本地验证](./local-development-workflow.md)
-- 想发新版本到 PyPI，或组装 Windows 交付包：
-  - 看 [打包与上传发布](./release-and-delivery-workflow.md)
-- 想继续推进独立 `sinanz` 包：
-  - 看 [独立 solver 包迁移与集成边界](./solver-bundle-and-integration.md)
+  [接手与冷启动](./maintainer-quickstart.md)
+- 想确认某个目录属于源码、生成物还是交付物：
+  [仓库结构与边界](./repository-structure-and-boundaries.md)
+- 想知道改完当前模块最少跑哪些验证：
+  [日常开发与验证](./local-development-workflow.md)
+- 想打包、导出 solver 资产、发布 PyPI 或组装 Windows 交付包：
+  [构建、发版与交付](./release-and-delivery-workflow.md)
+- 想推进独立 solver 包或核对 `sinan solve` / `sinanz` 的边界：
+  [`sinanz` 集成与资产 staging](./solver-bundle-and-integration.md)
 
-## 4. 模块速览
+## 这套指南默认覆盖的对象
 
-| 模块 | 目录 | 主要语言 | 当前职责 | 常用构建命令 |
-| --- | --- | --- | --- | --- |
-| 训练 CLI | `.` | Python | `sinan`、训练、评估、自动训练、发布打包 | `uv run sinan release build --project-dir .` |
-| 生成器 | `generator/` | Go | `sinan-generator`、工作区、素材、数据集生成 | `uv run sinan release build-generator --project-dir . --goos windows --goarch amd64` |
-| 独立 solver 包 | `solver/` | Python + Rust | `sinanz` 迁移主线、公共 API、原生桥接骨架 | `uv run sinan release build-solver --project-dir .` |
+- `packages/sinan-captcha`
+  Python 训练、评估、发布与自主训练 CLI，正式命令是 `sinan`
+- `packages/generator`
+  Go 生成器工程，正式命令是 `sinan-generator`
+- `packages/solver`
+  独立 `sinanz` 求解包与嵌入式 ONNX 资源
+- `scripts/`
+  维护阶段使用的辅助脚本，不属于正式 CLI / SDK 运行时
 
-## 5. 本目录的维护原则
+## 维护原则
 
-- 开发者指南优先回答“怎么做”，不要重复长篇需求背景。
-- 所有命令都以当前仓库真实入口为准，不写概念性伪命令。
-- 发布流程只写已经存在且可执行的链路；目标态能力单独标注“当前不是主发布入口”。
-- 一旦开发工作流、编译命令或发布路径变化，必须同步：
+- 只写当前仓库真实存在的入口、目录和命令，不保留旧 `core/` 路径和历史布局残影。
+- 对开发者最重要的是“当前怎么做”，不是重复需求背景；背景与正式设计请回到 `docs/04-project-development/`。
+- 一旦工作流、目录边界、发布路径或 solver 资产合同变化，至少同步：
   - `docs/03-developer-guide/`
-  - `README.md`
+  - `docs/index.md`
   - `.factory/memory/current-state.md`
   - `.factory/memory/change-summary.md`

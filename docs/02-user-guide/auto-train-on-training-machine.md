@@ -202,7 +202,7 @@ uv run sinan auto-train run group2 `
 
 如果你的真实业务阈值不是上面这组默认值，就不要直接开跑。先把 `group2` 的策略门改成你的业务门，再启动 study：
 
-- `core/auto_train/policies.py`
+- `packages/sinan-captcha/src/auto_train/policies.py`
 
 ## 6. `opencode` 路线怎么搭
 

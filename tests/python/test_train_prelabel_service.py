@@ -1,25 +1,29 @@
 from __future__ import annotations
 
+import io
 import json
 import os
 import struct
 import types
 import tempfile
 import unittest
+from contextlib import redirect_stderr
 from pathlib import Path
 from unittest.mock import patch
 import zlib
 
-from core.common.jsonl import read_jsonl
-from core.train.group1.service import Group1PredictionResult
-from core.train.group2.service import Group2PredictionResult
-from core.train.prelabel import (
+from common.jsonl import read_jsonl
+from train.group1.service import Group1PredictionResult
+from train.group2.service import Group2PredictionResult
+from train.prelabel import (
     Group1PrelabelRequest,
     Group1QueryDirectoryPrelabelRequest,
+    Group1VlmPrelabelRequest,
     Group2PrelabelRequest,
     _resolve_sample_asset,
     run_group1_prelabel,
     run_group1_query_directory_prelabel,
+    run_group1_vlm_prelabel,
     run_group2_prelabel,
 )
 
@@ -112,22 +116,23 @@ class TrainPrelabelServiceTests(unittest.TestCase):
                             "sample_id": "sample_0001",
                             "query_image": str(query_image),
                             "scene_image": str(scene_image),
-                            "query_targets": [
+                            "query_items": [
                                 {
                                     "order": 1,
-                                    "class": "icon_lock",
-                                    "class_id": 0,
                                     "bbox": [5, 8, 29, 30],
                                     "center": [17, 19],
+                                    "class_guess": "icon_lock",
                                 }
                             ],
                             "scene_targets": [
                                 {
                                     "order": 1,
-                                    "class": "icon_lock",
-                                    "class_id": 0,
+                                    "asset_id": "pred_asset_01",
+                                    "template_id": "pred_tpl_01",
+                                    "variant_id": "pred_var_01",
                                     "bbox": [100, 40, 132, 72],
                                     "center": [116, 56],
+                                    "class_guess": "icon_lock",
                                 }
                             ],
                             "distractors": [],
@@ -143,10 +148,10 @@ class TrainPrelabelServiceTests(unittest.TestCase):
                     output_dir=output_dir,
                     labels_path=labels_path,
                     sample_count=1,
-                    command="uv run python -m core.train.group1.runner predict ...",
+                    command="uv run python -m train.group1.runner predict ...",
                 )
 
-            with patch("core.train.prelabel.run_group1_prediction_job", side_effect=_fake_predict):
+            with patch("train.prelabel.run_group1_prediction_job", side_effect=_fake_predict):
                 result = run_group1_prelabel(
                     Group1PrelabelRequest(
                         exam_root=exam_root,
@@ -253,7 +258,7 @@ class TrainPrelabelServiceTests(unittest.TestCase):
                     }
                     return [fake_result]
 
-            with patch("core.train.prelabel._ensure_training_dependencies") as ensure_deps:
+            with patch("train.prelabel._ensure_training_dependencies") as ensure_deps:
                 ensure_deps.return_value = None
                 with patch.dict("sys.modules", {"ultralytics": types.SimpleNamespace(YOLO=_FakeYOLO)}):
                     result = run_group1_query_directory_prelabel(
@@ -273,7 +278,7 @@ class TrainPrelabelServiceTests(unittest.TestCase):
             self.assertEqual(annotation["shapes"][0]["label"], "query_item")
             self.assertEqual(annotation["shapes"][0]["flags"]["class_guess"], "icon_lock")
             rows = read_jsonl(result.prediction_labels_path)
-            self.assertEqual(rows[0]["query_targets"][0]["class"], "icon_lock")
+            self.assertEqual(rows[0]["query_items"][0]["class_guess"], "icon_lock")
 
     def test_group1_query_directory_prelabel_refuses_to_overwrite_existing_json_by_default(self) -> None:
         with tempfile.TemporaryDirectory() as tmpdir:
@@ -286,7 +291,7 @@ class TrainPrelabelServiceTests(unittest.TestCase):
             query_model.parent.mkdir(parents=True, exist_ok=True)
             query_model.write_text("fake-model", encoding="utf-8")
 
-            with patch("core.train.prelabel._ensure_training_dependencies") as ensure_deps:
+            with patch("train.prelabel._ensure_training_dependencies") as ensure_deps:
                 ensure_deps.return_value = None
                 with self.assertRaisesRegex(RuntimeError, "--overwrite"):
                     run_group1_query_directory_prelabel(
@@ -296,6 +301,84 @@ class TrainPrelabelServiceTests(unittest.TestCase):
                             project_dir=root / "reports" / "group1" / "query-prelabel",
                         )
                     )
+
+    def test_group1_vlm_prelabel_pairs_query_and_scence_and_writes_reviewed_annotations(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            root = Path(tmpdir)
+            pair_root = root / "work_home" / "materials" / "validation" / "group1"
+            query_image = pair_root / "query" / "sample_0001.png"
+            scene_image = pair_root / "scence" / "sample_0001.png"
+            _write_png(query_image, 120, 36, (10, 10, 10))
+            _write_png(scene_image, 320, 160, (220, 220, 220))
+
+            fake_content = json.dumps(
+                {
+                    "query_items": [
+                        {
+                            "order": 9,
+                            "bbox": [31, 8, 55, 30],
+                            "class_guess": "icon_star",
+                            "confidence": 0.87,
+                        },
+                        {
+                            "order": 3,
+                            "bbox": [5, 8, 29, 30],
+                            "class_guess": "icon_lock",
+                            "confidence": 0.91,
+                        },
+                    ],
+                    "scene_targets": [
+                        {
+                            "order": 2,
+                            "bbox": [180, 42, 212, 74],
+                            "class_guess": "icon_star",
+                            "confidence": 0.74,
+                        },
+                        {
+                            "order": 1,
+                            "bbox": [100, 40, 132, 72],
+                            "class_guess": "icon_lock",
+                            "confidence": 0.93,
+                        },
+                    ],
+                },
+                ensure_ascii=False,
+            )
+
+            with patch(
+                "train.prelabel._post_json",
+                return_value={"message": {"content": fake_content}},
+            ):
+                stderr_buffer = io.StringIO()
+                with redirect_stderr(stderr_buffer):
+                    result = run_group1_vlm_prelabel(
+                        Group1VlmPrelabelRequest(
+                            pair_root=pair_root,
+                            model="qwen2.5vl:7b",
+                            project_dir=pair_root / ".sinan" / "prelabel" / "group1" / "vlm",
+                        )
+                    )
+            logs = stderr_buffer.getvalue()
+
+            self.assertEqual(result.sample_count, 1)
+            self.assertEqual(result.annotation_count, 2)
+            self.assertTrue((pair_root / "reviewed" / "query" / "sample_0001.png").exists())
+            self.assertTrue((pair_root / "reviewed" / "scene" / "sample_0001.png").exists())
+            query_payload = json.loads((pair_root / "reviewed" / "query" / "sample_0001.json").read_text(encoding="utf-8"))
+            scene_payload = json.loads((pair_root / "reviewed" / "scene" / "sample_0001.json").read_text(encoding="utf-8"))
+            self.assertEqual([shape["label"] for shape in query_payload["shapes"]], ["query_item", "query_item"])
+            self.assertEqual([shape["flags"]["class_guess"] for shape in query_payload["shapes"]], ["icon_lock", "icon_star"])
+            self.assertEqual([shape["label"] for shape in scene_payload["shapes"]], ["01", "02"])
+            rows = read_jsonl(result.prediction_labels_path)
+            self.assertEqual(rows[0]["label_source"], "vlm_pred")
+            self.assertEqual([item["order"] for item in rows[0]["query_items"]], [1, 2])
+            self.assertEqual(rows[0]["query_items"][0]["class_guess"], "icon_lock")
+            self.assertEqual(rows[0]["scene_targets"][0]["center"], [116, 56])
+            self.assertIn("qwen2.5vl:7b", result.prediction_command)
+            self.assertIn("sample_id=sample_0001", logs)
+            self.assertIn("sending request", logs)
+            self.assertIn('"query_items"', logs)
+            self.assertIn("normalized query_items=2 scene_targets=2", logs)
 
     def test_group2_prelabel_copies_assets_and_writes_master_annotation(self) -> None:
         with tempfile.TemporaryDirectory() as tmpdir:
@@ -357,10 +440,10 @@ class TrainPrelabelServiceTests(unittest.TestCase):
                     output_dir=output_dir,
                     labels_path=labels_path,
                     sample_count=1,
-                    command="uv run python -m core.train.group2.runner predict ...",
+                    command="uv run python -m train.group2.runner predict ...",
                 )
 
-            with patch("core.train.prelabel.run_group2_prediction_job", side_effect=_fake_predict):
+            with patch("train.prelabel.run_group2_prediction_job", side_effect=_fake_predict):
                 result = run_group2_prelabel(
                     Group2PrelabelRequest(
                         exam_root=exam_root,
@@ -458,10 +541,10 @@ class TrainPrelabelServiceTests(unittest.TestCase):
                     output_dir=output_dir,
                     labels_path=labels_path,
                     sample_count=1,
-                    command=f"uv run python -m core.train.group2.runner predict --source {job.source}",
+                    command=f"uv run python -m train.group2.runner predict --source {job.source}",
                 )
 
-            with patch("core.train.prelabel.run_group2_prediction_job", side_effect=_fake_predict):
+            with patch("train.prelabel.run_group2_prediction_job", side_effect=_fake_predict):
                 result = run_group2_prelabel(
                     Group2PrelabelRequest(
                         exam_root=exam_root,

@@ -6,7 +6,7 @@ import unittest
 from pathlib import Path
 from unittest.mock import patch
 
-from core.auto_train import opencode_runtime
+from auto_train import opencode_runtime
 
 
 class AutoTrainOpenCodeRuntimeTests(unittest.TestCase):
@@ -16,7 +16,7 @@ class AutoTrainOpenCodeRuntimeTests(unittest.TestCase):
             stderr = None
             returncode = 0
 
-        with patch("core.auto_train.opencode_runtime.subprocess.run", return_value=Completed()) as run_mock:
+        with patch("auto_train.opencode_runtime.subprocess.run", return_value=Completed()) as run_mock:
             result = opencode_runtime.subprocess_runner(
                 ["opencode", "run"],
                 cwd=Path("/tmp"),

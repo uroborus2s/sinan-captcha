@@ -8,7 +8,7 @@ import unittest
 from pathlib import Path
 from unittest.mock import patch
 
-from core.ops import setup_train
+from ops import setup_train
 
 
 class SetupTrainTests(unittest.TestCase):
@@ -38,23 +38,23 @@ class SetupTrainTests(unittest.TestCase):
             setup_train.resolve_torch_backend("12.4", override="auto")
 
     def test_setup_train_module_imports_without_loading_auto_train_package_init(self) -> None:
-        original_auto_train = sys.modules.pop("core.auto_train", None)
-        original_business_eval = sys.modules.pop("core.auto_train.business_eval", None)
-        original_setup_train = sys.modules.pop("core.ops.setup_train", None)
+        original_auto_train = sys.modules.pop("auto_train", None)
+        original_business_eval = sys.modules.pop("auto_train.business_eval", None)
+        original_setup_train = sys.modules.pop("ops.setup_train", None)
         try:
-            module = importlib.import_module("core.ops.setup_train")
+            module = importlib.import_module("ops.setup_train")
             self.assertTrue(hasattr(module, "copy_opencode_assets"))
-            self.assertNotIn("core.auto_train.business_eval", sys.modules)
+            self.assertNotIn("auto_train.business_eval", sys.modules)
         finally:
-            sys.modules.pop("core.ops.setup_train", None)
+            sys.modules.pop("ops.setup_train", None)
             if original_setup_train is not None:
-                sys.modules["core.ops.setup_train"] = original_setup_train
-            sys.modules.pop("core.auto_train", None)
+                sys.modules["ops.setup_train"] = original_setup_train
+            sys.modules.pop("auto_train", None)
             if original_auto_train is not None:
-                sys.modules["core.auto_train"] = original_auto_train
-            sys.modules.pop("core.auto_train.business_eval", None)
+                sys.modules["auto_train"] = original_auto_train
+            sys.modules.pop("auto_train.business_eval", None)
             if original_business_eval is not None:
-                sys.modules["core.auto_train.business_eval"] = original_business_eval
+                sys.modules["auto_train.business_eval"] = original_business_eval
 
     def test_prepare_training_root_writes_runtime_project_files(self) -> None:
         with tempfile.TemporaryDirectory() as tmpdir:
@@ -87,7 +87,7 @@ class SetupTrainTests(unittest.TestCase):
     def test_sync_training_root_runs_uv_install_and_sync(self) -> None:
         with tempfile.TemporaryDirectory() as tmpdir:
             train_root = Path(tmpdir)
-            with patch("core.ops.setup_train.subprocess.run") as subprocess_run:
+            with patch("ops.setup_train.subprocess.run") as subprocess_run:
                 subprocess_run.return_value.returncode = 0
                 setup_train.sync_training_root(train_root)
 
@@ -99,7 +99,7 @@ class SetupTrainTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmpdir:
             train_root = Path(tmpdir) / "work"
             package_version = self._repo_version()
-            with patch("core.ops.setup_train.sync_training_root") as sync_training_root:
+            with patch("ops.setup_train.sync_training_root") as sync_training_root:
                 code = setup_train.main(
                     [
                         "--train-root",

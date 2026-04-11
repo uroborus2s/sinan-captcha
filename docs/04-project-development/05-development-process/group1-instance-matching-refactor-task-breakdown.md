@@ -159,6 +159,11 @@
   - 预标注输出会把旧类别提示沉淀到 `shape.flags.class_guess`
   - `train group1 prelabel-query-dir` 也已切到同一合同
   - `train group1 prelabel` CLI 已支持实例匹配数据集透传 `icon-embedder`
+  - `train group1 prelabel-vlm` 已支持：
+    - 直接扫描同名 `query + scene|scence` 图片对
+    - 调用本地 Ollama 多模态模型生成 reviewed 稀疏预标注
+    - 把结果落成 `reviewed/query|scene/*.json`
+    - 把中间产物写入 `.sinan/prelabel/group1/vlm/{source,labels,trace,summary}`
 - 当前仍待补齐：
   - 面向人工审核的全量文档收口
   - 旧 reviewed 目录的批量迁移脚本（如需要）
@@ -183,7 +188,7 @@
     - `click_icon_embedder.onnx`
     - `slider_gap_locator.onnx`
   - `solver/src/sinanz_group1_runtime.py` 已提供：
-    - query / scene detector ONNX Runtime 调用
+    - query parser / proposal detector ONNX Runtime 调用
     - icon embedder ONNX Runtime 调用
     - embedding 全局 assignment 与歧义拒判
   - `sinanz.sn_match_targets(...)` / `CaptchaSolver.sn_match_targets(...)` 已不再是占位接口
