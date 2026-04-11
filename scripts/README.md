@@ -5,6 +5,7 @@
 - 这里只放开发阶段使用的辅助脚本。
 - 不作为 `sinan`、`sinan-generator` 或 `sinanz` 的正式入口。
 - 不应从 `packages/sinan-captcha/src/`、`packages/generator/` 或 `packages/solver/` 的运行时代码里 import 这里的脚本。
+- `scripts/repo_tools/` 是例外：它承载仓库维护用 `repo` CLI 的实现，但正式入口仍然是根 `pyproject.toml` 暴露的 `uv run repo ...`，不是让业务运行时代码直接 import `scripts/`。
 - 依赖浏览器、Playwright、人工输入或外部站点的脚本，应优先放在这里而不是 `packages/sinan-captcha/src/`。
 - `scripts/crawl/ctrip_login.py` 当前用于开发阶段采集携程验证码素材：
   - 点选模式输出到 `work_home/materials/group1/`

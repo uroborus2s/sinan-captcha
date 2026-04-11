@@ -40,7 +40,7 @@
   Go 生成器工程，正式命令是 `sinan-generator`
 - `packages/solver`
   独立 `sinanz` 求解包与嵌入式 ONNX 资源
-- `repo_cli.py` / `repo_release.py` / `repo_solver_export.py`
+- `scripts/repo_tools/repo_cli.py` / `scripts/repo_tools/repo_release.py` / `scripts/repo_tools/repo_solver_export.py`
   仓库级构建、发版、资产导出和交付入口，不属于 `sinan` 运行时能力
 
 ## 维护原则

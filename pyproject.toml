@@ -8,7 +8,7 @@ version = "0.1.0"
 description = "Monorepo workspace root for sinan-captcha packages."
 readme = "README.md"
 requires-python = ">=3.12"
-scripts = { repo = "repo_cli:main" }
+scripts = { repo = "repo_tools.repo_cli:main" }
 dependencies = [
   # Root workspace keeps the lightweight CLI package available by default.
   "sinan-captcha",
@@ -29,7 +29,11 @@ sinan-captcha = { workspace = true }
 sinanz = { workspace = true }
 
 [tool.setuptools]
-py-modules = ["repo_cli", "repo_release", "repo_solver_export", "repo_solver_asset_contract"]
+package-dir = {"" = "scripts"}
+
+[tool.setuptools.packages.find]
+where = ["scripts"]
+include = ["repo_tools*"]
 
 [tool.ruff]
 target-version = "py312"
@@ -40,12 +44,12 @@ select = ["E", "F", "I", "UP", "B"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests/python"]
-pythonpath = ["packages/sinan-captcha/src"]
+pythonpath = ["packages/sinan-captcha/src", "scripts"]
 addopts = "-q"
 
 [tool.mypy]
 python_version = "3.12"
-files = ["packages/sinan-captcha/src", "tests/python"]
+files = ["packages/sinan-captcha/src", "scripts/repo_tools", "tests/python"]
 strict = true
 warn_unused_configs = true
 

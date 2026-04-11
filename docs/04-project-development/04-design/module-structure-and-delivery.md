@@ -119,7 +119,7 @@ packages/generator/
   - `materials import|fetch`
   - `make-dataset`
 - 构建：
-  - `uv run python scripts/repo.py build generator --goos windows --goarch amd64`
+  - `uv run repo build generator --goos windows --goarch amd64`
 - 交付：
   - Windows 下单独 `.exe`
   - Linux 下单独二进制
@@ -321,7 +321,7 @@ packages/solver/
 - 开发期运行：
   - `go run ./cmd/sinan-generator --help`
 - 正式编译：
-  - `uv run python scripts/repo.py build generator`
+  - `uv run repo build generator`
 - 交付形态：
   - `sinan-generator.exe`
   - 可选素材包
@@ -332,7 +332,7 @@ packages/solver/
   - `uv sync`
   - `uv run python -m unittest discover -s tests/python -p 'test_*.py'`
 - 正式打包：
-  - `uv run python scripts/repo.py build sinan-captcha`
+  - `uv run repo build sinan-captcha`
 - 交付形态：
   - `packages/sinan-captcha/dist/*.whl`
   - `packages/sinan-captcha/dist/*.tar.gz`
@@ -366,7 +366,7 @@ packages/solver/
 - 目标目录：
   - `packages/solver/`
 - 正式打包：
-  - `uv run python scripts/repo.py build solver`
+  - `uv run repo build solver`
 - 正式交付形态：
   - `sinanz-<version>-cp312-<platform>.whl`
 - 安装形态：

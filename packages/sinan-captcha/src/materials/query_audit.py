@@ -129,6 +129,7 @@ class QueryImageAuditResult:
     status: str
     icons: tuple[QueryIconDecision, ...]
     cluster_ids: tuple[str, ...] = ()
+    warnings: tuple[str, ...] = ()
     error: str | None = None
     request_payload: JsonMapping | None = None
     raw_output: str | None = None
@@ -381,6 +382,7 @@ def run_group1_query_audit(
         raise RuntimeError(f"未找到 group1 query 图片：{resolved_query_dir}")
 
     candidate_map: dict[Path, tuple[QueryIconCandidate, ...]] = {}
+    local_warning_map: dict[Path, tuple[str, ...]] = {}
     all_candidates: list[QueryIconCandidate] = []
     for image_path in image_paths:
         candidates = tuple(
@@ -390,9 +392,21 @@ def run_group1_query_audit(
                 min_pixels=min_pixels,
             )
         )
+        warnings: list[str] = []
         if not candidates:
-            raise RuntimeError(f"未能从 query 图片中切出任何图标：{image_path}")
+            warning_message = "本地切图未找到任何图标候选，将直接采用大模型返回结果"
+            warnings.append(warning_message)
+            _emit_progress(
+                progress_reporter,
+                "query 图片本地切图为空警告",
+                {
+                    "image_path": _display_path(image_path, resolved_repo_root),
+                    "warning": warning_message,
+                },
+            )
         candidate_map[image_path.resolve()] = candidates
+        if warnings:
+            local_warning_map[image_path.resolve()] = tuple(warnings)
         all_candidates.extend(candidates)
 
     clusters = cluster_query_icon_candidates(
@@ -470,6 +484,7 @@ def run_group1_query_audit(
             image_path=image_path,
             cluster_ids=cluster_ids,
             expected_icon_count=len(expected_candidates),
+            extra_warnings=local_warning_map.get(image_path.resolve(), ()),
         )
         if reused_result is not None:
             reused_success_count += 1
@@ -490,21 +505,27 @@ def run_group1_query_audit(
             )
         try:
             classification = _normalize_classification_output(classifier(image_path))
-            if len(classification.icons) != len(expected_candidates):
-                raise QueryAuditClassificationError(
-                    (
-                        "大模型返回的图标数量与本地切分结果不一致："
-                        f"expected={len(expected_candidates)} actual={len(classification.icons)}"
-                    ),
-                    request_payload=classification.request_payload,
-                    raw_output=classification.raw_output,
-                    response_payload=classification.response_payload,
+            warnings = list(local_warning_map.get(image_path.resolve(), ()))
+            if expected_candidates and len(classification.icons) != len(expected_candidates):
+                warning_message = (
+                    "大模型返回的图标数量与本地切分结果不一致："
+                    f"expected={len(expected_candidates)} actual={len(classification.icons)}"
+                )
+                warnings.append(warning_message)
+                _emit_progress(
+                    progress_reporter,
+                    f"query 图片数量不一致警告 {index}/{len(image_paths)}",
+                    {
+                        "image_path": display_path,
+                        "warning": warning_message,
+                    },
                 )
             result = QueryImageAuditResult(
                 image_path=image_path,
                 status="ok",
                 icons=classification.icons,
-                cluster_ids=cluster_ids,
+                cluster_ids=_align_cluster_ids(cluster_ids, len(classification.icons)),
+                warnings=tuple(warnings),
                 request_payload=classification.request_payload,
                 raw_output=classification.raw_output,
                 response_payload=classification.response_payload,
@@ -548,11 +569,17 @@ def run_group1_query_audit(
     }
     generated_variant_count = 0
     insufficient_templates: list[str] = []
+    warning_count = sum(len(result.warnings) for result in results)
 
     successful_results = [result for result in results if result.status == "ok"]
     if successful_results:
         assignments = build_cluster_assignments(successful_results, cluster_map=cluster_map)
-        drafts = build_template_drafts(assignments.values())
+        drafts = merge_template_drafts(
+            (
+                *build_template_drafts(assignments.values()),
+                *build_model_only_template_drafts(successful_results),
+            )
+        )
         try:
             enriched_templates = merge_template_plans_with_drafts(enricher(drafts), drafts)
         except QueryAuditClassificationError as exc:
@@ -601,6 +628,7 @@ def run_group1_query_audit(
         "template_count": templates_payload.get("template_count", 0),
         "generated_variant_count": generated_variant_count,
         "error_count": error_count,
+        "warning_count": warning_count,
         "insufficient_templates": insufficient_templates,
         "output_jsonl": str(resolved_output_jsonl),
         "trace_jsonl": str(resolved_trace_jsonl),
@@ -721,6 +749,55 @@ def build_template_drafts(assignments: Sequence[ClusterAssignment]) -> tuple[Tem
             )
         )
     return tuple(drafts)
+
+
+def build_model_only_template_drafts(results: Sequence[QueryImageAuditResult]) -> tuple[TemplateDraft, ...]:
+    grouped: dict[str, list[QueryIconDecision]] = defaultdict(list)
+    for result in results:
+        if result.status != "ok":
+            continue
+        for index, icon in enumerate(result.icons):
+            if index < len(result.cluster_ids):
+                continue
+            grouped[icon.template_id].append(icon)
+
+    drafts: list[TemplateDraft] = []
+    for template_id, icons in sorted(grouped.items()):
+        drafts.append(
+            TemplateDraft(
+                template_id=template_id,
+                cluster_ids=(),
+                zh_name_hints=tuple(_unique_preserve_order([icon.zh_name for icon in icons if icon.zh_name])),
+                family_hints=tuple(_unique_preserve_order([icon.family for icon in icons if icon.family])),
+                tag_hints=tuple(_unique_preserve_order(_flatten([icon.tags for icon in icons]))),
+                descriptions=tuple(
+                    _unique_preserve_order([icon.description for icon in icons if icon.description])
+                ),
+                member_count=len(icons),
+            )
+        )
+    return tuple(drafts)
+
+
+def merge_template_drafts(drafts: Sequence[TemplateDraft]) -> tuple[TemplateDraft, ...]:
+    grouped: dict[str, list[TemplateDraft]] = defaultdict(list)
+    for draft in drafts:
+        grouped[draft.template_id].append(draft)
+
+    merged: list[TemplateDraft] = []
+    for template_id, items in sorted(grouped.items()):
+        merged.append(
+            TemplateDraft(
+                template_id=template_id,
+                cluster_ids=tuple(sorted({cluster_id for item in items for cluster_id in item.cluster_ids})),
+                zh_name_hints=tuple(_unique_preserve_order(_flatten([item.zh_name_hints for item in items]))),
+                family_hints=tuple(_unique_preserve_order(_flatten([item.family_hints for item in items]))),
+                tag_hints=tuple(_unique_preserve_order(_flatten([item.tag_hints for item in items]))),
+                descriptions=tuple(_unique_preserve_order(_flatten([item.descriptions for item in items]))),
+                member_count=sum(item.member_count for item in items),
+            )
+        )
+    return tuple(merged)
 
 
 def fallback_template_plan(draft: TemplateDraft) -> TemplatePlan:
@@ -925,6 +1002,7 @@ def result_to_json_row(result: QueryImageAuditResult, *, repo_root: Path) -> Jso
         "image_path": _display_path(result.image_path, repo_root),
         "status": result.status,
         "error": result.error,
+        "warnings": list(result.warnings),
         "request_payload": result.request_payload,
         "template_sequence": [icon.template_id for icon in result.icons],
         "icons": [
@@ -970,13 +1048,14 @@ def _reuse_reported_success(
     image_path: Path,
     cluster_ids: Sequence[str],
     expected_icon_count: int,
+    extra_warnings: Sequence[str] = (),
 ) -> QueryImageAuditResult | None:
     if row is None:
         return None
     if str(row.get("status", "")).strip().lower() != "ok":
         return None
     raw_icons = row.get("icons")
-    if not isinstance(raw_icons, list) or len(raw_icons) != expected_icon_count:
+    if not isinstance(raw_icons, list):
         return None
     icons: list[QueryIconDecision] = []
     for index, item in enumerate(raw_icons, start=1):
@@ -984,11 +1063,22 @@ def _reuse_reported_success(
             return None
         icons.append(_normalize_query_icon_decision(item, index=index))
     request_payload = row.get("request_payload")
+    warnings = _normalize_warning_values(row.get("warnings"))
+    warnings = _merge_warning_values(warnings, *extra_warnings)
+    if expected_icon_count > 0 and len(raw_icons) != expected_icon_count:
+        warnings = _merge_warning_values(
+            warnings,
+            (
+                "大模型返回的图标数量与本地切分结果不一致："
+                f"expected={expected_icon_count} actual={len(raw_icons)}"
+            ),
+        )
     return QueryImageAuditResult(
         image_path=image_path,
         status="ok",
         icons=tuple(icons),
-        cluster_ids=tuple(cluster_ids),
+        cluster_ids=_align_cluster_ids(cluster_ids, len(raw_icons)),
+        warnings=warnings,
         request_payload=request_payload if isinstance(request_payload, dict) else None,
     )
 
@@ -1008,6 +1098,24 @@ def _normalize_query_icon_decision(payload: Mapping[str, object], *, index: int)
         description=str(payload.get("description", "")).strip() or template_id.removeprefix("tpl_"),
         reason=str(payload.get("reason", "")).strip(),
     )
+
+
+def _align_cluster_ids(cluster_ids: Sequence[str], icon_count: int) -> tuple[str, ...]:
+    if icon_count <= 0:
+        return tuple()
+    return tuple(cluster_ids[:icon_count])
+
+
+def _normalize_warning_values(raw_value: object) -> tuple[str, ...]:
+    if not isinstance(raw_value, list):
+        return tuple()
+    values = [str(item).strip() for item in raw_value if str(item).strip()]
+    return tuple(_unique_preserve_order(values))
+
+
+def _merge_warning_values(existing: Sequence[str], *new_values: str) -> tuple[str, ...]:
+    values = [*existing, *(value for value in new_values if value and value.strip())]
+    return tuple(_unique_preserve_order(values))
 
 
 def _normalize_template_plan(payload: Mapping[str, object]) -> TemplatePlan:

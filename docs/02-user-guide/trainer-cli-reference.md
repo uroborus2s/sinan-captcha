@@ -259,6 +259,8 @@ uv run sinan materials audit-group1-query --model gemma4:26b --overwrite --yes
 - 输出审计 JSONL/trace 文件。
 - 终端持续输出 `[group1-query-audit]` 进度日志；若停在候选图标阶段，可根据最近一条 `library`、`slug`、`url` 或 SVG 光栅化命令判断当前处理点。
 - 模板素材目录成功生成。
+- 若大模型返回的图标数量与本地切图数量不一致，当前会记录 warning 并继续以大模型结果落地；本地切图只作为参考和日志告警。
+- 若本地切图完全没有切出候选图标，当前也只记录 warning，并继续直接采用大模型返回的 `icons` 结果，不再因此中断整张图片。
 
 #### 常见误用
 

@@ -12,7 +12,7 @@ import shutil
 import tempfile
 from typing import Any
 
-from repo_solver_asset_contract import (
+from .repo_solver_asset_contract import (
     ExportedModelRecord,
     METADATA_FILES,
     MODEL_FILENAMES,

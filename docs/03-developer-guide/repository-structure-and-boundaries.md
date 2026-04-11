@@ -100,16 +100,17 @@ sinan-captcha/
 
 ### 仓库级 CLI 模块
 
-当前仓库级正式入口在根目录：
+当前仓库级正式入口由根 `pyproject.toml` 暴露为 `uv run repo ...`，实现集中在：
 
-- `repo_cli.py`
-- `repo_release.py`
-- `repo_solver_export.py`
-- `repo_solver_asset_contract.py`
+- `scripts/repo_tools/repo_cli.py`
+- `scripts/repo_tools/repo_release.py`
+- `scripts/repo_tools/repo_solver_export.py`
+- `scripts/repo_tools/repo_solver_asset_contract.py`
 
 硬边界：
 
 - 这些模块负责 monorepo 的构建、发版、资产导出和交付。
+- `scripts/repo_tools/` 是仓库维护实现目录，不是 `sinan` / `sinanz` 的业务运行时包。
 - `packages/sinan-captcha/src/cli.py` 只负责 `sinan` 训练仓库功能，不再承载仓库级发布命令。
 
 ## 运行目录边界

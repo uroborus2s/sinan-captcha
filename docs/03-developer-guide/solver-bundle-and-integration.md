@@ -66,9 +66,9 @@
 
 对应目录主要是：
 
-- `repo_cli.py`
-- `repo_release.py`
-- `repo_solver_export.py`
+- `scripts/repo_tools/repo_cli.py`
+- `scripts/repo_tools/repo_release.py`
+- `scripts/repo_tools/repo_solver_export.py`
 - `packages/sinan-captcha/src/solve/`
 - `work_home/reports/solver-assets/`
 

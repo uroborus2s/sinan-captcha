@@ -474,6 +474,211 @@ class Group1QueryAuditTests(unittest.TestCase):
         self.assertIn("下载候选图标成功", joined)
         self.assertIn("模板下载候选处理完成", joined)
 
+    def test_run_group1_query_audit_count_mismatch_is_warning_not_error(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            repo_root = Path(tmpdir)
+            query_dir = repo_root / "query"
+            query_dir.mkdir(parents=True, exist_ok=True)
+            _write_query_image(query_dir / "a.png", [(4, 6, 16, 18), (38, 2, 44, 22)])
+
+            def fake_downloads(**kwargs: object) -> list[VariantManifestEntry]:
+                target_dir = Path(kwargs["target_dir"])
+                output_png = target_dir / "var_boot_house_outline.png"
+                Image.new("RGBA", (24, 24), (255, 255, 255, 0)).save(output_png)
+                return [
+                    VariantManifestEntry(
+                        variant_id="var_boot_house_outline",
+                        source="fake_library",
+                        source_ref="fake",
+                        style="outline",
+                    )
+                ]
+
+            with patch("materials.query_audit._download_template_variants", side_effect=fake_downloads):
+                result = run_group1_query_audit(
+                    query_dir=query_dir,
+                    model="gemma4:26b",
+                    output_root=repo_root / "work_home/materials/incoming/group1_icon_pack",
+                    report_root=repo_root / "work_home/reports/group1/materials/20260412",
+                    repo_root=repo_root,
+                    min_variants_per_template=2,
+                    image_classifier=lambda _image_path: (
+                        QueryIconDecision(
+                            order=1,
+                            template_id="tpl_house",
+                            zh_name="房子",
+                            family="symbol",
+                            tags=("home",),
+                            description="房屋轮廓",
+                            reason="house",
+                        ),
+                    ),
+                    template_enricher=lambda drafts: (
+                        TemplatePlan(
+                            template_id=drafts[0].template_id,
+                            zh_name="房子",
+                            family="symbol",
+                            tags=("home",),
+                            description="房屋轮廓",
+                            cluster_ids=drafts[0].cluster_ids,
+                            target_variant_count=2,
+                            download_candidates=(),
+                        ),
+                    ),
+                )
+
+            self.assertEqual(result["status"], "ok")
+            self.assertEqual(result["error_count"], 0)
+            self.assertEqual(result["warning_count"], 1)
+
+            rows = read_jsonl(repo_root / "work_home/reports/group1/materials/20260412/group1-query-audit.jsonl")
+            self.assertEqual(rows[0]["status"], "ok")
+            self.assertIn("expected=2 actual=1", rows[0]["warnings"][0])
+
+    def test_run_group1_query_audit_allows_model_only_templates(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            repo_root = Path(tmpdir)
+            query_dir = repo_root / "query"
+            query_dir.mkdir(parents=True, exist_ok=True)
+            _write_query_image(query_dir / "a.png", [(4, 6, 16, 18)])
+
+            def fake_downloads(**kwargs: object) -> list[VariantManifestEntry]:
+                target_dir = Path(kwargs["target_dir"])
+                variant_id = f"var_fake_{target_dir.name.removeprefix('tpl_')}"
+                Image.new("RGBA", (24, 24), (255, 255, 255, 0)).save(target_dir / f"{variant_id}.png")
+                return [
+                    VariantManifestEntry(
+                        variant_id=variant_id,
+                        source="fake_library",
+                        source_ref="fake",
+                        style="outline",
+                    )
+                ]
+
+            with patch("materials.query_audit._download_template_variants", side_effect=fake_downloads):
+                result = run_group1_query_audit(
+                    query_dir=query_dir,
+                    model="gemma4:26b",
+                    output_root=repo_root / "work_home/materials/incoming/group1_icon_pack",
+                    report_root=repo_root / "work_home/reports/group1/materials/20260412",
+                    repo_root=repo_root,
+                    min_variants_per_template=1,
+                    image_classifier=lambda _image_path: (
+                        QueryIconDecision(
+                            order=1,
+                            template_id="tpl_house",
+                            zh_name="房子",
+                            family="symbol",
+                            tags=("home",),
+                            description="房屋轮廓",
+                            reason="house",
+                        ),
+                        QueryIconDecision(
+                            order=2,
+                            template_id="tpl_star",
+                            zh_name="星星",
+                            family="symbol",
+                            tags=("star",),
+                            description="五角星",
+                            reason="star",
+                        ),
+                    ),
+                    template_enricher=lambda drafts: tuple(
+                        TemplatePlan(
+                            template_id=draft.template_id,
+                            zh_name="房子" if draft.template_id == "tpl_house" else "星星",
+                            family="symbol",
+                            tags=("home",) if draft.template_id == "tpl_house" else ("star",),
+                            description="房屋轮廓" if draft.template_id == "tpl_house" else "五角星",
+                            cluster_ids=draft.cluster_ids,
+                            target_variant_count=1,
+                            download_candidates=(),
+                        )
+                        for draft in drafts
+                    ),
+                )
+
+            self.assertEqual(result["status"], "ok")
+            self.assertEqual(result["template_count"], 2)
+            self.assertEqual(result["warning_count"], 1)
+
+            manifest_text = (
+                repo_root / "work_home/materials/incoming/group1_icon_pack/manifests/group1.templates.yaml"
+            ).read_text(encoding="utf-8")
+            self.assertIn("template_id: tpl_house", manifest_text)
+            self.assertIn("template_id: tpl_star", manifest_text)
+
+    def test_run_group1_query_audit_when_local_split_empty_warns_and_uses_model_output(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            repo_root = Path(tmpdir)
+            query_dir = repo_root / "query"
+            query_dir.mkdir(parents=True, exist_ok=True)
+            Image.new("RGBA", (64, 24), (255, 255, 255, 255)).save(query_dir / "a.png")
+
+            messages: list[str] = []
+
+            def fake_downloads(**kwargs: object) -> list[VariantManifestEntry]:
+                target_dir = Path(kwargs["target_dir"])
+                variant_id = "var_fake_house"
+                Image.new("RGBA", (24, 24), (255, 255, 255, 0)).save(target_dir / f"{variant_id}.png")
+                return [
+                    VariantManifestEntry(
+                        variant_id=variant_id,
+                        source="fake_library",
+                        source_ref="fake",
+                        style="outline",
+                    )
+                ]
+
+            with patch("materials.query_audit._download_template_variants", side_effect=fake_downloads):
+                result = run_group1_query_audit(
+                    query_dir=query_dir,
+                    model="gemma4:26b",
+                    output_root=repo_root / "work_home/materials/incoming/group1_icon_pack",
+                    report_root=repo_root / "work_home/reports/group1/materials/20260412",
+                    repo_root=repo_root,
+                    min_variants_per_template=1,
+                    progress_reporter=messages.append,
+                    image_classifier=lambda _image_path: (
+                        QueryIconDecision(
+                            order=1,
+                            template_id="tpl_house",
+                            zh_name="房子",
+                            family="symbol",
+                            tags=("home",),
+                            description="房屋轮廓",
+                            reason="house",
+                        ),
+                    ),
+                    template_enricher=lambda drafts: tuple(
+                        TemplatePlan(
+                            template_id=draft.template_id,
+                            zh_name="房子",
+                            family="symbol",
+                            tags=("home",),
+                            description="房屋轮廓",
+                            cluster_ids=draft.cluster_ids,
+                            target_variant_count=1,
+                            download_candidates=(),
+                        )
+                        for draft in drafts
+                    ),
+                )
+
+            self.assertEqual(result["status"], "ok")
+            self.assertEqual(result["template_count"], 1)
+            self.assertEqual(result["warning_count"], 1)
+
+            rows = read_jsonl(repo_root / "work_home/reports/group1/materials/20260412/group1-query-audit.jsonl")
+            self.assertEqual(rows[0]["status"], "ok")
+            self.assertIn("本地切图未找到任何图标候选", rows[0]["warnings"][0])
+
+            manifest_text = (
+                repo_root / "work_home/materials/incoming/group1_icon_pack/manifests/group1.templates.yaml"
+            ).read_text(encoding="utf-8")
+            self.assertIn("template_id: tpl_house", manifest_text)
+            self.assertIn("query 图片本地切图为空警告", "\n".join(messages))
+
     def test_unique_variant_id_preserves_suffix_when_preferred_id_is_already_max_length(self) -> None:
         preferred = "var_real_beach_umbrella_squa_d"
 

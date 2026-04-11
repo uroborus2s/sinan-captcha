@@ -11,7 +11,7 @@ import shutil
 import subprocess
 import sys
 
-from repo_release import (
+from .repo_release import (
     PackageWindowsRequest,
     PublishReleaseRequest,
     StageSolverAssetsRequest,
@@ -20,7 +20,7 @@ from repo_release import (
     publish_solver_distribution,
     stage_solver_assets,
 )
-from repo_solver_export import ExportSolverAssetsRequest, export_solver_assets
+from .repo_solver_export import ExportSolverAssetsRequest, export_solver_assets
 
 
 @dataclass(frozen=True)
@@ -33,7 +33,7 @@ class RepoLayout:
 
 
 def default_layout(repo_root: Path | None = None) -> RepoLayout:
-    root = (repo_root or Path(__file__).resolve().parent).resolve()
+    root = _resolve_default_repo_root(repo_root)
     packages_dir = root / "packages"
     return RepoLayout(
         repo_root=root,
@@ -42,6 +42,26 @@ def default_layout(repo_root: Path | None = None) -> RepoLayout:
         solver_dir=packages_dir / "solver",
         generator_dir=packages_dir / "generator",
     )
+
+
+def _resolve_default_repo_root(repo_root: Path | None) -> Path:
+    if repo_root is not None:
+        return repo_root.resolve()
+
+    module_path = Path(__file__).resolve()
+    candidates = (
+        Path.cwd().resolve(),
+        module_path.parents[2],
+    )
+    for candidate in candidates:
+        packages_dir = candidate / "packages"
+        if (
+            (packages_dir / "sinan-captcha").is_dir()
+            and (packages_dir / "solver").is_dir()
+            and (packages_dir / "generator").is_dir()
+        ):
+            return candidate
+    return module_path.parents[2]
 
 
 def build_target(

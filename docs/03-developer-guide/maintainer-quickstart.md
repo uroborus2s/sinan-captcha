@@ -43,7 +43,7 @@
 | 你要排查什么 | 先看哪个文件 |
 | --- | --- |
 | `sinan` 根命令分发 | `packages/sinan-captcha/src/cli.py` |
-| `repo build/publish/export/package` | `repo_cli.py`、`repo_release.py`、`repo_solver_export.py` |
+| `repo build/publish/export/package` | `scripts/repo_tools/repo_cli.py`、`scripts/repo_tools/repo_release.py`、`scripts/repo_tools/repo_solver_export.py` |
 | `sinan solve ...` | `packages/sinan-captcha/src/solve/cli.py` |
 | 训练目录初始化 | `packages/sinan-captcha/src/ops/setup_train.py` |
 | `sinan-generator` | `packages/generator/cmd/sinan-generator/main.go` |
@@ -60,7 +60,7 @@
 | 命令 / 目标 | 入口文件 | 最小验证 |
 | --- | --- | --- |
 | `sinan` 根命令 | `packages/sinan-captcha/src/cli.py` | `uv run python -m unittest discover -s tests/python -p 'test_root_cli.py'` |
-| `repo ...` | `repo_cli.py` / `repo_release.py` | `./.venv/bin/python -m unittest discover -s tests/python -p 'test_repo_cli.py'` |
+| `repo ...` | `scripts/repo_tools/repo_cli.py` / `scripts/repo_tools/repo_release.py` | `./.venv/bin/python -m unittest discover -s tests/python -p 'test_repo_cli.py'` |
 | `sinan solve ...` | `packages/sinan-captcha/src/solve/cli.py` | 相关 bundle / solve 回归 |
 | `sinan-generator` | `packages/generator/cmd/sinan-generator/main.go` | 在 `packages/generator/` 下执行 `GOCACHE=/tmp/sinan-go-build-cache go test ./...` |
 | `sinanz` | `packages/solver/src/sinanz.py` | `uv run pytest packages/solver/tests -q` |

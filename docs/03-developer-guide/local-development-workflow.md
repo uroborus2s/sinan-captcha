@@ -127,7 +127,7 @@ uv run repo build generator --goos windows --goarch amd64
 | 只改 `packages/sinan-captcha/src/` | `uv run python -m unittest discover -s tests/python -p 'test_*.py'` |
 | 只改 `packages/generator/` | 在 `packages/generator/` 下执行 `GOCACHE=/tmp/sinan-go-build-cache go test ./...` |
 | 只改 `packages/solver/` | `uv run pytest packages/solver/tests -q` |
-| 改 `repo_cli.py`、`repo_release.py`、打包逻辑 | Python 回归 + `uv run repo build all` |
+| 改 `scripts/repo_tools/repo_cli.py`、`scripts/repo_tools/repo_release.py`、打包逻辑 | Python 回归 + `uv run repo build all` |
 | 改 solver 资产导出 / staging / `sinanz` 资源路径 | Python 回归 + solver 测试 + 相关构建 |
 | 改 `dataset.json`、训练目录结构、跨模块合同 | Python 回归 + Go 测试 + solver 测试 |
 

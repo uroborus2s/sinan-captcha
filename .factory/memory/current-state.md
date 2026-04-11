@@ -17,10 +17,41 @@
 
 ## 当前事实
 
+- 2026-04-12 当前根目录散装仓库级 CLI 已收口到 `scripts/repo_tools/`：
+  - 当前已把：
+    - `repo_cli.py`
+    - `repo_release.py`
+    - `repo_solver_export.py`
+    - `repo_solver_asset_contract.py`
+    从仓库根目录迁到 `scripts/repo_tools/`
+  - 当前根 `pyproject.toml` 已改为：
+    - `project.scripts.repo = "repo_tools.repo_cli:main"`
+    - `tool.setuptools.package-dir = {"" = "scripts"}`
+    - `tool.setuptools.packages.find.include = ["repo_tools*"]`
+  - 当前目标是：
+    - 清掉根目录散落的仓库级 `.py` 文件
+    - 保持 `uv run repo ...` 外部命令面不变
+    - 明确 `scripts/repo_tools/` 属于仓库维护实现，而不是 `sinan` / `sinanz` 业务运行时
+  - 当前同步已覆盖：
+    - 仓库级测试导入路径
+    - 开发者指南相关文件引用
+    - `scripts/README.md`
+
 - 2026-04-11 当前 `materials audit-group1-query` 已修复真实 query 变体 ID 碰撞导致整批中断的问题：
   - 截图中的致命错误是 `RuntimeError: could not build unique variant id for var_real_beach_umbrella_squa_d`
   - 根因是多个真实 query 图标的几何特征相似，生成的 `variant_id` 前缀已达到 30 字符上限；旧算法追加后缀后又被 `_compact_variant_id()` 截掉，导致所有候选仍然等于原 ID
   - 当前 `_unique_variant_id()` 会在保留 30 字符上限的前提下主动为后缀预留空间，并增加哈希重试兜底，不再因同模板同特征真实图标过多而中断整批
+
+- 2026-04-12 当前 `materials audit-group1-query` 已切换为“本地切图仅供参考、大模型结果优先”：
+  - 当前若大模型返回的图标数量与本地切图数量不一致，不再把该图片记为 `error`
+  - 当前会在终端和 JSONL 里记录 warning，并继续以大模型返回的 `icons` 落地
+  - 当前若本地切图完全未命中任何候选图标，也只记 warning，不再中断；后续模板计划会继续采用大模型结果
+  - 当前若大模型返回的图标多于本地切图数量，也会继续把这些模型识别到的模板纳入后续模板计划，不因本地切图数量不足而阻断
+  - 当前 summary 已新增 `warning_count`
+  - 当前已验证：
+    - `uv run pytest tests/python/test_group1_query_audit.py -q`
+    - `uv run python -m py_compile packages/sinan-captcha/src/materials/query_audit.py tests/python/test_group1_query_audit.py`
+    - `git diff --check`
 
 - 2026-04-11 当前新增 `uv run sinan materials collect-backgrounds` 背景风格采集入口：
   - 输入参考背景图片目录和本地 Ollama 多模态模型

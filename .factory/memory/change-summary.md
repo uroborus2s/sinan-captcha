@@ -1,5 +1,60 @@
 # 变更摘要
 
+## 2026-04-12 调整 `audit-group1-query` 为大模型结果优先，本地切图数量不一致只记 warning
+
+- 已更新：
+  - `packages/sinan-captcha/src/materials/query_audit.py`
+  - `tests/python/test_group1_query_audit.py`
+  - `docs/02-user-guide/trainer-cli-reference.md`
+  - `.factory/memory/current-state.md`
+  - `.factory/memory/change-summary.md`
+- 当前已完成的目标：
+  - 本地切图数量与大模型返回数量不一致时，不再返回 `error`
+  - 当前会把不一致原因写入 warning，并继续按大模型 `icons` 结果写入审计报告
+  - 当前若本地切图完全未命中任何候选图标，也只写 warning，并继续按大模型结果生成模板计划
+  - 当前若大模型返回的图标多于本地切图数量，也会继续把这些模型识别到的模板纳入模板计划
+  - 当前 summary 已新增 `warning_count`
+- 已运行验证：
+  - `uv run pytest tests/python/test_group1_query_audit.py -q`
+  - `uv run python -m py_compile packages/sinan-captcha/src/materials/query_audit.py tests/python/test_group1_query_audit.py`
+  - `git diff --check`
+
+## 2026-04-12 收口根目录仓库级 CLI 到 `scripts/repo_tools/` 并规范安装入口
+
+- 已更新：
+  - `pyproject.toml`
+  - `scripts/repo_tools/__init__.py`
+  - `scripts/repo_tools/repo_cli.py`
+  - `scripts/repo_tools/repo_release.py`
+  - `scripts/repo_tools/repo_solver_export.py`
+  - `scripts/repo_tools/repo_solver_asset_contract.py`
+  - `tests/python/test_repo_cli.py`
+  - `tests/python/test_release_service.py`
+  - `tests/python/test_solver_asset_contract.py`
+  - `tests/python/test_solver_asset_export_group2.py`
+  - `docs/03-developer-guide/index.md`
+  - `docs/03-developer-guide/maintainer-quickstart.md`
+  - `docs/03-developer-guide/local-development-workflow.md`
+  - `docs/03-developer-guide/repository-structure-and-boundaries.md`
+  - `docs/03-developer-guide/solver-bundle-and-integration.md`
+  - `docs/04-project-development/04-design/module-structure-and-delivery.md`
+  - `scripts/README.md`
+  - `.factory/memory/current-state.md`
+  - `.factory/memory/change-summary.md`
+- 已删除：
+  - `repo_cli.py`
+  - `repo_release.py`
+  - `repo_solver_export.py`
+  - `repo_solver_asset_contract.py`
+- 当前已完成的目标：
+  - 根目录不再散落仓库级 CLI `.py` 文件
+  - 仓库级实现统一迁入 `scripts/repo_tools/`
+  - 根工作区安装入口改为通过 `repo_tools` 包暴露 `repo` console script
+  - 保持 `uv run repo ...` 对外命令面不变
+  - 开发者文档与 `.factory` 记忆层已同步新结构
+- 待验证：
+  - `repo` 入口与仓库级测试回归
+
 ## 2026-04-11 修复 `audit-group1-query` 真实变体 ID 碰撞并新增背景风格采集命令
 
 - 已更新：
