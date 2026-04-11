@@ -10,7 +10,12 @@ import subprocess
 import textwrap
 
 from core.project_metadata import read_project_version
-from core.release.solver_export import ExportGroup2SolverAssetsRequest, export_group2_solver_assets
+from core.release.solver_export import (
+    ExportGroup2SolverAssetsRequest,
+    ExportSolverAssetsRequest,
+    export_group2_solver_assets,
+    export_solver_assets,
+)
 
 
 @dataclass(frozen=True)

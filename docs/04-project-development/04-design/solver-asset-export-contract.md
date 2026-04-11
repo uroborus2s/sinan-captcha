@@ -1,13 +1,13 @@
 # Solver 资产导出合同
 
 - 文档状态：生效
-- 当前阶段：IMPLEMENTATION（`TASK-SOLVER-MIG-008`）
+- 当前阶段：IMPLEMENTATION（`TASK-G1-REF-011`）
 - 目标读者：训练链路负责人、Python 实现者、发布维护者
 - 负责人：Codex
 
 ## 1. 设计结论
 
-`TASK-SOLVER-MIG-006` 的目标是先冻结训练仓库导出给 `sinanz` 的稳定资产面，`TASK-SOLVER-MIG-008` 再把 `group2` 的首条真实导出链路接上。
+`TASK-SOLVER-MIG-006` 的目标是先冻结训练仓库导出给 `sinanz` 的稳定资产面；当前 `TASK-G1-REF-011` 已把 `group1 + group2` 的首版正式导出链路接上。
 
 本轮冻结后，训练仓库与独立 solver 项目之间的内部交接资产统一为：
 
@@ -19,7 +19,7 @@
 
 1. 最终用户安装的是 `sinanz` wheel，不直接接触这批导出资产。
 2. `sinanz` 包和调试脚本后续都只能消费这份合同，不能继续回头读训练目录。
-3. 当前仓库已实现 `group2` 的 `export-solver-assets`，`group1` 仍在 `TASK-SOLVER-MIG-009` 补齐。
+3. 当前仓库已实现 `group1 + group2` 的统一 `export-solver-assets`，并可继续通过 `stage-solver-assets` 内嵌到 `sinanz` wheel。
 
 ## 2. 固定文件命名
 
@@ -27,16 +27,18 @@
 
 | 模型 ID | 任务 | 组件 | 固定文件名 | 固定相对路径 |
 |---|---|---|---|---|
-| `click_scene_detector` | `group1` | `scene_detector` | `click_scene_detector.onnx` | `models/click_scene_detector.onnx` |
+| `click_proposal_detector` | `group1` | `proposal_detector` | `click_proposal_detector.onnx` | `models/click_proposal_detector.onnx` |
 | `click_query_parser` | `group1` | `query_parser` | `click_query_parser.onnx` | `models/click_query_parser.onnx` |
+| `click_icon_embedder` | `group1` | `icon_embedder` | `click_icon_embedder.onnx` | `models/click_icon_embedder.onnx` |
 | `slider_gap_locator` | `group2` | `locator` | `slider_gap_locator.onnx` | `models/slider_gap_locator.onnx` |
 
 ### 2.2 Metadata 文件名
 
 | 文件用途 | 固定文件名 | 固定相对路径 |
 |---|---|---|
-| `click_scene_detector` 元数据 | `click_scene_detector.json` | `metadata/click_scene_detector.json` |
+| `click_proposal_detector` 元数据 | `click_proposal_detector.json` | `metadata/click_proposal_detector.json` |
 | `click_query_parser` 元数据 | `click_query_parser.json` | `metadata/click_query_parser.json` |
+| `click_icon_embedder` 元数据 | `click_icon_embedder.json` | `metadata/click_icon_embedder.json` |
 | `slider_gap_locator` 元数据 | `slider_gap_locator.json` | `metadata/slider_gap_locator.json` |
 | `group1` matcher 配置 | `click_matcher.json` | `metadata/click_matcher.json` |
 | 类别表 | `class_names.json` | `metadata/class_names.json` |
@@ -50,12 +52,14 @@ dist/
     20260405/
       manifest.json
       models/
-        click_scene_detector.onnx
+        click_proposal_detector.onnx
         click_query_parser.onnx
+        click_icon_embedder.onnx
         slider_gap_locator.onnx
       metadata/
-        click_scene_detector.json
+        click_proposal_detector.json
         click_query_parser.json
+        click_icon_embedder.json
         slider_gap_locator.json
         click_matcher.json
         class_names.json
@@ -81,7 +85,7 @@ dist/
 | `runtime.target` | `string` | 固定为 `python-onnxruntime` |
 | `runtime.python_package` | `string` | 固定为 `sinanz` |
 | `runtime.preferred_execution_providers` | `array[string]` | 当前默认顺序：`CUDAExecutionProvider`、`CPUExecutionProvider` |
-| `models` | `object` | 稳定模型 ID 的清单；`TASK-SOLVER-MIG-008` 当前至少要求包含 `slider_gap_locator` |
+| `models` | `object` | 稳定模型 ID 的清单；当前首版正式要求包含 `click_proposal_detector`、`click_query_parser`、`click_icon_embedder`、`slider_gap_locator` |
 | `metadata_files` | `object` | 非模型类 metadata 的相对路径清单 |
 
 ### 4.2 `models.<model_id>` 字段
@@ -89,7 +93,7 @@ dist/
 | 字段 | 类型 | 说明 |
 |---|---|---|
 | `task` | `string` | `group1` 或 `group2` |
-| `component` | `string` | `scene_detector` / `query_parser` / `locator` |
+| `component` | `string` | `proposal_detector` / `query_parser` / `icon_embedder` / `locator` |
 | `format` | `string` | 固定为 `onnx` |
 | `opset` | `integer` | 该模型导出的 ONNX opset 版本 |
 | `path` | `string` | 模型相对路径 |
@@ -167,6 +171,7 @@ dist/
   - `CPUExecutionProvider`
 - `group1` 当前默认后处理协议：
   - `yolo_detect_v1`
+  - `normalized_embedding_v1`
 - `group2` 当前默认后处理协议：
   - `paired_gap_bbox_v1`
 
@@ -183,14 +188,10 @@ dist/
 
 ## 9. 当前仍未完成的实现
 
-这份合同已经冻结，且 `group2` 的首条实现已经接入：
+这份合同已经冻结，且 `group1 + group2` 的首条实现已经接入：
 
-- 已实现命令：`uv run sinan release export-solver-assets --group2-checkpoint ... --group2-run ... --output-dir ... --asset-version ...`
-- 已实现 `group2` 的 `PT -> ONNX` 导出与 `manifest.json / metadata / export_report.json` 落盘
-- 当前会为 `group1` 写出占位 `click_matcher.json` 与 `class_names.json`，等待 `TASK-SOLVER-MIG-009`
-
-下面能力仍在后续任务中：
-
-- `group1` 的 ONNX 导出仍未接入训练链路
-- `sinanz` wheel 当前已按纯 Python 包路线消费这些资产，运行时为 `onnxruntime`
-- 后续如需继续收口，只需要完善 `group1` 资产与公开 API，不再引入 Rust 原生扩展
+- 已实现命令：`uv run sinan release export-solver-assets --group1-proposal-checkpoint ... --group1-query-checkpoint ... --group1-embedder-checkpoint ... --group1-run ... --group2-checkpoint ... --group2-run ... --output-dir ... --asset-version ...`
+- 已实现 `group1 + group2` 的 `PT -> ONNX` 导出与 `manifest.json / metadata / export_report.json` 落盘
+- 已实现 `click_matcher.json` 的真实 matcher 配置落盘
+- `sinanz` wheel 当前按纯 Python 包路线消费这些资产，运行时为 `onnxruntime`
+- 如导出时未传完整 `group1` checkpoint，`click_matcher.json` 与 `class_names.json` 会退回占位状态

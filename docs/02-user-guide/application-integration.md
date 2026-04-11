@@ -111,7 +111,7 @@ print(result.ordered_target_centers)
 | `ambiguous_query_orders` | 当前轮次存在歧义的查询序号。 |
 | `debug` | 仅当 `return_debug=True` 时返回。 |
 
-如果当前安装包没有提供点选运行时，调用 `sn_match_targets(...)` 会抛出 `SolverRuntimeError`。业务侧应把这类错误统一捕获并上报。
+如果当前 wheel 没有内嵌完整的 group1 ONNX 资产，或你显式传入的 `asset_root` 不完整，调用 `sn_match_targets(...)` 会抛出 `SolverAssetError`。业务侧应把这类错误统一捕获并上报。
 
 ## 5. 推荐的应用内封装
 

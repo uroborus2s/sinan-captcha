@@ -10,7 +10,7 @@ from core.release.service import (
     BuildGeneratorRequest,
     BuildReleaseRequest,
     BuildSolverRequest,
-    ExportGroup2SolverAssetsRequest,
+    ExportSolverAssetsRequest,
     PackageWindowsRequest,
     PublishReleaseRequest,
     StageSolverAssetsRequest,
@@ -18,7 +18,7 @@ from core.release.service import (
     build_generator_distribution,
     build_distribution,
     build_solver_distribution,
-    export_group2_solver_assets,
+    export_solver_assets,
     package_windows_bundle,
     publish_distribution,
     stage_solver_assets,
@@ -61,14 +61,17 @@ def build_parser() -> argparse.ArgumentParser:
 
     export_parser_cmd = subparsers.add_parser(
         "export-solver-assets",
-        help="Export group2 PT checkpoints into sinanz ONNX solver assets.",
+        help="Export group1/group2 PT checkpoints into sinanz ONNX solver assets.",
     )
     export_parser_cmd.add_argument("--project-dir", type=Path, default=Path.cwd())
+    export_parser_cmd.add_argument("--group1-proposal-checkpoint", type=Path, default=None)
+    export_parser_cmd.add_argument("--group1-query-checkpoint", type=Path, default=None)
+    export_parser_cmd.add_argument("--group1-embedder-checkpoint", type=Path, default=None)
+    export_parser_cmd.add_argument("--group1-run", default="")
     export_parser_cmd.add_argument("--group2-checkpoint", type=Path, required=True)
     export_parser_cmd.add_argument("--group2-run", required=True)
     export_parser_cmd.add_argument("--output-dir", type=Path, required=True)
     export_parser_cmd.add_argument("--asset-version", required=True)
-    export_parser_cmd.add_argument("--group1-run", default="")
     export_parser_cmd.add_argument("--exported-at", default=None)
     export_parser_cmd.add_argument("--source-checkpoint", default=None)
     export_parser_cmd.add_argument("--opset", type=int, default=17)
@@ -127,14 +130,17 @@ def main(argv: list[str] | None = None) -> int:
                 )
             )
         elif args.command == "export-solver-assets":
-            export_group2_solver_assets(
-                ExportGroup2SolverAssetsRequest(
+            export_solver_assets(
+                ExportSolverAssetsRequest(
                     project_dir=args.project_dir,
+                    group1_proposal_checkpoint=args.group1_proposal_checkpoint,
+                    group1_query_checkpoint=args.group1_query_checkpoint,
+                    group1_embedder_checkpoint=args.group1_embedder_checkpoint,
+                    group1_run=args.group1_run,
                     group2_checkpoint=args.group2_checkpoint,
                     output_dir=args.output_dir,
                     asset_version=args.asset_version,
                     group2_run=args.group2_run,
-                    group1_run=args.group1_run,
                     exported_at=args.exported_at,
                     source_checkpoint=args.source_checkpoint,
                     opset=args.opset,

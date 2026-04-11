@@ -21,6 +21,7 @@ METADATA_FILES = {
 MODEL_FILENAMES = {
     "click_proposal_detector": "click_proposal_detector.onnx",
     "click_query_parser": "click_query_parser.onnx",
+    "click_icon_embedder": "click_icon_embedder.onnx",
     "slider_gap_locator": "slider_gap_locator.onnx",
 }
 MODEL_METADATA_FILENAMES = {

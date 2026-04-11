@@ -883,16 +883,6 @@ def trace_result_to_json_row(result: QueryImageAuditResult, *, repo_root: Path) 
     return row
 
 
-def require_repo_root(start: Path) -> Path:
-    resolved_start = start.resolve()
-    if (resolved_start / "pyproject.toml").exists() and (resolved_start / "core").is_dir():
-        return resolved_start
-    raise FileNotFoundError(
-        "请到仓库根目录执行该命令；当前目录缺少 pyproject.toml 和 core/。"
-        f" current_dir={resolved_start}"
-    )
-
-
 def _normalize_query_icon_decision(payload: Mapping[str, object], *, index: int) -> QueryIconDecision:
     raw_order = payload.get("order")
     order = raw_order if isinstance(raw_order, int) and raw_order > 0 else index

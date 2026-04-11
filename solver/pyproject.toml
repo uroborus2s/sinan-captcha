@@ -19,6 +19,8 @@ package-dir = {"" = "src"}
 py-modules = [
   "sinanz",
   "sinanz_errors",
+  "sinanz_group1_runtime",
+  "sinanz_group1_service",
   "sinanz_group2_runtime",
   "sinanz_group2_service",
   "sinanz_image_io",
@@ -31,15 +33,12 @@ include-package-data = true
 "resources" = ["resources/manifest.json"]
 "resources/metadata" = [
   "resources/metadata/README.md",
-  "resources/metadata/class_names.json",
-  "resources/metadata/click_matcher.json",
-  "resources/metadata/export_report.json",
-  "resources/metadata/slider_gap_locator.json",
+  "resources/metadata/*.json",
 ]
 "resources/models" = [
   "resources/models/README.md",
-  "resources/models/slider_gap_locator.onnx",
-  "resources/models/slider_gap_locator.onnx.data",
+  "resources/models/*.onnx",
+  "resources/models/*.onnx.data",
 ]
 
 [tool.pytest.ini_options]

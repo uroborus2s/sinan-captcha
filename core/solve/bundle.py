@@ -11,6 +11,7 @@ from typing import Any
 
 from core.train.base import default_best_weights
 from core.train.group1.service import (
+    EMBEDDER_COMPONENT,
     PROPOSAL_COMPONENT,
     QUERY_COMPONENT,
     resolve_group1_component_best_weights,
@@ -18,7 +19,10 @@ from core.train.group1.service import (
 
 BUNDLE_FORMAT = "sinan.solver.bundle.v1"
 ROUTER_STRATEGY = "task_hint_or_input_shape_v1"
-MATCHER_STRATEGY = "ordered_class_match_v1"
+MATCHER_STRATEGY = "global_assignment_match_v1"
+LEGACY_MATCHER_STRATEGIES = {"ordered_class_match_v1"}
+GROUP1_MATCHER_SIMILARITY_THRESHOLD = 0.9
+GROUP1_MATCHER_AMBIGUITY_MARGIN = 0.015
 
 
 class SolverBundleError(ValueError):
@@ -32,6 +36,7 @@ class SolverBundle:
     manifest_path: Path
     proposal_model_path: Path
     query_model_path: Path
+    icon_embedder_model_path: Path | None
     matcher_config_path: Path
     group2_model_path: Path
     router_strategy: str
@@ -43,6 +48,7 @@ class SolverBundle:
             "router_strategy": self.router_strategy,
             "proposal_model": str(self.proposal_model_path),
             "query_model": str(self.query_model_path),
+            "icon_embedder_model": str(self.icon_embedder_model_path) if self.icon_embedder_model_path else None,
             "matcher_config": str(self.matcher_config_path),
             "group2_model": str(self.group2_model_path),
         }
@@ -59,10 +65,12 @@ def build_solver_bundle(
 ) -> SolverBundle:
     proposal_source = resolve_group1_component_best_weights(train_root, group1_run, PROPOSAL_COMPONENT)
     query_source = resolve_group1_component_best_weights(train_root, group1_run, QUERY_COMPONENT)
+    embedder_source = resolve_group1_component_best_weights(train_root, group1_run, EMBEDDER_COMPONENT)
     group2_source = default_best_weights(train_root, "group2", group2_run)
     for label, source in (
         ("group1 proposal-detector", proposal_source),
         ("group1 query-parser", query_source),
+        ("group1 icon-embedder", embedder_source),
         ("group2 locator", group2_source),
     ):
         if not source.exists():
@@ -76,14 +84,29 @@ def build_solver_bundle(
     version = bundle_version or bundle_dir.name
     proposal_target = bundle_dir / "models" / "group1" / PROPOSAL_COMPONENT / "model.pt"
     query_target = bundle_dir / "models" / "group1" / QUERY_COMPONENT / "model.pt"
+    embedder_target = bundle_dir / "models" / "group1" / EMBEDDER_COMPONENT / "model.pt"
     matcher_target = bundle_dir / "models" / "group1" / "matcher" / "config.json"
     group2_target = bundle_dir / "models" / "group2" / "locator" / "model.pt"
     _copy_with_metadata(proposal_source, proposal_target, source_run=group1_run, component=PROPOSAL_COMPONENT)
     _copy_with_metadata(query_source, query_target, source_run=group1_run, component=QUERY_COMPONENT)
+    _copy_with_metadata(embedder_source, embedder_target, source_run=group1_run, component=EMBEDDER_COMPONENT)
     _copy_with_metadata(group2_source, group2_target, source_run=group2_run, component="locator")
     matcher_target.parent.mkdir(parents=True, exist_ok=True)
     matcher_target.write_text(
-        json.dumps({"strategy": MATCHER_STRATEGY}, ensure_ascii=False, indent=2) + "\n",
+        json.dumps(
+            {
+                "strategy": MATCHER_STRATEGY,
+                "embedding_model": {
+                    "format": "sinan.group1.icon_embedder.pt.v1",
+                    "path": embedder_target.relative_to(bundle_dir).as_posix(),
+                },
+                "similarity_threshold": GROUP1_MATCHER_SIMILARITY_THRESHOLD,
+                "ambiguity_margin": GROUP1_MATCHER_AMBIGUITY_MARGIN,
+            },
+            ensure_ascii=False,
+            indent=2,
+        )
+        + "\n",
         encoding="utf-8",
     )
 
@@ -103,6 +126,11 @@ def build_solver_bundle(
                     "format": "ultralytics.detect.pt.v1",
                     "path": query_target.relative_to(bundle_dir).as_posix(),
                     "metadata": query_target.with_name("metadata.json").relative_to(bundle_dir).as_posix(),
+                },
+                "icon_embedder": {
+                    "format": "sinan.group1.icon_embedder.pt.v1",
+                    "path": embedder_target.relative_to(bundle_dir).as_posix(),
+                    "metadata": embedder_target.with_name("metadata.json").relative_to(bundle_dir).as_posix(),
                 },
                 "matcher": {
                     "strategy": MATCHER_STRATEGY,
@@ -158,10 +186,20 @@ def load_solver_bundle(bundle_dir: Path) -> SolverBundle:
         proposal_field = "models.group1.scene_detector"
     proposal_model = _resolve_model_path(bundle_dir, _require_dict(proposal_payload, field=proposal_field))
     query_model = _resolve_model_path(bundle_dir, _require_dict(group1.get("query_parser"), field="models.group1.query_parser"))
+    icon_embedder_payload = group1.get("icon_embedder")
+    icon_embedder_model = (
+        _resolve_model_path(bundle_dir, _require_dict(icon_embedder_payload, field="models.group1.icon_embedder"))
+        if icon_embedder_payload is not None
+        else None
+    )
     matcher = _require_dict(group1.get("matcher"), field="models.group1.matcher")
     matcher_config = _resolve_relative_path(bundle_dir, matcher.get("path"), field="models.group1.matcher.path")
-    if str(matcher.get("strategy", "")) != MATCHER_STRATEGY:
-        raise SolverBundleError(f"matcher.strategy 非法，当前仅支持 {MATCHER_STRATEGY}")
+    matcher_strategy = str(matcher.get("strategy", ""))
+    if matcher_strategy not in {MATCHER_STRATEGY, *LEGACY_MATCHER_STRATEGIES}:
+        raise SolverBundleError(
+            f"matcher.strategy 非法，当前仅支持 {MATCHER_STRATEGY}"
+            f" 或历史兼容值 {', '.join(sorted(LEGACY_MATCHER_STRATEGIES))}"
+        )
     group2_model = _resolve_model_path(bundle_dir, _require_dict(group2.get("locator"), field="models.group2.locator"))
     return SolverBundle(
         root=bundle_dir.resolve(),
@@ -169,6 +207,7 @@ def load_solver_bundle(bundle_dir: Path) -> SolverBundle:
         manifest_path=manifest_path.resolve(),
         proposal_model_path=proposal_model,
         query_model_path=query_model,
+        icon_embedder_model_path=icon_embedder_model,
         matcher_config_path=matcher_config,
         group2_model_path=group2_model,
         router_strategy=ROUTER_STRATEGY,

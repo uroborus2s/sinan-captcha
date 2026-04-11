@@ -15,7 +15,6 @@ from core.materials.query_audit import (
     DEFAULT_MIN_VARIANTS_PER_TEMPLATE,
     DEFAULT_OLLAMA_TIMEOUT_SECONDS,
     DEFAULT_OLLAMA_URL,
-    require_repo_root,
     run_group1_query_audit,
 )
 
@@ -43,16 +42,17 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--dry-run", action="store_true")
     parser.add_argument("--overwrite", action="store_true")
     parser.add_argument("--quiet", action="store_true", help="Suppress per-image terminal logs.")
+    parser.add_argument("--yes", action="store_true", help="Accept default path choices without an interactive prompt.")
     return parser
 
 
 def main(argv: list[str] | None = None) -> int:
+    raw_argv = list(sys.argv[1:] if argv is None else argv)
     parser = build_parser()
-    args = parser.parse_args(argv)
-    try:
-        repo_root = require_repo_root(Path.cwd())
-    except FileNotFoundError as exc:
-        parser.exit(2, f"{exc}\n")
+    args = parser.parse_args(raw_argv)
+    run_root = Path.cwd().resolve()
+    if not _confirm_default_paths(args, raw_argv, run_root=run_root):
+        parser.exit(2, "已取消执行。\n")
     progress_reporter = None if args.quiet else lambda message: print(message, file=sys.stderr, flush=True)
     result = run_group1_query_audit(
         query_dir=args.query_dir,
@@ -63,7 +63,7 @@ def main(argv: list[str] | None = None) -> int:
         trace_jsonl=args.trace_jsonl,
         template_report_json=args.template_report_json,
         cache_dir=args.cache_dir,
-        repo_root=repo_root,
+        repo_root=run_root,
         ollama_url=args.ollama_url,
         timeout_seconds=args.timeout_seconds,
         min_variants_per_template=args.min_variants_per_template,
@@ -74,6 +74,41 @@ def main(argv: list[str] | None = None) -> int:
     )
     print(json.dumps(result, ensure_ascii=False, indent=2))
     return 0 if result.get("status") == "ok" else 1
+
+
+def _confirm_default_paths(args: argparse.Namespace, raw_argv: list[str], *, run_root: Path) -> bool:
+    defaulted = _defaulted_path_options(raw_argv)
+    if not defaulted or args.yes:
+        return True
+    resolved_paths = {
+        "--query-dir": _resolve_cli_path(args.query_dir, run_root),
+        "--output-root": _resolve_cli_path(args.output_root, run_root),
+        "--report-root": _resolve_cli_path(args.report_root, run_root),
+        "--cache-dir": _resolve_cli_path(args.cache_dir, run_root),
+    }
+    print("以下路径未显式指定，将以当前命令执行目录为根目录：", file=sys.stderr)
+    print(f"  current_dir={run_root}", file=sys.stderr)
+    for option in defaulted:
+        print(f"  {option}={resolved_paths[option]}", file=sys.stderr)
+    if not sys.stdin.isatty():
+        print("非交互环境请显式传入路径，或添加 --yes 接受默认路径。", file=sys.stderr)
+        return False
+    answer = input("继续执行？[y/N] ").strip().lower()
+    return answer in {"y", "yes"}
+
+
+def _defaulted_path_options(raw_argv: list[str]) -> list[str]:
+    explicit_options = {
+        token.split("=", 1)[0]
+        for token in raw_argv
+        if token.startswith("--")
+    }
+    path_options = ["--query-dir", "--output-root", "--report-root", "--cache-dir"]
+    return [option for option in path_options if option not in explicit_options]
+
+
+def _resolve_cli_path(path: Path, run_root: Path) -> Path:
+    return path if path.is_absolute() else run_root / path
 
 
 if __name__ == "__main__":

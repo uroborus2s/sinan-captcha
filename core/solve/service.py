@@ -7,7 +7,7 @@ from pathlib import Path
 import time
 from typing import Any
 
-from core.inference.service import Group1ClickTarget, map_group1_clicks
+from core.inference.service import Group1ClickTarget, map_group1_instances
 from core.solve.bundle import SolverBundle, load_solver_bundle
 from core.solve import group2_runtime
 from core.solve.contracts import (
@@ -33,6 +33,7 @@ class UnifiedSolverService:
         self.bundle = bundle
         self._proposal_model: Any | None = None
         self._query_model: Any | None = None
+        self._group1_embedder_cache: dict[str, Any] = {}
         self._group2_cache: dict[str, tuple[Any, int, Any]] = {}
 
     @classmethod
@@ -94,6 +95,7 @@ class UnifiedSolverService:
             raise FileNotFoundError(f"未找到 scene_image：{inputs.scene_image}")
 
         proposal_model, query_model = self._load_group1_models()
+        embedding_provider = self._load_group1_embedder(device)
         started = time.perf_counter()
         query_result = query_model.predict(
             source=str(inputs.query_image),
@@ -113,7 +115,13 @@ class UnifiedSolverService:
 
         query_targets = _serialize_yolo_detections(query_result, ordered=True)
         scene_detections = _serialize_yolo_detections(proposal_result, ordered=False)
-        mapping = map_group1_clicks(query_targets, scene_detections)
+        matcher_kwargs: dict[str, Any] = {
+            "query_image_path": inputs.query_image,
+            "scene_image_path": inputs.scene_image,
+        }
+        if embedding_provider is not None:
+            matcher_kwargs["embedding_provider"] = embedding_provider
+        mapping = map_group1_instances(query_targets, scene_detections, **matcher_kwargs)
         payload: dict[str, Any] = {
             "matcher_status": mapping.status,
             "ordered_clicks": _ordered_clicks_payload(mapping.ordered_targets),
@@ -169,6 +177,18 @@ class UnifiedSolverService:
         self._proposal_model = YOLO(str(self.bundle.proposal_model_path))
         self._query_model = YOLO(str(self.bundle.query_model_path))
         return self._proposal_model, self._query_model
+
+    def _load_group1_embedder(self, device: str) -> Any | None:
+        if self.bundle.icon_embedder_model_path is None:
+            return None
+        if device not in self._group1_embedder_cache:
+            from core.train.group1.embedder import load_icon_embedder_runtime
+
+            self._group1_embedder_cache[device] = load_icon_embedder_runtime(
+                self.bundle.icon_embedder_model_path,
+                device_name=device,
+            )
+        return self._group1_embedder_cache[device]
 
     def _load_group2_model(self, device: str) -> tuple[Any, int, Any]:
         if device in self._group2_cache:

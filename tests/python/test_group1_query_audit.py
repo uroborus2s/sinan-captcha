@@ -6,7 +6,7 @@ import tempfile
 import unittest
 from contextlib import redirect_stderr
 from pathlib import Path
-from unittest.mock import patch
+from unittest.mock import Mock, patch
 
 from PIL import Image, ImageDraw
 
@@ -21,7 +21,6 @@ from core.materials.query_audit import (
     VariantManifestEntry,
     parse_ollama_query_response,
     parse_ollama_template_response,
-    require_repo_root,
     run_group1_query_audit,
 )
 
@@ -45,22 +44,51 @@ class Group1QueryAuditTests(unittest.TestCase):
         self.assertEqual(args.report_root.parent.as_posix(), Path.cwd().joinpath("reports/group1/materials").as_posix())
         self.assertFalse(args.quiet)
 
-    def test_query_audit_cli_prints_clean_error_outside_repo_root(self) -> None:
+    def test_query_audit_cli_uses_current_directory_as_run_root(self) -> None:
+        result = {"status": "ok"}
+        with tempfile.TemporaryDirectory() as tmp:
+            work_dir = Path(tmp)
+            with patch("pathlib.Path.cwd", return_value=work_dir):
+                with patch("core.materials.query_audit_cli.run_group1_query_audit", return_value=result) as audit:
+                    code = query_audit_cli.main(
+                        [
+                            "--model",
+                            "gemma4:26b",
+                            "--query-dir",
+                            "/tmp/query",
+                            "--output-root",
+                            "/tmp/output",
+                            "--report-root",
+                            "/tmp/report",
+                            "--cache-dir",
+                            "/tmp/cache",
+                        ]
+                    )
+
+        self.assertEqual(code, 0)
+        self.assertEqual(audit.call_args.kwargs["repo_root"], work_dir.resolve())
+
+    def test_query_audit_cli_requires_confirmation_for_default_paths_in_noninteractive_mode(self) -> None:
         buffer = io.StringIO()
-        with patch("core.materials.query_audit_cli.require_repo_root", side_effect=FileNotFoundError("请到仓库根目录执行")):
+        with patch("sys.stdin.isatty", return_value=False):
             with redirect_stderr(buffer):
                 with self.assertRaises(SystemExit) as exc:
                     query_audit_cli.main(["--model", "gemma4:26b"])
         self.assertEqual(exc.exception.code, 2)
-        self.assertIn("请到仓库根目录执行", buffer.getvalue())
+        self.assertIn("以下路径未显式指定", buffer.getvalue())
+        self.assertIn("添加 --yes 接受默认路径", buffer.getvalue())
 
-    def test_require_repo_root_rejects_solver_subdirectory(self) -> None:
-        with self.assertRaisesRegex(FileNotFoundError, "请到仓库根目录执行"):
-            require_repo_root(Path(__file__).resolve().parents[2] / "solver")
+    def test_query_audit_cli_yes_accepts_default_paths(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            work_dir = Path(tmp)
+            audit = Mock(return_value={"status": "ok"})
+            with patch("pathlib.Path.cwd", return_value=work_dir):
+                with patch("core.materials.query_audit_cli.run_group1_query_audit", audit):
+                    code = query_audit_cli.main(["--model", "gemma4:26b", "--yes"])
 
-    def test_require_repo_root_accepts_repo_root(self) -> None:
-        expected_repo_root = Path(__file__).resolve().parents[2]
-        self.assertEqual(require_repo_root(expected_repo_root), expected_repo_root)
+        self.assertEqual(code, 0)
+        self.assertEqual(audit.call_args.kwargs["repo_root"], work_dir.resolve())
+        self.assertEqual(audit.call_args.kwargs["query_dir"], DEFAULT_GROUP1_QUERY_DIR)
 
     def test_parse_ollama_query_response_normalizes_template_ids_and_tags(self) -> None:
         icons = parse_ollama_query_response(

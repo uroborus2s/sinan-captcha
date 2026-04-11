@@ -97,6 +97,7 @@ class ModelTestRequest:
     conf: float = 0.25
     device: str = "0"
     imgsz: int = 640
+    embedder_model_path: Path | None = None
 
 
 @dataclass(frozen=True)
@@ -120,12 +121,14 @@ class ModelTestResult:
     next_actions: list[str]
     predict_command: str
     val_command: str
+    embedder_model_path: Path | None = None
 
     def to_dict(self) -> dict[str, object]:
         payload = asdict(self)
         for key in (
             "model_path",
             "query_model_path",
+            "embedder_model_path",
             "dataset_config",
             "source",
             "project_dir",
@@ -142,7 +145,7 @@ class ModelTestResult:
         next_actions = "\n".join(f"- {item}" for item in self.next_actions)
         workflow_line = ""
         if self.task == "group1":
-            workflow_line = "- 本次重点验证最终位置挑选：query parser + proposal detector + matcher。"
+            workflow_line = "- 本次重点验证最终位置挑选：query parser + proposal detector + icon embedder + matcher。"
         elif self.task == "group2":
             workflow_line = "- 本次重点验证最终定位结果，而不是单纯看中间特征。"
         return "\n".join(
@@ -154,6 +157,7 @@ class ModelTestResult:
                 f"- 训练版本：{self.train_name}",
                 f"- 主权重文件：{self.model_path}",
                 *([f"- Query Parser 权重：{self.query_model_path}"] if self.query_model_path is not None else []),
+                *([f"- Icon Embedder 权重：{self.embedder_model_path}"] if self.embedder_model_path is not None else []),
                 f"- 本次预测样本数：{self.source_image_count}",
                 f"- 预测输出目录：{self.predict_output_dir}",
                 f"- 验证输出目录：{self.val_output_dir}",
@@ -200,6 +204,7 @@ def build_model_test_jobs(
             dataset_config=request.dataset_config,
             proposal_model_path=request.model_path,
             query_model_path=request.query_model_path,
+            embedder_model_path=request.embedder_model_path,
             source=request.source,
             project_dir=request.project_dir,
             run_name=request.predict_name,
@@ -289,6 +294,7 @@ def run_model_test(request: ModelTestRequest) -> ModelTestResult:
         train_name=request.train_name,
         model_path=request.model_path,
         query_model_path=None,
+        embedder_model_path=None,
         dataset_config=request.dataset_config,
         source=request.source,
         project_dir=request.project_dir,
@@ -316,15 +322,22 @@ def _run_group1_model_test(request: ModelTestRequest) -> ModelTestResult:
         raise RuntimeError(f"未找到 group1 proposal detector 权重：{request.model_path}")
     if not request.query_model_path.exists():
         raise RuntimeError(f"未找到 group1 query parser 权重：{request.query_model_path}")
+    dataset_config = load_group1_dataset_config(request.dataset_config)
+    if (
+        dataset_config.is_instance_matching
+        and request.embedder_model_path is not None
+        and not request.embedder_model_path.exists()
+    ):
+        raise RuntimeError(f"未找到 group1 icon embedder 权重：{request.embedder_model_path}")
     if not request.source.exists():
         raise RuntimeError(f"未找到 group1 测试样本来源：{request.source}")
 
-    dataset_config = load_group1_dataset_config(request.dataset_config)
     gold_rows = load_group1_rows(dataset_config, request.source)
     prediction_job = build_group1_prediction_job(
         dataset_config=request.dataset_config,
         proposal_model_path=request.model_path,
         query_model_path=request.query_model_path,
+        embedder_model_path=request.embedder_model_path,
         source=request.source,
         project_dir=request.project_dir,
         run_name=request.predict_name,
@@ -359,6 +372,7 @@ def _run_group1_model_test(request: ModelTestRequest) -> ModelTestResult:
         train_name=request.train_name,
         model_path=request.model_path,
         query_model_path=request.query_model_path,
+        embedder_model_path=request.embedder_model_path,
         dataset_config=request.dataset_config,
         source=request.source,
         project_dir=request.project_dir,
@@ -427,6 +441,7 @@ def _run_group2_model_test(request: ModelTestRequest) -> ModelTestResult:
         train_name=request.train_name,
         model_path=request.model_path,
         query_model_path=None,
+        embedder_model_path=None,
         dataset_config=request.dataset_config,
         source=request.source,
         project_dir=request.project_dir,
@@ -669,7 +684,7 @@ def _render_markdown(result: ModelTestResult) -> str:
         f"- {result.verdict_detail}",
         "- 这是一份入门级阅读口径，方便你先判断“这轮值不值得继续”。",
         *(
-            ["- 这次重点验证最终位置挑选链路：query parser + proposal detector + matcher。"]
+            ["- 这次重点验证最终位置挑选链路：query parser + proposal detector + icon embedder + matcher。"]
             if result.task == "group1"
             else []
         ),
@@ -678,6 +693,7 @@ def _render_markdown(result: ModelTestResult) -> str:
         "",
         f"- 已加载主权重：`{result.model_path}`",
         *([f"- 已加载 Query Parser 权重：`{result.query_model_path}`"] if result.query_model_path is not None else []),
+        *([f"- 已加载 Icon Embedder 权重：`{result.embedder_model_path}`"] if result.embedder_model_path is not None else []),
         f"- 已在验证集来源上执行预测：`{result.source}`",
         f"- 已执行验证/评估：`{result.dataset_config}`",
         f"- 本次预测样本数：{result.source_image_count}",

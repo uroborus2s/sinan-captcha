@@ -5,6 +5,7 @@ from __future__ import annotations
 from pathlib import Path
 
 from sinanz_errors import SolverAssetError, SolverError, SolverInputError, SolverRuntimeError
+from sinanz_group1_service import solve_click_targets
 from sinanz_group2_service import solve_slider_gap
 from sinanz_types import (
     BBox,
@@ -14,11 +15,6 @@ from sinanz_types import (
     OrderedClickTargetsResult,
     SliderGapCenterResult,
     SliderGapDebugInfo,
-)
-
-_GROUP1_RUNTIME_PLACEHOLDER = (
-    "Standalone click-captcha runtime is not implemented yet. "
-    "Complete TASK-SOLVER-MIG-010/011 to migrate the runtime."
 )
 
 _default_solver: "CaptchaSolver | None" = None
@@ -55,7 +51,13 @@ class CaptchaSolver:
         *,
         return_debug: bool = False,
     ) -> OrderedClickTargetsResult:
-        raise SolverRuntimeError(_GROUP1_RUNTIME_PLACEHOLDER)
+        return solve_click_targets(
+            query_icons_image=query_icons_image,
+            background_image=background_image,
+            device=self.device,
+            asset_root=self.asset_root,
+            return_debug=return_debug,
+        )
 
 
 def sn_match_slider(

@@ -14,6 +14,7 @@ class SolverAssetContractTests(unittest.TestCase):
             {
                 "click_proposal_detector": "click_proposal_detector.onnx",
                 "click_query_parser": "click_query_parser.onnx",
+                "click_icon_embedder": "click_icon_embedder.onnx",
                 "slider_gap_locator": "slider_gap_locator.onnx",
             },
         )
@@ -39,6 +40,16 @@ class SolverAssetContractTests(unittest.TestCase):
             image_size=(320, 320),
             postprocess="yolo_detect_v1",
         )
+        embedder = contract.SolverOnnxModelAsset(
+            model_id="click_icon_embedder",
+            task="group1",
+            component="icon_embedder",
+            opset=17,
+            input_names=("icon_crop",),
+            output_names=("embedding",),
+            image_size=(64, 64),
+            postprocess="normalized_embedding_v1",
+        )
         gap = contract.SolverOnnxModelAsset(
             model_id="slider_gap_locator",
             task="group2",
@@ -53,7 +64,7 @@ class SolverAssetContractTests(unittest.TestCase):
         manifest = contract.SolverAssetManifest(
             asset_version="20260405",
             exported_at="2026-04-05T12:00:00Z",
-            model_assets=(scene, query, gap),
+            model_assets=(scene, query, embedder, gap),
         )
         payload = manifest.to_dict()
 
@@ -70,6 +81,10 @@ class SolverAssetContractTests(unittest.TestCase):
         self.assertEqual(
             payload["models"]["click_proposal_detector"]["metadata"],
             "metadata/click_proposal_detector.json",
+        )
+        self.assertEqual(
+            payload["models"]["click_icon_embedder"]["output"]["postprocess"],
+            "normalized_embedding_v1",
         )
         self.assertEqual(
             payload["models"]["slider_gap_locator"]["input"]["image_size"],

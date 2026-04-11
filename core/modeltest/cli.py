@@ -8,6 +8,7 @@ from pathlib import Path
 from core.modeltest.service import ModelTestRequest, build_model_test_jobs, run_model_test
 from core.train.base import default_best_weights, default_dataset_config, default_predict_source, default_report_dir
 from core.train.group1.service import (
+    EMBEDDER_COMPONENT,
     PROPOSAL_COMPONENT,
     QUERY_COMPONENT,
     resolve_group1_component_best_weights,
@@ -31,6 +32,7 @@ def build_parser() -> argparse.ArgumentParser:
     group1_parser.add_argument("--proposal-model", dest="proposal_model", type=Path, required=False)
     group1_parser.add_argument("--scene-model", dest="proposal_model", type=Path, required=False, help=argparse.SUPPRESS)
     group1_parser.add_argument("--query-model", type=Path, required=False)
+    group1_parser.add_argument("--embedder-model", type=Path, required=False)
     group1_parser.add_argument("--train-name", default="v1")
     group1_parser.add_argument(
         "--source",
@@ -100,6 +102,7 @@ def main(argv: list[str] | None = None) -> int:
     if task == "group1":
         proposal_model = args.proposal_model or resolve_group1_component_best_weights(train_root, args.train_name, PROPOSAL_COMPONENT)
         query_model = args.query_model or resolve_group1_component_best_weights(train_root, args.train_name, QUERY_COMPONENT)
+        embedder_model = args.embedder_model or resolve_group1_component_best_weights(train_root, args.train_name, EMBEDDER_COMPONENT)
         request = ModelTestRequest(
             task=task,
             dataset_version=args.dataset_version,
@@ -107,6 +110,7 @@ def main(argv: list[str] | None = None) -> int:
             dataset_config=dataset_config,
             model_path=proposal_model,
             query_model_path=query_model,
+            embedder_model_path=embedder_model,
             source=source,
             project_dir=project_dir,
             report_dir=report_dir,

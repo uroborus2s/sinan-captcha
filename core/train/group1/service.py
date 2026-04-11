@@ -8,11 +8,13 @@ import subprocess
 
 from core.common.jsonl import read_jsonl
 from core.train.base import _ensure_training_dependencies
+from core.train.group1.dataset import load_group1_dataset_config
 
 ALL_COMPONENTS = "all"
 PROPOSAL_COMPONENT = "proposal-detector"
 LEGACY_SCENE_COMPONENT = "scene-detector"
 QUERY_COMPONENT = "query-parser"
+EMBEDDER_COMPONENT = "icon-embedder"
 SCENE_COMPONENT = PROPOSAL_COMPONENT
 
 
@@ -22,6 +24,7 @@ class Group1TrainingJob:
     project_dir: Path
     proposal_model: str | None
     query_model: str | None
+    embedder_model: str | None
     epochs: int
     batch: int
     run_name: str
@@ -59,6 +62,8 @@ class Group1TrainingJob:
             command.extend(["--proposal-model", self.proposal_model])
         if self.query_model is not None:
             command.extend(["--query-model", self.query_model])
+        if self.embedder_model is not None:
+            command.extend(["--embedder-model", self.embedder_model])
         if self.resume:
             command.append("--resume")
         return command
@@ -72,6 +77,7 @@ class Group1PredictionJob:
     dataset_config: Path
     proposal_model_path: Path
     query_model_path: Path
+    embedder_model_path: Path | None
     source: Path
     project_dir: Path
     run_name: str
@@ -96,6 +102,7 @@ class Group1PredictionJob:
             str(self.proposal_model_path),
             "--query-model",
             str(self.query_model_path),
+            *(["--embedder-model", str(self.embedder_model_path)] if self.embedder_model_path is not None else []),
             "--source",
             str(self.source),
             "--project",
@@ -130,6 +137,7 @@ def build_group1_training_job(
     *,
     proposal_model: str | None = None,
     query_model: str | None = None,
+    embedder_model: str | None = None,
     epochs: int | None = None,
     batch: int | None = None,
     component: str = ALL_COMPONENTS,
@@ -140,15 +148,22 @@ def build_group1_training_job(
     normalized_component = normalize_group1_component(component)
     resolved_proposal_model = proposal_model or model
     resolved_query_model = query_model or model
+    resolved_embedder_model = embedder_model
     if normalized_component == PROPOSAL_COMPONENT:
         resolved_query_model = None
+        resolved_embedder_model = None
     elif normalized_component == QUERY_COMPONENT:
         resolved_proposal_model = None
+        resolved_embedder_model = None
+    elif normalized_component == EMBEDDER_COMPONENT:
+        resolved_proposal_model = None
+        resolved_query_model = None
     return Group1TrainingJob(
         dataset_config=dataset_config,
         project_dir=project_dir,
         proposal_model=resolved_proposal_model,
         query_model=resolved_query_model,
+        embedder_model=resolved_embedder_model,
         epochs=120 if epochs is None else epochs,
         batch=16 if batch is None else batch,
         run_name=run_name,
@@ -167,6 +182,7 @@ def build_group1_prediction_job(
     project_dir: Path,
     run_name: str,
     *,
+    embedder_model_path: Path | None = None,
     conf: float = 0.25,
     imgsz: int = 640,
     device: str = "0",
@@ -175,6 +191,7 @@ def build_group1_prediction_job(
         dataset_config=dataset_config,
         proposal_model_path=proposal_model_path,
         query_model_path=query_model_path,
+        embedder_model_path=embedder_model_path,
         source=source,
         project_dir=project_dir,
         run_name=run_name,
@@ -191,6 +208,7 @@ def execute_group1_training_job(job: Group1TrainingJob) -> int:
     for component_name, model in (
         (PROPOSAL_COMPONENT, job.proposal_model),
         (QUERY_COMPONENT, job.query_model),
+        (EMBEDDER_COMPONENT, job.embedder_model),
     ):
         if model is None:
             continue
@@ -210,10 +228,13 @@ def run_group1_prediction_job(job: Group1PredictionJob) -> Group1PredictionResul
     _ensure_training_dependencies()
     if not job.dataset_config.exists():
         raise RuntimeError(f"未找到 group1 数据集配置文件：{job.dataset_config}")
+    dataset_config = load_group1_dataset_config(job.dataset_config)
     if not job.proposal_model_path.exists():
         raise RuntimeError(f"未找到 group1 proposal detector 权重：{job.proposal_model_path}")
     if not job.query_model_path.exists():
         raise RuntimeError(f"未找到 group1 query parser 权重：{job.query_model_path}")
+    if dataset_config.is_instance_matching and job.embedder_model_path is not None and not job.embedder_model_path.exists():
+        raise RuntimeError(f"未找到 group1 icon embedder 权重：{job.embedder_model_path}")
     if not job.source.exists():
         raise RuntimeError(f"未找到 group1 预测输入：{job.source}")
 
@@ -258,7 +279,7 @@ def normalize_group1_component(component: str) -> str:
     normalized = component.strip()
     if normalized == LEGACY_SCENE_COMPONENT:
         return PROPOSAL_COMPONENT
-    if normalized in {ALL_COMPONENTS, PROPOSAL_COMPONENT, QUERY_COMPONENT}:
+    if normalized in {ALL_COMPONENTS, PROPOSAL_COMPONENT, QUERY_COMPONENT, EMBEDDER_COMPONENT}:
         return normalized
     raise RuntimeError(f"不支持的 group1 训练组件：{component}")
 

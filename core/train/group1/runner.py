@@ -10,10 +10,17 @@ import time
 from typing import Any
 
 from core.common.jsonl import write_jsonl
-from core.inference.service import map_group1_clicks
+from core.inference.service import map_group1_clicks, map_group1_instances
 from core.train.base import prepare_dataset_yaml_for_ultralytics
 from core.train.group1.dataset import load_group1_dataset_config, load_group1_rows, resolve_group1_path
-from core.train.group1.service import ALL_COMPONENTS, PROPOSAL_COMPONENT, QUERY_COMPONENT, normalize_group1_component
+from core.train.group1.embedder import load_icon_embedder_runtime, train_icon_embedder
+from core.train.group1.service import (
+    ALL_COMPONENTS,
+    EMBEDDER_COMPONENT,
+    PROPOSAL_COMPONENT,
+    QUERY_COMPONENT,
+    normalize_group1_component,
+)
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -24,10 +31,11 @@ def build_parser() -> argparse.ArgumentParser:
     train_parser.add_argument("--dataset-config", type=Path, required=True)
     train_parser.add_argument("--project", type=Path, required=True)
     train_parser.add_argument("--name", required=True)
-    train_parser.add_argument("--component", default=ALL_COMPONENTS, help="all | proposal-detector | query-parser")
+    train_parser.add_argument("--component", default=ALL_COMPONENTS, help="all | proposal-detector | query-parser | icon-embedder")
     train_parser.add_argument("--proposal-model", dest="proposal_model", default=None)
     train_parser.add_argument("--scene-model", dest="proposal_model", default=None, help=argparse.SUPPRESS)
     train_parser.add_argument("--query-model", default=None)
+    train_parser.add_argument("--embedder-model", default=None)
     train_parser.add_argument("--epochs", type=int, default=120)
     train_parser.add_argument("--batch", type=int, default=16)
     train_parser.add_argument("--imgsz", type=int, default=640)
@@ -38,6 +46,7 @@ def build_parser() -> argparse.ArgumentParser:
     predict_parser.add_argument("--dataset-config", type=Path, required=True)
     predict_parser.add_argument("--proposal-model", "--scene-model", dest="proposal_model", type=Path, required=True)
     predict_parser.add_argument("--query-model", type=Path, required=True)
+    predict_parser.add_argument("--embedder-model", type=Path, default=None)
     predict_parser.add_argument("--source", type=Path, required=True)
     predict_parser.add_argument("--project", type=Path, required=True)
     predict_parser.add_argument("--name", required=True)
@@ -134,8 +143,45 @@ def _run_train(args: argparse.Namespace) -> None:
                 "command": " ".join(commands[QUERY_COMPONENT]),
             }
 
+    should_train_embedder = component == EMBEDDER_COMPONENT or (
+        component == ALL_COMPONENTS and dataset_config.is_instance_matching
+    )
+    if should_train_embedder:
+        if not dataset_config.is_instance_matching or dataset_config.embedding is None:
+            if component == EMBEDDER_COMPONENT:
+                raise RuntimeError("当前 group1 dataset.json 未提供 embedding 数据，无法训练 icon-embedder。")
+        else:
+            component_summaries[EMBEDDER_COMPONENT] = {
+                "role": "icon_embedder",
+                "triplets_jsonl": str(dataset_config.embedding.triplets_jsonl),
+                "weights": {
+                    "best": str(run_dir / EMBEDDER_COMPONENT / "weights" / "best.pt"),
+                    "last": str(run_dir / EMBEDDER_COMPONENT / "weights" / "last.pt"),
+                },
+            }
+
     for command in commands.values():
         subprocess.run(command, check=True)
+
+    if should_train_embedder and dataset_config.is_instance_matching and dataset_config.embedding is not None:
+        embedder_model_path = Path(args.embedder_model) if args.embedder_model is not None else None
+        if args.resume and embedder_model_path is None:
+            embedder_model_path = run_dir / EMBEDDER_COMPONENT / "weights" / "last.pt"
+        embedder_result = train_icon_embedder(
+            dataset_config=dataset_config,
+            run_dir=run_dir,
+            model_path=embedder_model_path,
+            epochs=args.epochs,
+            batch_size=args.batch,
+            image_size=args.imgsz,
+            device_name=args.device,
+            resume=args.resume,
+        )
+        component_summaries[EMBEDDER_COMPONENT] = {
+            **component_summaries[EMBEDDER_COMPONENT],
+            "metrics": embedder_result.metrics,
+            "summary": str(embedder_result.summary_path),
+        }
 
     summary = {
         "task": "group1",
@@ -163,6 +209,9 @@ def _run_predict(args: argparse.Namespace) -> None:
 
     proposal_model = YOLO(str(args.proposal_model))
     query_model = YOLO(str(args.query_model))
+    embedding_provider = None
+    if dataset_config.is_instance_matching and args.embedder_model is not None:
+        embedding_provider = load_icon_embedder_runtime(args.embedder_model, device_name=args.device)
     output_dir = args.project / args.name
     output_dir.mkdir(parents=True, exist_ok=True)
     predictions: list[dict[str, Any]] = []
@@ -189,8 +238,25 @@ def _run_predict(args: argparse.Namespace) -> None:
 
         predicted_query_targets = _serialize_detections(query_result, ordered=True)
         predicted_scene_targets = _serialize_detections(proposal_result, ordered=False)
-        mapping = map_group1_clicks(predicted_query_targets, predicted_scene_targets)
-        predictions.append(_build_prediction_row(row, predicted_query_targets, mapping, elapsed_ms))
+        if dataset_config.is_instance_matching:
+            mapping = map_group1_instances(
+                predicted_query_targets,
+                predicted_scene_targets,
+                query_image_path=query_path,
+                scene_image_path=scene_path,
+                embedding_provider=embedding_provider,
+            )
+        else:
+            mapping = map_group1_clicks(predicted_query_targets, predicted_scene_targets)
+        predictions.append(
+            _build_prediction_row(
+                row,
+                predicted_query_targets,
+                mapping,
+                elapsed_ms,
+                instance_matching=dataset_config.is_instance_matching,
+            )
+        )
 
     write_jsonl(output_dir / "labels.jsonl", predictions)
     (output_dir / "summary.json").write_text(
@@ -201,6 +267,7 @@ def _run_predict(args: argparse.Namespace) -> None:
                 "source": str(args.source),
                 "proposal_model": str(args.proposal_model),
                 "query_model": str(args.query_model),
+                "embedder_model": str(args.embedder_model) if args.embedder_model is not None else None,
                 "sample_count": len(predictions),
                 "labels_path": str(output_dir / "labels.jsonl"),
             },
@@ -299,13 +366,13 @@ def _build_prediction_row(
     predicted_query_targets: list[dict[str, Any]],
     mapping: Any,
     elapsed_ms: float,
+    *,
+    instance_matching: bool,
 ) -> dict[str, Any]:
-    return {
-        "sample_id": row["sample_id"],
-        "query_image": row["query_image"],
-        "scene_image": row["scene_image"],
-        "query_targets": predicted_query_targets,
-        "scene_targets": [
+    if instance_matching:
+        scene_targets = _build_instance_matching_scene_targets(row, mapping)
+    else:
+        scene_targets = [
             {
                 "order": target.order,
                 "class": target.class_name,
@@ -315,12 +382,56 @@ def _build_prediction_row(
                 "score": target.score,
             }
             for target in mapping.ordered_targets
-        ],
+        ]
+    return {
+        "sample_id": row["sample_id"],
+        "query_image": row["query_image"],
+        "scene_image": row["scene_image"],
+        "query_targets": predicted_query_targets,
+        "scene_targets": scene_targets,
         "distractors": [],
         "label_source": "pred",
         "source_batch": row.get("source_batch", "prediction"),
         "status": mapping.status,
         "inference_ms": round(elapsed_ms, 4),
+    }
+
+
+def _build_instance_matching_scene_targets(row: dict[str, Any], mapping: Any) -> list[dict[str, Any]]:
+    query_items = row.get("query_items", [])
+    identity_by_order: dict[int, dict[str, str]] = {}
+    if isinstance(query_items, list):
+        for item in query_items:
+            if not isinstance(item, dict):
+                continue
+            order = item.get("order")
+            if not isinstance(order, int):
+                continue
+            if all(isinstance(item.get(field), str) and str(item.get(field)).strip() for field in ("asset_id", "template_id", "variant_id")):
+                identity_by_order[order] = {
+                    "asset_id": str(item["asset_id"]),
+                    "template_id": str(item["template_id"]),
+                    "variant_id": str(item["variant_id"]),
+                }
+
+    scene_targets: list[dict[str, Any]] = []
+    for target in mapping.ordered_targets:
+        payload = {
+            "order": target.order,
+            "bbox": target.bbox,
+            "center": target.center,
+            "score": target.score,
+        }
+        payload.update(identity_by_order.get(target.order, _synthetic_identity(target.order)))
+        scene_targets.append(payload)
+    return scene_targets
+
+
+def _synthetic_identity(order: int) -> dict[str, str]:
+    return {
+        "asset_id": f"pred_asset_{order:02d}",
+        "template_id": f"pred_tpl_{order:02d}",
+        "variant_id": f"pred_var_{order:02d}",
     }
 
 

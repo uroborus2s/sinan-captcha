@@ -9,6 +9,7 @@ from unittest.mock import patch
 import zlib
 
 from core.common.jsonl import read_jsonl
+from core.inference.service import ClickPoint, Group1ClickTarget, Group1MappingResult
 from core.train.base import (
     preferred_checkpoint_path,
     preferred_run_checkpoint,
@@ -16,6 +17,7 @@ from core.train.base import (
 )
 from core.train.group1 import cli as group1_cli
 from core.train.group1.dataset import load_group1_dataset_config
+from core.train.group1.runner import _build_prediction_row
 from core.train.group1.service import build_group1_training_job
 from core.train.group2 import cli as group2_cli
 from core.train.group2.service import build_group2_prediction_job, build_group2_training_job, run_group2_prediction_job
@@ -49,6 +51,64 @@ def _write_png(path: Path, width: int, height: int, color: tuple[int, int, int])
 
 
 class TrainingJobTests(unittest.TestCase):
+    def test_group1_instance_matching_prediction_row_copies_query_identity(self) -> None:
+        row = {
+            "sample_id": "g1_000001",
+            "query_image": "query/g1_000001.png",
+            "scene_image": "scene/g1_000001.png",
+            "query_items": [
+                {
+                    "order": 1,
+                    "asset_id": "asset_house",
+                    "template_id": "tpl_house",
+                    "variant_id": "var_outline",
+                    "bbox": [8, 8, 28, 28],
+                    "center": [18, 18],
+                }
+            ],
+            "scene_targets": [],
+            "distractors": [],
+            "source_batch": "batch_0001",
+        }
+        prediction = _build_prediction_row(
+            row,
+            predicted_query_targets=[
+                {
+                    "order": 1,
+                    "class": "query_item_01",
+                    "class_id": 0,
+                    "bbox": [8, 8, 28, 28],
+                    "center": [18, 18],
+                    "score": 0.99,
+                }
+            ],
+            mapping=Group1MappingResult(
+                status="ok",
+                ordered_targets=[
+                    Group1ClickTarget(
+                        order=1,
+                        class_id=0,
+                        class_name="query_item_01",
+                        bbox=[80, 32, 120, 72],
+                        center=[100, 52],
+                        score=0.97,
+                    )
+                ],
+                ordered_clicks=[ClickPoint(x=100, y=52)],
+                missing_orders=[],
+                ambiguous_orders=[],
+            ),
+            elapsed_ms=7.5,
+            instance_matching=True,
+        )
+
+        scene_target = prediction["scene_targets"][0]
+        self.assertEqual(scene_target["asset_id"], "asset_house")
+        self.assertEqual(scene_target["template_id"], "tpl_house")
+        self.assertEqual(scene_target["variant_id"], "var_outline")
+        self.assertNotIn("class_id", scene_target)
+        self.assertNotIn("class", scene_target)
+
     def test_group1_dataset_loader_accepts_instance_matching_contract(self) -> None:
         with tempfile.TemporaryDirectory() as tmpdir:
             dataset_dir = Path(tmpdir) / "datasets" / "group1" / "v2"
@@ -162,6 +222,48 @@ class TrainingJobTests(unittest.TestCase):
         self.assertIn("--device", command)
         self.assertIn("cpu", command)
 
+    def test_group1_embedder_component_builds_dedicated_training_command(self) -> None:
+        job = build_group1_training_job(
+            Path("datasets/group1/v2/dataset.json"),
+            Path("runs/group1"),
+            run_name="instance_v2",
+            component="icon-embedder",
+            epochs=3,
+            batch=4,
+            imgsz=64,
+            device="cpu",
+        )
+
+        command = job.command()
+        self.assertEqual(command[:5], ["uv", "run", "python", "-m", "core.train.group1.runner"])
+        self.assertIn("--component", command)
+        self.assertIn("icon-embedder", command)
+        self.assertIn("--epochs", command)
+        self.assertIn("3", command)
+        self.assertIn("--batch", command)
+        self.assertIn("4", command)
+        self.assertIn("--imgsz", command)
+        self.assertIn("64", command)
+        self.assertNotIn("--proposal-model", command)
+        self.assertNotIn("--query-model", command)
+
+    def test_group1_prediction_job_includes_icon_embedder_model(self) -> None:
+        from core.train.group1.service import build_group1_prediction_job
+
+        job = build_group1_prediction_job(
+            dataset_config=Path("datasets/group1/v2/dataset.json"),
+            proposal_model_path=Path("runs/group1/v2/proposal-detector/weights/best.pt"),
+            query_model_path=Path("runs/group1/v2/query-parser/weights/best.pt"),
+            embedder_model_path=Path("runs/group1/v2/icon-embedder/weights/best.pt"),
+            source=Path("datasets/group1/v2/splits/val.jsonl"),
+            project_dir=Path("reports/group1"),
+            run_name="predict_v2",
+        )
+
+        command = job.command()
+        self.assertIn("--embedder-model", command)
+        self.assertIn("runs/group1/v2/icon-embedder/weights/best.pt", command)
+
     def test_group1_cli_dry_run_prints_command(self) -> None:
         buffer = io.StringIO()
         with redirect_stdout(buffer):
@@ -181,6 +283,28 @@ class TrainingJobTests(unittest.TestCase):
         self.assertIn("uv run python -m core.train.group1.runner train", output)
         self.assertIn("--batch 8", output)
         self.assertIn("--dataset-config datasets/group1/v1/dataset.json", output)
+
+    def test_group1_cli_dry_run_supports_icon_embedder_component(self) -> None:
+        buffer = io.StringIO()
+        with redirect_stdout(buffer):
+            code = group1_cli.main(
+                [
+                    "--dataset-config",
+                    "datasets/group1/v2/dataset.json",
+                    "--project",
+                    "runs/group1",
+                    "--name",
+                    "g1_embed",
+                    "--component",
+                    "icon-embedder",
+                    "--dry-run",
+                ]
+            )
+        self.assertEqual(code, 0)
+        output = buffer.getvalue()
+        self.assertIn("--component icon-embedder", output)
+        self.assertNotIn("--proposal-model", output)
+        self.assertNotIn("--query-model", output)
 
     def test_group1_cli_uses_default_paths_from_training_root(self) -> None:
         buffer = io.StringIO()

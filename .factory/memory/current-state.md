@@ -17,6 +17,13 @@
 
 ## 当前事实
 
+- 2026-04-11 当前 `uv run sinan materials audit-group1-query` 的 CLI 运行根语义已修正：
+  - 当前不再要求命令必须从仓库根目录执行，也不再检查 `pyproject.toml + core/`
+  - 当前相对默认路径统一按命令执行目录 `Path.cwd()` 解释
+  - 当前若使用默认路径，CLI 会提示将采用的路径；非交互环境需显式传路径或加 `--yes`
+  - 当前已验证：
+    - `uv run python -m unittest discover -s tests/python -p 'test_group1_query_audit.py'`
+
 - 2026-04-11 当前 `group1` 素材库协议已在正式文档与 generator 中切换到 `schema_version: 3`：
   - 当前正式素材结构已冻结为：
     - `manifests/group1.templates.yaml`
@@ -109,8 +116,131 @@
     - `uv run python -m unittest discover -s tests/python -p 'test_solve_service.py'`
     - `uv run python -m unittest discover -s tests/python -p 'test_solver_asset_contract.py'`
   - 当前该实现已降级为待重构实现差距，不再代表正式设计目标
+- 2026-04-11 当前 `group1` 已进入 `TASK-G1-REF-007/008` 的第一实现切片：
+  - 当前 `core.inference.service.map_group1_instances()` 已提供：
+    - 基于 query/scene crop 的向量相似度
+    - 全局 assignment
+    - `missing_candidate / ambiguous_match` 判定
+  - 当前 `core.train.group1.runner predict` 在 `sinan.group1.instance_matching.v1` 数据集上已切到：
+    - `proposal-detector + query-parser + instance matcher`
+  - 当前实例匹配预测输出的 `scene_targets` 已改为优先复制：
+    - `asset_id`
+    - `template_id`
+    - `variant_id`
+  - 当前 `core.solve.service` 的 `group1` 统一求解入口也已改走实例匹配器，不再用 `ordered_class_match_v1`
+  - 当前 solver bundle 新产物默认写出：
+    - `matcher.strategy = global_assignment_match_v1`
+  - 当前历史 bundle 读取仍接受：
+    - `ordered_class_match_v1`
+  - 当前这一步仍只是切通正式推理主线，不代表以下工作已完成：
+    - group1 ONNX/export runtime 编排
+  - 当前已验证：
+    - `PYTHONPYCACHEPREFIX=/tmp/pycache python3 -m py_compile core/inference/service.py core/train/group1/runner.py core/solve/service.py core/solve/bundle.py tests/python/test_inference_service.py tests/python/test_training_jobs.py tests/python/test_solve_service.py`
+    - `PYTHONPATH=/tmp/pyshim PYTHONPYCACHEPREFIX=/tmp/pycache python3 -m unittest tests.python.test_inference_service`
+    - `PYTHONPATH=/tmp/pyshim PYTHONPYCACHEPREFIX=/tmp/pycache python3 -m unittest tests.python.test_training_jobs.TrainingJobTests.test_group1_instance_matching_prediction_row_copies_query_identity tests.python.test_training_jobs.TrainingJobTests.test_group1_dataset_loader_accepts_instance_matching_contract`
+    - `PYTHONPATH=/tmp/pyshim PYTHONPYCACHEPREFIX=/tmp/pycache python3 -m unittest tests.python.test_solve_service`
+    - `PYTHONPATH=/tmp/pyshim PYTHONPYCACHEPREFIX=/tmp/pycache python3 -m unittest tests.python.test_prediction_and_model_test`
+    - `PYTHONPATH=/tmp/pyshim PYTHONPYCACHEPREFIX=/tmp/pycache python3 -m unittest tests.python.test_root_cli`
+- 2026-04-11 当前 `TASK-G1-REF-007` 的可训练 `icon embedder` 第一切片已落地：
+  - 当前新增：
+    - `core.train.group1.embedder.IconEmbedder`
+    - `core.train.group1.embedder.Group1TripletDataset`
+    - `core.train.group1.embedder.train_icon_embedder(...)`
+    - `core.train.group1.embedder.evaluate_retrieval(...)`
+  - 当前训练入口已支持：
+    - `uv run sinan train group1 --component icon-embedder ...`
+  - 当前 runner 会消费：
+    - `embedding/triplets.jsonl`
+  - 当前训练产物写入：
+    - `runs/group1/<name>/icon-embedder/weights/best.pt`
+    - `runs/group1/<name>/icon-embedder/weights/last.pt`
+    - `runs/group1/<name>/icon-embedder/summary.json`
+  - 当前 summary 已输出：
+    - `embedding_recall_at_1`
+    - `embedding_recall_at_3`
+  - 当前仍未完成：
+    - 真实数据上的 recall 阈值校准
+    - group1 ONNX/export runtime 编排
+  - 当前已验证：
+    - `UV_CACHE_DIR=/tmp/uv-cache PYTHONPYCACHEPREFIX=/tmp/pycache uv run python -m unittest discover -s tests/python -p 'test_group1_embedder.py'`（沙箱外）
+    - `UV_CACHE_DIR=/tmp/uv-cache PYTHONPYCACHEPREFIX=/tmp/pycache uv run python -m unittest discover -s tests/python -p 'test_training_jobs.py'`（沙箱外）
+    - `UV_CACHE_DIR=/tmp/uv-cache PYTHONPYCACHEPREFIX=/tmp/pycache uv run python -m unittest discover -s tests/python -p 'test_prediction_and_model_test.py'`（沙箱外）
+    - `UV_CACHE_DIR=/tmp/uv-cache PYTHONPYCACHEPREFIX=/tmp/pycache uv run python -m unittest discover -s tests/python -p 'test_solve_service.py'`（沙箱外）
+    - `UV_CACHE_DIR=/tmp/uv-cache PYTHONPYCACHEPREFIX=/tmp/pycache uv run python -m unittest discover -s tests/python -p 'test_root_cli.py'`（沙箱外）
+    - `UV_CACHE_DIR=/tmp/uv-cache PYTHONPYCACHEPREFIX=/tmp/pycache uv run python -m unittest discover -s tests/python -p 'test_auto_train_runners.py'`（沙箱外）
+    - `UV_CACHE_DIR=/tmp/uv-cache PYTHONPYCACHEPREFIX=/tmp/pycache uv run python -m unittest discover -s tests/python -p 'test_train_prelabel_service.py'`（沙箱外）
+    - `.venv/bin/python -m py_compile core/train/group1/embedder.py core/train/group1/service.py core/train/group1/cli.py core/train/group1/runner.py core/inference/service.py core/solve/service.py tests/python/test_group1_embedder.py tests/python/test_training_jobs.py tests/python/test_prediction_and_model_test.py tests/python/test_solve_service.py tests/python/test_root_cli.py`
+- 2026-04-11 当前 `TASK-G1-REF-008/011` 的 embedder 推理衔接切片已落地：
+  - 当前 `core.train.group1.embedder` 已新增：
+    - `IconEmbedderRuntime`
+    - `load_icon_embedder_runtime(...)`
+  - 当前 `core.inference.service.map_group1_instances(...)` 已支持注入 embedding provider：
+    - 有 `icon-embedder` 时用训练后的模型 embedding
+    - 无 provider 时仍保留当前 crop/pixel fallback，服务于过渡期测试与旧内部 bundle
+  - 当前 `uv run sinan predict group1` 默认解析：
+    - `runs/group1/<train-name>/icon-embedder/weights/best.pt`
+  - 当前 `uv run sinan test group1` 可把 `icon-embedder` 权重透传给预测 job
+  - 当前 solver bundle 新产物已纳入：
+    - `models/group1/icon-embedder/model.pt`
+    - `models.group1.icon_embedder`
+    - `matcher/config.json` 中的 `embedding_model / similarity_threshold / ambiguity_margin`
+  - 当前 `UnifiedSolverService` 会从 bundle 加载 `icon-embedder` 并传给 matcher
+  - 当前仍未完成：
+    - group1 正式 ONNX 导出
+    - solver 包内 `sinanz` group1 ONNX Runtime 编排
+    - 真实大批量 recall 阈值校准
+  - 当前已验证：
+    - `.venv/bin/python -m py_compile core/inference/service.py core/train/group1/embedder.py core/train/group1/service.py core/train/group1/runner.py core/predict/cli.py core/modeltest/service.py core/modeltest/cli.py core/solve/bundle.py core/solve/service.py tests/python/test_inference_service.py tests/python/test_group1_embedder.py tests/python/test_training_jobs.py tests/python/test_prediction_and_model_test.py tests/python/test_solve_service.py`
+    - `.venv/bin/python -m unittest discover -s tests/python -p 'test_inference_service.py'`
+    - `.venv/bin/python -m unittest discover -s tests/python -p 'test_group1_embedder.py'`
+    - `.venv/bin/python -m unittest discover -s tests/python -p 'test_solve_service.py'`
+    - `.venv/bin/python -m unittest discover -s tests/python -p 'test_prediction_and_model_test.py'`
+    - `.venv/bin/python -m unittest discover -s tests/python -p 'test_training_jobs.py'`
+    - `.venv/bin/python -m unittest discover -s tests/python -p 'test_root_cli.py'`
+    - `.venv/bin/python -m unittest discover -s tests/python -p 'test_auto_train_runners.py'`
+- 2026-04-11 当前 `TASK-G1-REF-008/011` 已完成首版正式收口：
+  - `core.release.solver_export` 已支持同一命令导出：
+    - `click_proposal_detector.onnx`
+    - `click_query_parser.onnx`
+    - `click_icon_embedder.onnx`
+    - `slider_gap_locator.onnx`
+  - `metadata/click_matcher.json` 已切到真实配置：
+    - `strategy=global_assignment_match_v1`
+    - `similarity_threshold=0.9`
+    - `ambiguity_margin=0.015`
+  - `solver/src/sinanz_group1_runtime.py` 已接管：
+    - query parser ONNX Runtime 推理
+    - proposal detector ONNX Runtime 推理
+    - icon embedder ONNX Runtime 推理
+    - embedding 全局 assignment
+  - `solver/src/sinanz_group1_service.py` 与 `solver/src/sinanz.py` 已让：
+    - `CaptchaSolver.sn_match_targets(...)`
+    - `sn_match_targets(...)`
+    进入真实 group1 runtime，而不是占位异常
+  - `solver/pyproject.toml` 已改成通配打包 `resources/models/*.onnx*` 与 `resources/metadata/*.json`
+  - 当前正式交付边界已明确：
+    - 纯 Python wheel
+    - `onnxruntime`
+    - staged ONNX assets
+  - 当前仍未完成：
+    - 真实大批量 recall 阈值校准
+    - 仓库内未提交 group1 运行权重，因此默认 wheel 仍需先执行 `stage-solver-assets` 才会内嵌完整 group1 资产
+  - 当前已验证：
+    - `.venv/bin/python -m py_compile core/release/solver_asset_contract.py core/release/solver_export.py core/release/service.py core/release/cli.py solver/src/sinanz.py solver/src/sinanz_group1_runtime.py solver/src/sinanz_group1_service.py tests/python/test_solver_asset_contract.py tests/python/test_solver_asset_export_group2.py tests/python/test_release_cli.py solver/tests/test_group1_runtime.py solver/tests/test_group1_service.py solver/tests/test_public_api.py`
+    - `PYTHONPATH=solver/src .venv/bin/python -m unittest discover -s solver/tests -p 'test_group1_*.py'`
+    - `PYTHONPATH=solver/src .venv/bin/python -m unittest discover -s solver/tests -p 'test_public_api.py'`
+    - `.venv/bin/python -m unittest discover -s tests/python -p 'test_solver_asset_contract.py'`
+    - `.venv/bin/python -m unittest discover -s tests/python -p 'test_solver_asset_export_group2.py'`
+    - `.venv/bin/python -m unittest discover -s tests/python -p 'test_release_cli.py'`
+    - `.venv/bin/python -m unittest discover -s tests/python -p 'test_train_prelabel_service.py'`
+    - `.venv/bin/python -m unittest discover -s tests/python -p 'test_solver_asset_contract.py'`
+    - `UV_CACHE_DIR=/tmp/uv-cache PYTHONPYCACHEPREFIX=/tmp/pycache uv run python -m unittest discover -s tests/python -p 'test_*.py'`（沙箱外，283 tests）
+  - 当前验证限制：
+    - 沙箱内 `uv run` 仍会触发 macOS `system-configuration` NULL object panic
+    - 当前 `.venv` 中没有 `ruff`，`ruff check/format --check` 未能执行
 - 2026-04-11 当前 `sinan materials audit-group1-query` 已从旧的“类别 backlog 审计”切到新的 `group1` 模板素材生成流水线：
-  - 当前命令必须在仓库根目录执行；如果在 `solver/` 等子目录运行，会直接提示返回根目录
+  - 当前命令以执行时的当前目录为运行根目录；不再要求站在仓库根目录执行
+  - 当前相对路径按当前目录解释；默认路径会提示确认，非交互环境可用 `--yes`
   - 当前默认输入目录已切到：
     - `materials/validation/group1/query`
   - 当前默认输出会直接生成：
@@ -158,7 +288,7 @@
   - 当前已验证：
     - `uv run python -m unittest discover -s tests/python -p 'test_ctrip_login_script.py'`
 - 2026-04-10 当前仓库已新增 `sinan materials audit-group1-query`，用于批量审查 `group1 query` 图片并回写素材类别 backlog：
-  - 当前命令必须在仓库根目录执行；如果在 `solver/` 等子目录运行，会直接提示返回根目录
+  - 历史行为：早期版本要求在仓库根目录执行；该限制已在 2026-04-11 移除
   - 当前默认输入目录：
     - `materials/test/group1/query`
   - 当前命令默认会把执行进度直接打印到终端，包括：

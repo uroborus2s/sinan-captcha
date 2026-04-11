@@ -1,5 +1,120 @@
 # 变更摘要
 
+## 2026-04-11 衔接 `group1` icon embedder 到 matcher、predict/test 与 solver bundle
+
+- 已更新：
+  - `core/inference/service.py`
+  - `core/train/group1/embedder.py`
+  - `core/train/group1/service.py`
+  - `core/train/group1/runner.py`
+  - `core/predict/cli.py`
+  - `core/modeltest/cli.py`
+  - `core/modeltest/service.py`
+  - `core/solve/bundle.py`
+  - `core/solve/service.py`
+  - `tests/python/test_inference_service.py`
+  - `tests/python/test_group1_embedder.py`
+  - `tests/python/test_training_jobs.py`
+  - `tests/python/test_prediction_and_model_test.py`
+  - `tests/python/test_solve_service.py`
+  - `README.md`
+  - `docs/04-project-development/05-development-process/group1-instance-matching-refactor-task-breakdown.md`
+  - `.factory/memory/current-state.md`
+  - `.factory/memory/change-summary.md`
+- 当前已完成的目标：
+  - `map_group1_instances(...)` 已支持注入 embedding provider
+  - `IconEmbedderRuntime` 已能加载 `icon-embedder` checkpoint 并对 bbox crop 生成 embedding
+  - `uv run sinan predict group1` 默认带上 `--embedder-model runs/group1/<train-name>/icon-embedder/weights/best.pt`
+  - `uv run sinan test group1` 可把 `icon-embedder` 权重透传给预测链路
+  - solver bundle 已复制并声明 `models/group1/icon-embedder/model.pt`
+  - `UnifiedSolverService` 已能从 bundle 加载 `icon-embedder` 并传给 matcher
+- 当前尚未完成：
+  - group1 正式 ONNX 导出
+  - solver 包内 `sinanz` group1 ONNX Runtime 编排
+  - 真实大批量 recall 阈值校准
+- 已运行验证：
+  - `.venv/bin/python -m py_compile core/inference/service.py core/train/group1/embedder.py core/train/group1/service.py core/train/group1/runner.py core/predict/cli.py core/modeltest/service.py core/modeltest/cli.py core/solve/bundle.py core/solve/service.py tests/python/test_inference_service.py tests/python/test_group1_embedder.py tests/python/test_training_jobs.py tests/python/test_prediction_and_model_test.py tests/python/test_solve_service.py`
+  - `.venv/bin/python -m unittest discover -s tests/python -p 'test_inference_service.py'`
+  - `.venv/bin/python -m unittest discover -s tests/python -p 'test_group1_embedder.py'`
+  - `.venv/bin/python -m unittest discover -s tests/python -p 'test_solve_service.py'`
+  - `.venv/bin/python -m unittest discover -s tests/python -p 'test_prediction_and_model_test.py'`
+  - `.venv/bin/python -m unittest discover -s tests/python -p 'test_training_jobs.py'`
+  - `.venv/bin/python -m unittest discover -s tests/python -p 'test_root_cli.py'`
+  - `.venv/bin/python -m unittest discover -s tests/python -p 'test_auto_train_runners.py'`
+  - `.venv/bin/python -m unittest discover -s tests/python -p 'test_train_prelabel_service.py'`
+  - `.venv/bin/python -m unittest discover -s tests/python -p 'test_solver_asset_contract.py'`
+  - `UV_CACHE_DIR=/tmp/uv-cache PYTHONPYCACHEPREFIX=/tmp/pycache uv run python -m unittest discover -s tests/python -p 'test_*.py'`（沙箱外，283 tests）
+- 验证限制：
+  - 沙箱内 `uv run` 仍会触发 macOS `system-configuration` NULL object panic
+  - 当前 `.venv` 中没有 `ruff`，`ruff check/format --check` 未能执行
+
+## 2026-04-11 落地 `group1` 可训练 icon embedder 第一切片
+
+- 已更新：
+  - `core/train/group1/embedder.py`
+  - `core/train/group1/service.py`
+  - `core/train/group1/cli.py`
+  - `core/train/group1/runner.py`
+  - `core/cli.py`
+  - `tests/python/test_group1_embedder.py`
+  - `tests/python/test_training_jobs.py`
+  - `README.md`
+  - `docs/04-project-development/05-development-process/group1-instance-matching-refactor-task-breakdown.md`
+  - `.factory/memory/current-state.md`
+  - `.factory/memory/change-summary.md`
+- 当前已完成的目标：
+  - 新增 PyTorch `IconEmbedder`，输出 L2-normalized icon embeddings
+  - 新增 `Group1TripletDataset`，直接消费 generator 的 `embedding/triplets.jsonl`
+  - 新增 `train_icon_embedder(...)`，训练后写出 `best.pt / last.pt / summary.json`
+  - 新增 `evaluate_retrieval(...)`，输出 `embedding_recall_at_1 / embedding_recall_at_3`
+  - `uv run sinan train group1 --component icon-embedder ...` 已成为正式训练入口
+- 当前尚未完成：
+  - matcher 推理时加载训练后的 embedder checkpoint
+  - 大规模训练数据上的 recall 阈值校准
+  - group1 ONNX/export runtime 编排
+- 已运行验证：
+  - `UV_CACHE_DIR=/tmp/uv-cache PYTHONPYCACHEPREFIX=/tmp/pycache uv run python -m unittest discover -s tests/python -p 'test_group1_embedder.py'`（沙箱外）
+  - `UV_CACHE_DIR=/tmp/uv-cache PYTHONPYCACHEPREFIX=/tmp/pycache uv run python -m unittest discover -s tests/python -p 'test_training_jobs.py'`（沙箱外）
+  - `UV_CACHE_DIR=/tmp/uv-cache PYTHONPYCACHEPREFIX=/tmp/pycache uv run python -m unittest discover -s tests/python -p 'test_prediction_and_model_test.py'`（沙箱外）
+  - `UV_CACHE_DIR=/tmp/uv-cache PYTHONPYCACHEPREFIX=/tmp/pycache uv run python -m unittest discover -s tests/python -p 'test_solve_service.py'`（沙箱外）
+  - `UV_CACHE_DIR=/tmp/uv-cache PYTHONPYCACHEPREFIX=/tmp/pycache uv run python -m unittest discover -s tests/python -p 'test_root_cli.py'`（沙箱外）
+  - `UV_CACHE_DIR=/tmp/uv-cache PYTHONPYCACHEPREFIX=/tmp/pycache uv run python -m unittest discover -s tests/python -p 'test_auto_train_runners.py'`（沙箱外）
+  - `UV_CACHE_DIR=/tmp/uv-cache PYTHONPYCACHEPREFIX=/tmp/pycache uv run python -m unittest discover -s tests/python -p 'test_train_prelabel_service.py'`（沙箱外）
+  - `.venv/bin/python -m py_compile core/train/group1/embedder.py core/train/group1/service.py core/train/group1/cli.py core/train/group1/runner.py core/inference/service.py core/solve/service.py tests/python/test_group1_embedder.py tests/python/test_training_jobs.py tests/python/test_prediction_and_model_test.py tests/python/test_solve_service.py tests/python/test_root_cli.py`
+- 验证限制：
+  - 当前 `.venv` 中没有 `ruff`，`ruff check/format --check` 未能执行
+
+## 2026-04-11 落地 `group1` matcher 与 unified solve 的第一轮 cutover
+
+- 已更新：
+  - `core/inference/service.py`
+  - `core/train/group1/runner.py`
+  - `core/solve/service.py`
+  - `core/solve/bundle.py`
+  - `tests/python/test_inference_service.py`
+  - `tests/python/test_training_jobs.py`
+  - `tests/python/test_solve_service.py`
+  - `docs/04-project-development/05-development-process/group1-instance-matching-refactor-task-breakdown.md`
+  - `.factory/memory/current-state.md`
+  - `.factory/memory/change-summary.md`
+- 当前已完成的目标：
+  - `group1` 已新增 `map_group1_instances()`，能够执行基于 crop 相似度的全局匹配与歧义判定
+  - `core.train.group1.runner predict` 在 `sinan.group1.instance_matching.v1` 上已切到实例匹配主线
+  - 预测 `labels.jsonl` 的 `scene_targets` 在实例匹配模式下已优先输出 `asset_id/template_id/variant_id`
+  - `core.solve.service` 的 `group1` 统一求解入口已改走实例匹配器
+  - solver bundle 新 manifest 默认写出 `matcher.strategy = global_assignment_match_v1`，同时保留历史 bundle 读取兼容
+- 当前尚未完成：
+  - 可训练 `icon embedder` 与 metric-learning 训练入口
+  - embedding recall 校准与 `business_eval` 新归因
+  - group1 solver ONNX 导出与 runtime 编排
+- 已运行验证：
+  - `PYTHONPYCACHEPREFIX=/tmp/pycache python3 -m py_compile core/inference/service.py core/train/group1/runner.py core/solve/service.py core/solve/bundle.py tests/python/test_inference_service.py tests/python/test_training_jobs.py tests/python/test_solve_service.py`
+  - `PYTHONPATH=/tmp/pyshim PYTHONPYCACHEPREFIX=/tmp/pycache python3 -m unittest tests.python.test_inference_service`
+  - `PYTHONPATH=/tmp/pyshim PYTHONPYCACHEPREFIX=/tmp/pycache python3 -m unittest tests.python.test_training_jobs.TrainingJobTests.test_group1_instance_matching_prediction_row_copies_query_identity tests.python.test_training_jobs.TrainingJobTests.test_group1_dataset_loader_accepts_instance_matching_contract`
+  - `PYTHONPATH=/tmp/pyshim PYTHONPYCACHEPREFIX=/tmp/pycache python3 -m unittest tests.python.test_solve_service`
+  - `PYTHONPATH=/tmp/pyshim PYTHONPYCACHEPREFIX=/tmp/pycache python3 -m unittest tests.python.test_prediction_and_model_test`
+  - `PYTHONPATH=/tmp/pyshim PYTHONPYCACHEPREFIX=/tmp/pycache python3 -m unittest tests.python.test_root_cli`
+
 ## 2026-04-11 落地 `group1` Python instance-matching cutover 第一阶段
 
 - 已更新：
@@ -3765,6 +3880,7 @@
   - 典型命令改为用户视角
   - 开发者信息后置
   - 移除首页上的维护者工作流干扰
+- 2026-04-11：修正 `sinan materials audit-group1-query` 的 CLI 运行根语义，不再强制检查仓库根目录；当前相对路径按命令执行目录解释，默认路径会提示确认，批处理可用 `--yes` 接受默认路径。
 - 2026-04-05：修复 `auto-train` 的 OpenCode JSON 输出稳定性，`result-read / judge-trial / plan-dataset / study-status` 命令模板补充明确 JSON 字符串示例，并恢复通过 prompt 点名本地 skill 的方式。
 - 2026-04-05：新增 `core/auto_train/json_extract.py` 的轻量 JSON 修复逻辑，可容错模型输出中的键名引号缺失和尾逗号。
 - 2026-04-05：`result-read` 命令补充 `dataset_version/train_name` 参数；控制器新增对 `ResultSummaryRecord` 缺失字段的 deterministic hydration，避免模型遗漏嵌套快照元数据时直接 fallback。
@@ -3776,6 +3892,17 @@
   - 再给最短心智模型、最短流程和补充入口
 
 ## 2026-04-02
+
+- 2026-04-11：完成 `TASK-G1-REF-008/011` 的首版正式收口。`core/release/solver_export.py` 已从 group2-only 扩到 `group1 + group2` 统一导出，当前可同时产出 `click_proposal_detector.onnx`、`click_query_parser.onnx`、`click_icon_embedder.onnx`、`slider_gap_locator.onnx`，并写出真实 `click_matcher.json` 配置。
+- 2026-04-11：新增 `solver/src/sinanz_group1_runtime.py` 与 `solver/src/sinanz_group1_service.py`，让 `CaptchaSolver.sn_match_targets(...)` / `sn_match_targets(...)` 进入真实 ONNX Runtime 推理、embedding 全局 assignment 和歧义拒判链路，不再抛占位异常。
+- 2026-04-11：同步更新 `solver/pyproject.toml` 的资源打包规则，改为通配收集 `resources/models/*.onnx*` 与 `resources/metadata/*.json`，确保后续 `stage-solver-assets` 后构建出来的 `sinanz` wheel 能携带完整新规范 group1 资产。
+- 2026-04-11：补齐并通过定向测试：
+  - `solver/tests/test_group1_runtime.py`
+  - `solver/tests/test_group1_service.py`
+  - `solver/tests/test_public_api.py`
+  - `tests/python/test_solver_asset_contract.py`
+  - `tests/python/test_solver_asset_export_group2.py`
+  - `tests/python/test_release_cli.py`
 
 - 2026-04-10：`scripts/crawl/ctrip_login.py` 已接入本地 `sinanz` solver；脚本当前不再随机选择滑块终点，而是先保存当前 `bg/gap`，再根据 `sn_match_slider(..., puzzle_piece_start_bbox=...)` 返回的位移换算真实拖动距离，并用轻微人类轨迹完成拖动。
 - 2026-04-10：同步更新 `tests/python/test_ctrip_login_script.py`，把原来的随机拖动断言改为模型拖动流程，并新增 solver 位移到页面拖动距离的换算测试。

@@ -1,7 +1,7 @@
 # `group1` 实例匹配重构任务拆解
 
-- 文档状态：草稿
-- 当前阶段：DESIGN
+- 文档状态：实施中
+- 当前阶段：IMPLEMENTATION
 - 最近更新：2026-04-11
 - 负责人：Codex
 - 上游输入：
@@ -115,6 +115,26 @@
   - `proposal detector` 真实训练指标
   - embedder / matcher 主线接管最终位置挑选
 
+### `TASK-G1-REF-007`
+
+- 当前 2026-04-11 已完成第一训练切片：
+  - `core.train.group1.embedder.IconEmbedder` 已提供仓库内 PyTorch 度量学习编码器
+  - `Group1TripletDataset` 已能消费 generator 输出的 `embedding/triplets.jsonl`
+  - `uv run sinan train group1 --component icon-embedder ...` 已能训练并写出：
+    - `runs/group1/<name>/icon-embedder/weights/best.pt`
+    - `runs/group1/<name>/icon-embedder/weights/last.pt`
+    - `runs/group1/<name>/icon-embedder/summary.json`
+  - 训练 summary 已包含：
+    - `embedding_recall_at_1`
+    - `embedding_recall_at_3`
+  - 当前 2026-04-11 已完成推理衔接切片：
+    - `load_icon_embedder_runtime(...)` 已能加载 `icon-embedder/weights/*.pt`
+    - `IconEmbedderRuntime.embed_crop(...)` 已能对 query/scene bbox crop 生成归一化 embedding
+    - `map_group1_instances(...)` 已支持注入训练后的 embedding provider
+- 当前仍待补齐：
+  - 用真实大批量数据校准 recall 阈值
+  - solver ONNX/runtime 导出
+
 ### `TASK-G1-REF-005`
 
 - `query` 人工标注不再要求类名
@@ -125,6 +145,50 @@
 
 - 统一输出仍保持现有业务合同
 - 对歧义样本必须显式拒判
+- 当前 2026-04-11 已完成第一实现切片：
+  - `core.inference.service.map_group1_instances()` 已具备 crop 相似度 + 全局 assignment + 歧义判定
+  - `group1 predict` 与统一 `solve` 已接到实例匹配器
+  - 实例匹配预测输出已优先写 `asset_id/template_id/variant_id`
+  - 当前 2026-04-11 已完成第二实现切片：
+    - `uv run sinan predict group1` 默认解析 `runs/group1/<train-name>/icon-embedder/weights/best.pt`
+    - `uv run sinan test group1` 可把 `icon-embedder` 权重透传到整链路预测
+    - 统一 solver bundle 会复制并声明 `models/group1/icon-embedder/model.pt`
+    - `UnifiedSolverService` 会从 bundle 加载 `icon-embedder` 并交给 matcher
+- 当前 2026-04-11 已完成第三实现切片：
+  - `uv run sinan release export-solver-assets` 已能同时导出：
+    - `click_proposal_detector.onnx`
+    - `click_query_parser.onnx`
+    - `click_icon_embedder.onnx`
+    - `slider_gap_locator.onnx`
+  - `solver/src/sinanz_group1_runtime.py` 已提供：
+    - query / scene detector ONNX Runtime 调用
+    - icon embedder ONNX Runtime 调用
+    - embedding 全局 assignment 与歧义拒判
+  - `sinanz.sn_match_targets(...)` / `CaptchaSolver.sn_match_targets(...)` 已不再是占位接口
+  - 当前 `TASK-G1-REF-008` 已收口到首版正式 E2E
+
+### `TASK-G1-REF-011`
+
+- 当前 2026-04-11 已完成第一运行时编排切片：
+  - 内部 PT solver bundle 已纳入 `icon_embedder`
+  - bundle `matcher/config.json` 已写出：
+    - `strategy`
+    - `embedding_model`
+    - `similarity_threshold`
+    - `ambiguity_margin`
+  - 当前 `core.solve.service` 已能在 Python/PyTorch 过渡运行时消费该权重
+- 当前 2026-04-11 已完成第二运行时编排切片：
+  - `core.release.solver_export` 已补齐 `group1 + group2` 统一 ONNX 资产导出
+  - `metadata/click_matcher.json` 已切到真实 matcher 配置，不再写占位状态
+  - `solver/pyproject.toml` 已改为通配打包 `resources/models/*.onnx*` 与 `resources/metadata/*.json`
+  - `sinanz_group1_service` 已能解析：
+    - 内嵌 `resources/models/*.onnx`
+    - 或显式传入的 `asset_root`
+  - 当前首版正式 solver 交付口径已固定为：
+    - 纯 Python wheel
+    - `onnxruntime`
+    - staged ONNX assets
+- 当前 `TASK-G1-REF-011` 已按现阶段目标收口；Rust/native 不再作为本任务验收前置
 
 ### `TASK-G1-REF-010`
 

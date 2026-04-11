@@ -34,6 +34,7 @@ class PredictionCliTests(unittest.TestCase):
         self.assertIn("--dataset-config D:/sinan-captcha-work/datasets/group1/firstpass/dataset.json", output)
         self.assertIn("--proposal-model D:/sinan-captcha-work/runs/group1/firstpass/proposal-detector/weights/best.pt", output)
         self.assertIn("--query-model D:/sinan-captcha-work/runs/group1/firstpass/query-parser/weights/best.pt", output)
+        self.assertIn("--embedder-model D:/sinan-captcha-work/runs/group1/firstpass/icon-embedder/weights/best.pt", output)
         self.assertIn("--source D:/sinan-captcha-work/datasets/group1/firstpass/splits/val.jsonl", output)
         self.assertIn("--project D:/sinan-captcha-work/reports/group1", output)
         self.assertIn("--name predict_firstpass", output)
@@ -99,10 +100,13 @@ class ModelTestServiceTests(unittest.TestCase):
             )
             proposal_model_path = root / "runs" / "group1" / "firstpass" / "proposal-detector" / "weights" / "best.pt"
             query_model_path = root / "runs" / "group1" / "firstpass" / "query-parser" / "weights" / "best.pt"
+            embedder_model_path = root / "runs" / "group1" / "firstpass" / "icon-embedder" / "weights" / "best.pt"
             proposal_model_path.parent.mkdir(parents=True)
             query_model_path.parent.mkdir(parents=True)
+            embedder_model_path.parent.mkdir(parents=True)
             proposal_model_path.write_bytes(b"pt")
             query_model_path.write_bytes(b"pt")
+            embedder_model_path.write_bytes(b"pt")
 
             project_dir = root / "reports" / "group1"
             report_dir = project_dir / "test_firstpass"
@@ -137,6 +141,7 @@ class ModelTestServiceTests(unittest.TestCase):
                                 dataset_config=dataset_config,
                                 model_path=proposal_model_path,
                                 query_model_path=query_model_path,
+                                embedder_model_path=embedder_model_path,
                                 source=source,
                                 project_dir=project_dir,
                                 report_dir=report_dir,

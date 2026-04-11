@@ -78,6 +78,7 @@ def _usage() -> str:
             "  uv run sinan predict group1 --dataset-version firstpass --train-name firstpass",
             "  uv run sinan train group1 --dataset-version v1 --name g1_query --component query-parser",
             "  uv run sinan train group1 --dataset-version v1 --name g1_proposal --component proposal-detector",
+            "  uv run sinan train group1 --dataset-version v1 --name g1_embed --component icon-embedder",
             "  uv run sinan test group2 --dataset-version firstpass --train-name firstpass",
             "  uv run sinan train group1 --dataset-version v1 --name firstpass",
             "  uv run sinan train group1 prelabel --exam-root materials/business_exams/group1/reviewed-v1 --train-name firstpass",

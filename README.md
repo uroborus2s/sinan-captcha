@@ -64,12 +64,14 @@
 3. 用 `sinan-generator materials import|fetch --workspace <generator-workspace>` 准备素材
 4. 用 `sinan-generator make-dataset --workspace <generator-workspace>` 生成正式训练数据集
 5. 用 `uv run sinan train group1` 或 `uv run sinan train group2` 启动训练
-   - `group1` 默认顺序训练 `query-parser + proposal-detector`
+   - 新 `group1 instance_matching` 数据集默认训练 `proposal-detector + icon-embedder`
+   - 旧 pipeline 数据集仍按其合同训练 `query-parser + proposal-detector`
    - 也可以显式拆开：
      - `uv run sinan train group1 --component query-parser ...`
      - `uv run sinan train group1 --component proposal-detector ...`
+     - `uv run sinan train group1 --component icon-embedder ...`
 6. 用 `uv run sinan test group1|group2` 做一键预测 + 评估
-   - `group1` 的 `test` 当前验证的是最终位置挑选链路：`query-parser + proposal-detector + matcher`
+   - `group1` 的 `predict/test` 当前会把 `query-parser + proposal-detector + icon-embedder + matcher` 串成最终位置挑选链路
 7. 用 `uv run sinan auto-train ...` 启动自主训练 study
 
 典型命令：
@@ -86,6 +88,7 @@ opencode serve --port 4096
 uv run sinan train group1 --dataset-version firstpass --name firstpass
 uv run sinan train group1 --dataset-version firstpass --name g1_query --component query-parser
 uv run sinan train group1 --dataset-version firstpass --name g1_proposal --component proposal-detector
+uv run sinan train group1 --dataset-version firstpass --name g1_embed --component icon-embedder
 uv run sinan train group2 --dataset-version firstpass --name firstpass
 uv run sinan test group1 --dataset-version firstpass --train-name firstpass
 uv run sinan test group2 --dataset-version firstpass --train-name firstpass

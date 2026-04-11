@@ -202,11 +202,15 @@ cd ..
 
 ## 7. 导出 solver 资产
 
-当你已经有 `group2` 的 checkpoint，并要把它导出成 `sinanz` 可消费的 ONNX 资产时，执行：
+当你已经有 `group1/group2` 的 checkpoint，并要把它们导出成 `sinanz` 可消费的 ONNX 资产时，执行：
 
 ```bash
 uv run sinan release export-solver-assets \
   --project-dir . \
+  --group1-proposal-checkpoint runs/group1/<group1-run>/proposal-detector/weights/best.pt \
+  --group1-query-checkpoint runs/group1/<group1-run>/query-parser/weights/best.pt \
+  --group1-embedder-checkpoint runs/group1/<group1-run>/icon-embedder/weights/best.pt \
+  --group1-run <group1-run> \
   --group2-checkpoint runs/group2/<train-name>/weights/best.pt \
   --group2-run <train-name> \
   --output-dir dist/solver-assets/<asset-version> \
@@ -217,6 +221,14 @@ uv run sinan release export-solver-assets \
 
 - 这一步主要服务于 solver 资产交接
 - 不是上传 PyPI 的动作
+- 如果只传 `group2` checkpoint，命令仍可导出滑块资产，但 `group1` metadata 会保持占位状态
+- 导出完成后，若要构建内嵌资产的 `sinanz` wheel，还需执行：
+
+```bash
+uv run sinan release stage-solver-assets \
+  --project-dir . \
+  --asset-dir dist/solver-assets/<asset-version>
+```
 
 ## 8. 组装 Windows 训练交付包
 

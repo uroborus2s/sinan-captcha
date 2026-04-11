@@ -6,6 +6,7 @@ from pathlib import Path
 from unittest.mock import patch
 
 from core.solve import bundle, contracts, service
+from core.inference.service import ClickPoint, Group1ClickTarget, Group1MappingResult
 
 
 class SolveContractsTests(unittest.TestCase):
@@ -48,8 +49,9 @@ class SolveBundleTests(unittest.TestCase):
             train_root = root / "train-root"
             proposal_weight = train_root / "runs" / "group1" / "firstpass" / "proposal-detector" / "weights" / "best.pt"
             query_weight = train_root / "runs" / "group1" / "firstpass" / "query-parser" / "weights" / "best.pt"
+            embedder_weight = train_root / "runs" / "group1" / "firstpass" / "icon-embedder" / "weights" / "best.pt"
             group2_weight = train_root / "runs" / "group2" / "firstpass" / "weights" / "best.pt"
-            for path in (proposal_weight, query_weight, group2_weight):
+            for path in (proposal_weight, query_weight, embedder_weight, group2_weight):
                 path.parent.mkdir(parents=True, exist_ok=True)
                 path.write_text("weights", encoding="utf-8")
 
@@ -65,10 +67,127 @@ class SolveBundleTests(unittest.TestCase):
             self.assertTrue(loaded.manifest_path.exists())
             self.assertTrue(loaded.proposal_model_path.exists())
             self.assertTrue(loaded.query_model_path.exists())
+            self.assertIsNotNone(loaded.icon_embedder_model_path)
+            self.assertTrue(loaded.icon_embedder_model_path.exists())
             self.assertTrue(loaded.group2_model_path.exists())
 
 
 class UnifiedSolverServiceTests(unittest.TestCase):
+    def test_group1_solver_routes_to_instance_matcher(self) -> None:
+        solver = service.UnifiedSolverService(_fake_bundle())
+        with tempfile.TemporaryDirectory() as tmpdir:
+            root = Path(tmpdir)
+            query = root / "query.png"
+            scene = root / "scene.png"
+            query.write_text("query", encoding="utf-8")
+            scene.write_text("scene", encoding="utf-8")
+
+            request = contracts.SolveRequest(
+                request_id="req_group1_001",
+                task_hint="group1",
+                inputs=contracts.Group1SolveInputs(
+                    query_image=query,
+                    scene_image=scene,
+                ),
+            )
+
+            fake_query_targets = [
+                {
+                    "order": 1,
+                    "class": "query_item_01",
+                    "class_id": 0,
+                    "bbox": [8, 8, 28, 28],
+                    "center": [18, 18],
+                    "score": 0.99,
+                }
+            ]
+            fake_scene_targets = [
+                {
+                    "order": 1,
+                    "class": "icon_object",
+                    "class_id": 0,
+                    "bbox": [80, 32, 120, 72],
+                    "center": [100, 52],
+                    "score": 0.98,
+                }
+            ]
+            fake_mapping = Group1MappingResult(
+                status="ok",
+                ordered_targets=[
+                    Group1ClickTarget(
+                        order=1,
+                        class_id=0,
+                        class_name="query_item_01",
+                        bbox=[80, 32, 120, 72],
+                        center=[100, 52],
+                        score=1.0,
+                    )
+                ],
+                ordered_clicks=[ClickPoint(x=100, y=52)],
+                missing_orders=[],
+                ambiguous_orders=[],
+            )
+
+            with (
+                patch.object(service.UnifiedSolverService, "_load_group1_models", return_value=(_FakeGroup1Model(), _FakeGroup1Model())),
+                patch("core.solve.service._serialize_yolo_detections", side_effect=[fake_query_targets, fake_scene_targets]),
+                patch("core.solve.service.map_group1_instances", return_value=fake_mapping) as matcher,
+            ):
+                response = solver.solve(request)
+
+            self.assertEqual(response.status, "ok")
+            self.assertEqual(response.result["matcher_status"], "ok")
+            self.assertEqual(response.result["ordered_clicks"], [{"order": 1, "x": 100, "y": 52, "class_id": 0, "class_name": "query_item_01", "score": 1.0}])
+            matcher.assert_called_once_with(
+                fake_query_targets,
+                fake_scene_targets,
+                query_image_path=query,
+                scene_image_path=scene,
+            )
+
+    def test_group1_solver_passes_bundle_icon_embedder_to_instance_matcher(self) -> None:
+        fake_embedder = object()
+        solver = service.UnifiedSolverService(_fake_bundle(icon_embedder=True))
+        with tempfile.TemporaryDirectory() as tmpdir:
+            root = Path(tmpdir)
+            query = root / "query.png"
+            scene = root / "scene.png"
+            query.write_text("query", encoding="utf-8")
+            scene.write_text("scene", encoding="utf-8")
+
+            request = contracts.SolveRequest(
+                request_id="req_group1_embedder_001",
+                task_hint="group1",
+                inputs=contracts.Group1SolveInputs(
+                    query_image=query,
+                    scene_image=scene,
+                ),
+            )
+            fake_mapping = Group1MappingResult(
+                status="ok",
+                ordered_targets=[],
+                ordered_clicks=[],
+                missing_orders=[],
+                ambiguous_orders=[],
+            )
+
+            with (
+                patch.object(service.UnifiedSolverService, "_load_group1_models", return_value=(_FakeGroup1Model(), _FakeGroup1Model())),
+                patch.object(service.UnifiedSolverService, "_load_group1_embedder", return_value=fake_embedder),
+                patch("core.solve.service._serialize_yolo_detections", side_effect=[[], []]),
+                patch("core.solve.service.map_group1_instances", return_value=fake_mapping) as matcher,
+            ):
+                response = solver.solve(request)
+
+            self.assertEqual(response.status, "ok")
+            matcher.assert_called_once_with(
+                [],
+                [],
+                query_image_path=query,
+                scene_image_path=scene,
+                embedding_provider=fake_embedder,
+            )
+
     def test_group2_solver_returns_center_without_offsets_when_tile_start_bbox_missing(self) -> None:
         solver = service.UnifiedSolverService(_fake_bundle())
         with tempfile.TemporaryDirectory() as tmpdir:
@@ -158,12 +277,17 @@ class _FakeGroup2Model:
         return [object()]
 
 
+class _FakeGroup1Model:
+    def predict(self, *, source: str, imgsz: int, conf: float, device: str, verbose: bool) -> list[object]:
+        return [object()]
+
+
 class _FakeTensor:
     def to(self, device: object) -> "_FakeTensor":
         return self
 
 
-def _fake_bundle() -> bundle.SolverBundle:
+def _fake_bundle(*, icon_embedder: bool = False) -> bundle.SolverBundle:
     fake_root = Path("/tmp/fake-bundle")
     return bundle.SolverBundle(
         root=fake_root,
@@ -171,6 +295,11 @@ def _fake_bundle() -> bundle.SolverBundle:
         manifest_path=fake_root / "manifest.json",
         proposal_model_path=fake_root / "models" / "group1" / "proposal-detector" / "model.pt",
         query_model_path=fake_root / "models" / "group1" / "query-parser" / "model.pt",
+        icon_embedder_model_path=(
+            fake_root / "models" / "group1" / "icon-embedder" / "model.pt"
+            if icon_embedder
+            else None
+        ),
         matcher_config_path=fake_root / "models" / "group1" / "matcher" / "config.json",
         group2_model_path=fake_root / "models" / "group2" / "locator" / "model.pt",
         router_strategy=bundle.ROUTER_STRATEGY,

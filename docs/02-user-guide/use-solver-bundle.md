@@ -101,7 +101,7 @@ solver = CaptchaSolver(
 )
 ```
 
-`asset_root` 应指向包含 `slider_gap_locator.onnx` 等模型文件的目录。普通业务接入默认不需要这个参数。
+`asset_root` 应指向包含 `slider_gap_locator.onnx`、`click_proposal_detector.onnx`、`click_query_parser.onnx`、`click_icon_embedder.onnx` 等模型文件的目录。普通业务接入默认不需要这个参数。
 
 ## 5. 使用边界
 

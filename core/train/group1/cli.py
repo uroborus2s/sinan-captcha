@@ -9,6 +9,7 @@ from pathlib import Path
 from core.train.base import default_project_dir
 from core.train.group1.service import (
     ALL_COMPONENTS,
+    EMBEDDER_COMPONENT,
     PROPOSAL_COMPONENT,
     QUERY_COMPONENT,
     build_group1_training_job,
@@ -43,11 +44,12 @@ def build_parser() -> argparse.ArgumentParser:
         help="optional; defaults to <cwd>/runs/group1",
     )
     parser.add_argument("--name", default="v1")
-    parser.add_argument("--component", default=ALL_COMPONENTS, help="all | proposal-detector | query-parser")
+    parser.add_argument("--component", default=ALL_COMPONENTS, help="all | proposal-detector | query-parser | icon-embedder")
     parser.add_argument("--model", default=None, help="shared base model/checkpoint for both sub-models")
     parser.add_argument("--proposal-model", dest="proposal_model", default=None, help="optional override for the proposal detector")
     parser.add_argument("--scene-model", dest="proposal_model", default=None, help=argparse.SUPPRESS)
     parser.add_argument("--query-model", default=None, help="optional override for the query parser")
+    parser.add_argument("--embedder-model", default=None, help="optional checkpoint for the icon embedder")
     parser.add_argument(
         "--from-run",
         default=None,
@@ -128,8 +130,8 @@ def main(argv: list[str] | None = None) -> int:
     args = parser.parse_args(args_list)
     if args.resume and args.from_run:
         parser.error("不能同时传 --resume 和 --from-run。")
-    if args.from_run and any(value is not None for value in (args.model, args.proposal_model, args.query_model)):
-        parser.error("传入 --from-run 时不要再同时传 --model / --proposal-model / --query-model。")
+    if args.from_run and any(value is not None for value in (args.model, args.proposal_model, args.query_model, args.embedder_model)):
+        parser.error("传入 --from-run 时不要再同时传 --model / --proposal-model / --query-model / --embedder-model。")
 
     train_root = Path.cwd()
     dataset_config = args.dataset_config or (train_root / "datasets" / "group1" / args.dataset_version / "dataset.json")
@@ -139,6 +141,7 @@ def main(argv: list[str] | None = None) -> int:
     shared_model = args.model or "yolo26n.pt"
     proposal_model: str | None = None
     query_model: str | None = None
+    embedder_model: str | None = args.embedder_model if component in {ALL_COMPONENTS, EMBEDDER_COMPONENT} else None
     if component in {ALL_COMPONENTS, PROPOSAL_COMPONENT}:
         proposal_model = args.proposal_model or shared_model
     if component in {ALL_COMPONENTS, QUERY_COMPONENT}:
@@ -148,11 +151,15 @@ def main(argv: list[str] | None = None) -> int:
             proposal_model = str(resolve_group1_component_last_weights(train_root, args.name, PROPOSAL_COMPONENT))
         if component in {ALL_COMPONENTS, QUERY_COMPONENT}:
             query_model = str(resolve_group1_component_last_weights(train_root, args.name, QUERY_COMPONENT))
+        if component in {ALL_COMPONENTS, EMBEDDER_COMPONENT}:
+            embedder_model = str(resolve_group1_component_last_weights(train_root, args.name, EMBEDDER_COMPONENT))
     elif args.from_run is not None:
         if component in {ALL_COMPONENTS, PROPOSAL_COMPONENT}:
             proposal_model = str(resolve_group1_component_best_weights(train_root, args.from_run, PROPOSAL_COMPONENT))
         if component in {ALL_COMPONENTS, QUERY_COMPONENT}:
             query_model = str(resolve_group1_component_best_weights(train_root, args.from_run, QUERY_COMPONENT))
+        if component in {ALL_COMPONENTS, EMBEDDER_COMPONENT}:
+            embedder_model = str(resolve_group1_component_best_weights(train_root, args.from_run, EMBEDDER_COMPONENT))
 
     job = build_group1_training_job(
         dataset_config=dataset_config,
@@ -160,6 +167,7 @@ def main(argv: list[str] | None = None) -> int:
         model=shared_model,
         proposal_model=proposal_model,
         query_model=query_model,
+        embedder_model=embedder_model,
         run_name=args.name,
         epochs=args.epochs,
         batch=args.batch,
