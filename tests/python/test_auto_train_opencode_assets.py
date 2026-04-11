@@ -3,6 +3,7 @@ from __future__ import annotations
 import tempfile
 import unittest
 from pathlib import Path
+from unittest.mock import patch
 
 from auto_train import opencode_assets
 
@@ -39,6 +40,20 @@ class OpenCodeAssetsTests(unittest.TestCase):
             opencode_assets.clear_staged_opencode_assets(package_dir)
 
             self.assertFalse(staged_root.exists())
+
+    def test_resolve_opencode_assets_root_falls_back_to_packaged_assets_when_repo_root_is_unavailable(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            packaged_root = Path(tmpdir) / "resources" / "opencode"
+            (packaged_root / "commands").mkdir(parents=True, exist_ok=True)
+            (packaged_root / "commands" / "judge-trial.md").write_text("judge command", encoding="utf-8")
+
+            with (
+                patch("auto_train.opencode_assets.repo_opencode_root", return_value=None),
+                patch("auto_train.opencode_assets.packaged_opencode_root", return_value=packaged_root),
+            ):
+                resolved = opencode_assets.resolve_opencode_assets_root()
+
+            self.assertEqual(resolved, packaged_root)
 
 
 if __name__ == "__main__":

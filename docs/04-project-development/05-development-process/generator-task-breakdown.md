@@ -6,7 +6,7 @@
 - 负责人：Codex
 - 上游输入：
   - `docs/04-project-development/04-design/graphic-click-generator-design.md`
-  - `docs/02-user-guide/from-base-model-to-training-guide.md`
+  - `docs/02-user-guide/complete-training-operations-guide.md`
 - 下游交付：
   - 生成器实现任务清单
   - 后续代码实现顺序

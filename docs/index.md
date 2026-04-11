@@ -13,45 +13,30 @@ mkdocs:
         - title: 概览
           path: 02-user-guide/index.md
           access: public
-        - title: 角色与审核结论
-          path: 02-user-guide/user-guide.md
+        - title: 使用者：Solver 包使用指南
+          path: 02-user-guide/solver-package-usage-guide.md
           access: public
-        - title: 使用者角色：安装与使用最终求解包
-          path: 02-user-guide/use-solver-bundle.md
+        - title: 使用者：Solver 包函数参考
+          path: 02-user-guide/solver-package-function-reference.md
           access: public
-        - title: 使用者角色：在自己的应用中接入并做业务测试
-          path: 02-user-guide/application-integration.md
+        - title: 训练者：完整训练操作指南
+          path: 02-user-guide/complete-training-operations-guide.md
           access: public
-        - title: 训练者角色：训练机安装
-          path: 02-user-guide/windows-bundle-install.md
+        - title: 训练者：生成器 CLI 全量参考
+          path: 02-user-guide/generator-cli-reference.md
           access: public
-        - title: 训练者角色：快速开始
-          path: 02-user-guide/windows-quickstart.md
+        - title: 训练者：训练器 CLI 全量参考
+          path: 02-user-guide/trainer-cli-reference.md
           access: public
-        - title: 训练者角色：使用生成器准备训练数据
-          path: 02-user-guide/prepare-training-data-with-generator.md
-          access: public
-        - title: 训练者角色：使用训练器完成训练、测试与评估
-          path: 02-user-guide/from-base-model-to-training-guide.md
-          access: public
-        - title: 训练者角色：使用自动化训练
-          path: 02-user-guide/auto-train-on-training-machine.md
-          access: public
-        - title: 训练者角色：训练后结果验收
-          path: 02-user-guide/use-and-test-trained-models.md
-          access: public
-        - title: 训练者角色：CUDA 版本检查
-          path: 02-user-guide/how-to-check-cuda-version.md
-          access: public
-        - title: 附录：交付物与目录边界
-          path: 02-user-guide/use-build-artifacts.md
+        - title: 训练者：Solver Bundle CLI 参考
+          path: 02-user-guide/solver-bundle-cli-reference.md
           access: public
     - title: 开发者指南
       children:
         - title: 概览
           path: 03-developer-guide/index.md
           access: public
-        - title: `sinanz` 集成与资产 staging
+        - title: sinanz 集成与资产 staging
           path: 03-developer-guide/solver-bundle-and-integration.md
           access: private
         - title: 接手与冷启动

@@ -17,8 +17,6 @@ def package_root(start: Path | None = None) -> Path:
     for raw_anchor in (start, Path(__file__)):
         if raw_anchor is None:
             continue
-        if _is_windows_absolute_path(raw_anchor):
-            continue
         anchor = raw_anchor.resolve()
         if anchor.is_file():
             anchor = anchor.parent
@@ -28,13 +26,12 @@ def package_root(start: Path | None = None) -> Path:
         for candidate in (anchor, *anchor.parents):
             if (candidate / "src" / "cli.py").exists() and (candidate / "pyproject.toml").exists():
                 return candidate
-    raise ValueError(f"unable to locate package root from {anchor}")
+    anchor_text = ", ".join(str(anchor) for anchor in anchors) if anchors else "<no anchors>"
+    raise ValueError(f"unable to locate package root from {anchor_text}")
 
 
 def find_repo_root(start: Path | None = None) -> Path | None:
     raw_anchor = start or package_root()
-    if _is_windows_absolute_path(raw_anchor):
-        return None
     anchor = raw_anchor.resolve()
     if anchor.is_file():
         anchor = anchor.parent
@@ -47,13 +44,21 @@ def find_repo_root(start: Path | None = None) -> Path | None:
 
 
 def repository_root(start: Path | None = None) -> Path:
-    return find_repo_root(start) or package_root(start)
+    repo_root = find_repo_root(start)
+    if repo_root is not None:
+        return repo_root
+    try:
+        return package_root(start)
+    except ValueError:
+        raw_anchor = start or Path.cwd()
+        anchor = raw_anchor.resolve()
+        if anchor.is_file():
+            anchor = anchor.parent
+        return anchor
 
 
 def default_work_root(start: Path | None = None) -> Path:
     raw_anchor = start or Path.cwd()
-    if _is_windows_absolute_path(raw_anchor):
-        return Path(str(raw_anchor))
     anchor = raw_anchor.resolve()
     repo_root = find_repo_root(anchor)
     if repo_root is None:
@@ -83,7 +88,10 @@ class WorkspacePaths:
     @classmethod
     def from_roots(cls, repo_root: Path, work_root: Path | None = None) -> "WorkspacePaths":
         resolved_repo_root = repo_root.resolve()
-        resolved_package_root = package_root()
+        try:
+            resolved_package_root = package_root(resolved_repo_root)
+        except ValueError:
+            resolved_package_root = resolved_repo_root
         resolved_work_root = (work_root or (resolved_repo_root / "work_home")).resolve()
         packages_dir = resolved_repo_root / "packages"
         sinan_package_dir = packages_dir / "sinan-captcha"

@@ -1,38 +1,28 @@
-# 用户指南
+# 用户指南（02-user-guide）
 
-本目录现在只按两类角色组织：
+本目录面向两类读者：
 
-- 使用者角色
-  - 关心的是最终求解包、如何在自己的应用里调用、如何做业务测试
-- 训练者角色
-  - 关心的是训练机安装、生成器、训练器、自动化训练，以及如何把模型训练出来
+- 使用者：只关心如何安装并调用最终 `sinanz` 求解包。
+- 训练者：负责生成数据、训练模型、测试评估、组装本地 solver bundle。
 
-## 使用者角色入口
+## 建议阅读顺序
 
-1. [使用者角色：安装与使用最终求解包](./use-solver-bundle.md)
-2. [使用者角色：在自己的应用中接入并做业务测试](./application-integration.md)
+### 路线 A：你是业务接入方（使用者）
 
-## 训练者角色入口
+1. [使用者：Solver 包使用指南](./solver-package-usage-guide.md)
+2. [使用者：Solver 包函数参考](./solver-package-function-reference.md)
 
-1. [训练者角色：训练机安装](./windows-bundle-install.md)
-2. [训练者角色：快速开始](./windows-quickstart.md)
-3. [训练者角色：使用生成器准备训练数据](./prepare-training-data-with-generator.md)
-4. [训练者角色：用 X-AnyLabeling 制作商业测试试卷答案](./prepare-business-exam-with-x-anylabeling.md)
-5. [训练者角色：使用训练器完成训练、测试与评估](./from-base-model-to-training-guide.md)
-6. [训练者角色：使用自动化训练](./auto-train-on-training-machine.md)
-7. [训练者角色：训练后结果验收](./use-and-test-trained-models.md)
-8. [训练者角色：CUDA 版本检查](./how-to-check-cuda-version.md)
+### 路线 B：你是模型生产方（训练者）
 
-## 如果你想看状态、范围或审核结论
+1. [训练者：完整训练操作指南](./complete-training-operations-guide.md)
+2. [训练者：生成器 CLI 全量参考](./generator-cli-reference.md)
+3. [训练者：训练器 CLI 全量参考](./trainer-cli-reference.md)
+4. [训练者：Solver Bundle CLI 参考](./solver-bundle-cli-reference.md)
 
-- [角色与功能审核结论](./user-guide.md)
+## 文档设计原则
 
-## 附录
-
-- [交付物与目录边界](./use-build-artifacts.md)
-
-## 最短判断
-
-- 你现在要把模型训练出来：从“训练者角色：训练机安装”开始。
-- 你现在要规划最终业务接入：从“使用者角色：安装与使用最终求解包”开始。
-- 你现在要开始自动训练：先完成一次手动训练主线，再读“训练者角色：使用自动化训练”。
+- 所有命令说明以当前源码（`2026-04-11`）为准。
+- 主线文档先给“可直接执行”的步骤，再给完整参数参考。
+- Solver 包分为两层说明：
+  - 使用指南：安装、接入、错误处理。
+  - 函数参考：签名、参数、返回类型、异常与调试字段。

@@ -35,15 +35,14 @@ from materials.group1_query_icons import (
 )
 
 IMAGE_EXTENSIONS = {".png", ".jpg", ".jpeg"}
-_DEFAULT_WORKSPACE = workspace_paths(Path.cwd())
-DEFAULT_GROUP1_QUERY_DIR = _DEFAULT_WORKSPACE.materials_dir / "validation" / "group1" / "query"
-DEFAULT_GROUP1_OUTPUT_ROOT = _DEFAULT_WORKSPACE.materials_dir / "incoming"
+DEFAULT_GROUP1_QUERY_DIR = workspace_paths(Path.cwd()).materials_dir / "validation" / "group1" / "query"
+DEFAULT_GROUP1_OUTPUT_ROOT = workspace_paths(Path.cwd()).materials_dir / "incoming"
 DEFAULT_GROUP1_AUDIT_REPORT_NAME = "group1-query-audit.jsonl"
 DEFAULT_GROUP1_AUDIT_TRACE_NAME = "group1-query-audit-trace.jsonl"
 DEFAULT_GROUP1_TEMPLATE_REPORT_NAME = "group1-query-audit-templates.json"
-DEFAULT_GROUP1_CACHE_DIR = _DEFAULT_WORKSPACE.cache_dir / "materials" / "group1-query-audit"
+DEFAULT_GROUP1_CACHE_DIR = workspace_paths(Path.cwd()).cache_dir / "materials" / "group1-query-audit"
 DEFAULT_OLLAMA_URL = "http://127.0.0.1:11434"
-DEFAULT_OLLAMA_TIMEOUT_SECONDS = 180
+DEFAULT_OLLAMA_TIMEOUT_SECONDS = 600
 DEFAULT_MIN_VARIANTS_PER_TEMPLATE = 6
 MAX_VARIANT_ID_LENGTH = 30
 
@@ -243,12 +242,20 @@ class OllamaQueryImageClassifier:
             ],
         }
         _emit_progress(self._progress_reporter, "发送 query 图到大模型", request_payload)
-        raw_response = _post_json(
-            f"{self._ollama_url}/api/chat",
-            payload,
-            timeout_seconds=self._timeout_seconds,
-        )
-        content = _extract_ollama_message_content(raw_response)
+        raw_response: JsonMapping | None = None
+        try:
+            raw_response = _post_json(
+                f"{self._ollama_url}/api/chat",
+                payload,
+                timeout_seconds=self._timeout_seconds,
+            )
+            content = _extract_ollama_message_content(raw_response)
+        except Exception as exc:
+            raise QueryAuditClassificationError(
+                str(exc),
+                request_payload=request_payload,
+                response_payload=raw_response,
+            ) from exc
         _emit_progress(self._progress_reporter, "query 图大模型原始响应", content)
         try:
             icons = parse_ollama_query_response(content)
@@ -298,12 +305,20 @@ class OllamaTemplateEnricher:
             "messages": [{"role": "user", "content": prompt}],
         }
         _emit_progress(self._progress_reporter, "发送 template 汇总到大模型", request_payload)
-        raw_response = _post_json(
-            f"{self._ollama_url}/api/chat",
-            payload,
-            timeout_seconds=self._timeout_seconds,
-        )
-        content = _extract_ollama_message_content(raw_response)
+        raw_response: JsonMapping | None = None
+        try:
+            raw_response = _post_json(
+                f"{self._ollama_url}/api/chat",
+                payload,
+                timeout_seconds=self._timeout_seconds,
+            )
+            content = _extract_ollama_message_content(raw_response)
+        except Exception as exc:
+            raise QueryAuditClassificationError(
+                str(exc),
+                request_payload=request_payload,
+                response_payload=raw_response,
+            ) from exc
         _emit_progress(self._progress_reporter, "template 汇总大模型原始响应", content)
         try:
             return parse_ollama_template_response(content, drafts)
@@ -422,6 +437,19 @@ def run_group1_query_audit(
     results: list[QueryImageAuditResult] = []
     reused_success_count = 0
     retried_image_count = 0
+
+    def checkpoint_results() -> None:
+        if dry_run:
+            return
+        write_jsonl(
+            resolved_output_jsonl,
+            [result_to_json_row(result, repo_root=resolved_repo_root) for result in results],
+        )
+        write_jsonl(
+            resolved_trace_jsonl,
+            [trace_result_to_json_row(result, repo_root=resolved_repo_root) for result in results],
+        )
+
     for index, image_path in enumerate(image_paths, start=1):
         display_path = _display_path(image_path, resolved_repo_root)
         _emit_progress(
@@ -444,6 +472,7 @@ def run_group1_query_audit(
         if reused_result is not None:
             reused_success_count += 1
             results.append(reused_result)
+            checkpoint_results()
             _emit_progress(
                 progress_reporter,
                 f"复用历史成功审计 {index}/{len(image_paths)}",
@@ -496,6 +525,7 @@ def run_group1_query_audit(
                 error=str(exc),
             )
         results.append(result)
+        checkpoint_results()
         _emit_progress(
             progress_reporter,
             f"query 图片处理完成 {index}/{len(image_paths)}",
@@ -553,8 +583,6 @@ def run_group1_query_audit(
             )
 
     if not dry_run:
-        write_jsonl(resolved_output_jsonl, output_rows)
-        write_jsonl(resolved_trace_jsonl, trace_rows)
         _write_json(resolved_template_report_json, templates_payload)
 
     status = "ok"

@@ -539,6 +539,6 @@ uv run sinan train group1 --dataset-config D:\sinan-captcha-work\datasets\group1
 
 ## 17. 配套清单
 
-- [从基础模型到训练的实操手册](../../../02-user-guide/from-base-model-to-training-guide.md)
+- [训练者：完整训练操作指南](../../../02-user-guide/complete-training-operations-guide.md)
 - [Windows 训练环境 Checklist](./windows-environment-checklist.md)
 - [样本导出与自动标注 Checklist](./data-export-auto-labeling-checklist.md)

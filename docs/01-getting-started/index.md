@@ -10,13 +10,12 @@
 
 推荐阅读顺序：
 
-1. [角色与审核结论](../02-user-guide/user-guide.md)
-2. [使用者角色：安装与使用最终求解包](../02-user-guide/use-solver-bundle.md)
-3. [使用者角色：在自己的应用中接入并做业务测试](../02-user-guide/application-integration.md)
-4. [训练者角色：训练机安装](../02-user-guide/windows-bundle-install.md)
-5. [训练者角色：快速开始](../02-user-guide/windows-quickstart.md)
-6. [训练者角色：使用生成器准备训练数据](../02-user-guide/prepare-training-data-with-generator.md)
-7. [训练者角色：使用训练器完成训练、测试与评估](../02-user-guide/from-base-model-to-training-guide.md)
-8. [训练者角色：使用自动化训练](../02-user-guide/auto-train-on-training-machine.md)
+1. [用户指南概览](../02-user-guide/index.md)
+2. [使用者：Solver 包使用指南](../02-user-guide/solver-package-usage-guide.md)
+3. [使用者：Solver 包函数参考](../02-user-guide/solver-package-function-reference.md)
+4. [训练者：完整训练操作指南](../02-user-guide/complete-training-operations-guide.md)
+5. [训练者：生成器 CLI 全量参考](../02-user-guide/generator-cli-reference.md)
+6. [训练者：训练器 CLI 全量参考](../02-user-guide/trainer-cli-reference.md)
+7. [训练者：Solver Bundle CLI 参考](../02-user-guide/solver-bundle-cli-reference.md)
 
 本目录只负责把新读者带到正确入口，不承载维护者过程文档和内部设计材料。

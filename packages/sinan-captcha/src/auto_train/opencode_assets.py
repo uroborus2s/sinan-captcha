@@ -8,8 +8,11 @@ import shutil
 from common.paths import repository_root
 
 
-def repo_opencode_root() -> Path:
-    return repository_root(Path(__file__)) / ".opencode"
+def repo_opencode_root() -> Path | None:
+    try:
+        return repository_root(Path(__file__)) / ".opencode"
+    except ValueError:
+        return None
 
 
 def packaged_opencode_root() -> Path:
@@ -22,7 +25,7 @@ def packaged_opencode_root_for(package_dir: Path) -> Path:
 
 def resolve_opencode_assets_root() -> Path:
     repo_root = repo_opencode_root()
-    if repo_root.exists():
+    if repo_root is not None and repo_root.exists():
         return repo_root
     packaged_root = packaged_opencode_root()
     if packaged_root.exists():

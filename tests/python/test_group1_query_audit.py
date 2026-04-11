@@ -15,8 +15,10 @@ from materials import query_audit_cli
 from materials.query_audit import (
     DEFAULT_GROUP1_OUTPUT_ROOT,
     DEFAULT_GROUP1_QUERY_DIR,
+    OllamaTemplateEnricher,
     QueryAuditClassificationError,
     QueryIconDecision,
+    TemplateDraft,
     TemplateDownloadCandidate,
     TemplatePlan,
     VariantManifestEntry,
@@ -41,6 +43,7 @@ class Group1QueryAuditTests(unittest.TestCase):
         self.assertEqual(args.query_dir, DEFAULT_GROUP1_QUERY_DIR)
         self.assertEqual(args.output_root, DEFAULT_GROUP1_OUTPUT_ROOT)
         self.assertIsNone(args.template_report_json)
+        self.assertEqual(args.timeout_seconds, 600)
         self.assertEqual(args.report_root.name, "20260411")
         self.assertEqual(
             args.report_root.parent.as_posix(),
@@ -161,6 +164,28 @@ class Group1QueryAuditTests(unittest.TestCase):
         self.assertEqual(plans[0].target_variant_count, 5)
         self.assertEqual(plans[0].download_candidates[0].library, "tabler_outline")
         self.assertEqual(plans[0].download_candidates[1].library, "google_material")
+
+    def test_ollama_template_enricher_wraps_timeout_with_request_context(self) -> None:
+        draft = TemplateDraft(
+            template_id="tpl_house",
+            cluster_ids=("cluster_001",),
+            zh_name_hints=("房子",),
+            family_hints=("symbol",),
+            tag_hints=("home",),
+            descriptions=("房屋轮廓",),
+            member_count=1,
+        )
+        enricher = OllamaTemplateEnricher(model="gemma4:26b", timeout_seconds=600)
+
+        with patch("materials.query_audit._post_json", side_effect=TimeoutError("timed out")):
+            with self.assertRaises(QueryAuditClassificationError) as exc:
+                enricher([draft])
+
+        self.assertIn("timed out", str(exc.exception))
+        self.assertIsNotNone(exc.exception.request_payload)
+        assert exc.exception.request_payload is not None
+        self.assertEqual(exc.exception.request_payload["timeout_seconds"], 600)
+        self.assertEqual(exc.exception.request_payload["template_count"], 1)
 
     def test_run_group1_query_audit_writes_tpl_pack_and_reports(self) -> None:
         with tempfile.TemporaryDirectory() as tmpdir:
@@ -640,6 +665,54 @@ class Group1QueryAuditTests(unittest.TestCase):
             self.assertEqual([row["status"] for row in rows], ["ok", "ok"])
             self.assertEqual(rows[0]["template_sequence"], ["tpl_house"])
             self.assertEqual(rows[1]["template_sequence"], ["tpl_star"])
+
+    def test_run_group1_query_audit_checkpoints_each_image_before_later_crash(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            repo_root = Path(tmpdir)
+            query_dir = repo_root / "query"
+            query_dir.mkdir(parents=True, exist_ok=True)
+            _write_query_image(query_dir / "a.png", [(4, 6, 16, 18)])
+            _write_query_image(query_dir / "b.png", [(24, 6, 36, 18)])
+
+            classifier_calls: list[str] = []
+
+            def fake_classifier(image_path: Path) -> tuple[QueryIconDecision, ...]:
+                classifier_calls.append(image_path.name)
+                if image_path.name == "b.png":
+                    raise KeyboardInterrupt("simulate interrupted long request")
+                return (
+                    QueryIconDecision(
+                        order=1,
+                        template_id="tpl_house",
+                        zh_name="房子",
+                        family="symbol",
+                        tags=("home",),
+                        description="房屋轮廓",
+                        reason="house",
+                    ),
+                )
+
+            report_root = repo_root / "work_home/reports/group1/materials/20260411"
+            with self.assertRaises(KeyboardInterrupt):
+                run_group1_query_audit(
+                    query_dir=query_dir,
+                    model="gemma4:26b",
+                    output_root=repo_root / "work_home/materials/incoming/group1_icon_pack",
+                    report_root=report_root,
+                    repo_root=repo_root,
+                    min_variants_per_template=1,
+                    max_hamming_distance=0,
+                    image_classifier=fake_classifier,
+                    template_enricher=lambda _drafts: (),
+                )
+
+            self.assertEqual(classifier_calls, ["a.png", "b.png"])
+            rows = read_jsonl(report_root / "group1-query-audit.jsonl")
+            trace_rows = read_jsonl(report_root / "group1-query-audit-trace.jsonl")
+            self.assertEqual(len(rows), 1)
+            self.assertEqual(len(trace_rows), 1)
+            self.assertEqual(rows[0]["status"], "ok")
+            self.assertEqual(rows[0]["image_path"], "query/a.png")
 
 
 if __name__ == "__main__":

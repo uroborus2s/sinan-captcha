@@ -11,9 +11,7 @@ from typing import Callable
 from urllib.parse import urlparse
 
 from auto_train import opencode_commands, opencode_skills
-from common.paths import repository_root
-
-DEFAULT_PROJECT_ROOT = repository_root(Path(__file__))
+DEFAULT_PROJECT_ROOT = Path.cwd().resolve()
 DEFAULT_OPENCODE_BINARY = "opencode"
 DEFAULT_TIMEOUT_SECONDS = 300.0
 TRACE_TEXT_PREVIEW_LIMIT = 40_000

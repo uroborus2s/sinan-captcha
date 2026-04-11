@@ -10,7 +10,7 @@
 
 面向用户的完整操作路径已经收口到：
 
-- [Windows 训练机安装与模型训练完整指南](../../../02-user-guide/from-base-model-to-training-guide.md)
+- [训练者：完整训练操作指南](../../../02-user-guide/complete-training-operations-guide.md)
 
 ## 1. 开始前先确认
 
@@ -104,7 +104,7 @@ uv run python -c "import torch; print(torch.version.cuda); print(torch.cuda.is_a
 - [ ] `nvidia-smi` 正常
 - [ ] `torch.cuda.is_available()` 是 `True`
 
-详细说明见：[如何确认 Windows 电脑上的 CUDA 版本](../../02-user-guide/how-to-check-cuda-version.md)
+详细说明见：[训练者：完整训练操作指南](../../../02-user-guide/complete-training-operations-guide.md)
 
 如果失败：
 

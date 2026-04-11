@@ -1,5 +1,80 @@
 # 变更摘要
 
+## 2026-04-11 清理 `docs/02-user-guide` 历史页，只保留最新使用方式
+
+- 已更新：
+  - `docs/index.md`
+  - `docs/02-user-guide/index.md`
+  - `docs/01-getting-started/index.md`
+  - `docs/04-project-development/05-development-process/windows-environment-checklist.md`
+  - `docs/04-project-development/05-development-process/generator-task-breakdown.md`
+  - `docs/04-project-development/05-development-process/implementation-plan.md`
+  - `docs/04-project-development/10-traceability/requirements-matrix.md`
+  - `.factory/memory/current-state.md`
+  - `.factory/memory/change-summary.md`
+- 已删除：
+  - `docs/02-user-guide/application-integration.md`
+  - `docs/02-user-guide/auto-train-on-training-machine.md`
+  - `docs/02-user-guide/from-base-model-to-training-guide.md`
+  - `docs/02-user-guide/group1-label-reference-and-review-guide.md`
+  - `docs/02-user-guide/group1-material-category-backlog.md`
+  - `docs/02-user-guide/how-to-check-cuda-version.md`
+  - `docs/02-user-guide/prepare-business-exam-with-x-anylabeling.md`
+  - `docs/02-user-guide/prepare-training-data-with-generator.md`
+  - `docs/02-user-guide/use-and-test-trained-models.md`
+  - `docs/02-user-guide/use-build-artifacts.md`
+  - `docs/02-user-guide/use-solver-bundle.md`
+  - `docs/02-user-guide/user-guide.md`
+  - `docs/02-user-guide/windows-bundle-install.md`
+  - `docs/02-user-guide/windows-quickstart.md`
+- 当前已完成的目标：
+  - 用户指南层面不再保留历史、迁移、过渡说明，仅保留可直接执行的最新流程
+  - `docs/index.md` 的用户指南导航已收敛为 6 个最新页面
+  - `docs/01-getting-started/index.md` 推荐阅读链路已改为最新页面
+  - 开发过程文档和追踪矩阵中的旧用户指南链接已替换为最新页面
+- 已运行验证：
+  - `rg -n "<旧 02-user-guide 文件名模式>" docs`（无匹配）
+  - `uvx --from docs-stratego docs-stratego source validate --repo-path .`
+
+## 2026-04-11 重构 `docs/02-user-guide` 为生产级使用指南并完成多轮子 agent 审阅打磨
+
+- 已更新：
+  - `docs/index.md`
+  - `docs/02-user-guide/index.md`
+  - `docs/02-user-guide/complete-training-operations-guide.md`
+  - `docs/02-user-guide/solver-package-usage-guide.md`
+  - `docs/02-user-guide/generator-cli-reference.md`
+  - `docs/02-user-guide/trainer-cli-reference.md`
+  - `docs/02-user-guide/solver-bundle-cli-reference.md`
+  - `docs/02-user-guide/solver-package-function-reference.md`
+  - `.factory/memory/current-state.md`
+  - `.factory/memory/change-summary.md`
+- 当前已完成的目标：
+  - 用户指南目录重排为“使用者主线 + 训练者主线 + 历史/专题补充”，阅读路径明确
+  - 新增完整训练操作指南，覆盖环境初始化、生成、训练、测试评估、reviewed 预标注、auto-train、bundle 验证
+  - 新增生成器/训练器/solver bundle CLI 全量参考，参数与源码帮助输出对齐
+  - 新增 `sinanz` 使用指南与函数参考，明确公开调用面、异常边界和输入类型口径
+  - 基于子 agent 苛刻审阅完成多轮修订，修复执行阻断点（`exam prepare` 素材前置、`prelabel` 版本一致、`solve run` 路径解析说明等）
+- 已运行验证：
+  - `uvx --from docs-stratego docs-stratego source validate --repo-path .`
+
+## 2026-04-11 调整 `group1 query audit` 默认 Ollama 超时并收口 template 汇总超时恢复
+
+- 已更新：
+  - `packages/sinan-captcha/src/materials/query_audit.py`
+  - `tests/python/test_group1_query_audit.py`
+  - `docs/02-user-guide/trainer-cli-reference.md`
+  - `.factory/memory/current-state.md`
+  - `.factory/memory/change-summary.md`
+- 当前已完成的目标：
+  - `materials audit-group1-query` 的默认 `--timeout-seconds` 已从 `180` 秒调整为 `600` 秒
+  - 逐图识别和最终 template 汇总阶段的 Ollama 网络/超时异常会被包装为 `QueryAuditClassificationError`，保留 request context
+  - template 汇总超时会进入已有 fallback 模板计划路径，不再以裸 `TimeoutError` 直接中断整批流程
+- 已运行验证：
+  - `./.venv/bin/python -m unittest discover -s tests/python -p 'test_group1_query_audit.py'`
+  - `./.venv/bin/python -m py_compile packages/sinan-captcha/src/materials/query_audit.py packages/sinan-captcha/src/materials/query_audit_cli.py tests/python/test_group1_query_audit.py`
+  - `git diff --check`
+
 ## 2026-04-11 删除旧 `sinan release` / `scripts/repo.py` 结构，统一到根目录 `repo` CLI
 
 - 已更新：

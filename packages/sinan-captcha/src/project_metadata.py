@@ -39,7 +39,12 @@ def read_project_version(project_dir: Path | None = None) -> str:
 
 
 def get_runtime_version() -> str:
-    pyproject_path = package_root() / "pyproject.toml"
+    try:
+        root = package_root()
+    except ValueError:
+        return importlib.metadata.version(PACKAGE_NAME)
+
+    pyproject_path = root / "pyproject.toml"
     if pyproject_path.exists():
-        return read_project_version(package_root())
+        return read_project_version(root)
     return importlib.metadata.version(PACKAGE_NAME)

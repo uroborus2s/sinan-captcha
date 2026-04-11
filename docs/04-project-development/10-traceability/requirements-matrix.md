@@ -26,7 +26,7 @@
 | REQ-004 | 落点 | docs/04-project-development/03-requirements/prd.md | 有效 | 2026-04-05 | Codex | 已补齐 bundle、manifest 和交付包要求 |
 | REQ-004 | 落点 | docs/04-project-development/03-requirements/requirements-analysis.md | 有效 | 2026-04-05 | Codex | 已分析交付实体的重要性 |
 | REQ-004 | 落点 | docs/04-project-development/04-design/module-boundaries.md | 有效 | 2026-04-05 | Codex | 已把 bundle 管理与交付模块提升为正式交付面 |
-| REQ-004 | 落点 | docs/02-user-guide/use-solver-bundle.md | 有效 | 2026-04-05 | Codex | 已补齐最终 solver 交付目录与统一合同的公开页 |
+| REQ-004 | 落点 | docs/02-user-guide/solver-package-usage-guide.md | 有效 | 2026-04-11 | Codex | 已收口为仅保留最新 solver 使用入口的公开页 |
 | REQ-004 | 落点 | docs/04-project-development/07-release-delivery/ | 有效 | 2026-04-05 | Codex | 发布与交付细节文档已收口为训练包与 solver 目标双轨说明 |
 | REQ-005 | 来源 | docs/04-project-development/02-discovery/input.md | 有效 | 2026-04-05 | Codex | 项目分解中已保留 Go 生成器 |
 | REQ-005 | 落点 | docs/04-project-development/03-requirements/prd.md | 有效 | 2026-04-11 | Codex | 已把 `group1` 素材主键切到 `asset_id/template_id/variant_id` |
@@ -37,7 +37,7 @@
 | REQ-006 | 来源 | docs/04-project-development/02-discovery/input.md | 有效 | 2026-04-05 | Codex | 项目分解中已保留 Windows 训练 CLI |
 | REQ-006 | 落点 | docs/04-project-development/03-requirements/prd.md | 有效 | 2026-04-11 | Codex | 已把 `group1` 训练主线切到 proposal + embedder + matcher 校准 |
 | REQ-006 | 落点 | docs/04-project-development/03-requirements/requirements-analysis.md | 有效 | 2026-04-11 | Codex | 已分析整链路训练与评估口径变更 |
-| REQ-006 | 落点 | docs/02-user-guide/user-guide.md | 有效 | 2026-04-05 | Codex | 公开用户入口已改写为“最终产品 + 当前训练主链路”双层口径 |
+| REQ-006 | 落点 | docs/02-user-guide/complete-training-operations-guide.md | 有效 | 2026-04-11 | Codex | 已收口为单一训练主链路入口并移除历史流程页 |
 | REQ-006 | 落点 | docs/04-project-development/04-design/technical-selection.md | 有效 | 2026-04-11 | Codex | 已把 `group1` 训练框架改为 proposal + embedder 路线 |
 | REQ-006 | 落点 | docs/04-project-development/05-development-process/group1-instance-matching-refactor-task-breakdown.md | 有效 | 2026-04-11 | Codex | 已拆出 proposal/embedder/matcher 分阶段任务 |
 | REQ-007 | 来源 | docs/04-project-development/02-discovery/input.md | 有效 | 2026-04-05 | Codex | 项目分解中已保留自主训练 CLI |
@@ -54,7 +54,7 @@
 | REQ-009 | 来源 | docs/04-project-development/02-discovery/input.md | 有效 | 2026-04-05 | Codex | 已明确文档覆盖训练机、素材、生成器和自主训练 |
 | REQ-009 | 落点 | docs/04-project-development/03-requirements/prd.md | 有效 | 2026-04-05 | Codex | 已重写部署与操作文档要求 |
 | REQ-009 | 落点 | docs/02-user-guide/index.md | 有效 | 2026-04-05 | Codex | 用户入口已修正项目定位 |
-| REQ-009 | 落点 | docs/02-user-guide/use-solver-bundle.md | 有效 | 2026-04-05 | Codex | 已补齐最终调用方视角的 solver 使用与部署说明 |
+| REQ-009 | 落点 | docs/02-user-guide/solver-package-usage-guide.md | 有效 | 2026-04-11 | Codex | 已补齐最终调用方视角的 solver 使用与部署说明 |
 | REQ-009 | 落点 | docs/03-developer-guide/index.md | 有效 | 2026-04-05 | Codex | 维护者入口已说明 solver-first 主次关系 |
 | REQ-009 | 落点 | docs/03-developer-guide/solver-bundle-and-integration.md | 有效 | 2026-04-05 | Codex | 已补齐维护者视角的 solver 集成边界说明 |
 | REQ-009 | 落点 | docs/04-project-development/08-operations-maintenance/deployment-guide.md | 有效 | 2026-04-05 | Codex | 已补齐训练机与目标 solver 使用机器的部署边界 |
@@ -65,7 +65,7 @@
 | REQ-010 | 落点 | docs/04-project-development/07-release-delivery/release-notes.md | 有效 | 2026-04-05 | Codex | 已定义当前稳定发布层与目标 solver 交付层 |
 | REQ-010 | 落点 | docs/04-project-development/07-release-delivery/delivery-package.md | 有效 | 2026-04-05 | Codex | 已明确训练交付包与目标 solver 交付包边界 |
 | REQ-010 | 落点 | docs/04-project-development/07-release-delivery/release-checklist.md | 有效 | 2026-04-05 | Codex | 已补齐发布门槛与当前 bundle 差距检查 |
-| REQ-010 | 落点 | docs/02-user-guide/use-solver-bundle.md | 有效 | 2026-04-05 | Codex | 已把最终 solver package/library + bundle 作为公开交付目标固定下来 |
+| REQ-010 | 落点 | docs/02-user-guide/solver-package-usage-guide.md | 有效 | 2026-04-11 | Codex | 已把最终 solver package/library + bundle 作为公开交付目标固定下来 |
 | REQ-010 | 落点 | docs/03-developer-guide/solver-bundle-and-integration.md | 有效 | 2026-04-05 | Codex | 已补齐 solver bundle 集成缺口与后续修复优先级 |
 | REQ-011 | 来源 | docs/04-project-development/02-discovery/input.md | 有效 | 2026-04-05 | Codex | 已明确自主训练需以业务目标驱动 |
 | REQ-011 | 落点 | docs/04-project-development/03-requirements/prd.md | 有效 | 2026-04-05 | Codex | 已定义一句业务目标到合同的编译要求 |

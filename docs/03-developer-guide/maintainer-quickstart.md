@@ -26,11 +26,9 @@
 1. `AGENTS.md`
 2. `docs/04-project-development/01-governance/project-charter.md`
 3. `docs/04-project-development/02-discovery/input.md`
-4. `.factory/memory/current-state.md`
-5. `.factory/memory/change-summary.md`
-6. [开发者指南](./index.md)
-7. [仓库结构与边界](./repository-structure-and-boundaries.md)
-8. `README.md`
+4. [开发者指南](./index.md)
+5. [仓库结构与边界](./repository-structure-and-boundaries.md)
+6. `README.md`
 
 如果你这次要改发布、目录合同或 solver 交接，再补读：
 

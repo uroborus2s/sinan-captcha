@@ -17,6 +17,25 @@
 
 ## 当前事实
 
+- 2026-04-11 当前 `docs/02-user-guide` 已完成“仅保留最新使用方式”的生产级收口：
+  - 当前用户指南只保留 6 个最新有效页面：
+    - `docs/02-user-guide/solver-package-usage-guide.md`
+    - `docs/02-user-guide/solver-package-function-reference.md`
+    - `docs/02-user-guide/complete-training-operations-guide.md`
+    - `docs/02-user-guide/generator-cli-reference.md`
+    - `docs/02-user-guide/trainer-cli-reference.md`
+    - `docs/02-user-guide/solver-bundle-cli-reference.md`
+  - 当前历史/过渡/专题使用页已删除，不再在 `docs/index.md` 与 `docs/02-user-guide/index.md` 暴露
+  - 当前文档已显式补齐高风险执行点：
+    - `exam prepare` 素材目录前置条件与同步动作
+    - `prelabel` 示例与实际 `dataset-version` 一致性
+    - `solve run` 请求相对路径解析规则（按 request JSON 所在目录）
+    - `sinanz` 可用输入口径与类型预留边界说明
+  - 当前已完成结构校验：
+    - `uvx --from docs-stratego docs-stratego source validate --repo-path .`
+  - 当前子 agent 最终验收结论：
+    - 无阻断级（S1）问题
+
 - 2026-04-11 当前 `docs/03-developer-guide` 已按最新 monorepo 结构与代码入口完成一轮整体验收级重写：
   - 当前已明确：
     - 根 `uv workspace` 只包含 `packages/sinan-captcha` 与 `packages/solver`
@@ -111,6 +130,8 @@
     - `uv run pytest tests/python/test_train_prelabel_service.py tests/python/test_training_jobs.py tests/python/test_root_cli.py -q`
 
 - 2026-04-11 当前 `uv run sinan materials audit-group1-query` 已补齐“部分成功可落盘 + 失败项可重试”恢复语义：
+  - 当前默认 Ollama 单次请求超时已从 `180` 秒调整为 `600` 秒
+  - 当前逐图识别与最终 template 汇总的网络/超时异常都会保留请求上下文；template 汇总失败会走 fallback 模板计划，不再以裸 `TimeoutError` 中断整批流程
   - 当前即使存在 `error_count > 0`，也会基于成功图片先写出可用的 `group1` 模板素材包，而不是整批阻断
   - 当前 CLI 已支持：
     - `--retry-from-report <旧的 group1-query-audit.jsonl>`
