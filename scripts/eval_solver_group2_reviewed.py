@@ -7,7 +7,8 @@ import sys
 import time
 
 ROOT_DIR = Path(__file__).resolve().parents[1]
-SOLVER_SRC_DIR = ROOT_DIR / "solver" / "src"
+WORK_HOME_DIR = ROOT_DIR / "work_home"
+SOLVER_SRC_DIR = ROOT_DIR / "packages" / "solver" / "src"
 if str(SOLVER_SRC_DIR) not in sys.path:
     sys.path.insert(0, str(SOLVER_SRC_DIR))
 
@@ -15,8 +16,8 @@ from core.common.jsonl import read_jsonl, write_jsonl
 from core.evaluate.service import EvaluationRequest, evaluate_model
 from sinanz import CaptchaSolver
 
-DEFAULT_REVIEWED_DIR = ROOT_DIR / "materials" / "solver" / "group2" / "reviewed"
-DEFAULT_OUTPUT_DIR = ROOT_DIR / "materials" / "solver" / "group2" / "reports" / "reviewed-regression"
+DEFAULT_REVIEWED_DIR = WORK_HOME_DIR / "materials" / "solver" / "group2" / "reviewed"
+DEFAULT_OUTPUT_DIR = WORK_HOME_DIR / "materials" / "solver" / "group2" / "reports" / "reviewed-regression"
 
 
 def build_parser() -> argparse.ArgumentParser:

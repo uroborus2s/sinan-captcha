@@ -1,0 +1,57 @@
+[build-system]
+requires = ["setuptools>=69", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "sinan-captcha"
+version = "0.1.39"
+description = "Training and data engineering workspace for graphical captcha models."
+readme = "README.md"
+requires-python = ">=3.12"
+dependencies = []
+
+[project.optional-dependencies]
+train = [
+  "matplotlib",
+  "numpy",
+  "onnx",
+  "onnxscript",
+  "onnxruntime",
+  "opencv-python",
+  "optuna",
+  "pandas",
+  "pillow",
+  "pyyaml",
+  "scikit-image",
+  "tqdm",
+  "ultralytics",
+]
+
+[project.scripts]
+sinan = "core.cli:main"
+
+[tool.setuptools]
+include-package-data = true
+
+[tool.setuptools.packages.find]
+where = ["."]
+include = ["core*"]
+
+[tool.setuptools.package-data]
+"core.auto_train" = [
+  "resources/opencode/commands/*.md",
+  "resources/opencode/skills/*/SKILL.md",
+]
+
+[tool.ruff]
+target-version = "py312"
+line-length = 100
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "UP", "B"]
+
+[tool.mypy]
+python_version = "3.12"
+packages = ["core"]
+strict = true
+warn_unused_configs = true

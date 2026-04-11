@@ -14,26 +14,24 @@ htmlcov/
 !/dist/.gitkeep
 /build/
 *.egg-info/
-/generator/dist/
+/packages/sinan-captcha/dist/
+/packages/solver/dist/
+/packages/generator/dist/
 target/
 
 # Go build artifacts
-/generator/build/*
-!/generator/build/.gitkeep
+/packages/generator/build/*
+!/packages/generator/build/.gitkeep
 *.test
 *.out
 *.exe
 
 # Runtime data and reports
-/datasets/*
-!/datasets/.gitkeep
-/reports/*
-!/reports/.gitkeep
-/generator/output/*
-!/generator/output/.gitkeep
+/packages/generator/output/*
+!/packages/generator/output/.gitkeep
 
-# Local materials that should not be pushed
-/materials/
+# Local work directory that should not be pushed
+/work_home/
 
 # Model and export artifacts
 *.pt

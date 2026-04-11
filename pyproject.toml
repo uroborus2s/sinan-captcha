@@ -1,47 +1,26 @@
-[build-system]
-requires = ["setuptools>=69", "wheel"]
-build-backend = "setuptools.build_meta"
-
 [project]
-name = "sinan-captcha"
-version = "0.1.39"
-description = "Training and data engineering workspace for graphical captcha models."
+name = "sinan-captcha-workspace"
+version = "0.1.0"
+description = "Monorepo workspace root for sinan-captcha packages."
 readme = "README.md"
 requires-python = ">=3.12"
-dependencies = []
-
-[project.optional-dependencies]
-train = [
-  "matplotlib",
-  "numpy",
-  "onnx",
-  "onnxscript",
-  "onnxruntime",
-  "opencv-python",
-  "optuna",
-  "pandas",
-  "pillow",
-  "pyyaml",
-  "scikit-image",
-  "tqdm",
-  "ultralytics"
+dependencies = [
+  "sinan-captcha[train]",
+  "sinanz",
 ]
 
-[project.scripts]
-sinan = "core.cli:main"
+[tool.uv]
+package = false
 
-[tool.setuptools]
-include-package-data = true
-
-[tool.setuptools.packages.find]
-where = ["."]
-include = ["core*"]
-
-[tool.setuptools.package-data]
-"core.auto_train" = [
-  "resources/opencode/commands/*.md",
-  "resources/opencode/skills/*/SKILL.md",
+[tool.uv.workspace]
+members = [
+  "packages/sinan-captcha",
+  "packages/solver",
 ]
+
+[tool.uv.sources]
+sinan-captcha = { workspace = true }
+sinanz = { workspace = true }
 
 [tool.ruff]
 target-version = "py312"
@@ -52,17 +31,20 @@ select = ["E", "F", "I", "UP", "B"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests/python"]
-pythonpath = ["."]
+pythonpath = ["packages/sinan-captcha"]
 addopts = "-q"
 
 [tool.mypy]
 python_version = "3.12"
-packages = ["core"]
+files = ["packages/sinan-captcha/core", "tests/python"]
 strict = true
 warn_unused_configs = true
 
 [dependency-groups]
 dev = [
-    "pillow",
-    "playwright"
+  "mypy>=1.11",
+  "pillow",
+  "playwright",
+  "pytest>=8.3",
+  "ruff>=0.6",
 ]

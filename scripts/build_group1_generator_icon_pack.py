@@ -10,10 +10,10 @@ from pathlib import Path
 
 from PIL import Image
 
-DEFAULT_MAPPING_FILE = Path("materials/incoming/group1_query_clusters/semantic_candidates.json")
-DEFAULT_CANDIDATES_ROOT = Path("materials/incoming/group1_icon_candidates")
-DEFAULT_OUTPUT_DIR = Path("materials/incoming/group1_icon_pack")
-DEFAULT_OLD_ROOT = Path("materials/incoming/old")
+DEFAULT_MAPPING_FILE = Path("work_home/materials/incoming/group1_query_clusters/semantic_candidates.json")
+DEFAULT_CANDIDATES_ROOT = Path("work_home/materials/incoming/group1_icon_candidates")
+DEFAULT_OUTPUT_DIR = Path("work_home/materials/incoming/group1_icon_pack")
+DEFAULT_OLD_ROOT = Path("work_home/materials/incoming/old")
 
 LUCIDE_VARIANTS: dict[str, list[str]] = {
     "icon_smile": ["smile", "laugh"],
@@ -267,7 +267,7 @@ def build_generator_icon_pack(
 ) -> dict:
     mapping = load_mapping(mapping_file)
     cluster_manifest_path = resolve_workspace_path(
-        mapping.get("source_manifest", "materials/incoming/group1_query_clusters/manifest.json"),
+        mapping.get("source_manifest", "work_home/materials/incoming/group1_query_clusters/manifest.json"),
         base_dir=mapping_file.parent,
     )
     cluster_manifest = json.loads(cluster_manifest_path.read_text(encoding="utf-8"))

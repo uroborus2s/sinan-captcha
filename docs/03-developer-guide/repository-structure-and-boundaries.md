@@ -4,7 +4,7 @@
 - 当前阶段：IMPLEMENTATION
 - 目标读者：维护仓库、调整 CLI、整理交付物的开发者
 - 负责人：Codex
-- 最近更新：2026-04-09
+- 最近更新：2026-04-11
 
 ## 0. 这页解决什么问题
 
@@ -27,14 +27,15 @@
 
 主要目录：
 
-- `generator/`
-- `core/`
-- `solver/`
-- `script/`
+- `packages/sinan-captcha/`
+- `packages/generator/`
+- `packages/solver/`
+- `scripts/`
 - `configs/`
 - `docs/`
 - `.factory/`
 - `bundles/`
+- `work_home/`
 
 这是维护者改代码、改文档、跑测试、构建交付物的地方。
 
@@ -83,26 +84,25 @@ D:\sinan-captcha-generator\workspace\
 
 ### 1.4 训练目录
 
-训练目录同样是运行目录，不是源码目录。
+训练目录同样是运行目录，不是源码目录。仓库内默认本地训练目录现在统一收口到 `work_home/`。
 
 典型结构：
 
 ```text
 D:\sinan-captcha-work\
-  pyproject.toml
-  .python-version
-  .venv\
   datasets\
   runs\
   reports\
+  materials\
+  .cache\
 ```
 
 这里放：
 
-- 训练环境
 - 数据集
 - 训练输出
 - 评估报告
+- 素材与缓存
 
 ### 1.5 solver 交付目录
 
@@ -178,38 +178,42 @@ D:\sinan-solver\
 
 ### 3.1 需要认真维护的源码目录
 
-- `generator/`
-- `core/`
-- `solver/`
-- `script/`
+- `packages/sinan-captcha/`
+- `packages/generator/`
+- `packages/solver/`
+- `scripts/`
 - `docs/`
 - `.factory/`
 - `configs/`
+- 根目录 `pyproject.toml`
 
 补充边界：
 
-- `solver/` 是独立 solver 项目的源码目录。
-- `script/` 只放开发期辅助脚本，不进入正式 CLI / SDK 运行时边界。
+- `packages/solver/` 是独立 solver 项目的源码目录。
+- `scripts/` 只放开发期辅助脚本，不进入正式 CLI / SDK 运行时边界。
 - `scripts/crawl/ctrip_login.py` 当前用于开发阶段采集携程验证码素材：
-  - 点选模式输出到 `materials/group1/`
-  - 滑块模式输出到 `materials/result/`
+  - 点选模式输出到 `work_home/materials/group1/`
+  - 滑块模式输出到 `work_home/materials/result/`
   - 滑块图片当前保存为 `bg.jpg` 和 `gap.jpg`
   - `两者都保存` 模式会连续保存滑块组，直到切到点选后再保存一组点选图并结束当前浏览器会话
-- `scripts/organize_group2_gap_shapes.py` 当前用于整理 `materials/result/*/gap.jpg`：
+- `scripts/organize_group2_gap_shapes.py` 当前用于整理 `work_home/materials/result/*/gap.jpg`：
   - 按轮廓特征做稳定去重
   - 文件名按“短家族名 + 短特征码”生成，不再依赖 `_alt_001` 这类数字补丁名
   - 基名当前控制在 `20` 个字符以内，且保持无数字命名
   - 当短特征码碰撞时，当前会自动拉长特征码，但仍不超过 `20` 个字符
-  - 代表图输出到 `materials/incoming/group2/`
+  - 代表图输出到 `work_home/materials/incoming/group2/`
   - 同一轮廓特征只保留一个代表图，并写出 `manifest.json`
 
 ### 3.2 可以出现样例或占位，但不应把运行结果当源码维护的目录
 
-- `materials/`
-- `datasets/`
-- `reports/`
+- `work_home/materials/`
+- `work_home/datasets/`
+- `work_home/reports/`
+- `work_home/.cache/`
 - `dist/`
-- `generator/dist/`
+- `packages/sinan-captcha/dist/`
+- `packages/generator/dist/`
+- `packages/solver/dist/`
 
 这些目录里允许存在：
 
@@ -226,13 +230,11 @@ D:\sinan-solver\
 - `.venv/`
 - `__pycache__/`
 - `*.egg-info`
-- `dist/` 下的构建产物
-- `generator/dist/` 下的二进制
+- `packages/*/dist/` 下的构建产物
 - 训练输出 `runs/`
 - 评估导出物
 - 运行时生成的 `backgrounds.csv`、`group1.icons.csv`、`group2.shapes.csv`
-- 坏图隔离目录 `materials/quarantine/`
-- 本地缓存 `.cache/`
+- `work_home/`
 
 提交前至少做两件事：
 

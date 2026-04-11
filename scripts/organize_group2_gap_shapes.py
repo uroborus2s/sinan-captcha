@@ -13,8 +13,9 @@ from typing import Any
 from core.solve import group2_runtime
 
 ROOT_DIR = Path(__file__).resolve().parents[1]
-DEFAULT_INPUT_ROOT = ROOT_DIR / "materials" / "result"
-DEFAULT_OUTPUT_DIR = ROOT_DIR / "materials" / "incoming" / "group2"
+WORK_HOME_DIR = ROOT_DIR / "work_home"
+DEFAULT_INPUT_ROOT = WORK_HOME_DIR / "materials" / "result"
+DEFAULT_OUTPUT_DIR = WORK_HOME_DIR / "materials" / "incoming" / "group2"
 DEFAULT_MANIFEST_NAME = "manifest.json"
 SHORT_CODE_LENGTH = 8
 LONG_CODE_LENGTH = 12

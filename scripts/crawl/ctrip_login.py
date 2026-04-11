@@ -15,9 +15,10 @@ import tempfile
 from typing import Any
 
 ROOT_DIR = Path(__file__).resolve().parents[2]
-GROUP1_DIR = ROOT_DIR / "materials" / "group1"
-SLIDER_RESULT_DIR = ROOT_DIR / "materials" / "result"
-SOLVER_SRC_DIR = ROOT_DIR / "solver" / "src"
+WORK_HOME_DIR = ROOT_DIR / "work_home"
+GROUP1_DIR = WORK_HOME_DIR / "materials" / "group1"
+SLIDER_RESULT_DIR = WORK_HOME_DIR / "materials" / "result"
+SOLVER_SRC_DIR = ROOT_DIR / "packages" / "solver" / "src"
 
 CTRIP_LOGIN_URL = "https://passport.ctrip.com/user/login"
 CODE_LOGIN_TAB_SELECTOR = 'a[data-testid="commonEntry"]:has-text("验证码登录")'
@@ -152,13 +153,13 @@ def decode_data_image_url(src: str) -> InlineImage:
 
 
 def ensure_group1_dir(root_dir: Path = ROOT_DIR) -> Path:
-    base_dir = root_dir / "materials" / "group1"
+    base_dir = root_dir / "work_home" / "materials" / "group1"
     base_dir.mkdir(parents=True, exist_ok=True)
     return base_dir
 
 
 def ensure_slider_result_dir(root_dir: Path = ROOT_DIR) -> Path:
-    base_dir = root_dir / "materials" / "result"
+    base_dir = root_dir / "work_home" / "materials" / "result"
     base_dir.mkdir(parents=True, exist_ok=True)
     return base_dir
 

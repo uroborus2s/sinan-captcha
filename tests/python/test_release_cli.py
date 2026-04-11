@@ -111,14 +111,14 @@ class ReleaseCliTests(unittest.TestCase):
                     "--project-dir",
                     ".",
                     "--asset-dir",
-                    "materials/solver/group2/exported",
+                    "work_home/materials/solver/group2/exported",
                 ]
             )
 
         self.assertEqual(code, 0)
         request = handler.call_args.args[0]
         self.assertEqual(request.project_dir, Path("."))
-        self.assertEqual(request.asset_dir, Path("materials/solver/group2/exported"))
+        self.assertEqual(request.asset_dir, Path("work_home/materials/solver/group2/exported"))
 
 
 if __name__ == "__main__":

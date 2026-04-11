@@ -49,14 +49,14 @@ class CtripLoginScriptTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmpdir:
             base_dir = ctrip_login.ensure_group1_dir(Path(tmpdir))
 
-            self.assertEqual(base_dir, Path(tmpdir) / "materials" / "group1")
+            self.assertEqual(base_dir, Path(tmpdir) / "work_home" / "materials" / "group1")
             self.assertTrue(base_dir.is_dir())
 
     def test_ensure_slider_result_dir_creates_slider_output_dir_under_root(self) -> None:
         with tempfile.TemporaryDirectory() as tmpdir:
             base_dir = ctrip_login.ensure_slider_result_dir(Path(tmpdir))
 
-            self.assertEqual(base_dir, Path(tmpdir) / "materials" / "result")
+            self.assertEqual(base_dir, Path(tmpdir) / "work_home" / "materials" / "result")
             self.assertTrue(base_dir.is_dir())
 
     def test_build_group_folder_uses_batch_id_and_index(self) -> None:

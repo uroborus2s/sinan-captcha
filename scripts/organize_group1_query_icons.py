@@ -11,8 +11,9 @@ from pathlib import Path
 from typing import Any
 
 ROOT_DIR = Path(__file__).resolve().parents[1]
-DEFAULT_INPUT_ROOT = ROOT_DIR / "materials" / "business_exams" / "group1" / "reviewed-v1" / "import" / "query"
-DEFAULT_OUTPUT_DIR = ROOT_DIR / "materials" / "incoming" / "group1_query_clusters"
+WORK_HOME_DIR = ROOT_DIR / "work_home"
+DEFAULT_INPUT_ROOT = WORK_HOME_DIR / "materials" / "business_exams" / "group1" / "reviewed-v1" / "import" / "query"
+DEFAULT_OUTPUT_DIR = WORK_HOME_DIR / "materials" / "incoming" / "group1_query_clusters"
 DEFAULT_MANIFEST_NAME = "manifest.json"
 NORMALIZED_MASK_SIZE = 24
 DEFAULT_DARK_THRESHOLD = 180

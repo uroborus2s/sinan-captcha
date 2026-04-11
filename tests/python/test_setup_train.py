@@ -15,7 +15,12 @@ class SetupTrainTests(unittest.TestCase):
     @staticmethod
     def _repo_version() -> str:
         return tomllib.loads(
-            (Path(__file__).resolve().parents[2] / "pyproject.toml").read_text(encoding="utf-8")
+            (
+                Path(__file__).resolve().parents[2]
+                / "packages"
+                / "sinan-captcha"
+                / "pyproject.toml"
+            ).read_text(encoding="utf-8")
         )["project"]["version"]
 
     def test_resolve_torch_backend_from_cuda_version(self) -> None:

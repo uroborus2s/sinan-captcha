@@ -3,7 +3,7 @@
 - 文档状态：生效
 - 当前阶段：IMPLEMENTATION
 - 目标读者：会在本仓库内改代码、改文档、改发布流程的开发者
-- 最近更新：2026-04-09
+- 最近更新：2026-04-11
 
 ## 0. 这页解决什么问题
 
@@ -14,7 +14,7 @@
 
 ## 1. 开发前先判断你改了哪一层
 
-### 1.1 根仓库 Python CLI
+### 1.1 `packages/sinan-captcha`
 
 典型改动：
 
@@ -24,11 +24,11 @@
 
 主要目录：
 
-- `core/`
+- `packages/sinan-captcha/core/`
 - `tests/python/`
-- `pyproject.toml`
+- `packages/sinan-captcha/pyproject.toml`
 
-### 1.2 Go 生成器
+### 1.2 `packages/generator`
 
 典型改动：
 
@@ -39,9 +39,9 @@
 
 主要目录：
 
-- `generator/`
+- `packages/generator/`
 
-### 1.3 独立 solver 包
+### 1.3 `packages/solver`
 
 典型改动：
 
@@ -51,9 +51,9 @@
 
 主要目录：
 
-- `solver/src/`
-- `solver/native/`
-- `solver/tests/`
+- `packages/solver/src/`
+- `packages/solver/resources/`
+- `packages/solver/tests/`
 
 ### 1.4 跨模块契约
 
@@ -76,6 +76,18 @@
 如果你这次同时改了训练 CLI、生成器或 solver 的发布边界，优先直接在仓库根目录执行：
 
 ```bash
+uv run python scripts/repo.py build all
+```
+
+如果要顺手产出 Windows 版生成器：
+
+```bash
+uv run python scripts/repo.py build generator --goos windows --goarch amd64
+```
+
+正式发布链路仍然是：
+
+```bash
 uv run sinan release build-all --project-dir .
 ```
 
@@ -87,9 +99,9 @@ uv run sinan release build-all --project-dir . --goos windows --goarch amd64
 
 输出目录固定为：
 
-- `dist/`
-- `generator/dist/<goos>-<goarch>/`
-- `solver/dist/`
+- `packages/sinan-captcha/dist/`
+- `packages/generator/dist/<goos>-<goarch>/`
+- `packages/solver/dist/`
 
 当前行为：
 
@@ -110,19 +122,19 @@ uv run python -m unittest discover -s tests/python -p 'test_*.py'
 构建包：
 
 ```bash
-uv run sinan release build --project-dir .
+uv run python scripts/repo.py build sinan-captcha
 ```
 
 安装烟测：
 
 ```bash
-uvx --from ./dist/sinan_captcha-<version>-py3-none-any.whl sinan --help
+uvx --from ./packages/sinan-captcha/dist/sinan_captcha-<version>-py3-none-any.whl sinan --help
 ```
 
 ### 2.2 什么时候至少跑这一层
 
-- 改了 `core/`
-- 改了 `pyproject.toml`
+- 改了 `packages/sinan-captcha/core/`
+- 改了 `packages/sinan-captcha/pyproject.toml`
 - 改了 `.opencode/` 资源
 - 改了发布命令
 
@@ -133,7 +145,7 @@ uvx --from ./dist/sinan_captcha-<version>-py3-none-any.whl sinan --help
 跑测试：
 
 ```bash
-cd generator
+cd packages/generator
 GOCACHE=/tmp/sinan-go-build-cache go test ./...
 cd ..
 ```
@@ -141,25 +153,25 @@ cd ..
 从根目录构建当前 Go 目标：
 
 ```bash
-uv run sinan release build-generator --project-dir .
+uv run python scripts/repo.py build generator
 ```
 
 输出进入：
 
-- `generator/dist/<goos>-<goarch>/`
+- `packages/generator/dist/<goos>-<goarch>/`
 
 当前会先清空该目标目录，再写入新的二进制。
 
 目标平台构建：
 
 ```bash
-uv run sinan release build-generator --project-dir . --goos windows --goarch amd64
+uv run python scripts/repo.py build generator --goos windows --goarch amd64
 ```
 
 ### 3.2 什么时候至少跑这一层
 
-- 改了 `generator/cmd/`
-- 改了 `generator/internal/`
+- 改了 `packages/generator/cmd/`
+- 改了 `packages/generator/internal/`
 - 改了生成器 CLI 参数
 - 改了工作区、素材或数据集导出逻辑
 
@@ -170,7 +182,7 @@ uv run sinan release build-generator --project-dir . --goos windows --goarch amd
 跑测试：
 
 ```bash
-cd solver
+cd packages/solver
 uv run pytest
 cd ..
 ```
@@ -178,13 +190,13 @@ cd ..
 构建包：
 
 ```bash
-uv run sinan release build-solver --project-dir .
+uv run python scripts/repo.py build solver
 ```
 
 ### 4.2 什么时候至少跑这一层
 
-- 改了 `solver/src/`
-- 改了 `solver/native/`
+- 改了 `packages/solver/src/`
+- 改了 `packages/solver/resources/`
 - 改了 solver 资产加载方式
 - 改了独立 API 或资源目录结构
 
@@ -194,8 +206,8 @@ uv run sinan release build-solver --project-dir .
 | --- | --- |
 | 只改开发者文档 | `git diff --check` |
 | 只改根仓库 Python | `uv run python -m unittest discover -s tests/python -p 'test_*.py'` |
-| 只改 Go 生成器 | `cd generator && GOCACHE=/tmp/sinan-go-build-cache go test ./...` |
-| 只改 `solver` | `cd solver && uv run pytest` |
+| 只改 Go 生成器 | `cd packages/generator && GOCACHE=/tmp/sinan-go-build-cache go test ./...` |
+| 只改 `solver` | `cd packages/solver && uv run pytest` |
 | 改发布链路 | 根仓库 Python 测试 + `uv run sinan release build --project-dir .` |
 | 改交付包结构 | 根仓库 Python 测试 + 生成器构建 + `package-windows` 烟测 |
 | 改数据/资产交接合同 | 根仓库 Python 测试 + Go 测试 + `solver` 测试 |
@@ -238,10 +250,10 @@ git status --short
 
 - `.venv/`
 - `dist/` 构建产物
-- `generator/dist/` 二进制
-- `solver/dist/` 构建产物
+- `packages/generator/dist/` 二进制
+- `packages/solver/dist/` 构建产物
 - `runs/`
-- `reports/`
+- `work_home/reports/`
 - 本地缓存
 
 ## 8. 一条推荐的本地维护闭环

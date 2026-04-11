@@ -3,7 +3,7 @@
 - 文档状态：生效
 - 当前阶段：IMPLEMENTATION
 - 目标读者：负责发版、打包训练交付物、上传 PyPI 的开发者
-- 最近更新：2026-04-09
+- 最近更新：2026-04-11
 
 ## 0. 这页解决什么问题
 
@@ -26,19 +26,19 @@
 
 版本单一事实源：
 
-- 根目录 `pyproject.toml` 的 `[project].version`
+- `packages/sinan-captcha/pyproject.toml` 的 `[project].version`
 
 构建产物：
 
-- `dist/sinan_captcha-<version>-py3-none-any.whl`
-- `dist/sinan_captcha-<version>.tar.gz`
+- `packages/sinan-captcha/dist/sinan_captcha-<version>-py3-none-any.whl`
+- `packages/sinan-captcha/dist/sinan_captcha-<version>.tar.gz`
 
 ### 1.2 Go 生成器二进制
 
 主要产物：
 
-- `generator/dist/darwin-arm64/sinan-generator`
-- `generator/dist/windows-amd64/sinan-generator.exe`
+- `packages/generator/dist/darwin-arm64/sinan-generator`
+- `packages/generator/dist/windows-amd64/sinan-generator.exe`
 
 ### 1.3 Windows 训练交付包
 
@@ -58,7 +58,7 @@
 
 当前目录：
 
-- `solver/`
+- `packages/solver/`
 
 说明：
 
@@ -71,7 +71,7 @@
 
 先更新：
 
-- 根目录 `pyproject.toml` 的 `[project].version`
+- `packages/sinan-captcha/pyproject.toml` 的 `[project].version`
 
 如果你这次只发布根仓库 Python 包，这里是必须改的。
 
@@ -81,21 +81,35 @@
 
 ```bash
 uv run python -m unittest discover -s tests/python -p 'test_*.py'
-cd generator && GOCACHE=/tmp/sinan-go-build-cache go test ./... && cd ..
+cd packages/generator && GOCACHE=/tmp/sinan-go-build-cache go test ./... && cd ..
 git diff --check
 ```
 
 如果这次还改了独立 solver 包，再加：
 
 ```bash
-cd solver
+cd packages/solver
 uv run pytest
 cd ..
 ```
 
 ## 3. 根目录统一编译三份产物
 
-直接在仓库根目录执行：
+开发期薄包装可直接执行：
+
+```bash
+uv run python scripts/repo.py build all
+```
+
+如果要只编译某一个子包：
+
+```bash
+uv run python scripts/repo.py build sinan-captcha
+uv run python scripts/repo.py build generator
+uv run python scripts/repo.py build solver
+```
+
+正式发布链路在仓库根目录执行：
 
 ```bash
 uv run sinan release build-all --project-dir .
@@ -109,14 +123,13 @@ uv run sinan release build-all --project-dir . --goos windows --goarch amd64
 
 产物目录固定为：
 
-- 根仓库训练 CLI：`dist/`
-- Go 生成器：`generator/dist/<goos>-<goarch>/`
-- 独立 solver 包：`solver/dist/`
+- 根仓库训练 CLI：`packages/sinan-captcha/dist/`
+- Go 生成器：`packages/generator/dist/<goos>-<goarch>/`
+- 独立 solver 包：`packages/solver/dist/`
 
 当前行为：
 
 - 每次编译前会先清理对应输出目录
-- `dist/.gitignore` 与 `solver/dist/.gitignore` 会保留
 - `build-generator` 会在命令结束前校验目标二进制确实存在
 
 ## 4. 编译根仓库 Python 包
@@ -130,12 +143,12 @@ uv run sinan release build --project-dir .
 说明：
 
 - 这一步会调用 `uv build`
-- 输出进入根目录 `dist/`
+- 输出进入 `packages/sinan-captcha/dist/`
 
 建议立刻做安装烟测：
 
 ```bash
-uvx --from ./dist/sinan_captcha-<version>-py3-none-any.whl sinan --help
+uvx --from ./packages/sinan-captcha/dist/sinan_captcha-<version>-py3-none-any.whl sinan --help
 ```
 
 ## 5. 上传根仓库 Python 包到 PyPI
@@ -184,8 +197,8 @@ uv run sinan release build-generator --project-dir . --goos windows --goarch amd
 
 构建结果：
 
-- `generator/dist/<goos>-<goarch>/sinan-generator`
-- `generator/dist/windows-amd64/sinan-generator.exe`
+- `packages/generator/dist/<goos>-<goarch>/sinan-generator`
+- `packages/generator/dist/windows-amd64/sinan-generator.exe`
 
 注意：
 
@@ -195,7 +208,7 @@ uv run sinan release build-generator --project-dir . --goos windows --goarch amd
 ### 6.3 构建后最低检查
 
 ```bash
-cd generator
+cd packages/generator
 GOCACHE=/tmp/sinan-go-build-cache go test ./...
 cd ..
 ```
@@ -213,7 +226,7 @@ uv run sinan release export-solver-assets \
   --group1-run <group1-run> \
   --group2-checkpoint runs/group2/<train-name>/weights/best.pt \
   --group2-run <train-name> \
-  --output-dir dist/solver-assets/<asset-version> \
+  --output-dir work_home/reports/solver-assets/<asset-version> \
   --asset-version <asset-version>
 ```
 
@@ -227,7 +240,7 @@ uv run sinan release export-solver-assets \
 ```bash
 uv run sinan release stage-solver-assets \
   --project-dir . \
-  --asset-dir dist/solver-assets/<asset-version>
+  --asset-dir work_home/reports/solver-assets/<asset-version>
 ```
 
 ## 8. 组装 Windows 训练交付包
@@ -244,7 +257,7 @@ uv run sinan release stage-solver-assets \
 ```bash
 uv run sinan release package-windows \
   --project-dir . \
-  --generator-exe generator/dist/windows-amd64/sinan-generator.exe \
+  --generator-exe packages/generator/dist/windows-amd64/sinan-generator.exe \
   --output-dir dist/windows-bundle-<version>
 ```
 
@@ -253,7 +266,7 @@ uv run sinan release package-windows \
 ```bash
 uv run sinan release package-windows \
   --project-dir . \
-  --generator-exe generator/dist/windows-amd64/sinan-generator.exe \
+  --generator-exe packages/generator/dist/windows-amd64/sinan-generator.exe \
   --bundle-dir bundles/solver/current \
   --output-dir dist/windows-bundle-<version>
 ```
@@ -263,22 +276,22 @@ uv run sinan release package-windows \
 ```bash
 uv run sinan release package-windows \
   --project-dir . \
-  --generator-exe generator/dist/windows-amd64/sinan-generator.exe \
+  --generator-exe packages/generator/dist/windows-amd64/sinan-generator.exe \
   --bundle-dir bundles/solver/current \
-  --datasets-dir datasets \
-  --materials-dir materials \
+  --datasets-dir work_home/datasets \
+  --materials-dir work_home/materials \
   --output-dir dist/windows-bundle-<version>
 ```
 
 ## 9. 独立 solver 包当前怎么编译
 
-如果你这次维护的是 `solver/`，用它自己的构建链路：
+如果你这次维护的是 `packages/solver/`，用它自己的构建链路：
 
 ```bash
-cd solver
+cd packages/solver
 uv run pytest
 cd ..
-uv run sinan release build-solver --project-dir .
+uv run python scripts/repo.py build solver
 ```
 
 当前边界：
@@ -288,7 +301,7 @@ uv run sinan release build-solver --project-dir .
 
 ## 10. 一条推荐的正式发版顺序
 
-1. 修改根目录 `pyproject.toml` 的 `[project].version`
+1. 修改 `packages/sinan-captcha/pyproject.toml` 的 `[project].version`
 2. 跑根仓库 Python 测试
 3. 跑 Go 生成器测试
 4. 如有需要，跑 `solver` 测试

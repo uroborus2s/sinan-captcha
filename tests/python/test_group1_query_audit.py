@@ -41,7 +41,10 @@ class Group1QueryAuditTests(unittest.TestCase):
         self.assertEqual(args.output_root, DEFAULT_GROUP1_OUTPUT_ROOT)
         self.assertIsNone(args.template_report_json)
         self.assertEqual(args.report_root.name, "20260411")
-        self.assertEqual(args.report_root.parent.as_posix(), Path.cwd().joinpath("reports/group1/materials").as_posix())
+        self.assertEqual(
+            args.report_root.parent.as_posix(),
+            Path.cwd().joinpath("work_home/reports/group1/materials").as_posix(),
+        )
         self.assertFalse(args.quiet)
 
     def test_query_audit_cli_uses_current_directory_as_run_root(self) -> None:
@@ -161,12 +164,12 @@ class Group1QueryAuditTests(unittest.TestCase):
     def test_run_group1_query_audit_writes_tpl_pack_and_reports(self) -> None:
         with tempfile.TemporaryDirectory() as tmpdir:
             repo_root = Path(tmpdir)
-            query_dir = repo_root / "materials/validation/group1/query"
+            query_dir = repo_root / "work_home/materials/validation/group1/query"
             query_dir.mkdir(parents=True, exist_ok=True)
             _write_query_image(query_dir / "a.png", [(4, 6, 16, 18), (38, 2, 44, 22)])
             _write_query_image(query_dir / "b.png", [(4, 6, 16, 18)])
 
-            output_root = repo_root / "materials/incoming/group1_icon_pack"
+            output_root = repo_root / "work_home/materials/incoming/group1_icon_pack"
             (output_root / "manifests").mkdir(parents=True, exist_ok=True)
             (output_root / "manifests/group1.classes.yaml").write_text("legacy: true\n", encoding="utf-8")
 
@@ -260,7 +263,7 @@ class Group1QueryAuditTests(unittest.TestCase):
                     query_dir=query_dir,
                     model="gemma4:26b",
                     output_root=output_root,
-                    report_root=repo_root / "reports/group1/materials/20260411",
+                    report_root=repo_root / "work_home/reports/group1/materials/20260411",
                     repo_root=repo_root,
                     min_variants_per_template=3,
                     image_classifier=fake_classifier,
@@ -283,13 +286,13 @@ class Group1QueryAuditTests(unittest.TestCase):
             self.assertTrue(all(len(name) <= 30 for name in (*house_files, *star_files)))
             self.assertFalse(any(name.endswith("_01") or name.endswith("_02") for name in (*house_files, *star_files)))
 
-            rows = read_jsonl(repo_root / "reports/group1/materials/20260411/group1-query-audit.jsonl")
+            rows = read_jsonl(repo_root / "work_home/reports/group1/materials/20260411/group1-query-audit.jsonl")
             self.assertEqual(rows[0]["template_sequence"], ["tpl_house", "tpl_star"])
             self.assertEqual(rows[1]["template_sequence"], ["tpl_house"])
 
             template_report = json.loads(
                 (
-                    repo_root / "reports/group1/materials/20260411/group1-query-audit-templates.json"
+                    repo_root / "work_home/reports/group1/materials/20260411/group1-query-audit-templates.json"
                 ).read_text(encoding="utf-8")
             )
             self.assertEqual(template_report["template_count"], 2)
@@ -303,14 +306,14 @@ class Group1QueryAuditTests(unittest.TestCase):
             query_dir.mkdir(parents=True, exist_ok=True)
             _write_query_image(query_dir / "a.png", [(4, 6, 16, 18)])
 
-            output_root = repo_root / "materials/incoming/group1_icon_pack"
+            output_root = repo_root / "work_home/materials/incoming/group1_icon_pack"
             original_output = output_root.exists()
 
             result = run_group1_query_audit(
                 query_dir=query_dir,
                     model="gemma4:26b",
                     output_root=output_root,
-                    report_root=repo_root / "reports/group1/materials/20260411",
+                    report_root=repo_root / "work_home/reports/group1/materials/20260411",
                     repo_root=repo_root,
                     dry_run=True,
                 image_classifier=lambda _image_path: (
@@ -340,7 +343,7 @@ class Group1QueryAuditTests(unittest.TestCase):
 
             self.assertEqual(result["status"], "ok")
             self.assertEqual(output_root.exists(), original_output)
-            self.assertFalse((repo_root / "reports/group1/materials/20260411/group1-query-audit.jsonl").exists())
+            self.assertFalse((repo_root / "work_home/reports/group1/materials/20260411/group1-query-audit.jsonl").exists())
 
     def test_run_group1_query_audit_reports_terminal_progress(self) -> None:
         with tempfile.TemporaryDirectory() as tmpdir:
@@ -365,8 +368,8 @@ class Group1QueryAuditTests(unittest.TestCase):
                 run_group1_query_audit(
                     query_dir=query_dir,
                     model="gemma4:26b",
-                    output_root=repo_root / "materials/incoming/group1_icon_pack",
-                    report_root=repo_root / "reports/group1/materials/20260411",
+                    output_root=repo_root / "work_home/materials/incoming/group1_icon_pack",
+                    report_root=repo_root / "work_home/reports/group1/materials/20260411",
                     repo_root=repo_root,
                     min_variants_per_template=2,
                     progress_reporter=messages.append,
@@ -412,8 +415,8 @@ class Group1QueryAuditTests(unittest.TestCase):
                 result = run_group1_query_audit(
                     query_dir=query_dir,
                     model="gemma4:26b",
-                    output_root=repo_root / "materials/incoming/group1_icon_pack",
-                    report_root=repo_root / "reports/group1/materials/20260411",
+                    output_root=repo_root / "work_home/materials/incoming/group1_icon_pack",
+                    report_root=repo_root / "work_home/reports/group1/materials/20260411",
                     repo_root=repo_root,
                     min_variants_per_template=2,
                     image_classifier=lambda _image_path: (

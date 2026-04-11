@@ -28,7 +28,7 @@ from core.release.service import (
 
 
 class ReleaseServiceTests(unittest.TestCase):
-    def _write_project_pyproject(self, project_dir: Path, version: str) -> None:
+    def _write_package_pyproject(self, project_dir: Path, version: str) -> None:
         (project_dir / "pyproject.toml").write_text(
             textwrap.dedent(
                 f"""
@@ -41,10 +41,22 @@ class ReleaseServiceTests(unittest.TestCase):
             encoding="utf-8",
         )
 
+    def _create_repo_layout(self, root: Path) -> tuple[Path, Path, Path]:
+        sinan_dir = root / "packages" / "sinan-captcha"
+        solver_dir = root / "packages" / "solver"
+        generator_dir = root / "packages" / "generator"
+        (sinan_dir / "core").mkdir(parents=True, exist_ok=True)
+        (sinan_dir / "core" / "__init__.py").write_text("__all__ = []\n", encoding="utf-8")
+        solver_dir.mkdir(parents=True, exist_ok=True)
+        generator_dir.mkdir(parents=True, exist_ok=True)
+        return sinan_dir, solver_dir, generator_dir
+
     def test_build_distribution_invokes_uv_build(self) -> None:
         with tempfile.TemporaryDirectory() as tmpdir:
             project_dir = Path(tmpdir)
-            dist_dir = project_dir / "dist"
+            sinan_dir, _, _ = self._create_repo_layout(project_dir)
+            self._write_package_pyproject(sinan_dir, "0.0.0")
+            dist_dir = sinan_dir / "dist"
             dist_dir.mkdir()
             (dist_dir / "stale.whl").write_text("old", encoding="utf-8")
             (dist_dir / ".gitignore").write_text("*\n", encoding="utf-8")
@@ -57,14 +69,13 @@ class ReleaseServiceTests(unittest.TestCase):
             subprocess_run.assert_called_once_with(
                 ["uv", "build", "--out-dir", "dist"],
                 check=True,
-                cwd=project_dir.resolve(),
+                cwd=sinan_dir.resolve(),
             )
 
     def test_build_generator_distribution_cleans_target_dir_and_uses_resolved_output_path(self) -> None:
         with tempfile.TemporaryDirectory() as tmpdir:
             project_dir = Path(tmpdir)
-            generator_dir = project_dir / "generator"
-            generator_dir.mkdir()
+            _, _, generator_dir = self._create_repo_layout(project_dir)
             (generator_dir / "go.mod").write_text("module example/generator\n", encoding="utf-8")
             output_dir = generator_dir / "dist" / "windows-amd64"
             output_dir.mkdir(parents=True)
@@ -100,8 +111,7 @@ class ReleaseServiceTests(unittest.TestCase):
     def test_build_generator_distribution_raises_when_binary_is_missing_after_build(self) -> None:
         with tempfile.TemporaryDirectory() as tmpdir:
             project_dir = Path(tmpdir)
-            generator_dir = project_dir / "generator"
-            generator_dir.mkdir()
+            _, _, generator_dir = self._create_repo_layout(project_dir)
             (generator_dir / "go.mod").write_text("module example/generator\n", encoding="utf-8")
 
             def fake_run(*args, **kwargs):
@@ -116,8 +126,7 @@ class ReleaseServiceTests(unittest.TestCase):
     def test_build_solver_distribution_invokes_uv_build_in_solver_dist(self) -> None:
         with tempfile.TemporaryDirectory() as tmpdir:
             project_dir = Path(tmpdir)
-            solver_dir = project_dir / "solver"
-            solver_dir.mkdir()
+            _, solver_dir, _ = self._create_repo_layout(project_dir)
             (solver_dir / "pyproject.toml").write_text("[project]\nname='solver'\nversion='0.0.0'\n", encoding="utf-8")
             dist_dir = solver_dir / "dist"
             dist_dir.mkdir()
@@ -138,6 +147,7 @@ class ReleaseServiceTests(unittest.TestCase):
     def test_build_all_distributions_runs_three_build_steps(self) -> None:
         with tempfile.TemporaryDirectory() as tmpdir:
             project_dir = Path(tmpdir)
+            self._create_repo_layout(project_dir)
             request = BuildAllReleaseRequest(project_dir=project_dir, goos="windows", goarch="amd64")
 
             with patch("core.release.service.build_distribution") as build_root:
@@ -154,7 +164,8 @@ class ReleaseServiceTests(unittest.TestCase):
     def test_stage_solver_assets_copies_models_metadata_and_manifest(self) -> None:
         with tempfile.TemporaryDirectory() as tmpdir:
             project_dir = Path(tmpdir)
-            resource_dir = project_dir / "solver" / "resources"
+            _, solver_dir, _ = self._create_repo_layout(project_dir)
+            resource_dir = solver_dir / "resources"
             models_dir = resource_dir / "models"
             metadata_dir = resource_dir / "metadata"
             models_dir.mkdir(parents=True)
@@ -194,8 +205,9 @@ class ReleaseServiceTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmpdir:
             project_dir = Path(tmpdir)
             package_version = "9.8.7"
-            self._write_project_pyproject(project_dir, package_version)
-            dist_dir = project_dir / "dist"
+            sinan_dir, _, _ = self._create_repo_layout(project_dir)
+            self._write_package_pyproject(sinan_dir, package_version)
+            dist_dir = sinan_dir / "dist"
             dist_dir.mkdir()
             (dist_dir / f"sinan_captcha-{package_version}-py3-none-any.whl").write_text("wheel", encoding="utf-8")
             (dist_dir / f"sinan_captcha-{package_version}.tar.gz").write_text("sdist", encoding="utf-8")
@@ -219,15 +231,21 @@ class ReleaseServiceTests(unittest.TestCase):
     def test_package_windows_bundle_copies_expected_artifacts(self) -> None:
         with tempfile.TemporaryDirectory() as tmpdir:
             root = Path(tmpdir)
-            dist_dir = root / "dist"
+            sinan_dir, _, generator_dir = self._create_repo_layout(root)
+            dist_dir = sinan_dir / "dist"
             dist_dir.mkdir()
             package_version = tomllib.loads(
-                (Path(__file__).resolve().parents[2] / "pyproject.toml").read_text(encoding="utf-8")
+                (
+                    Path(__file__).resolve().parents[2]
+                    / "packages"
+                    / "sinan-captcha"
+                    / "pyproject.toml"
+                ).read_text(encoding="utf-8")
             )["project"]["version"]
             wheel = dist_dir / f"sinan_captcha-{package_version}-py3-none-any.whl"
             wheel.write_text("wheel", encoding="utf-8")
 
-            generator_exe = root / "generator" / "dist" / "windows-amd64" / "sinan-generator.exe"
+            generator_exe = generator_dir / "dist" / "windows-amd64" / "sinan-generator.exe"
             generator_exe.parent.mkdir(parents=True)
             generator_exe.write_text("exe", encoding="utf-8")
             bundle_dir = root / "bundles" / "solver" / "current"

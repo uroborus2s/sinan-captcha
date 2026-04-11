@@ -1,5 +1,56 @@
 # 变更摘要
 
+## 2026-04-11 落地 monorepo 目录与 work_home 本地运行目录
+
+- 已更新：
+  - `pyproject.toml`
+  - `.gitignore`
+  - `README.md`
+  - `scripts/repo.py`
+  - `scripts/crawl/ctrip_login.py`
+  - `scripts/eval_solver_group2_reviewed.py`
+  - `scripts/download_group1_candidate_icons.py`
+  - `scripts/build_group1_generator_icon_pack.py`
+  - `scripts/organize_group1_query_icons.py`
+  - `scripts/organize_group2_gap_shapes.py`
+  - `packages/sinan-captcha/pyproject.toml`
+  - `packages/sinan-captcha/core/common/paths.py`
+  - `packages/sinan-captcha/core/project_metadata.py`
+  - `packages/sinan-captcha/core/release/service.py`
+  - `packages/sinan-captcha/core/materials/query_audit.py`
+  - `packages/sinan-captcha/core/materials/query_audit_cli.py`
+  - `docs/03-developer-guide/maintainer-quickstart.md`
+  - `docs/03-developer-guide/local-development-workflow.md`
+  - `docs/03-developer-guide/release-and-delivery-workflow.md`
+  - `docs/03-developer-guide/repository-structure-and-boundaries.md`
+  - `.factory/memory/current-state.md`
+  - `.factory/memory/change-summary.md`
+- 已删除：
+  - `packages/solver/uv.lock`
+- 当前已完成的目标：
+  - 仓库源码目录已切到 `packages/sinan-captcha + packages/generator + packages/solver`
+  - 根目录已切成 `uv workspace`，并统一使用根目录 `uv.lock`
+  - 根目录新增 `scripts/repo.py` 作为 monorepo 薄包装构建入口
+  - 运行期默认目录已统一切到 `work_home/materials`、`work_home/reports`、`work_home/.cache`
+  - `materials audit-group1-query`、训练 CLI、release 构建与开发脚本默认路径已同步到 `work_home`
+- 已运行验证：
+  - `uv lock`
+  - `UV_CACHE_DIR=/tmp/uv-cache GOCACHE=/tmp/go-cache ./.venv/bin/python scripts/repo.py build all`（沙箱外）
+  - `env PYTHONPATH=packages/sinan-captcha ./.venv/bin/python -m unittest discover -s tests/python -p 'test_project_metadata.py'`
+  - `env PYTHONPATH=packages/sinan-captcha ./.venv/bin/python -m unittest discover -s tests/python -p 'test_setup_train.py'`
+  - `env PYTHONPATH=packages/sinan-captcha ./.venv/bin/python -m unittest discover -s tests/python -p 'test_ctrip_login_script.py'`
+  - `env PYTHONPATH=packages/sinan-captcha ./.venv/bin/python -m unittest discover -s tests/python -p 'test_group1_query_audit.py'`
+  - `env PYTHONPATH=packages/sinan-captcha ./.venv/bin/python -m unittest discover -s tests/python -p 'test_release_cli.py'`
+  - `env PYTHONPATH=packages/sinan-captcha ./.venv/bin/python -m unittest discover -s tests/python -p 'test_release_service.py'`
+  - `env PYTHONPATH=packages/sinan-captcha ./.venv/bin/python -m unittest discover -s tests/python -p 'test_root_cli.py'`
+  - `env PYTHONPATH=packages/sinan-captcha ./.venv/bin/python -m unittest discover -s tests/python -p 'test_training_jobs.py'`
+  - `env PYTHONPATH=packages/sinan-captcha ./.venv/bin/python -m unittest discover -s tests/python -p 'test_prediction_and_model_test.py'`
+  - `env PYTHONPATH=packages/sinan-captcha ./.venv/bin/python -m unittest discover -s tests/python -p 'test_build_group1_generator_icon_pack_script.py'`
+  - `env PYTHONPATH=packages/sinan-captcha ./.venv/bin/python -m unittest discover -s tests/python -p 'test_download_group1_candidate_icons_script.py'`
+  - `env PYTHONPATH=packages/sinan-captcha ./.venv/bin/python -m unittest discover -s tests/python -p 'test_organize_group1_query_icons_script.py'`
+  - `env PYTHONPATH=packages/sinan-captcha ./.venv/bin/python -m unittest discover -s tests/python -p 'test_organize_group2_gap_shapes_script.py'`
+  - `env PYTHONPATH=packages/sinan-captcha ./.venv/bin/python -m unittest discover -s tests/python -p 'test_repo_script.py'`
+
 ## 2026-04-11 衔接 `group1` icon embedder 到 matcher、predict/test 与 solver bundle
 
 - 已更新：

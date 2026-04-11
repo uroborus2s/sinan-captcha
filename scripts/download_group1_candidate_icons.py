@@ -8,9 +8,9 @@ import shutil
 import urllib.request
 from pathlib import Path
 
-DEFAULT_MAPPING_FILE = Path("materials/incoming/group1_query_clusters/semantic_candidates.json")
-DEFAULT_CLUSTER_ROOT = Path("materials/incoming/group1_query_clusters")
-DEFAULT_OUTPUT_DIR = Path("materials/incoming/group1_icon_candidates")
+DEFAULT_MAPPING_FILE = Path("work_home/materials/incoming/group1_query_clusters/semantic_candidates.json")
+DEFAULT_CLUSTER_ROOT = Path("work_home/materials/incoming/group1_query_clusters")
+DEFAULT_OUTPUT_DIR = Path("work_home/materials/incoming/group1_icon_candidates")
 
 TABLER_SVG_RE = re.compile(
     r"(<svg[^>]*class=\"icon icon-tabler[^\"]*\"[^>]*>.*?</svg>)",

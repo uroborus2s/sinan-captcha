@@ -101,6 +101,42 @@ uv run sinan test group2 --dataset-version firstpass --train-name firstpass
 - `env setup-train` 当前会自动把 `.opencode/commands` 与 `.opencode/skills` 铺到训练目录
 - 统一求解与 bundle 已经是正式需求和代码方向，但仍需继续收口为正式对外交付主线
 
+## Monorepo 开发入口
+
+仓库现在按 monorepo 管理：
+
+- `packages/sinan-captcha/`
+  - Python 训练、评估、发布与自主训练 CLI
+- `packages/generator/`
+  - Go 生成器工程
+- `packages/solver/`
+  - 独立 `sinanz` 求解包
+- `scripts/`
+  - 根目录开发辅助脚本
+- `work_home/`
+  - 本地运行目录，放素材、报告、缓存和其他开发期产物，不提交到 Git
+
+根目录薄包装命令：
+
+```bash
+uv run python scripts/repo.py build sinan-captcha
+uv run python scripts/repo.py build generator
+uv run python scripts/repo.py build solver
+uv run python scripts/repo.py build all
+```
+
+如果要交叉编译 Windows 版生成器：
+
+```bash
+uv run python scripts/repo.py build generator --goos windows --goarch amd64
+```
+
+当前各子包构建结果固定为：
+
+- `packages/sinan-captcha/dist/`
+- `packages/generator/dist/<goos>-<goarch>/`
+- `packages/solver/dist/`
+
 ## 根目录统一编译与发布
 
 如果你在维护源码仓库，现在可以直接在根目录执行统一编译命令：
@@ -117,9 +153,9 @@ uv run sinan release build-all --project-dir . --goos windows --goarch amd64
 
 构建结果固定为：
 
-- 训练 CLI：`dist/`
-- 生成器 CLI：`generator/dist/<goos>-<goarch>/`
-- solver 包：`solver/dist/`
+- 训练 CLI：`packages/sinan-captcha/dist/`
+- 生成器 CLI：`packages/generator/dist/<goos>-<goarch>/`
+- solver 包：`packages/solver/dist/`
 
 这些构建命令当前都会先清理对应输出目录，再写入新的编译结果。
 
@@ -149,11 +185,13 @@ uv run sinan release publish --project-dir . --token-env PYPI_TOKEN
 
 ```text
 sinan-captcha/
-  generator/   # Go 生成器工程
-  core/        # Python 训练、评估、发布与自主训练 CLI
+  packages/
+    sinan-captcha/  # Python 训练、评估、发布与自主训练 CLI
+    generator/      # Go 生成器工程
+    solver/         # 独立求解包
+  scripts/     # 开发辅助脚本
   configs/     # 配置与素材规格
-  materials/   # 本地素材目录或构建产物
-  datasets/    # 原始样本、reviewed 数据和任务专属训练数据集
-  reports/     # QA 与评估输出
+  work_home/   # 本地运行目录：materials / reports / cache / datasets / runs
   docs/        # 正式文档
+  .factory/    # 工厂控制面与项目记忆
 ```

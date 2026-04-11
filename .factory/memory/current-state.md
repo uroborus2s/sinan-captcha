@@ -17,6 +17,32 @@
 
 ## 当前事实
 
+- 2026-04-11 当前仓库结构已切到 monorepo：
+  - Python workspace root 现在是根目录 `pyproject.toml`
+  - 业务子项目当前固定为：
+    - `packages/sinan-captcha`
+    - `packages/generator`
+    - `packages/solver`
+  - 根目录新增薄包装脚本：
+    - `uv run python scripts/repo.py build sinan-captcha`
+    - `uv run python scripts/repo.py build generator`
+    - `uv run python scripts/repo.py build solver`
+    - `uv run python scripts/repo.py build all`
+  - 当前统一本地开发运行目录已切到：
+    - `work_home/materials`
+    - `work_home/reports`
+    - `work_home/.cache`
+  - 当前 `packages/solver/uv.lock` 旧独立锁文件已删除，Python workspace 统一使用根目录 `uv.lock`
+  - 当前已验证：
+    - `uv lock`
+    - `UV_CACHE_DIR=/tmp/uv-cache GOCACHE=/tmp/go-cache ./.venv/bin/python scripts/repo.py build all`（沙箱外）
+    - `env PYTHONPATH=packages/sinan-captcha ./.venv/bin/python -m unittest discover -s tests/python -p 'test_release_service.py'`
+    - `env PYTHONPATH=packages/sinan-captcha ./.venv/bin/python -m unittest discover -s tests/python -p 'test_release_cli.py'`
+    - `env PYTHONPATH=packages/sinan-captcha ./.venv/bin/python -m unittest discover -s tests/python -p 'test_group1_query_audit.py'`
+    - `env PYTHONPATH=packages/sinan-captcha ./.venv/bin/python -m unittest discover -s tests/python -p 'test_training_jobs.py'`
+    - `env PYTHONPATH=packages/sinan-captcha ./.venv/bin/python -m unittest discover -s tests/python -p 'test_prediction_and_model_test.py'`
+    - `env PYTHONPATH=packages/sinan-captcha ./.venv/bin/python -m unittest discover -s tests/python -p 'test_repo_script.py'`
+
 - 2026-04-11 当前 `uv run sinan materials audit-group1-query` 的 CLI 运行根语义已修正：
   - 当前不再要求命令必须从仓库根目录执行，也不再检查 `pyproject.toml + core/`
   - 当前相对默认路径统一按命令执行目录 `Path.cwd()` 解释
