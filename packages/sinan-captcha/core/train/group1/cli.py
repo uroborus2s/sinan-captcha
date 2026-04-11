@@ -7,6 +7,7 @@ import json
 from pathlib import Path
 
 from core.train.base import default_project_dir, default_train_root
+from core.train.group1.dataset import load_group1_dataset_config
 from core.train.group1.service import (
     ALL_COMPONENTS,
     EMBEDDER_COMPONENT,
@@ -88,6 +89,7 @@ def build_prelabel_parser() -> argparse.ArgumentParser:
     parser.add_argument("--proposal-model", dest="proposal_model", type=Path, required=False)
     parser.add_argument("--scene-model", dest="proposal_model", type=Path, required=False, help=argparse.SUPPRESS)
     parser.add_argument("--query-model", type=Path, required=False)
+    parser.add_argument("--embedder-model", type=Path, required=False)
     parser.add_argument("--name", default="prelabel")
     parser.add_argument("--conf", type=float, default=0.25)
     parser.add_argument("--imgsz", type=int, default=640)
@@ -194,6 +196,11 @@ def _run_prelabel_cli(argv: list[str]) -> int:
     dataset_config = args.dataset_config or (train_root / "datasets" / "group1" / args.dataset_version / "dataset.json")
     proposal_model = args.proposal_model or resolve_group1_component_best_weights(train_root, args.train_name, PROPOSAL_COMPONENT)
     query_model = args.query_model or resolve_group1_component_best_weights(train_root, args.train_name, QUERY_COMPONENT)
+    embedder_model = args.embedder_model
+    if embedder_model is None and dataset_config.exists():
+        group1_dataset = load_group1_dataset_config(dataset_config)
+        if group1_dataset.is_instance_matching:
+            embedder_model = resolve_group1_component_best_weights(train_root, args.train_name, EMBEDDER_COMPONENT)
     project_dir = args.project or (exam_root / ".sinan" / "prelabel" / "group1" / "predict")
     request = Group1PrelabelRequest(
         exam_root=exam_root,
@@ -201,6 +208,7 @@ def _run_prelabel_cli(argv: list[str]) -> int:
         proposal_model_path=proposal_model,
         query_model_path=query_model,
         project_dir=project_dir,
+        embedder_model_path=embedder_model,
         run_name=args.name,
         conf=args.conf,
         imgsz=args.imgsz,

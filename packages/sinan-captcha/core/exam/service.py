@@ -127,25 +127,18 @@ def export_group1_reviewed_labels(*, exam_root: Path) -> ReviewedExportResult:
         for path in query_dir.glob("*.json")
         if (scene_dir / f"{path.stem}.json").exists()
     )
-    class_map = _group1_class_map(query_dir=query_dir, scene_dir=scene_dir, sample_ids=sample_ids)
     rows: list[dict[str, object]] = []
     for sample_id in sample_ids:
         query_image = _find_image_for_sample(query_dir, sample_id)
         scene_image = _find_image_for_sample(scene_dir, sample_id)
-        query_targets = _load_group1_query_targets(
-            query_dir / f"{sample_id}.json",
-            class_map=class_map,
-        )
-        scene_targets = _load_group1_scene_targets(
-            scene_dir / f"{sample_id}.json",
-            class_map=class_map,
-        )
+        query_items = _load_group1_query_items(query_dir / f"{sample_id}.json")
+        scene_targets = _load_group1_scene_targets(scene_dir / f"{sample_id}.json")
         rows.append(
             {
                 "sample_id": sample_id,
                 "query_image": f"query/{query_image.name}",
                 "scene_image": f"scene/{scene_image.name}",
-                "query_targets": query_targets,
+                "query_items": query_items,
                 "scene_targets": scene_targets,
                 "distractors": [],
                 "label_source": "reviewed",
@@ -292,67 +285,41 @@ def _tight_crop_rgba_image(image: Any) -> Any:
     return rgba.crop((min_x, min_y, max_x + 1, max_y + 1))
 
 
-def _group1_class_map(*, query_dir: Path, scene_dir: Path, sample_ids: list[str]) -> dict[str, int]:
-    class_names: set[str] = set()
-    for sample_id in sample_ids:
-        class_names.update(_query_shape_labels(query_dir / f"{sample_id}.json"))
-        class_names.update(_scene_shape_class_names(scene_dir / f"{sample_id}.json"))
-    return {name: index for index, name in enumerate(sorted(class_names))}
-
-
-def _query_shape_labels(path: Path) -> list[str]:
-    payload = _load_labelme_payload(path)
-    labels: list[str] = []
-    for shape in _shape_list(payload):
-        labels.append(str(shape["label"]))
-    return labels
-
-
-def _scene_shape_class_names(path: Path) -> list[str]:
-    payload = _load_labelme_payload(path)
-    labels: list[str] = []
-    for shape in _shape_list(payload):
-        _, class_name = _parse_scene_label(str(shape["label"]))
-        labels.append(class_name)
-    return labels
-
-
-def _load_group1_query_targets(path: Path, *, class_map: dict[str, int]) -> list[dict[str, object]]:
+def _load_group1_query_items(path: Path) -> list[dict[str, object]]:
     payload = _load_labelme_payload(path)
     targets: list[dict[str, object]] = []
     for shape in _shape_list(payload):
-        label = str(shape["label"])
         bbox = _shape_bbox(shape)
-        targets.append(
-            {
-                "order": 0,
-                "class": label,
-                "class_id": class_map[label],
-                "bbox": bbox,
-                "center": _bbox_center(bbox),
-            }
-        )
+        item: dict[str, object] = {
+            "order": 0,
+            "bbox": bbox,
+            "center": _bbox_center(bbox),
+        }
+        class_guess = _query_shape_class_guess(shape)
+        if class_guess is not None:
+            item["class_guess"] = class_guess
+        targets.append(item)
     targets.sort(key=lambda item: (int(item["center"][0]), int(item["center"][1])))
     for order, target in enumerate(targets, start=1):
         target["order"] = order
     return targets
 
 
-def _load_group1_scene_targets(path: Path, *, class_map: dict[str, int]) -> list[dict[str, object]]:
+def _load_group1_scene_targets(path: Path) -> list[dict[str, object]]:
     payload = _load_labelme_payload(path)
     targets: list[dict[str, object]] = []
     for shape in _shape_list(payload):
-        order, class_name = _parse_scene_label(str(shape["label"]))
+        order, class_guess = _parse_scene_label(str(shape["label"]))
         bbox = _shape_bbox(shape)
-        targets.append(
-            {
-                "order": order,
-                "class": class_name,
-                "class_id": class_map[class_name],
-                "bbox": bbox,
-                "center": _bbox_center(bbox),
-            }
-        )
+        target: dict[str, object] = {
+            "order": order,
+            "bbox": bbox,
+            "center": _bbox_center(bbox),
+        }
+        resolved_class_guess = _shape_flag_class_guess(shape) or class_guess
+        if resolved_class_guess is not None:
+            target["class_guess"] = resolved_class_guess
+        targets.append(target)
     targets.sort(key=lambda item: int(item["order"]))
     return targets
 
@@ -405,10 +372,32 @@ def _bbox_center(bbox: list[int]) -> list[int]:
     return [int(round((bbox[0] + bbox[2]) / 2)), int(round((bbox[1] + bbox[3]) / 2))]
 
 
-def _parse_scene_label(label: str) -> tuple[int, str]:
-    prefix, separator, suffix = label.partition("|")
-    if separator != "|" or not prefix.isdigit() or not suffix.strip():
-        raise RuntimeError(f"group1 scene 标签必须是 NN|class 形式，实际：{label}")
+def _query_shape_class_guess(shape: dict[str, Any]) -> str | None:
+    label = str(shape.get("label", "")).strip()
+    if label and label != "query_item":
+        return label
+    return _shape_flag_class_guess(shape)
+
+
+def _shape_flag_class_guess(shape: dict[str, Any]) -> str | None:
+    raw_flags = shape.get("flags")
+    if not isinstance(raw_flags, dict):
+        return None
+    class_guess = raw_flags.get("class_guess")
+    if not isinstance(class_guess, str) or not class_guess.strip():
+        return None
+    return class_guess.strip()
+
+
+def _parse_scene_label(label: str) -> tuple[int, str | None]:
+    normalized = label.strip()
+    prefix, separator, suffix = normalized.partition("|")
+    if not prefix.isdigit():
+        raise RuntimeError(f"group1 scene 标签必须是 NN 或 NN|class 形式，实际：{label}")
+    if not separator:
+        return int(prefix), None
+    if not suffix.strip():
+        raise RuntimeError(f"group1 scene 标签必须是 NN 或 NN|class 形式，实际：{label}")
     return int(prefix), suffix.strip()
 
 

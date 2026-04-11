@@ -32,6 +32,7 @@ class Group1PrelabelRequest:
     proposal_model_path: Path
     query_model_path: Path
     project_dir: Path
+    embedder_model_path: Path | None = None
     run_name: str = "prelabel"
     conf: float = 0.25
     imgsz: int = 640
@@ -152,6 +153,7 @@ def build_group1_prelabel_plan(request: Group1PrelabelRequest) -> Group1Prelabel
         dataset_config=request.dataset_config,
         proposal_model_path=request.proposal_model_path,
         query_model_path=request.query_model_path,
+        embedder_model_path=request.embedder_model_path,
         source=source_labels_path,
         project_dir=request.project_dir,
         run_name=request.run_name,
@@ -220,7 +222,7 @@ def run_group1_prelabel(request: Group1PrelabelRequest) -> PrelabelResult:
                 "sample_id": sample_id,
                 "query_image": str(query_source),
                 "scene_image": str(scene_source),
-                "query_targets": [],
+                "query_items": [],
                 "scene_targets": [],
                 "distractors": [],
                 "label_source": "seed",
@@ -243,8 +245,12 @@ def run_group1_prelabel(request: Group1PrelabelRequest) -> PrelabelResult:
             image_width=get_image_size(query_image)[0],
             image_height=get_image_size(query_image)[1],
             shapes=[
-                _build_rectangle_shape(label=str(target["class"]), bbox=_coerce_bbox(target["bbox"]))
-                for target in row.get("query_targets", [])
+                _build_rectangle_shape(
+                    label="query_item",
+                    bbox=_coerce_bbox(target["bbox"]),
+                    flags=_group1_shape_flags(target),
+                )
+                for target in _group1_query_targets(row)
             ],
         )
         _write_labelme_annotation(
@@ -254,8 +260,9 @@ def run_group1_prelabel(request: Group1PrelabelRequest) -> PrelabelResult:
             image_height=get_image_size(scene_image)[1],
             shapes=[
                 _build_rectangle_shape(
-                    label=f"{int(target['order']):02d}|{target['class']}",
+                    label=f"{int(target['order']):02d}",
                     bbox=_coerce_bbox(target["bbox"]),
+                    flags=_group1_shape_flags(target),
                 )
                 for target in row.get("scene_targets", [])
             ],
@@ -397,7 +404,11 @@ def run_group1_query_directory_prelabel(
             image_width=width,
             image_height=height,
             shapes=[
-                _build_rectangle_shape(label=str(target["class"]), bbox=_coerce_bbox(target["bbox"]))
+                _build_rectangle_shape(
+                    label="query_item",
+                    bbox=_coerce_bbox(target["bbox"]),
+                    flags=_group1_shape_flags(target),
+                )
                 for target in detections
             ],
         )
@@ -605,13 +616,18 @@ def _write_labelme_annotation(
     path.write_text(json.dumps(payload, ensure_ascii=False, indent=2), encoding="utf-8")
 
 
-def _build_rectangle_shape(*, label: str, bbox: list[int]) -> dict[str, object]:
+def _build_rectangle_shape(
+    *,
+    label: str,
+    bbox: list[int],
+    flags: dict[str, object] | None = None,
+) -> dict[str, object]:
     x1, y1, x2, y2 = bbox
     return {
         "label": label,
         "shape_type": "rectangle",
         "points": [[x1, y1], [x2, y2]],
-        "flags": {},
+        "flags": dict(flags or {}),
     }
 
 
@@ -623,6 +639,24 @@ def _coerce_bbox(raw_bbox: Any) -> list[int]:
 
 def _bbox_center(bbox: list[int]) -> list[int]:
     return [int(round((bbox[0] + bbox[2]) / 2)), int(round((bbox[1] + bbox[3]) / 2))]
+
+
+def _group1_query_targets(row: dict[str, Any]) -> list[dict[str, Any]]:
+    query_targets = row.get("query_items", row.get("query_targets", []))
+    if not isinstance(query_targets, list):
+        return []
+    return [target for target in query_targets if isinstance(target, dict)]
+
+
+def _group1_shape_flags(target: dict[str, Any]) -> dict[str, object]:
+    class_guess = target.get("class_guess")
+    if not isinstance(class_guess, str) or not class_guess.strip():
+        raw_class = target.get("class")
+        if isinstance(raw_class, str) and raw_class.strip():
+            class_guess = raw_class.strip()
+    if not isinstance(class_guess, str) or not class_guess.strip():
+        return {}
+    return {"class_guess": class_guess.strip()}
 
 
 def _serialize_query_detections(result: Any) -> list[dict[str, Any]]:

@@ -40,12 +40,13 @@ def validate_group1_row(row: dict[str, Any]) -> dict[str, Any]:
         if len(query_items) != len(scene_targets):
             raise DatasetValidationError("group1 gold query_items and scene_targets must have the same length")
 
+    allow_sparse_reviewed = str(normalized["label_source"]) == "reviewed"
     for target in query_items:
-        _validate_group1_object(target, require_order=True)
+        _validate_group1_object(target, require_order=True, allow_order_bbox_only=allow_sparse_reviewed)
     for target in scene_targets:
-        _validate_group1_object(target, require_order=True)
+        _validate_group1_object(target, require_order=True, allow_order_bbox_only=allow_sparse_reviewed)
     for distractor in distractors:
-        _validate_group1_object(distractor, require_order=False)
+        _validate_group1_object(distractor, require_order=False, allow_order_bbox_only=False)
 
     return normalized
 
@@ -172,7 +173,12 @@ def _normalize_group1_aliases(row: dict[str, Any]) -> dict[str, Any]:
     return normalized
 
 
-def _validate_group1_object(obj: dict[str, Any], *, require_order: bool) -> None:
+def _validate_group1_object(
+    obj: dict[str, Any],
+    *,
+    require_order: bool,
+    allow_order_bbox_only: bool,
+) -> None:
     required = ["bbox", "center"]
     if require_order:
         required.insert(0, "order")
@@ -186,12 +192,14 @@ def _validate_group1_object(obj: dict[str, Any], *, require_order: bool) -> None
 
     if has_any_identity and not has_all_identity:
         raise DatasetValidationError("group1 object must provide a complete asset_id/template_id/variant_id identity")
-    if not has_all_identity and not has_legacy_class:
+    if not has_all_identity and not has_legacy_class and not allow_order_bbox_only:
         raise DatasetValidationError("group1 object must provide asset identity or legacy class/class_id")
     if "class" in obj and (not isinstance(obj["class"], str) or not str(obj["class"]).strip()):
         raise DatasetValidationError("class must be a non-empty string when provided")
     if "class_id" in obj and not isinstance(obj["class_id"], int):
         raise DatasetValidationError("class_id must be an integer when provided")
+    if "class_guess" in obj and (not isinstance(obj["class_guess"], str) or not str(obj["class_guess"]).strip()):
+        raise DatasetValidationError("class_guess must be a non-empty string when provided")
 
 
 def _validate_object(obj: dict[str, Any], *, require_order: bool) -> None:

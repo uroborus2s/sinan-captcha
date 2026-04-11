@@ -20,7 +20,9 @@ from core.dataset.validation import (
 from core.evaluate.service import EvaluationRequest, evaluate_model
 from core.modeltest.service import ModelTestRequest, ModelTestResult, run_model_test
 from core.train.base import default_dataset_config, preferred_checkpoint_path, preferred_run_checkpoint
+from core.train.group1.dataset import load_group1_dataset_config
 from core.train.group1.service import (
+    EMBEDDER_COMPONENT,
     PROPOSAL_COMPONENT,
     QUERY_COMPONENT,
     resolve_group1_component_best_weights,
@@ -355,6 +357,7 @@ def _build_business_model_test_request(
 ) -> ModelTestRequest:
     dataset_config = default_dataset_config(train_root, task, dataset_version)
     if task == "group1":
+        group1_dataset = load_group1_dataset_config(dataset_config)
         return ModelTestRequest(
             task=task,
             dataset_version=dataset_version,
@@ -362,6 +365,11 @@ def _build_business_model_test_request(
             dataset_config=dataset_config,
             model_path=_preferred_group1_component_weights(train_root, train_name, PROPOSAL_COMPONENT),
             query_model_path=_preferred_group1_component_weights(train_root, train_name, QUERY_COMPONENT),
+            embedder_model_path=(
+                _preferred_group1_component_weights(train_root, train_name, EMBEDDER_COMPONENT)
+                if group1_dataset.is_instance_matching
+                else None
+            ),
             source=source,
             project_dir=report_dir / "modeltest",
             report_dir=report_dir / "modeltest-report",
@@ -451,20 +459,29 @@ def _build_group1_case_results(
             continue
 
         predicted_targets = get_group1_scene_targets(prediction)
+        predicted_by_order = {
+            int(target["order"]): target
+            for target in predicted_targets
+            if isinstance(target.get("order"), int)
+        }
         matched_target_count = 0
-        order_ok = len(gold_targets) == len(predicted_targets)
+        expected_orders = [int(target["order"]) for target in gold_targets]
+        predicted_orders = sorted(
+            int(target["order"])
+            for target in predicted_targets
+            if isinstance(target.get("order"), int)
+        )
+        order_ok = len(gold_targets) == len(predicted_targets) and predicted_orders == expected_orders
         sequence_ok = order_ok
         center_errors: list[float] = []
-        for index, gold_target in enumerate(gold_targets):
-            if index >= len(predicted_targets):
+        for gold_target in gold_targets:
+            predicted_target = predicted_by_order.get(int(gold_target["order"]))
+            if predicted_target is None:
+                order_ok = False
                 sequence_ok = False
                 continue
-            predicted_target = predicted_targets[index]
-            if predicted_target.get("order") != gold_target.get("order"):
-                order_ok = False
-            if predicted_target.get("class_id") != gold_target.get("class_id"):
+            if not _group1_targets_match_contract(gold_target, predicted_target):
                 sequence_ok = False
-                order_ok = False
                 continue
             center_error = _distance(gold_target["center"], predicted_target["center"])
             center_errors.append(center_error)
@@ -475,12 +492,12 @@ def _build_group1_case_results(
         success = sequence_ok and matched_target_count == len(gold_targets)
         reason_code = "pass" if success else ("order_mismatch" if not order_ok else "sequence_mismatch")
         reason_cn = (
-            "点击序列、类别和中心点误差均达标。"
+            "点击序列与中心点误差均达标。"
             if success
             else (
-                "输出目标顺序或类别与标准答案不一致。"
+                "输出目标顺序与标准答案不一致。"
                 if reason_code == "order_mismatch"
-                else "输出目标数量、类别或点击中心未全部达标。"
+                else "输出目标数量、实例匹配或点击中心未全部达标。"
             )
         )
         results.append(
@@ -709,6 +726,19 @@ def _preferred_group1_component_weights(train_root: Path, train_name: str, compo
     best = resolve_group1_component_best_weights(train_root, train_name, component)
     last = resolve_group1_component_last_weights(train_root, train_name, component)
     return preferred_checkpoint_path(best, last)
+
+
+def _group1_targets_match_contract(gold_target: dict[str, Any], predicted_target: dict[str, Any]) -> bool:
+    gold_identity = tuple(str(gold_target.get(field, "")).strip() for field in ("asset_id", "template_id", "variant_id"))
+    if all(gold_identity):
+        predicted_identity = tuple(str(predicted_target.get(field, "")).strip() for field in ("asset_id", "template_id", "variant_id"))
+        return predicted_identity == gold_identity
+
+    gold_class_id = gold_target.get("class_id")
+    if isinstance(gold_class_id, int):
+        return predicted_target.get("class_id") == gold_class_id
+
+    return True
 
 
 def _process_conclusion_cn(*, study: contracts.StudyRecord, business_record: contracts.BusinessEvalRecord) -> str:

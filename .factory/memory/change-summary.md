@@ -1,5 +1,44 @@
 # 变更摘要
 
+## 2026-04-11 收口 `group1` reviewed / prelabel / auto-train` 的实例匹配合同
+
+- 已更新：
+  - `packages/sinan-captcha/core/dataset/validation.py`
+  - `packages/sinan-captcha/core/exam/service.py`
+  - `packages/sinan-captcha/core/train/prelabel.py`
+  - `packages/sinan-captcha/core/train/group1/cli.py`
+  - `packages/sinan-captcha/core/evaluate/service.py`
+  - `packages/sinan-captcha/core/auto_train/business_eval.py`
+  - `packages/sinan-captcha/core/auto_train/runners/test.py`
+  - `packages/sinan-captcha/core/auto_train/runners/train.py`
+  - `tests/python/test_group1_instance_contracts.py`
+  - `tests/python/test_exam_service.py`
+  - `tests/python/test_train_prelabel_service.py`
+  - `tests/python/test_evaluate_service.py`
+  - `tests/python/test_auto_train_business_eval.py`
+  - `tests/python/test_auto_train_runners.py`
+  - `README.md`
+  - `docs/04-project-development/05-development-process/group1-instance-matching-refactor-task-breakdown.md`
+  - `.factory/memory/current-state.md`
+  - `.factory/memory/change-summary.md`
+- 当前已完成的目标：
+  - `group1 reviewed` 正式合同已切到 `query_item + NN`
+  - `export-reviewed --task group1` 现正式输出 `query_items / scene_targets` 的 `order + bbox + center`
+  - 导出器保留对 legacy `query=<class>` / `scene=NN|class` 的兼容读取，并将其降级为可选 `class_guess`
+  - `train group1 prelabel` 与 `prelabel-query-dir` 已统一写新 LabelMe 合同，并把旧类别提示落到 `shape.flags.class_guess`
+  - `group1` 评估与 reviewed business gate 已支持稀疏 reviewed 答案按 `order + center` 判卷
+  - `auto-train train/test/business-eval` 已把 `icon-embedder` 纳入正式 checkpoint 生命周期与 model-test 请求
+- 当前尚未完成：
+  - `group1` reviewed 用户文档的全量收口
+  - `auto-train controller/judge` 对新 matcher 失败模式的细粒度归因
+- 已运行验证：
+  - `./.venv/bin/python -m unittest discover -s tests/python -p 'test_group1_instance_contracts.py'`
+  - `./.venv/bin/python -m unittest discover -s tests/python -p 'test_exam_service.py'`
+  - `./.venv/bin/python -m unittest discover -s tests/python -p 'test_train_prelabel_service.py'`
+  - `./.venv/bin/python -m unittest discover -s tests/python -p 'test_evaluate_service.py'`
+  - `./.venv/bin/python -m unittest discover -s tests/python -p 'test_auto_train_business_eval.py'`
+  - `./.venv/bin/python -m unittest discover -s tests/python -p 'test_auto_train_runners.py'`
+
 ## 2026-04-11 修复 `group1 query audit` 的部分落盘与失败重试
 
 - 已更新：

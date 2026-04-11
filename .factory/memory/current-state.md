@@ -17,6 +17,36 @@
 
 ## 当前事实
 
+- 2026-04-11 当前 `group1 reviewed / prelabel / auto-train` 已完成一轮实例匹配合同收口：
+  - 当前 `reviewed` 正式人工标注合同已切为：
+    - `query` 写 `query_item`
+    - `scene` 写两位顺序号 `NN`
+  - 当前 `exam export-reviewed --task group1` 已正式导出：
+    - `query_items[{order,bbox,center}]`
+    - `scene_targets[{order,bbox,center}]`
+  - 当前 legacy 人工答案仍兼容读取：
+    - `query=<class>`
+    - `scene=NN|class`
+  - 当前 legacy 类别信息只保留为可选 `class_guess`
+  - 当前 `train group1 prelabel` 与 `prelabel-query-dir` 已写新合同：
+    - LabelMe `query` 统一写 `query_item`
+    - LabelMe `scene` 统一写 `NN`
+    - 旧类别提示写入 `shape.flags.class_guess`
+  - 当前 `auto-train train/test/business-eval` 已补齐 `icon-embedder` 生命周期：
+    - `TrainRecord.params` 记录 `embedder_model_best/last`
+    - `test` / `business_eval` 会在实例匹配数据集上透传 `icon-embedder`
+  - 当前 `group1` 判卷语义已改为：
+    - gold 有完整 `asset_id/template_id/variant_id` 时按 identity 判
+    - gold 有 legacy `class/class_id` 时按 class 判
+    - reviewed 稀疏答案时按 `order + center` 判
+  - 当前已验证：
+    - `./.venv/bin/python -m unittest discover -s tests/python -p 'test_group1_instance_contracts.py'`
+    - `./.venv/bin/python -m unittest discover -s tests/python -p 'test_exam_service.py'`
+    - `./.venv/bin/python -m unittest discover -s tests/python -p 'test_train_prelabel_service.py'`
+    - `./.venv/bin/python -m unittest discover -s tests/python -p 'test_evaluate_service.py'`
+    - `./.venv/bin/python -m unittest discover -s tests/python -p 'test_auto_train_business_eval.py'`
+    - `./.venv/bin/python -m unittest discover -s tests/python -p 'test_auto_train_runners.py'`
+
 - 2026-04-11 当前 `uv run sinan materials audit-group1-query` 已补齐“部分成功可落盘 + 失败项可重试”恢复语义：
   - 当前即使存在 `error_count > 0`，也会基于成功图片先写出可用的 `group1` 模板素材包，而不是整批阻断
   - 当前 CLI 已支持：

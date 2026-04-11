@@ -87,23 +87,32 @@ def _evaluate_group1(
 
         gold_targets = get_group1_scene_targets(gold)
         predicted_targets = get_group1_scene_targets(prediction)
+        predicted_by_order = {
+            int(target["order"]): target
+            for target in predicted_targets
+            if isinstance(target.get("order"), int)
+        }
         total_targets += len(gold_targets)
         sample_hits = 0
-        sequence_ok = len(gold_targets) == len(predicted_targets)
-        order_ok = sequence_ok
+        expected_orders = [int(target["order"]) for target in gold_targets]
+        predicted_orders = sorted(
+            int(target["order"])
+            for target in predicted_targets
+            if isinstance(target.get("order"), int)
+        )
+        order_ok = len(gold_targets) == len(predicted_targets) and predicted_orders == expected_orders
+        sequence_ok = order_ok
         sample_errors: list[float] = []
 
-        for index, gold_target in enumerate(gold_targets):
-            if index >= len(predicted_targets):
+        for gold_target in gold_targets:
+            predicted_target = predicted_by_order.get(int(gold_target["order"]))
+            if predicted_target is None:
+                order_ok = False
                 sequence_ok = False
                 continue
 
-            predicted_target = predicted_targets[index]
-            if predicted_target.get("order") != gold_target.get("order"):
-                order_ok = False
-            if predicted_target.get("class_id") != gold_target.get("class_id"):
+            if not _group1_targets_match_contract(gold_target, predicted_target):
                 sequence_ok = False
-                order_ok = False
                 continue
 
             center_error = _distance(gold_target["center"], predicted_target["center"])
@@ -265,3 +274,16 @@ def _safe_ratio(numerator: int, denominator: int) -> float:
     if denominator == 0:
         return 0.0
     return numerator / denominator
+
+
+def _group1_targets_match_contract(gold_target: dict[str, Any], predicted_target: dict[str, Any]) -> bool:
+    gold_identity = tuple(str(gold_target.get(field, "")).strip() for field in ("asset_id", "template_id", "variant_id"))
+    if all(gold_identity):
+        predicted_identity = tuple(str(predicted_target.get(field, "")).strip() for field in ("asset_id", "template_id", "variant_id"))
+        return predicted_identity == gold_identity
+
+    gold_class_id = gold_target.get("class_id")
+    if isinstance(gold_class_id, int):
+        return predicted_target.get("class_id") == gold_class_id
+
+    return True

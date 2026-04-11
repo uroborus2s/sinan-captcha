@@ -140,6 +140,28 @@
 - `query` 人工标注不再要求类名
 - `scene` 人工标注不再要求 `NN|class`
 - `reviewed/labels.jsonl` 能恢复 query 顺序和 scene 答案位置
+- 当前 2026-04-11 已完成 reviewed 合同切换切片：
+  - `group1 reviewed query` 现统一写 `query_item`
+  - `group1 reviewed scene` 现统一写两位顺序号 `NN`
+  - `exam export-reviewed --task group1` 已改为正式输出：
+    - `query_items[{order,bbox,center}]`
+    - `scene_targets[{order,bbox,center}]`
+  - 导出器仍兼容读取旧人工答案：
+    - `query=<class>`
+    - `scene=NN|class`
+  - legacy 类别信息已降级为可选 `class_guess`，不再是 reviewed 正式主键
+
+### `TASK-G1-REF-009`
+
+- 当前 2026-04-11 已完成第一轮预标注 cutover：
+  - `train group1 prelabel` 生成的 `query/*.json` 已统一写 `query_item`
+  - `train group1 prelabel` 生成的 `scene/*.json` 已统一写 `NN`
+  - 预标注输出会把旧类别提示沉淀到 `shape.flags.class_guess`
+  - `train group1 prelabel-query-dir` 也已切到同一合同
+  - `train group1 prelabel` CLI 已支持实例匹配数据集透传 `icon-embedder`
+- 当前仍待补齐：
+  - 面向人工审核的全量文档收口
+  - 旧 reviewed 目录的批量迁移脚本（如需要）
 
 ### `TASK-G1-REF-008`
 
@@ -198,6 +220,17 @@
   - `embedding_confusion`
   - `assignment_error`
   - `ambiguity_reject`
+- 当前 2026-04-11 已完成自动训练主链路修复切片：
+  - `auto-train train` 已把 `icon-embedder` checkpoint 纳入 `TrainRecord.params`
+  - `auto-train test` 已按实例匹配数据集自动透传 `icon-embedder`
+  - `business_eval` 已把 `icon-embedder` 纳入正式 model-test 请求
+  - `group1` 判卷已改为：
+    - gold 有完整 identity 时按 identity 判
+    - gold 只有 legacy `class/class_id` 时按 class 判
+    - reviewed 稀疏答案时按 `order + center` 判
+- 当前仍待补齐：
+  - 面向 controller/judge 的细粒度失败归因落盘
+  - 旧 `query_split_error` 等诊断口径与新 matcher 失败模式的统一映射
 
 ### `TASK-G1-REF-012`
 

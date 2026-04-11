@@ -15,7 +15,13 @@ from core.train.base import (
     default_predict_source,
     default_report_dir,
 )
-from core.train.group1.service import PROPOSAL_COMPONENT, QUERY_COMPONENT, resolve_group1_component_best_weights
+from core.train.group1.dataset import load_group1_dataset_config
+from core.train.group1.service import (
+    EMBEDDER_COMPONENT,
+    PROPOSAL_COMPONENT,
+    QUERY_COMPONENT,
+    resolve_group1_component_best_weights,
+)
 
 ModelTestExecutor = Callable[[ModelTestRequest], ModelTestResult]
 
@@ -28,6 +34,8 @@ class TestRunnerRequest:
     train_name: str
     dataset_config: Path | None = None
     model_path: Path | None = None
+    query_model_path: Path | None = None
+    embedder_model_path: Path | None = None
     source: Path | None = None
     project_dir: Path | None = None
     report_dir: Path | None = None
@@ -55,6 +63,10 @@ def run_test_request(
     model_request = _build_model_test_request(request)
     require_existing_path(model_request.dataset_config, stage="TEST", label="测试数据集配置文件")
     require_existing_path(model_request.model_path, stage="TEST", label="测试权重文件")
+    if model_request.query_model_path is not None:
+        require_existing_path(model_request.query_model_path, stage="TEST", label="group1 query parser 权重文件")
+    if model_request.embedder_model_path is not None:
+        require_existing_path(model_request.embedder_model_path, stage="TEST", label="group1 icon embedder 权重文件")
     require_existing_path(model_request.source, stage="TEST", label="测试图片来源")
 
     try:
@@ -81,11 +93,19 @@ def _build_model_test_request(request: TestRunnerRequest) -> ModelTestRequest:
     task = request.task
     dataset_config = request.dataset_config or default_dataset_config(request.train_root, task, request.dataset_version)
     if task == "group1":
+        group1_dataset_config = load_group1_dataset_config(dataset_config)
         model_path = request.model_path or resolve_group1_component_best_weights(request.train_root, request.train_name, PROPOSAL_COMPONENT)
-        query_model_path = resolve_group1_component_best_weights(request.train_root, request.train_name, QUERY_COMPONENT)
+        query_model_path = request.query_model_path or resolve_group1_component_best_weights(request.train_root, request.train_name, QUERY_COMPONENT)
+        embedder_model_path = None
+        if group1_dataset_config.is_instance_matching:
+            embedder_model_path = (
+                request.embedder_model_path
+                or resolve_group1_component_best_weights(request.train_root, request.train_name, EMBEDDER_COMPONENT)
+            )
     else:
         model_path = request.model_path or default_best_weights(request.train_root, task, request.train_name)
         query_model_path = None
+        embedder_model_path = None
     source = request.source or default_predict_source(request.train_root, task, request.dataset_version)
     project_dir = request.project_dir or default_report_dir(request.train_root, task)
     report_dir = request.report_dir or (project_dir / f"test_{request.train_name}")
@@ -98,6 +118,7 @@ def _build_model_test_request(request: TestRunnerRequest) -> ModelTestRequest:
         dataset_config=dataset_config,
         model_path=model_path,
         query_model_path=query_model_path,
+        embedder_model_path=embedder_model_path,
         source=source,
         project_dir=project_dir,
         report_dir=report_dir,

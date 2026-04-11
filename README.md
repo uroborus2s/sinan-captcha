@@ -72,7 +72,12 @@
      - `uv run sinan train group1 --component icon-embedder ...`
 6. 用 `uv run sinan test group1|group2` 做一键预测 + 评估
    - `group1` 的 `predict/test` 当前会把 `query-parser + proposal-detector + icon-embedder + matcher` 串成最终位置挑选链路
+   - `group1` 的 reviewed business-eval 现也复用同一整链路，不再按旧 `class_id` 单独判卷
 7. 用 `uv run sinan auto-train ...` 启动自主训练 study
+   - `group1` reviewed 预标注与导出当前正式合同为：
+     - `query` 标 `query_item`
+     - `scene` 标两位顺序号 `NN`
+     - 可选类别提示仅保存在 `shape.flags.class_guess`
 
 典型命令：
 

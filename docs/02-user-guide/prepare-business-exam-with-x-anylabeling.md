@@ -202,7 +202,7 @@ materials/business_exams/group2/reviewed-v1/
 6. 检查图里每个小图标是否都被框到了。
 7. 如果漏框，就新建一个矩形框。
 8. 如果框位置不准，就拖动框边修正。
-9. 如果标签错了，就修改标签名。
+9. 如果标签不是 `query_item`，就改回 `query_item`。
 10. 保存当前图片标注。
 11. 继续下一张。
 
@@ -210,22 +210,22 @@ materials/business_exams/group2/reviewed-v1/
 
 这里非常重要：
 
-- `query` 里的标签**只写类别名**
+- `query` 里的标签统一写 `query_item`
 - 不写顺序
+- 如果预标注里带了旧类别提示，它只会出现在 `flags.class_guess`
 
 正确示例：
 
-- `icon_lock`
-- `icon_star`
-- `icon_car`
+- `query_item`
 
 错误示例：
 
+- `icon_lock`
 - `01|icon_lock`
 - `1_icon_lock`
 - `target_1`
 
-如果你不确定某个图标到底该叫哪个标准标签，不要现场临时发明名字。先回看：
+如果你不确定某个图标到底像哪个旧类别，不要现场临时发明名字。先回看：
 
 - [训练者角色：`group1` 标签对照与人工复核说明](./group1-label-reference-and-review-guide.md)
 
@@ -236,7 +236,7 @@ materials/business_exams/group2/reviewed-v1/
 - 每个查询图标都被框到
 - 没有多框
 - 没有漏框
-- 标签类别正确
+- 标签统一写成 `query_item`
 
 ## 6. `group1 scene` 的详细操作
 
@@ -257,7 +257,7 @@ materials/business_exams/group2/reviewed-v1/
 4. 检查这些目标是否都被框到。
 5. 删除干扰项上的错误框。
 6. 修正框位置。
-7. 修改标签为“顺序 + 类别名”。
+7. 修改标签为两位顺序号。
 8. 保存。
 9. 继续下一张。
 
@@ -265,19 +265,19 @@ materials/business_exams/group2/reviewed-v1/
 
 这里的标签必须写成：
 
-- `NN|class`
+- `NN`
 
 正确示例：
 
-- `01|icon_lock`
-- `02|icon_star`
-- `03|icon_car`
+- `01`
+- `02`
+- `03`
 
 规则是：
 
 - `01`、`02`、`03` 表示点击顺序
-- 后面的 `class` 必须和 `query` 里对应的类别一致
 - 同一张图里只能标真正答案，不标干扰项
+- 如果保留了旧类别提示，也只放在 `flags.class_guess`
 
 如果你发现模型没识别出某个图标，先用同一页文档区分：
 
@@ -439,8 +439,8 @@ uv run sinan auto-train run group2 \
 ## 10. 最后再记 4 条硬规则
 
 1. 商业试卷统一标记为 `reviewed`，不要回灌训练集。
-2. `group1 query` 只写类别名，不写顺序。
-3. `group1 scene` 必须写 `NN|class`。
+2. `group1 query` 只写 `query_item`，不写顺序。
+3. `group1 scene` 只写两位顺序号 `NN`。
 4. `group2` 每张图只允许一个 `slider_gap`。
 
 ## 11. 推荐阅读顺序
