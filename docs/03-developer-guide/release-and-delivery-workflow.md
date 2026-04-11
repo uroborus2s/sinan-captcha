@@ -37,8 +37,10 @@
 
 - `repo build all`
   仓库级统一构建入口
-- `repo publish`
+- `repo publish-sinan`
   只上传 `sinan-captcha`
+- `repo publish-solver`
+  只上传 `sinanz`
 
 ## 先把 4 个容易混的术语拆开
 
@@ -145,7 +147,7 @@ uv run repo build solver
 ## 上传 `sinan-captcha` 到 PyPI
 
 ```bash
-uv run repo publish
+uv run repo publish-sinan
 ```
 
 默认读取顺序：
@@ -156,7 +158,7 @@ uv run repo publish
 如果你们把 token 放在其他环境变量里，显式传：
 
 ```bash
-uv run repo publish --token-env <TOKEN_ENV>
+uv run repo publish-sinan --token-env <TOKEN_ENV>
 ```
 
 当前行为要点：
@@ -164,6 +166,23 @@ uv run repo publish --token-env <TOKEN_ENV>
 - 发布器只读取当前版本对应的 wheel 与 sdist
 - 不会把 `dist/` 中的历史工件一起上传
 - 上传目标目前只覆盖 `sinan-captcha`
+
+## 上传 `sinanz` 到 PyPI
+
+```bash
+uv run repo publish-solver
+```
+
+如果要改 token 环境变量名：
+
+```bash
+uv run repo publish-solver --token-env <TOKEN_ENV>
+```
+
+当前前提：
+
+- `packages/solver/dist/` 中已经有当前版本 `sinanz` 的 wheel 与 sdist
+- `packages/solver/resources/` 已经是你确认过的 staged 资产版本
 
 ## solver 资产导出与 staging
 

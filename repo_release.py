@@ -11,6 +11,8 @@ import subprocess
 import textwrap
 
 from project_metadata import read_project_version
+
+
 @dataclass(frozen=True)
 class BuildReleaseRequest:
     project_dir: Path
@@ -152,6 +154,10 @@ def stage_solver_assets(request: StageSolverAssetsRequest) -> None:
 
 
 def publish_distribution(request: PublishReleaseRequest) -> None:
+    publish_sinan_distribution(request)
+
+
+def publish_sinan_distribution(request: PublishReleaseRequest) -> None:
     layout = _resolve_repo_layout(request.project_dir)
     token, token_source = _resolve_publish_token(request)
 
@@ -174,6 +180,31 @@ def publish_distribution(request: PublishReleaseRequest) -> None:
         env=_tool_env(layout.repo_root, env),
     )
     print(f"published sinan-captcha to PyPI using token from {token_source}")
+
+
+def publish_solver_distribution(request: PublishReleaseRequest) -> None:
+    layout = _resolve_repo_layout(request.project_dir)
+    token, token_source = _resolve_publish_token(request)
+
+    publish_url, check_url = _resolve_repository_urls(request.repository)
+    env = os.environ.copy()
+    env["UV_PUBLISH_TOKEN"] = token
+    distribution_files = _current_solver_distribution_files(layout.solver_dir)
+    subprocess.run(
+        args=[
+            "uv",
+            "publish",
+            "--publish-url",
+            publish_url,
+            "--check-url",
+            check_url,
+            *[path.as_posix() for path in distribution_files],
+        ],
+        check=True,
+        cwd=layout.solver_dir,
+        env=_tool_env(layout.repo_root, env),
+    )
+    print(f"published sinanz to PyPI using token from {token_source}")
 
 
 def package_windows_bundle(request: PackageWindowsRequest) -> None:
@@ -249,6 +280,18 @@ def _current_distribution_files(project_dir: Path) -> list[Path]:
     if missing:
         missing_text = ", ".join(str(path) for path in missing)
         raise ValueError(f"missing release artifacts for current version: {missing_text}")
+    return [wheel, sdist]
+
+
+def _current_solver_distribution_files(project_dir: Path) -> list[Path]:
+    version = read_project_version(project_dir)
+    dist_dir = project_dir / "dist"
+    wheel = dist_dir / f"sinanz-{version}-py3-none-any.whl"
+    sdist = dist_dir / f"sinanz-{version}.tar.gz"
+    missing = [path for path in (wheel, sdist) if not path.exists()]
+    if missing:
+        missing_text = ", ".join(str(path) for path in missing)
+        raise ValueError(f"missing solver release artifacts for current version: {missing_text}")
     return [wheel, sdist]
 
 

@@ -30,52 +30,25 @@ class RepoCliTests(unittest.TestCase):
             generator_dir=generator_dir,
         )
 
-    def test_main_dispatches_publish(self) -> None:
+    def test_main_dispatches_publish_sinan(self) -> None:
         layout = self._make_layout()
-        with patch("repo_cli.publish_distribution") as publish_mock:
-            code = repo_cli.main(["publish"], layout=layout)
+        with patch("repo_cli.publish_sinan_distribution") as publish_mock:
+            code = repo_cli.main(["publish-sinan"], layout=layout)
 
         self.assertEqual(code, 0)
-        publish_mock.assert_called_once_with(repo_cli.PublishRequest(project_dir=layout.repo_root, token_env=None))
-
-    def test_publish_uses_pypi_token_by_default(self) -> None:
-        layout = self._make_layout()
-        (layout.sinan_dir / "pyproject.toml").write_text(
-            "[project]\nname='sinan-captcha'\nversion='1.2.3'\n",
-            encoding="utf-8",
+        publish_mock.assert_called_once_with(
+            repo_cli.PublishReleaseRequest(project_dir=layout.repo_root, token_env=None)
         )
-        dist_dir = layout.sinan_dir / "dist"
-        dist_dir.mkdir()
-        (dist_dir / "sinan_captcha-1.2.3-py3-none-any.whl").write_text("wheel", encoding="utf-8")
-        (dist_dir / "sinan_captcha-1.2.3.tar.gz").write_text("sdist", encoding="utf-8")
 
-        with (
-            patch.dict(repo_cli.os.environ, {"PYPI_TOKEN": "secret"}, clear=True),
-            patch.object(repo_cli.subprocess, "run") as run_mock,
-        ):
-            repo_cli.publish_distribution(repo_cli.PublishRequest(project_dir=layout.repo_root))
-
-        self.assertEqual(run_mock.call_args.kwargs["env"]["UV_PUBLISH_TOKEN"], "secret")
-        self.assertIn("https://upload.pypi.org/legacy/", run_mock.call_args.kwargs["args"])
-
-    def test_publish_falls_back_to_uv_publish_token(self) -> None:
+    def test_main_dispatches_publish_solver(self) -> None:
         layout = self._make_layout()
-        (layout.sinan_dir / "pyproject.toml").write_text(
-            "[project]\nname='sinan-captcha'\nversion='1.2.3'\n",
-            encoding="utf-8",
+        with patch("repo_cli.publish_solver_distribution") as publish_mock:
+            code = repo_cli.main(["publish-solver"], layout=layout)
+
+        self.assertEqual(code, 0)
+        publish_mock.assert_called_once_with(
+            repo_cli.PublishReleaseRequest(project_dir=layout.repo_root, token_env=None)
         )
-        dist_dir = layout.sinan_dir / "dist"
-        dist_dir.mkdir()
-        (dist_dir / "sinan_captcha-1.2.3-py3-none-any.whl").write_text("wheel", encoding="utf-8")
-        (dist_dir / "sinan_captcha-1.2.3.tar.gz").write_text("sdist", encoding="utf-8")
-
-        with (
-            patch.dict(repo_cli.os.environ, {"UV_PUBLISH_TOKEN": "secret"}, clear=True),
-            patch.object(repo_cli.subprocess, "run") as run_mock,
-        ):
-            repo_cli.publish_distribution(repo_cli.PublishRequest(project_dir=layout.repo_root))
-
-        self.assertEqual(run_mock.call_args.kwargs["env"]["UV_PUBLISH_TOKEN"], "secret")
 
     def test_main_prints_paths(self) -> None:
         layout = self._make_layout()

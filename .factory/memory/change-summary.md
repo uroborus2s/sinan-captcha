@@ -30,7 +30,8 @@
   - 仓库级构建、发版、资产导出和 Windows 打包已全部迁到根目录模块
   - `uv run repo ...` 已成为唯一正式仓库级 CLI
   - `sinan` CLI 已彻底去掉仓库级 `release` 边界
-  - `publish` 当前只支持 PyPI，默认 token 读取顺序为 `PYPI_TOKEN -> UV_PUBLISH_TOKEN`
+  - 当前发布入口已进一步拆分为 `publish-sinan` / `publish-solver`
+  - 两个发布命令当前都只支持 PyPI，默认 token 读取顺序为 `PYPI_TOKEN -> UV_PUBLISH_TOKEN`
 - 已运行验证：
   - `./.venv/bin/python -m unittest discover -s tests/python -p 'test_root_cli.py'`
   - `./.venv/bin/python -m unittest discover -s tests/python -p 'test_repo_cli.py'`

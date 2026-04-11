@@ -194,10 +194,16 @@ uv run repo build all --goos windows --goarch amd64
 上传 `sinan-captcha` 到 PyPI：
 
 ```bash
-uv run repo publish
+uv run repo publish-sinan
 ```
 
 默认会按 `PYPI_TOKEN -> UV_PUBLISH_TOKEN` 顺序读取 token；如果你们内部使用其他变量名，可显式传 `--token-env <ENV_NAME>`。
+
+上传 `sinanz` 到 PyPI：
+
+```bash
+uv run repo publish-solver
+```
 
 ## 文档入口
 

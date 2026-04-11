@@ -1965,7 +1965,8 @@
 - 2026-04-11 当前仓库级构建 / 发版 / 打包链路已完全迁到根目录 `repo` CLI：
   - 正式入口当前固定为：
     - `uv run repo build sinan-captcha|generator|solver|all`
-    - `uv run repo publish`
+    - `uv run repo publish-sinan`
+    - `uv run repo publish-solver`
     - `uv run repo export-solver-assets`
     - `uv run repo stage-solver-assets`
     - `uv run repo package-windows`
@@ -1976,8 +1977,8 @@
     - `tests/python/test_repo_script.py`
   - 当前边界已明确为：
     - `sinan` 只负责训练仓库功能，不再承载仓库级 release/build/package 命令
-    - `publish` 当前只支持 PyPI，不再维护 TestPyPI 入口
-    - `publish` 默认按 `PYPI_TOKEN -> UV_PUBLISH_TOKEN` 顺序读取 token，也可显式传 `--token-env`
+    - `publish-sinan` 与 `publish-solver` 当前都只支持 PyPI，不再维护 TestPyPI 入口
+    - 两个发布命令默认都按 `PYPI_TOKEN -> UV_PUBLISH_TOKEN` 顺序读取 token，也可显式传 `--token-env`
   - 当前已验证：
     - `./.venv/bin/python -m unittest discover -s tests/python -p 'test_root_cli.py'`
     - `./.venv/bin/python -m unittest discover -s tests/python -p 'test_repo_cli.py'`

@@ -154,7 +154,8 @@ uv run repo build generator --goos windows --goarch amd64
 上传到 PyPI：
 
 ```bash
-uv run repo publish
+uv run repo publish-sinan
+uv run repo publish-solver
 ```
 
 这些命令的输出目录固定为：
@@ -171,7 +172,7 @@ uv run repo publish
 2. `sinan`、`sinan-generator`、`sinanz` 分别负责什么。
 3. `work_home/`、`.opencode/`、`packages/solver/resources/` 分别属于什么边界。
 4. 改完 Python 主线、Go 生成器、`sinanz` 后各自最少跑什么验证。
-5. `repo build all` 和 `repo publish` 的边界分别是什么。
+5. `repo build all`、`repo publish-sinan`、`repo publish-solver` 的边界分别是什么。
 6. 当前真正会上传到 PyPI 的是哪个包，版本号从哪里读取，token 默认从哪些环境变量读取。
 
 ## 需要立即记住的边界

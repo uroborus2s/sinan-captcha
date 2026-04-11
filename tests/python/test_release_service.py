@@ -23,6 +23,8 @@ from repo_release import (
     build_solver_distribution,
     package_windows_bundle,
     publish_distribution,
+    publish_sinan_distribution,
+    publish_solver_distribution,
     stage_solver_assets,
 )
 
@@ -254,6 +256,36 @@ class ReleaseServiceTests(unittest.TestCase):
             self.assertTrue(any(item.endswith(f"sinan_captcha-{package_version}-py3-none-any.whl") for item in command))
             self.assertTrue(any(item.endswith(f"sinan_captcha-{package_version}.tar.gz") for item in command))
             self.assertFalse(any(item.endswith("sinan_captcha-0.1.13-py3-none-any.whl") for item in command))
+
+    def test_publish_solver_distribution_reads_token_from_env(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            project_dir = Path(tmpdir)
+            _, solver_dir, _ = self._create_repo_layout(project_dir)
+            package_version = "0.2.3"
+            solver_dir.joinpath("pyproject.toml").write_text(
+                "[project]\nname='sinanz'\nversion='0.2.3'\n",
+                encoding="utf-8",
+            )
+            dist_dir = solver_dir / "dist"
+            dist_dir.mkdir()
+            (dist_dir / f"sinanz-{package_version}-py3-none-any.whl").write_text("wheel", encoding="utf-8")
+            (dist_dir / f"sinanz-{package_version}.tar.gz").write_text("sdist", encoding="utf-8")
+            (dist_dir / "sinanz-0.1.9-py3-none-any.whl").write_text("old", encoding="utf-8")
+            request = PublishReleaseRequest(project_dir=project_dir, token_env="PYPI_TOKEN")
+            env = os.environ.copy()
+            env["PYPI_TOKEN"] = "secret-token"
+            with patch.dict(os.environ, env, clear=True):
+                with patch("repo_release.subprocess.run") as subprocess_run:
+                    subprocess_run.return_value.returncode = 0
+                    publish_solver_distribution(request)
+
+            command = subprocess_run.call_args.kwargs["args"]
+            self.assertIn("https://upload.pypi.org/legacy/", command)
+            self.assertEqual(subprocess_run.call_args.kwargs["cwd"], solver_dir.resolve())
+            self.assertEqual(subprocess_run.call_args.kwargs["env"]["UV_PUBLISH_TOKEN"], "secret-token")
+            self.assertTrue(any(item.endswith(f"sinanz-{package_version}-py3-none-any.whl") for item in command))
+            self.assertTrue(any(item.endswith(f"sinanz-{package_version}.tar.gz") for item in command))
+            self.assertFalse(any(item.endswith("sinanz-0.1.9-py3-none-any.whl") for item in command))
 
     def test_package_windows_bundle_copies_expected_artifacts(self) -> None:
         with tempfile.TemporaryDirectory() as tmpdir:

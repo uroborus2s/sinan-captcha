@@ -13,8 +13,11 @@ import sys
 
 from repo_release import (
     PackageWindowsRequest,
+    PublishReleaseRequest,
     StageSolverAssetsRequest,
     package_windows_bundle,
+    publish_sinan_distribution,
+    publish_solver_distribution,
     stage_solver_assets,
 )
 from repo_solver_export import ExportSolverAssetsRequest, export_solver_assets
@@ -27,12 +30,6 @@ class RepoLayout:
     sinan_dir: Path
     solver_dir: Path
     generator_dir: Path
-
-
-@dataclass(frozen=True)
-class PublishRequest:
-    project_dir: Path
-    token_env: str | None = None
 
 
 def default_layout(repo_root: Path | None = None) -> RepoLayout:
@@ -69,31 +66,6 @@ def build_target(
         _build_generator(layout=layout, goos=goos, goarch=goarch)
         return
     raise ValueError(f"unsupported target: {target}")
-
-
-def publish_distribution(request: PublishRequest) -> None:
-    layout = default_layout(request.project_dir)
-    token, token_source = _resolve_publish_token(request)
-    version = _read_project_version(layout.sinan_dir)
-    distribution_files = _current_distribution_files(layout.sinan_dir, version=version)
-
-    env = _tool_env(layout.repo_root)
-    env["UV_PUBLISH_TOKEN"] = token
-    subprocess.run(
-        args=[
-            "uv",
-            "publish",
-            "--publish-url",
-            "https://upload.pypi.org/legacy/",
-            "--check-url",
-            "https://pypi.org/simple",
-            *[path.as_posix() for path in distribution_files],
-        ],
-        check=True,
-        cwd=layout.sinan_dir,
-        env=env,
-    )
-    print(f"published sinan-captcha to PyPI using token from {token_source}")
 
 
 def _build_python_package(*, package_dir: Path) -> None:
@@ -146,52 +118,6 @@ def _tool_env(repo_root: Path) -> dict[str, str]:
     env.setdefault("UV_CACHE_DIR", str(uv_cache_dir))
     env.setdefault("GOCACHE", str(go_cache_dir))
     return env
-
-
-def _resolve_publish_token(request: PublishRequest) -> tuple[str, str]:
-    if request.token_env is not None:
-        token = os.environ.get(request.token_env)
-        if not token:
-            raise ValueError(f"missing publish token env var: {request.token_env}")
-        return token, request.token_env
-
-    for env_name in ("PYPI_TOKEN", "UV_PUBLISH_TOKEN"):
-        token = os.environ.get(env_name)
-        if token:
-            return token, env_name
-    raise ValueError("missing publish token env var: PYPI_TOKEN or UV_PUBLISH_TOKEN")
-
-
-def _read_project_version(project_dir: Path) -> str:
-    try:
-        import tomllib
-    except ModuleNotFoundError as exc:  # pragma: no cover
-        raise RuntimeError("python 3.11+ is required to read pyproject.toml") from exc
-
-    pyproject_path = project_dir / "pyproject.toml"
-    try:
-        raw = pyproject_path.read_text(encoding="utf-8")
-    except FileNotFoundError as exc:
-        raise ValueError(f"pyproject.toml not found: {pyproject_path}") from exc
-
-    try:
-        version = tomllib.loads(raw)["project"]["version"]
-    except KeyError as exc:
-        raise ValueError(f"project.version is missing in pyproject.toml: {pyproject_path}") from exc
-    if not isinstance(version, str) or not version.strip():
-        raise ValueError(f"project.version must be a non-empty string: {pyproject_path}")
-    return version.strip()
-
-
-def _current_distribution_files(project_dir: Path, *, version: str) -> list[Path]:
-    dist_dir = project_dir / "dist"
-    wheel = dist_dir / f"sinan_captcha-{version}-py3-none-any.whl"
-    sdist = dist_dir / f"sinan_captcha-{version}.tar.gz"
-    missing = [path for path in (wheel, sdist) if not path.exists()]
-    if missing:
-        missing_text = ", ".join(str(path) for path in missing)
-        raise ValueError(f"missing release artifacts for current version: {missing_text}")
-    return [wheel, sdist]
 
 
 def _build_setuptools_distribution(*, package_dir: Path, output_dir: Path) -> None:
@@ -267,12 +193,25 @@ def build_parser() -> argparse.ArgumentParser:
     build_parser_cmd.add_argument("--goarch", help="Optional GOARCH override when building generator.")
     build_parser_cmd.set_defaults(handler=_handle_build)
 
-    publish_parser = subparsers.add_parser("publish", help="Publish current sinan-captcha artifacts to PyPI.")
-    publish_parser.add_argument(
+    publish_sinan_parser = subparsers.add_parser(
+        "publish-sinan",
+        help="Publish current sinan-captcha artifacts to PyPI.",
+    )
+    publish_sinan_parser.add_argument(
         "--token-env",
         help="Optional token env var. Defaults to PYPI_TOKEN, then UV_PUBLISH_TOKEN.",
     )
-    publish_parser.set_defaults(handler=_handle_publish)
+    publish_sinan_parser.set_defaults(handler=_handle_publish_sinan)
+
+    publish_solver_parser = subparsers.add_parser(
+        "publish-solver",
+        help="Publish current sinanz artifacts to PyPI.",
+    )
+    publish_solver_parser.add_argument(
+        "--token-env",
+        help="Optional token env var. Defaults to PYPI_TOKEN, then UV_PUBLISH_TOKEN.",
+    )
+    publish_solver_parser.set_defaults(handler=_handle_publish_solver)
 
     export_parser = subparsers.add_parser(
         "export-solver-assets",
@@ -319,8 +258,17 @@ def _handle_build(args: argparse.Namespace, *, layout: RepoLayout) -> int:
     return 0
 
 
-def _handle_publish(args: argparse.Namespace, *, layout: RepoLayout) -> int:
-    publish_distribution(PublishRequest(project_dir=layout.repo_root, token_env=args.token_env))
+def _handle_publish_sinan(args: argparse.Namespace, *, layout: RepoLayout) -> int:
+    publish_sinan_distribution(
+        PublishReleaseRequest(project_dir=layout.repo_root, token_env=args.token_env)
+    )
+    return 0
+
+
+def _handle_publish_solver(args: argparse.Namespace, *, layout: RepoLayout) -> int:
+    publish_solver_distribution(
+        PublishReleaseRequest(project_dir=layout.repo_root, token_env=args.token_env)
+    )
     return 0
 
 
