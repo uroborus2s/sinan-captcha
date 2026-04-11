@@ -1,6 +1,6 @@
 # 使用者：Solver 包函数参考（`sinanz`）
 
-本页给出 `sinanz` 当前公开函数、类型与异常定义。
+本页给出 `sinanz` 的公开函数、类型与异常定义。
 
 ## 1. 模块导出（`__all__`）
 
@@ -78,21 +78,26 @@ class CaptchaSolver:
 
 ## 3. 输入类型定义
 
-当前可用输入口径（运行时）：
-
-```python
-ImageInput = str | Path
-```
-
-源码中的类型别名目前仍写作（保留 `bytes` 预留位）：
-
 ```python
 ImageInput = str | Path | bytes
 BBox = tuple[int, int, int, int]
 Point = tuple[int, int]
 ```
 
-`bytes` 当前不可用；传入 `bytes` 会触发 `SolverInputError`。
+其中 `str` 同时支持：
+
+- 本地路径字符串
+- base64 字符串（含 `data:` URI）
+- 网络图片 URL（`http://`、`https://`）
+
+图片格式支持范围以 Pillow 可解码格式为准，例如 JPEG、PNG、WebP、BMP、GIF、TIFF。不支持或损坏输入统一返回 `SolverInputError`。
+
+URL 输入默认安全边界：
+
+- 协议仅 `http`/`https`
+- 下载大小上限 20 MB
+- 请求超时 8 秒
+- 最大重定向 5 次
 
 ## 4. 返回类型定义
 

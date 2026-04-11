@@ -4,9 +4,9 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from sinanz_errors import SolverAssetError, SolverInputError
-from sinanz_image_io import require_pathlike_image
 import sinanz_group1_runtime as group1_runtime
+from sinanz_errors import SolverAssetError
+from sinanz_image_io import resolved_image_path
 from sinanz_resources import models_root
 from sinanz_types import (
     ClickCaptchaDebugInfo,
@@ -29,21 +29,18 @@ def solve_click_targets(
     return_debug: bool,
 ) -> OrderedClickTargetsResult:
     proposal_model_path, query_model_path, embedder_model_path = _resolve_group1_models(asset_root)
-    query_path = require_pathlike_image(query_icons_image, field="query_icons_image")
-    background_path = require_pathlike_image(background_image, field="background_image")
-    if not query_path.exists():
-        raise SolverInputError(f"未找到 query 图文件：{query_path}")
-    if not background_path.exists():
-        raise SolverInputError(f"未找到背景图文件：{background_path}")
-
-    runtime_result = group1_runtime.match_click_targets(
-        proposal_model_path=proposal_model_path,
-        query_model_path=query_model_path,
-        embedder_model_path=embedder_model_path,
-        query_image_path=query_path,
-        background_image_path=background_path,
-        device=device,
-    )
+    with (
+        resolved_image_path(query_icons_image, field="query_icons_image") as query_path,
+        resolved_image_path(background_image, field="background_image") as background_path,
+    ):
+        runtime_result = group1_runtime.match_click_targets(
+            proposal_model_path=proposal_model_path,
+            query_model_path=query_model_path,
+            embedder_model_path=embedder_model_path,
+            query_image_path=query_path,
+            background_image_path=background_path,
+            device=device,
+        )
     ordered_targets = [
         OrderedClickTarget(
             query_order=query_order,

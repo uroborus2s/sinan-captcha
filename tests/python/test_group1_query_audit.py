@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import io
 import json
+import re
 import tempfile
 import unittest
 from contextlib import redirect_stderr
@@ -12,6 +13,7 @@ from PIL import Image, ImageDraw
 
 from common.jsonl import read_jsonl
 from materials import query_audit_cli
+from materials import query_audit as query_audit_module
 from materials.query_audit import (
     DEFAULT_GROUP1_OUTPUT_ROOT,
     DEFAULT_GROUP1_QUERY_DIR,
@@ -44,7 +46,7 @@ class Group1QueryAuditTests(unittest.TestCase):
         self.assertEqual(args.output_root, DEFAULT_GROUP1_OUTPUT_ROOT)
         self.assertIsNone(args.template_report_json)
         self.assertEqual(args.timeout_seconds, 600)
-        self.assertEqual(args.report_root.name, "20260411")
+        self.assertRegex(args.report_root.name, r"^\d{8}$")
         self.assertEqual(
             args.report_root.parent.as_posix(),
             Path.cwd().joinpath("work_home/reports/group1/materials").as_posix(),
@@ -429,6 +431,61 @@ class Group1QueryAuditTests(unittest.TestCase):
             self.assertIn("正在分析 query 图片 1/1", joined)
             self.assertIn("query 图片处理完成 1/1", joined)
             self.assertIn("执行完成", joined)
+
+    def test_download_template_variants_reports_attempt_and_success_progress(self) -> None:
+        messages: list[str] = []
+        with tempfile.TemporaryDirectory() as tmpdir:
+            target_dir = Path(tmpdir) / "icons"
+            target_dir.mkdir()
+
+            def fake_download(*args: object, **kwargs: object) -> Image.Image:
+                return Image.new("RGBA", (24, 24), (255, 255, 255, 0))
+
+            with patch("materials.query_audit._download_icon_image", side_effect=fake_download):
+                entries = __import__(
+                    "materials.query_audit",
+                    fromlist=["_download_template_variants"],
+                )._download_template_variants(
+                    template=TemplatePlan(
+                        template_id="tpl_house",
+                        zh_name="房子",
+                        family="symbol",
+                        tags=("home",),
+                        description="房屋轮廓",
+                        cluster_ids=("cluster_001",),
+                        target_variant_count=2,
+                        download_candidates=(
+                            TemplateDownloadCandidate("lucide", "house", "outline"),
+                        ),
+                    ),
+                    target_dir=target_dir,
+                    existing_variant_ids={"var_real_house_square"},
+                    cache_dir=Path(tmpdir) / "cache",
+                    min_variants_per_template=2,
+                    timeout_seconds=600,
+                    overwrite=False,
+                    progress_reporter=messages.append,
+                )
+
+        self.assertEqual(len(entries), 1)
+        joined = "\n".join(messages)
+        self.assertIn("开始处理模板下载候选", joined)
+        self.assertIn("下载候选图标", joined)
+        self.assertIn("下载候选图标成功", joined)
+        self.assertIn("模板下载候选处理完成", joined)
+
+    def test_unique_variant_id_preserves_suffix_when_preferred_id_is_already_max_length(self) -> None:
+        preferred = "var_real_beach_umbrella_squa_d"
+
+        actual = query_audit_module._unique_variant_id(
+            {preferred},
+            preferred,
+            salt="abcdef1234567890",
+        )
+
+        self.assertNotEqual(actual, preferred)
+        self.assertLessEqual(len(actual), query_audit_module.MAX_VARIANT_ID_LENGTH)
+        self.assertTrue(actual.startswith("var_real_beach_umbrella"))
 
     def test_run_group1_query_audit_marks_error_when_variants_insufficient(self) -> None:
         with tempfile.TemporaryDirectory() as tmpdir:

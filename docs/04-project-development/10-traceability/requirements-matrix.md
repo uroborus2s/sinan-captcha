@@ -1,6 +1,6 @@
 # 需求追踪矩阵
 
-本矩阵按 2026-04-11 最新 `group1` 重构决策更新：项目一级产品仍是“统一验证码求解包/库”，但 `group1` 正式路线已从闭集类名检测切换为实例匹配求解。
+本矩阵按 2026-04-11 最新需求增量更新：项目一级产品仍是“统一验证码求解包/库”，`group1` 正式路线已切到实例匹配求解，且 solver 输入兼容已新增多输入/全格式要求。
 
 ## 追踪关系
 
@@ -84,6 +84,12 @@
 | REQ-014 | 落点 | docs/04-project-development/03-requirements/requirements-analysis.md | 有效 | 2026-04-11 | Codex | 已分析双轨污染风险 |
 | REQ-014 | 落点 | docs/04-project-development/04-design/group1-instance-matching-refactor.md | 有效 | 2026-04-11 | Codex | 已定义 cutover 与删除清单原则 |
 | REQ-014 | 落点 | docs/04-project-development/05-development-process/group1-instance-matching-refactor-task-breakdown.md | 有效 | 2026-04-11 | Codex | 已新增 `TASK-G1-REF-012` 旧方案清理任务 |
+| REQ-015 | 来源 | docs/04-project-development/02-discovery/input.md | 有效 | 2026-04-11 | Codex | 已新增 solver 多输入与全格式兼容业务约束 |
+| REQ-015 | 落点 | docs/04-project-development/03-requirements/prd.md | 有效 | 2026-04-11 | Codex | 已定义 Path/bytes/base64/URL 统一输入合同与验收标准 |
+| REQ-015 | 落点 | docs/04-project-development/03-requirements/requirements-analysis.md | 有效 | 2026-04-11 | Codex | 已分析输入适配、URL 安全与一致性风险 |
+| REQ-015 | 落点 | docs/04-project-development/05-development-process/standalone-solver-migration-task-breakdown.md | 有效 | 2026-04-11 | Codex | 已新增 `TASK-SOLVER-MIG-013/014/015` 实施任务 |
+| REQ-015 | 落点 | docs/02-user-guide/solver-package-usage-guide.md | 有效 | 2026-04-11 | Codex | 已同步当前限制与目标输入口径说明 |
+| REQ-015 | 落点 | docs/02-user-guide/solver-package-function-reference.md | 有效 | 2026-04-11 | Codex | 已同步输入类型定义与实施状态说明 |
 
 ## 更新记录
 
@@ -91,3 +97,4 @@
 - 2026-04-04：补入自主训练与统一求解服务的追踪关系。
 - 2026-04-05：按最新业务澄清重构追踪矩阵，正式把求解包/库提升为一级产品，维护人：Codex。
 - 2026-04-11：按 `group1` 实例匹配重构决策更新追踪关系，并补入 `REQ-011` 到 `REQ-014`，维护人：Codex。
+- 2026-04-11：新增 `REQ-015`（多输入与全格式兼容）追踪关系，并补入 solver 输入适配任务，维护人：Codex。

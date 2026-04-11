@@ -17,6 +17,58 @@
 
 ## 当前事实
 
+- 2026-04-11 当前 `materials audit-group1-query` 已修复真实 query 变体 ID 碰撞导致整批中断的问题：
+  - 截图中的致命错误是 `RuntimeError: could not build unique variant id for var_real_beach_umbrella_squa_d`
+  - 根因是多个真实 query 图标的几何特征相似，生成的 `variant_id` 前缀已达到 30 字符上限；旧算法追加后缀后又被 `_compact_variant_id()` 截掉，导致所有候选仍然等于原 ID
+  - 当前 `_unique_variant_id()` 会在保留 30 字符上限的前提下主动为后缀预留空间，并增加哈希重试兜底，不再因同模板同特征真实图标过多而中断整批
+
+- 2026-04-11 当前新增 `uv run sinan materials collect-backgrounds` 背景风格采集入口：
+  - 输入参考背景图片目录和本地 Ollama 多模态模型
+  - 大模型提示词明确只分析背景风格，忽略验证码图标、缺口、滑块、文字、前景符号和点击目标
+  - 输出背景风格画像、英文 Pexels 搜索词、下载背景图、`manifests/backgrounds.csv` 和 `reports/background-style-collection.json`
+  - 当前默认输出根目录已收口到 `work_home/materials/incoming`，下载图片直接落到 `incoming/backgrounds/`
+  - 当前命令会补齐 `incoming/manifests/materials.yaml`，让下载结果更自然并入现有素材根
+  - 当前支持 `--dry-run` 只分析风格与搜索词，不要求 Pexels API key、不下载图片
+  - 当前下载源复用既有 Pexels API 链路，默认从 `PEXELS_API_KEY` 读取 key
+  - 当前已验证：
+    - `uv run pytest tests/python/test_group1_query_audit.py tests/python/test_background_style_collect.py tests/python/test_root_cli.py -q`
+    - `uv run python -m py_compile packages/sinan-captcha/src/materials/query_audit.py packages/sinan-captcha/src/materials/background_style.py packages/sinan-captcha/src/materials/background_style_cli.py packages/sinan-captcha/src/cli.py tests/python/test_background_style_collect.py tests/python/test_group1_query_audit.py tests/python/test_root_cli.py`
+    - `uv run ruff check packages/sinan-captcha/src/materials/background_style.py packages/sinan-captcha/src/materials/background_style_cli.py tests/python/test_background_style_collect.py`
+    - `git diff --check`
+    - `uvx --from docs-stratego docs-stratego source validate --repo-path .`
+
+- 2026-04-11 当前 `uv run sinan materials audit-group1-query` 已补齐候选图标下载与 SVG 光栅化阶段的可观察进度：
+  - 当前默认进度日志不再只覆盖逐图识别与模板汇总，也会输出：
+    - 模板候选下载开始与收尾
+    - 单个候选的 `library / slug / variant_id / output_png`
+    - 实际请求的候选源 URL 与下载成功字节数
+    - SVG 光栅化命令尝试、失败原因与成功结果
+  - 当前候选图标成功落盘会输出“下载候选图标成功”，避免终端长期无输出被误判为死机
+  - 当前 SVG 光栅化子进程设置了 30 秒上限，避免外部命令长时间无反馈
+  - 当前 SVG 光栅化候选命令已从 macOS `sips` / `qlmanage` 扩展到 `magick`、`rsvg-convert`、`inkscape`，改善 Windows 环境可用性
+  - 当前用户指南已同步说明 `--quiet` 会关闭全部执行进度日志，而不是只关闭逐图日志
+  - 当前已验证：
+    - `uv run pytest tests/python/test_group1_query_audit.py -q`
+    - `uv run python -m py_compile packages/sinan-captcha/src/materials/query_audit.py tests/python/test_group1_query_audit.py`
+    - `git diff --check`
+    - `uvx --from docs-stratego docs-stratego source validate --repo-path .`
+  - 当前已知：
+    - 针对两个改动文件运行 `uv run ruff check ...` 时暴露该模块既有未清理的 E501/F841/import 排序问题，非本次变更新增的质量面未在本轮展开修复
+
+- 2026-04-11 当前需求基线已新增 `REQ-015`（solver 全格式图片输入兼容与统一解码入口）：
+  - 当前需求与任务层已冻结目标口径：
+    - 输入形态覆盖：本地路径、`bytes`、base64（含 `data:` URI）、`http(s)` URL
+    - 格式口径覆盖：运行时解码器（Pillow）可稳定解码的常见图片格式
+    - URL 安全边界：协议白名单、大小上限、超时与重定向限制
+  - 当前实施任务已扩展：
+    - `TASK-SOLVER-MIG-013`：统一输入适配层
+    - `TASK-SOLVER-MIG-014`：URL 输入安全边界
+    - `TASK-SOLVER-MIG-015`：全格式兼容回归与文档切换
+  - 当前用户文档已同步两层口径：
+    - 已发布能力：本地路径
+    - 目标能力：`REQ-015` 新增输入兼容
+  - 当前状态：需求已加、任务已拆、文档已同步，代码实现待后续任务落地
+
 - 2026-04-11 当前 `docs/02-user-guide` 已完成“仅保留最新使用方式”的生产级收口：
   - 当前用户指南只保留 6 个最新有效页面：
     - `docs/02-user-guide/solver-package-usage-guide.md`

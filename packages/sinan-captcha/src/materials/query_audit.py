@@ -5,6 +5,7 @@ from __future__ import annotations
 import base64
 from collections import Counter, defaultdict
 from dataclasses import dataclass
+import hashlib
 import io
 import json
 from pathlib import Path
@@ -45,6 +46,7 @@ DEFAULT_OLLAMA_URL = "http://127.0.0.1:11434"
 DEFAULT_OLLAMA_TIMEOUT_SECONDS = 600
 DEFAULT_MIN_VARIANTS_PER_TEMPLATE = 6
 MAX_VARIANT_ID_LENGTH = 30
+SVG_RASTERIZE_TIMEOUT_SECONDS = 30
 
 DOWNLOAD_LIBRARY_SPECS: dict[str, dict[str, object]] = {
     "lucide": {
@@ -1127,7 +1129,18 @@ def _download_template_variants(
         template.download_candidates,
         build_fallback_download_candidates(template.template_id),
     )
-    for candidate in candidates:
+    target_variant_count = min_variants_per_template
+    _emit_progress(
+        progress_reporter,
+        "开始处理模板下载候选",
+        {
+            "template_id": template.template_id,
+            "existing_variant_count": len(existing_variant_ids),
+            "target_variant_count": target_variant_count,
+            "candidate_count": len(candidates),
+        },
+    )
+    for candidate_index, candidate in enumerate(candidates, start=1):
         if len(existing_variant_ids) + len(variant_entries) >= min_variants_per_template:
             break
         variant_id = _unique_variant_id(
@@ -1135,10 +1148,27 @@ def _download_template_variants(
             _build_download_variant_id(template_id=template.template_id, candidate=candidate),
         )
         output_png = target_dir / f"{variant_id}.png"
+        progress_payload = {
+            "template_id": template.template_id,
+            "candidate_index": candidate_index,
+            "candidate_count": len(candidates),
+            "library": candidate.library,
+            "slug": candidate.slug,
+            "variant_id": variant_id,
+            "output_png": str(output_png),
+        }
         try:
             if overwrite or not output_png.exists():
-                image = _download_icon_image(candidate, cache_dir=cache_dir, timeout_seconds=timeout_seconds)
+                _emit_progress(progress_reporter, "下载候选图标", progress_payload)
+                image = _download_icon_image(
+                    candidate,
+                    cache_dir=cache_dir,
+                    timeout_seconds=timeout_seconds,
+                    progress_reporter=progress_reporter,
+                )
                 normalize_icon_png(image).save(output_png)
+            else:
+                _emit_progress(progress_reporter, "复用已存在候选图标", progress_payload)
             variant_entries.append(
                 VariantManifestEntry(
                     variant_id=variant_id,
@@ -1147,17 +1177,23 @@ def _download_template_variants(
                     style=candidate.style or str(DOWNLOAD_LIBRARY_SPECS[candidate.library]["style"]),
                 )
             )
+            _emit_progress(progress_reporter, "下载候选图标成功", progress_payload)
         except Exception as exc:
             _emit_progress(
                 progress_reporter,
                 "下载候选图标失败",
-                {
-                    "template_id": template.template_id,
-                    "library": candidate.library,
-                    "slug": candidate.slug,
-                    "error": str(exc),
-                },
+                {**progress_payload, "error": str(exc)},
             )
+    _emit_progress(
+        progress_reporter,
+        "模板下载候选处理完成",
+        {
+            "template_id": template.template_id,
+            "downloaded_variant_count": len(variant_entries),
+            "final_variant_count": len(existing_variant_ids) + len(variant_entries),
+            "target_variant_count": target_variant_count,
+        },
+    )
     return variant_entries
 
 
@@ -1166,15 +1202,29 @@ def _download_icon_image(
     *,
     cache_dir: Path,
     timeout_seconds: int,
+    progress_reporter: ProgressReporter | None = None,
 ) -> Any:
     Image, _ = load_pillow()
     spec = DOWNLOAD_LIBRARY_SPECS[candidate.library]
     if spec["kind"] == "google_png":
         slug = candidate.slug.replace("-", "_")
         entry = materials_service._resolve_google_icon_entry(slug, cache_dir)
-        payload = _fetch_binary(
-            materials_service.DEFAULT_GOOGLE_ICONS_RAW_URL_PREFIX + entry,
-            timeout_seconds=timeout_seconds,
+        url = materials_service.DEFAULT_GOOGLE_ICONS_RAW_URL_PREFIX + entry
+        _emit_progress(
+            progress_reporter,
+            "请求候选图标源",
+            {"library": candidate.library, "slug": candidate.slug, "url": url},
+        )
+        payload = _fetch_binary(url, timeout_seconds=timeout_seconds)
+        _emit_progress(
+            progress_reporter,
+            "候选图标源下载成功",
+            {
+                "library": candidate.library,
+                "slug": candidate.slug,
+                "url": url,
+                "bytes": len(payload),
+            },
         )
         return Image.open(io.BytesIO(payload)).convert("RGBA")
 
@@ -1182,17 +1232,51 @@ def _download_icon_image(
     for url_template in spec["urls"]:
         url = str(url_template).format(slug=candidate.slug)
         try:
+            _emit_progress(
+                progress_reporter,
+                "请求候选图标源",
+                {"library": candidate.library, "slug": candidate.slug, "url": url},
+            )
             svg_text = _fetch_text(url, timeout_seconds=timeout_seconds)
-            return _rasterize_svg(svg_text)
+            _emit_progress(
+                progress_reporter,
+                "候选图标源下载成功",
+                {
+                    "library": candidate.library,
+                    "slug": candidate.slug,
+                    "url": url,
+                    "bytes": len(svg_text.encode("utf-8")),
+                },
+            )
+            return _rasterize_svg(
+                svg_text,
+                progress_reporter=progress_reporter,
+                rasterize_timeout_seconds=min(timeout_seconds, SVG_RASTERIZE_TIMEOUT_SECONDS),
+            )
         except Exception as exc:
             last_error = exc
+            _emit_progress(
+                progress_reporter,
+                "候选图标源处理失败",
+                {
+                    "library": candidate.library,
+                    "slug": candidate.slug,
+                    "url": url,
+                    "error": str(exc),
+                },
+            )
             continue
     if last_error is None:
         raise RuntimeError(f"unsupported download candidate: {candidate.library}")
     raise last_error
 
 
-def _rasterize_svg(svg_text: str) -> Any:
+def _rasterize_svg(
+    svg_text: str,
+    *,
+    progress_reporter: ProgressReporter | None = None,
+    rasterize_timeout_seconds: int = SVG_RASTERIZE_TIMEOUT_SECONDS,
+) -> Any:
     Image, _ = load_pillow()
     prepared_svg = _prepare_svg_markup(svg_text)
     with tempfile.TemporaryDirectory(prefix="sinan-g1-icon-") as temp_dir:
@@ -1203,22 +1287,44 @@ def _rasterize_svg(svg_text: str) -> Any:
         commands = [
             ["sips", "-s", "format", "png", str(svg_path), "--out", str(png_path)],
             ["qlmanage", "-t", "-s", "256", "-o", str(temp_root), str(svg_path)],
+            ["magick", str(svg_path), str(png_path)],
+            ["rsvg-convert", "-w", "256", "-h", "256", "-o", str(png_path), str(svg_path)],
+            [
+                "inkscape",
+                str(svg_path),
+                "--export-type=png",
+                f"--export-filename={png_path}",
+                "--export-width=256",
+                "--export-height=256",
+            ],
         ]
         for command in commands:
+            _emit_progress(
+                progress_reporter,
+                "尝试光栅化 SVG",
+                {"command": command[0], "timeout_seconds": rasterize_timeout_seconds},
+            )
             try:
                 subprocess.run(
                     command,
                     check=True,
                     stdout=subprocess.DEVNULL,
                     stderr=subprocess.DEVNULL,
+                    timeout=rasterize_timeout_seconds,
                 )
-            except Exception:
+            except Exception as exc:
+                _emit_progress(
+                    progress_reporter,
+                    "SVG 光栅化命令失败",
+                    {"command": command[0], "error": str(exc)},
+                )
                 continue
             generated_candidates = [png_path, temp_root / f"{svg_path.name}.png"]
             for generated in generated_candidates:
                 if generated.exists():
+                    _emit_progress(progress_reporter, "SVG 光栅化成功", {"command": command[0]})
                     return Image.open(generated).convert("RGBA")
-    raise RuntimeError("could not rasterize svg with sips or qlmanage")
+    raise RuntimeError("could not rasterize svg with sips, qlmanage, magick, rsvg-convert or inkscape")
 
 
 def _prepare_svg_markup(svg_text: str) -> str:
@@ -1264,12 +1370,26 @@ def _unique_variant_id(existing_ids: set[str], preferred: str, *, salt: str | No
     if preferred not in existing_ids:
         return preferred
     suffix_source = salt or preferred
-    for width in (3, 4, 5, 6):
+    for width in (3, 4, 5, 6, 8, 10):
         suffix = _alpha_suffix(suffix_source, width)
-        candidate = _compact_variant_id(f"{preferred}_{suffix}")
+        candidate = _append_variant_suffix(preferred, suffix)
+        if candidate not in existing_ids:
+            return candidate
+    for attempt in range(1, 1000):
+        digest = hashlib.sha1(f"{suffix_source}:{attempt}".encode("utf-8")).hexdigest()
+        candidate = _append_variant_suffix(preferred, _alpha_suffix(digest, 10))
         if candidate not in existing_ids:
             return candidate
     raise RuntimeError(f"could not build unique variant id for {preferred}")
+
+
+def _append_variant_suffix(preferred: str, suffix: str) -> str:
+    normalized_suffix = _normalize_token(suffix, fallback="x")
+    if len(normalized_suffix) > MAX_VARIANT_ID_LENGTH - 4:
+        normalized_suffix = normalized_suffix[: MAX_VARIANT_ID_LENGTH - 4]
+    base_limit = max(1, MAX_VARIANT_ID_LENGTH - len(normalized_suffix) - 1)
+    base = preferred[:base_limit].rstrip("_") or "var"
+    return f"{base}_{normalized_suffix}"[:MAX_VARIANT_ID_LENGTH].rstrip("_")
 
 
 def _prune_output_root(

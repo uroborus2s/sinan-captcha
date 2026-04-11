@@ -41,7 +41,7 @@
    - `pip install`
    - `sn_match_slider(...)`
    - `sn_match_targets(...)`
-   - Python API + Rust 原生扩展
+   - Python API + `onnxruntime` runtime
 3. 内部交接资产：
    - ONNX 模型
    - 类别表 / matcher 配置
@@ -74,7 +74,7 @@ from sinanz import sn_match_slider, sn_match_targets
 | TASK-SOLVER-MIG-008 | 已收口：`group2` ONNX 导出与纯 Python runtime | Python 实现者 | `group2` 训练产物 | `group2` ONNX 资产、Python runtime | `group2` 可发布 | 1 天 |
 | TASK-SOLVER-MIG-009 | 已改道：`group1` ONNX 导出与纯 Python runtime | Python 实现者 | `group1` 训练产物、matcher 约束 | `group1` ONNX 资产、Python runtime | 两专项都可运行 | 1 天 |
 | TASK-SOLVER-MIG-010 | 迁移 `group1` 求解与后处理代码 | Python 实现者 | `core/solve/*`、`core/inference/*` | group1 service、matcher 接口、结果映射 | Python 结果面稳定 | 1 天 |
-| TASK-SOLVER-MIG-011 | 实现内嵌资产加载与默认模型解析 | Python 实现者 | 子项目骨架、导出资产、Rust bridge | 资源加载器、wheel 资源规则 | `pip install` 后可直接加载 | 1 天 |
+| TASK-SOLVER-MIG-011 | 实现内嵌资产加载与默认模型解析 | Python 实现者 | 子项目骨架、导出资产 | 资源加载器、wheel 资源规则 | `pip install` 后可直接加载 | 1 天 |
 | TASK-SOLVER-MIG-012 | 补齐测试、发布链路并降级旧入口 | 测试负责人/发布维护者 | 独立 solver 项目、导出资产 | 安装测试、发布脚本、弃用说明 | 允许正式迁移 | 1 天 |
 | TASK-SOLVER-MIG-013 | 新增统一图片输入适配层（Path/bytes/base64/data URI） | Python 实现者 | 公开 API 合同、异常合同 | 输入适配模块、解码规则、类型回归测试 | 非路径输入可用 | 1 天 |
 | TASK-SOLVER-MIG-014 | 新增网络图片 URL 输入与安全边界 | Python 实现者/安全负责人 | 输入适配层、运行时网络策略 | URL 下载器、限制策略、审计日志 | URL 输入可控可审计 | 1 天 |
@@ -169,12 +169,12 @@ from sinanz import sn_match_slider, sn_match_targets
 
 | 字段 | 内容 |
 |---|---|
-| 任务目标 | 冻结 `PT -> ONNX` 导出、命名和 metadata 合同，为 Rust 运行时接线提供稳定资产面 |
+| 任务目标 | 冻结 `PT -> ONNX` 导出、命名和 metadata 合同，为纯 Python `onnxruntime` 运行时提供稳定资产面 |
 | 主执行角色 | 架构负责人 |
-| 协作角色 | 训练链路负责人、Rust 实现者 |
+| 协作角色 | 训练链路负责人、Python 实现者 |
 | 前置条件 | TASK-SOLVER-MIG-005 已通过 |
 | 主要输入 | 训练权重、当前导出合同、独立 solver 资产需求 |
-| 操作步骤 | 1. 固定 `.onnx` 文件名和版本字段。<br>2. 固定输入尺寸、预处理参数、provider 兼容信息写入 metadata。<br>3. 固定 `manifest.json` 中 Python 包与 Rust 扩展共同消费的字段。 |
+| 操作步骤 | 1. 固定 `.onnx` 文件名和版本字段。<br>2. 固定输入尺寸、预处理参数、provider 兼容信息写入 metadata。<br>3. 固定 `manifest.json` 中 Python 包运行时共同消费的字段。 |
 | 输出产物 | ONNX 命名规则、manifest 字段表、导出报告字段、仓内代码契约事实源 |
 | 验收标准 | 维护者可以稳定回答“`sinanz` 运行时到底读哪些文件和字段”，且仓库里已有可测试的字段事实源 |
 | 阻断条件 | 资产命名仍跟训练运行目录耦合，或字段不足以独立构建 runtime |
@@ -239,9 +239,9 @@ from sinanz import sn_match_slider, sn_match_targets
 |---|---|
 | 任务目标 | 迁移 `group1` 求解服务、matcher 接口和统一结果映射，让 Python 层只承担业务结果面 |
 | 主执行角色 | Python 实现者 |
-| 协作角色 | Rust 实现者、算法负责人 |
+| 协作角色 | 算法负责人、发布维护者 |
 | 前置条件 | TASK-SOLVER-MIG-009 已通过 |
-| 主要输入 | `core/solve/*`、`core/inference/*`、Rust bridge 输出 |
+| 主要输入 | `core/solve/*`、`core/inference/*`、runtime 结果映射约束 |
 | 操作步骤 | 1. 迁移 `group1` service 和 matcher 接口。<br>2. 统一 `group1/group2` 的公开结果对象。<br>3. 删除对旧 request/response 包装层的依赖。 |
 | 输出产物 | group1 service、统一结果映射、专项回归测试 |
 | 验收标准 | 独立 solver 包能同时完成两类业务求解，且返回业务结果对象而不是训练内部结构 |
@@ -256,9 +256,9 @@ from sinanz import sn_match_slider, sn_match_targets
 |---|---|
 | 任务目标 | 实现 wheel 内模型与元数据加载，使 `pip install` 后可直接调用函数 |
 | 主执行角色 | Python 实现者 |
-| 协作角色 | Rust 实现者、发布维护者 |
+| 协作角色 | 发布维护者 |
 | 前置条件 | TASK-SOLVER-MIG-010 已通过 |
-| 主要输入 | 子项目骨架、导出资产、Rust bridge |
+| 主要输入 | 子项目骨架、导出资产 |
 | 操作步骤 | 1. 固定 package data 目录与资源清单。<br>2. 实现默认资源加载器，优先读取包内 ONNX 资产。<br>3. 仅为维护者保留可选 `asset_root` 覆盖入口。 |
 | 输出产物 | 资源加载器、包资源清单、构建配置 |
 | 验收标准 | 新环境仅安装 wheel 后即可完成一次求解，不需要手工复制模型文件 |
@@ -273,7 +273,7 @@ from sinanz import sn_match_slider, sn_match_targets
 |---|---|
 | 任务目标 | 补齐独立 solver 的回归测试、安装测试、发布链路，并降级旧 `sinan solve` 公开角色 |
 | 主执行角色 | 测试负责人 / 发布维护者 |
-| 协作角色 | Python 实现者、Rust 实现者、项目维护者 |
+| 协作角色 | Python 实现者、项目维护者 |
 | 前置条件 | TASK-SOLVER-MIG-011 已通过 |
 | 主要输入 | 导出资产、独立 solver 子项目、当前发布文档 |
 | 操作步骤 | 1. 新增 API 单测、资源加载测试、异常测试和 wheel 安装冒烟。<br>2. 固定训练仓库 `export-solver-assets` 与 solver 项目构建顺序。<br>3. 把 `sinan solve` 改为内部调试或显式弃用入口，并同步文档。 |
@@ -342,7 +342,7 @@ from sinanz import sn_match_slider, sn_match_targets
 1. 训练仓库与独立 solver 包边界冻结
 2. 公开函数与异常合同冻结
 3. `PT -> ONNX` 导出合同冻结
-4. Rust 原生扩展工程边界冻结
+4. 纯 Python runtime 工程边界冻结
 5. `pip install` 安装后可直接调用的测试门禁
 6. 旧 `sinan solve` 的弃用与文档同步
 7. 非路径输入（`bytes/base64/data URI`）与路径输入一致性验证

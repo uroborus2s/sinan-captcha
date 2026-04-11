@@ -4,9 +4,9 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from sinanz_errors import SolverAssetError, SolverInputError
-from sinanz_image_io import require_pathlike_image
 import sinanz_group2_runtime as group2_runtime
+from sinanz_errors import SolverAssetError
+from sinanz_image_io import resolved_image_path
 from sinanz_resources import models_root
 from sinanz_types import BBox, ImageInput, SliderGapCenterResult, SliderGapDebugInfo
 
@@ -23,19 +23,16 @@ def solve_slider_gap(
     return_debug: bool,
 ) -> SliderGapCenterResult:
     model_path = _resolve_group2_model(asset_root)
-    background_path = require_pathlike_image(background_image, field="background_image")
-    puzzle_piece_path = require_pathlike_image(puzzle_piece_image, field="puzzle_piece_image")
-    if not background_path.exists():
-        raise SolverInputError(f"未找到背景图文件：{background_path}")
-    if not puzzle_piece_path.exists():
-        raise SolverInputError(f"未找到拼图块文件：{puzzle_piece_path}")
-
-    runtime_result = group2_runtime.match_slider_gap(
-        model_path=model_path,
-        background_image_path=background_path,
-        puzzle_piece_image_path=puzzle_piece_path,
-        device=device,
-    )
+    with (
+        resolved_image_path(background_image, field="background_image") as background_path,
+        resolved_image_path(puzzle_piece_image, field="puzzle_piece_image") as puzzle_piece_path,
+    ):
+        runtime_result = group2_runtime.match_slider_gap(
+            model_path=model_path,
+            background_image_path=background_path,
+            puzzle_piece_image_path=puzzle_piece_path,
+            device=device,
+        )
     return _build_result(
         bbox=runtime_result.target_bbox,
         execution_provider=runtime_result.execution_provider,

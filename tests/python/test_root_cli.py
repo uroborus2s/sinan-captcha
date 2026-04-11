@@ -49,6 +49,15 @@ class RootCliTests(unittest.TestCase):
             ["--query-dir", "query", "--model", "qwen2.5vl:7b"],
         )
 
+    def test_dispatches_materials_collect_backgrounds(self) -> None:
+        with patch("cli._run_command", return_value=0) as handler:
+            code = cli.main(["materials", "collect-backgrounds", "--source-dir", "backgrounds", "--model", "qwen2.5vl:7b"])
+        self.assertEqual(code, 0)
+        handler.assert_called_once_with(
+            "materials.background_style_cli",
+            ["--source-dir", "backgrounds", "--model", "qwen2.5vl:7b"],
+        )
+
     def test_dispatches_solve_run(self) -> None:
         with patch("cli._run_command", return_value=0) as handler:
             code = cli.main(["solve", "run", "--bundle-dir", "bundles/current", "--request", "req.json"])

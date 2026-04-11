@@ -1,5 +1,79 @@
 # 变更摘要
 
+## 2026-04-11 修复 `audit-group1-query` 真实变体 ID 碰撞并新增背景风格采集命令
+
+- 已更新：
+  - `packages/sinan-captcha/src/materials/query_audit.py`
+  - `packages/sinan-captcha/src/materials/background_style.py`
+  - `packages/sinan-captcha/src/materials/background_style_cli.py`
+  - `packages/sinan-captcha/src/cli.py`
+  - `tests/python/test_group1_query_audit.py`
+  - `tests/python/test_background_style_collect.py`
+  - `tests/python/test_root_cli.py`
+  - `docs/02-user-guide/trainer-cli-reference.md`
+  - `.factory/memory/current-state.md`
+  - `.factory/memory/change-summary.md`
+- 当前已完成的目标：
+  - 修复 `var_real_beach_umbrella_squa_d` 这类满长 `variant_id` 追加后缀被截断后仍然撞名的问题
+  - 为真实 query 图标变体 ID 增加后缀预留空间和哈希重试兜底
+  - 新增 `uv run sinan materials collect-backgrounds`，使用本地 Ollama 分析参考背景风格并用 Pexels 下载相似背景
+  - 背景风格提示词明确忽略验证码图标、缺口、滑块、文字和前景符号
+  - 新命令默认输出根目录已收口到 `work_home/materials/incoming`，下载图片直接落到 `incoming/backgrounds/`
+  - 新命令会输出 `manifests/materials.yaml`、`manifests/backgrounds.csv` 与 `reports/background-style-collection.json`
+  - 新增 `--dry-run`，可只生成风格画像和搜索词，不要求 Pexels API key
+- 已运行验证：
+  - `uv run pytest tests/python/test_group1_query_audit.py tests/python/test_background_style_collect.py tests/python/test_root_cli.py -q`
+  - `uv run python -m py_compile packages/sinan-captcha/src/materials/query_audit.py packages/sinan-captcha/src/materials/background_style.py packages/sinan-captcha/src/materials/background_style_cli.py packages/sinan-captcha/src/cli.py tests/python/test_background_style_collect.py tests/python/test_group1_query_audit.py tests/python/test_root_cli.py`
+  - `uv run ruff check packages/sinan-captcha/src/materials/background_style.py packages/sinan-captcha/src/materials/background_style_cli.py tests/python/test_background_style_collect.py`
+  - `git diff --check`
+  - `uvx --from docs-stratego docs-stratego source validate --repo-path .`
+
+## 2026-04-11 补齐 `materials audit-group1-query` 候选图标下载进度日志
+
+- 已更新：
+  - `packages/sinan-captcha/src/materials/query_audit.py`
+  - `tests/python/test_group1_query_audit.py`
+  - `docs/02-user-guide/trainer-cli-reference.md`
+  - `.factory/memory/current-state.md`
+  - `.factory/memory/change-summary.md`
+- 当前已完成的目标：
+  - 候选图标下载阶段新增模板级开始/结束日志、候选级开始/成功/失败日志
+  - 下载源处理新增 URL 请求、下载成功字节数、源处理失败上下文
+  - SVG 光栅化新增命令尝试、失败和成功日志，并为外部命令设置 30 秒超时
+  - SVG 光栅化候选命令从 macOS `sips` / `qlmanage` 扩展到 `magick`、`rsvg-convert`、`inkscape`，改善 Windows 环境可用性
+  - 用户指南已明确默认进度日志覆盖逐图识别、模板汇总、候选下载和 SVG 光栅化，`--quiet` 会关闭这些日志
+- 已运行验证：
+  - `uv run pytest tests/python/test_group1_query_audit.py -q`
+  - `uv run python -m py_compile packages/sinan-captcha/src/materials/query_audit.py tests/python/test_group1_query_audit.py`
+  - `git diff --check`
+  - `uvx --from docs-stratego docs-stratego source validate --repo-path .`
+- 已知未处理：
+  - `uv run ruff check packages/sinan-captcha/src/materials/query_audit.py tests/python/test_group1_query_audit.py` 暴露该模块既有 E501/F841/import 排序问题；本轮未扩大范围清理历史 lint 债务
+
+## 2026-04-11 新增 `REQ-015`：solver 多输入与全格式图片兼容需求，并补齐任务拆解与文档同步
+
+- 已更新：
+  - `docs/04-project-development/02-discovery/input.md`
+  - `docs/04-project-development/03-requirements/prd.md`
+  - `docs/04-project-development/03-requirements/requirements-analysis.md`
+  - `docs/04-project-development/03-requirements/requirements-verification.md`
+  - `docs/04-project-development/05-development-process/standalone-solver-migration-task-breakdown.md`
+  - `docs/04-project-development/10-traceability/requirements-matrix.md`
+  - `docs/02-user-guide/solver-package-usage-guide.md`
+  - `docs/02-user-guide/solver-package-function-reference.md`
+  - `.factory/memory/current-state.md`
+  - `.factory/memory/change-summary.md`
+- 当前已完成的目标：
+  - 正式新增 `REQ-015`，要求 solver 支持本地路径、`bytes`、base64/data URI、`http(s)` URL 多输入形态
+  - 明确“支持所有图片格式”的工程边界：以运行时解码器（Pillow）可稳定解码格式为准，并强制结构化错误返回
+  - 在独立 solver 迁移计划中新增：
+    - `TASK-SOLVER-MIG-013`（统一输入适配层）
+    - `TASK-SOLVER-MIG-014`（URL 输入安全策略）
+    - `TASK-SOLVER-MIG-015`（全格式回归与文档切换）
+  - 用户文档已同步“当前已发布能力”与“新增需求目标口径”，避免把未发布能力写成既成事实
+- 已运行验证：
+  - `uvx --from docs-stratego docs-stratego source validate --repo-path .`
+
 ## 2026-04-11 清理 `docs/02-user-guide` 历史页，只保留最新使用方式
 
 - 已更新：
