@@ -152,6 +152,69 @@ class EvaluateServiceTests(unittest.TestCase):
             failures = (report_dir / "failures.jsonl").read_text(encoding="utf-8").strip().splitlines()
             self.assertEqual(len(failures), 1)
 
+    def test_group1_evaluation_accepts_reviewed_rows_without_identity_or_class(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            root = Path(tmpdir)
+            gold_dir = root / "gold"
+            prediction_dir = root / "pred"
+            report_dir = root / "reports"
+            gold_dir.mkdir()
+            prediction_dir.mkdir()
+
+            write_jsonl(
+                gold_dir / "labels.jsonl",
+                [
+                    {
+                        "sample_id": "exam_0001",
+                        "query_image": "query/exam_0001.png",
+                        "scene_image": "scene/exam_0001.png",
+                        "query_items": [
+                            {"order": 1, "bbox": [5, 6, 23, 24], "center": [14, 15]},
+                            {"order": 2, "bbox": [29, 6, 47, 24], "center": [38, 15]},
+                        ],
+                        "scene_targets": [
+                            {"order": 1, "bbox": [10, 20, 30, 40], "center": [20, 30]},
+                            {"order": 2, "bbox": [50, 60, 74, 86], "center": [62, 73]},
+                        ],
+                        "distractors": [],
+                        "label_source": "reviewed",
+                        "source_batch": "reviewed-v2",
+                    }
+                ],
+            )
+            write_jsonl(
+                prediction_dir / "labels.jsonl",
+                [
+                    {
+                        "sample_id": "exam_0001",
+                        "query_image": "query/exam_0001.png",
+                        "scene_image": "scene/exam_0001.png",
+                        "query_items": [],
+                        "scene_targets": [
+                            {"order": 1, "class": "wrong_a", "class_id": 7, "bbox": [10, 20, 30, 40], "center": [20, 30]},
+                            {"order": 2, "class": "wrong_b", "class_id": 9, "bbox": [50, 60, 74, 86], "center": [62, 73]},
+                        ],
+                        "distractors": [],
+                        "label_source": "pred",
+                        "source_batch": "predict",
+                    }
+                ],
+            )
+
+            result = evaluate_model(
+                EvaluationRequest(
+                    task="group1",
+                    gold_dir=gold_dir,
+                    prediction_dir=prediction_dir,
+                    report_dir=report_dir,
+                    point_tolerance_px=5,
+                )
+            )
+
+            self.assertEqual(result.sample_count, 1)
+            self.assertAlmostEqual(result.metrics["single_target_hit_rate"], 1.0)
+            self.assertAlmostEqual(result.metrics["full_sequence_hit_rate"], 1.0)
+
 
 if __name__ == "__main__":
     unittest.main()

@@ -5,6 +5,7 @@ import unittest
 from pathlib import Path
 
 from core.auto_train.runners import dataset, evaluate, test, train
+from core.train.group1.service import Group1TrainingJob
 from core.evaluate.service import EvaluationResult
 from core.modeltest.service import ModelTestResult
 
@@ -103,10 +104,13 @@ class AutoTrainTrainRunnerTests(unittest.TestCase):
             dataset_config.write_text('{"task":"group1","format":"sinan.group1.instance_matching.v1","splits":{"train":"splits/train.jsonl","val":"splits/val.jsonl","test":"splits/test.jsonl"},"proposal_detector":{"format":"yolo.detect.v1","dataset_yaml":"proposal-yolo/dataset.yaml"},"embedding":{"format":"sinan.group1.embedding.v1","queries_dir":"embedding/queries","candidates_dir":"embedding/candidates","pairs_jsonl":"embedding/pairs.jsonl","triplets_jsonl":"embedding/triplets.jsonl"},"eval":{"format":"sinan.group1.eval.v1","labels_jsonl":"eval/labels.jsonl"}}', encoding="utf-8")
             proposal_best = train_root / "runs" / "group1" / "trial_0001" / "proposal-detector" / "weights" / "best.pt"
             query_best = train_root / "runs" / "group1" / "trial_0001" / "query-parser" / "weights" / "best.pt"
+            embedder_best = train_root / "runs" / "group1" / "trial_0001" / "icon-embedder" / "weights" / "best.pt"
             proposal_best.parent.mkdir(parents=True)
             query_best.parent.mkdir(parents=True)
+            embedder_best.parent.mkdir(parents=True)
             proposal_best.write_text("weights", encoding="utf-8")
             query_best.write_text("weights", encoding="utf-8")
+            embedder_best.write_text("weights", encoding="utf-8")
 
             captured_jobs: list[object] = []
             result = train.run_training_request(
@@ -129,11 +133,16 @@ class AutoTrainTrainRunnerTests(unittest.TestCase):
             self.assertEqual(result.record.run_dir, str(train_root / "runs" / "group1" / "trial_0002"))
             self.assertEqual(result.record.best_weights, str(train_root / "runs" / "group1" / "trial_0002" / "proposal-detector" / "weights" / "best.pt"))
             self.assertEqual(result.record.params["query_model_best"], str(train_root / "runs" / "group1" / "trial_0002" / "query-parser" / "weights" / "best.pt"))
+            self.assertEqual(result.record.params["embedder_model_best"], str(train_root / "runs" / "group1" / "trial_0002" / "icon-embedder" / "weights" / "best.pt"))
             self.assertIn("--proposal-model", result.command)
             self.assertIn(str(proposal_best), result.command)
             self.assertIn("--query-model", result.command)
             self.assertIn(str(query_best), result.command)
+            self.assertIn("--embedder-model", result.command)
+            self.assertIn(str(embedder_best), result.command)
             self.assertEqual(len(captured_jobs), 1)
+            self.assertIsInstance(captured_jobs[0], Group1TrainingJob)
+            self.assertEqual(captured_jobs[0].embedder_model, str(embedder_best))
 
     def test_train_runner_rejects_invalid_request_without_base_run(self) -> None:
         with tempfile.TemporaryDirectory() as tmpdir:
@@ -197,26 +206,27 @@ class AutoTrainTestRunnerTests(unittest.TestCase):
             source = train_root / "datasets" / "group1" / "firstpass" / "splits" / "val.jsonl"
             proposal_model_path = train_root / "runs" / "group1" / "trial_0001" / "proposal-detector" / "weights" / "best.pt"
             query_model_path = train_root / "runs" / "group1" / "trial_0001" / "query-parser" / "weights" / "best.pt"
-            for path in (dataset_config.parent, source.parent, proposal_model_path.parent, query_model_path.parent):
+            embedder_model_path = train_root / "runs" / "group1" / "trial_0001" / "icon-embedder" / "weights" / "best.pt"
+            for path in (dataset_config.parent, source.parent, proposal_model_path.parent, query_model_path.parent, embedder_model_path.parent):
                 path.mkdir(parents=True, exist_ok=True)
             dataset_config.write_text('{"task":"group1","format":"sinan.group1.instance_matching.v1","splits":{"train":"splits/train.jsonl","val":"splits/val.jsonl","test":"splits/test.jsonl"},"proposal_detector":{"format":"yolo.detect.v1","dataset_yaml":"proposal-yolo/dataset.yaml"},"embedding":{"format":"sinan.group1.embedding.v1","queries_dir":"embedding/queries","candidates_dir":"embedding/candidates","pairs_jsonl":"embedding/pairs.jsonl","triplets_jsonl":"embedding/triplets.jsonl"},"eval":{"format":"sinan.group1.eval.v1","labels_jsonl":"eval/labels.jsonl"}}', encoding="utf-8")
             source.write_text('{"sample_id":"g1_000001","query_image":"eval/query/val/g1_000001.png","scene_image":"eval/scene/val/g1_000001.png","query_items":[{"order":1,"asset_id":"asset_house","template_id":"tpl_house","variant_id":"var_outline","bbox":[8,8,28,28],"center":[18,18]}],"scene_targets":[{"order":1,"asset_id":"asset_house","template_id":"tpl_house","variant_id":"var_outline","bbox":[80,32,120,72],"center":[100,52]}],"distractors":[],"label_source":"gold","source_batch":"batch_0001"}\n', encoding="utf-8")
             proposal_model_path.write_text("weights", encoding="utf-8")
             query_model_path.write_text("weights", encoding="utf-8")
+            embedder_model_path.write_text("weights", encoding="utf-8")
 
-            result = test.run_test_request(
-                test.TestRunnerRequest(
-                    task="group1",
-                    train_root=train_root,
-                    dataset_version="firstpass",
-                    train_name="trial_0001",
-                ),
-                runner=lambda _request: ModelTestResult(
+            observed_embedder_path: Path | None = None
+
+            def _fake_runner(_request):
+                nonlocal observed_embedder_path
+                observed_embedder_path = _request.embedder_model_path
+                return ModelTestResult(
                     task="group1",
                     dataset_version="firstpass",
                     train_name="trial_0001",
                     model_path=proposal_model_path,
                     query_model_path=query_model_path,
+                    embedder_model_path=embedder_model_path,
                     dataset_config=dataset_config,
                     source=source,
                     project_dir=train_root / "reports" / "group1",
@@ -225,18 +235,33 @@ class AutoTrainTestRunnerTests(unittest.TestCase):
                     val_output_dir=train_root / "reports" / "group1" / "val_trial_0001",
                     source_image_count=20,
                     predicted_image_count=20,
-                    metrics={"single_target_hit_rate": 0.91, "full_sequence_hit_rate": 0.88, "mean_center_error_px": 4.0, "order_error_rate": 0.05},
+                    metrics={
+                        "single_target_hit_rate": 0.91,
+                        "full_sequence_hit_rate": 0.88,
+                        "mean_center_error_px": 4.0,
+                        "order_error_rate": 0.05,
+                    },
                     verdict_title="可继续优化",
                     verdict_detail="这轮模型已经比较稳。",
                     next_actions=["继续补弱类"],
                     predict_command="uv run python -m core.train.group1.runner predict ...",
                     val_command="uv run sinan evaluate --task group1 ...",
+                )
+
+            result = test.run_test_request(
+                test.TestRunnerRequest(
+                    task="group1",
+                    train_root=train_root,
+                    dataset_version="firstpass",
+                    train_name="trial_0001",
                 ),
+                runner=_fake_runner,
             )
 
             self.assertEqual(result.record.task, "group1")
             self.assertEqual(result.record.dataset_version, "firstpass")
             self.assertEqual(result.record.metrics["full_sequence_hit_rate"], 0.88)
+            self.assertEqual(observed_embedder_path, embedder_model_path)
             self.assertIn("predict", result.predict_command)
             self.assertIn("val", result.val_command)
 

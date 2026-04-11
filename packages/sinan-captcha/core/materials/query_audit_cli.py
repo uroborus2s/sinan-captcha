@@ -34,6 +34,11 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--output-jsonl", type=Path)
     parser.add_argument("--trace-jsonl", type=Path)
     parser.add_argument("--template-report-json", type=Path)
+    parser.add_argument(
+        "--retry-from-report",
+        type=Path,
+        help="Reuse successful rows from a previous group1-query-audit report and only retry failed images.",
+    )
     parser.add_argument("--cache-dir", type=Path, default=DEFAULT_GROUP1_CACHE_DIR)
     parser.add_argument("--model", required=True, help="Local Ollama multimodal model, such as gemma4:26b")
     parser.add_argument("--ollama-url", default=DEFAULT_OLLAMA_URL)
@@ -63,6 +68,7 @@ def main(argv: list[str] | None = None) -> int:
         output_jsonl=args.output_jsonl,
         trace_jsonl=args.trace_jsonl,
         template_report_json=args.template_report_json,
+        retry_from_report=args.retry_from_report,
         cache_dir=args.cache_dir,
         repo_root=run_root,
         ollama_url=args.ollama_url,

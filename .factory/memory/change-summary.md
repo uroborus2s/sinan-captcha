@@ -1,5 +1,23 @@
 # 变更摘要
 
+## 2026-04-11 修复 `group1 query audit` 的部分落盘与失败重试
+
+- 已更新：
+  - `packages/sinan-captcha/core/materials/query_audit.py`
+  - `packages/sinan-captcha/core/materials/query_audit_cli.py`
+  - `tests/python/test_group1_query_audit.py`
+  - `docs/02-user-guide/group1-material-category-backlog.md`
+  - `.factory/memory/current-state.md`
+  - `.factory/memory/change-summary.md`
+- 当前已完成的目标：
+  - `materials audit-group1-query` 现在即使遇到部分图片审计失败，也会先基于成功图片生成 `tpl_* / var_*` 的 `group1` 素材包
+  - CLI 已新增 `--retry-from-report`，可读取旧 `group1-query-audit.jsonl`
+  - 重试模式会复用旧报告中的成功行，只重新审计失败图片，再用合并后的成功结果重建素材包与 manifest
+- 已运行验证：
+  - `env PYTHONPATH=packages/sinan-captcha ./.venv/bin/python -m unittest discover -s tests/python -p 'test_group1_query_audit.py'`
+  - `env PYTHONPATH=packages/sinan-captcha ./.venv/bin/python -m unittest discover -s tests/python -p 'test_root_cli.py'`
+  - `env PYTHONPATH=packages/sinan-captcha ./.venv/bin/python -m py_compile packages/sinan-captcha/core/materials/query_audit.py packages/sinan-captcha/core/materials/query_audit_cli.py tests/python/test_group1_query_audit.py`
+
 ## 2026-04-11 落地 monorepo 目录与 work_home 本地运行目录
 
 - 已更新：

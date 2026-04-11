@@ -267,6 +267,7 @@
 ## 3.2 自动审计图片与分类映射（脚本生成）
 
 历史说明：旧版 `uv run sinan materials audit-group1-query ...` 曾自动更新这一区。当前命令已改为直接生成 `tpl_* / var_*` 的 `group1` 素材包，这一节不再自动回写。
+当前行为说明：即使本轮审计存在失败图片，命令也会先把成功图片对应的模板素材落到 `output_root`；后续可使用 `--retry-from-report <旧的 group1-query-audit.jsonl>` 复用成功项并只重试失败图片，无需全量重做。
 
 <!-- AUTO-GENERATED:GROUP1-QUERY-AUDIT:START -->
 已扫描 `150` 张 query 图片。

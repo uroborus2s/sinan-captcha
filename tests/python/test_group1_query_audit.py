@@ -15,6 +15,7 @@ from core.materials import query_audit_cli
 from core.materials.query_audit import (
     DEFAULT_GROUP1_OUTPUT_ROOT,
     DEFAULT_GROUP1_QUERY_DIR,
+    QueryAuditClassificationError,
     QueryIconDecision,
     TemplateDownloadCandidate,
     TemplatePlan,
@@ -446,6 +447,199 @@ class Group1QueryAuditTests(unittest.TestCase):
 
             self.assertEqual(result["status"], "error")
             self.assertEqual(result["insufficient_templates"], ["tpl_house"])
+
+    def test_run_group1_query_audit_partial_success_still_writes_pack(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            repo_root = Path(tmpdir)
+            query_dir = repo_root / "query"
+            query_dir.mkdir(parents=True, exist_ok=True)
+            _write_query_image(query_dir / "a.png", [(4, 6, 16, 18)])
+            circle = Image.new("RGBA", (64, 24), (255, 255, 255, 255))
+            ImageDraw.Draw(circle).ellipse((20, 2, 40, 22), fill=(0, 0, 0, 255))
+            circle.save(query_dir / "b.png")
+
+            def fake_classifier(image_path: Path) -> tuple[QueryIconDecision, ...]:
+                if image_path.name == "b.png":
+                    raise QueryAuditClassificationError("mock classification failure")
+                return (
+                    QueryIconDecision(
+                        order=1,
+                        template_id="tpl_house",
+                        zh_name="房子",
+                        family="symbol",
+                        tags=("home",),
+                        description="房屋轮廓",
+                        reason="house",
+                    ),
+                )
+
+            with patch(
+                "core.materials.query_audit._download_template_variants",
+                return_value=[
+                    VariantManifestEntry(
+                        variant_id="var_boot_house_outline",
+                        source="fake_library",
+                        source_ref="fake",
+                        style="outline",
+                    )
+                ],
+            ):
+                result = run_group1_query_audit(
+                    query_dir=query_dir,
+                    model="gemma4:26b",
+                    output_root=repo_root / "work_home/materials/incoming/group1_icon_pack",
+                    report_root=repo_root / "work_home/reports/group1/materials/20260411",
+                    repo_root=repo_root,
+                    min_variants_per_template=2,
+                    image_classifier=fake_classifier,
+                    template_enricher=lambda _drafts: (
+                        TemplatePlan(
+                            template_id="tpl_house",
+                            zh_name="房子",
+                            family="symbol",
+                            tags=("home",),
+                            description="房屋轮廓",
+                            cluster_ids=("cluster_001",),
+                            target_variant_count=2,
+                            download_candidates=(),
+                        ),
+                    ),
+                )
+
+            self.assertEqual(result["status"], "error")
+            self.assertEqual(result["error_count"], 1)
+            self.assertEqual(result["template_count"], 1)
+            self.assertEqual(result["generated_variant_count"], 2)
+            self.assertTrue(
+                (repo_root / "work_home/materials/incoming/group1_icon_pack/manifests/group1.templates.yaml").exists()
+            )
+            self.assertTrue(
+                any(
+                    path.name.startswith("var_real_house_")
+                    for path in (
+                        repo_root / "work_home/materials/incoming/group1_icon_pack/group1/icons/tpl_house"
+                    ).glob("*.png")
+                )
+            )
+
+            rows = read_jsonl(repo_root / "work_home/reports/group1/materials/20260411/group1-query-audit.jsonl")
+            self.assertEqual([row["status"] for row in rows], ["ok", "error"])
+
+    def test_run_group1_query_audit_retry_from_report_reuses_success_and_retries_failures(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            repo_root = Path(tmpdir)
+            query_dir = repo_root / "query"
+            query_dir.mkdir(parents=True, exist_ok=True)
+            _write_query_image(query_dir / "a.png", [(4, 6, 16, 18)])
+            circle = Image.new("RGBA", (64, 24), (255, 255, 255, 255))
+            ImageDraw.Draw(circle).ellipse((20, 2, 40, 22), fill=(0, 0, 0, 255))
+            circle.save(query_dir / "b.png")
+
+            retry_report = repo_root / "previous-group1-query-audit.jsonl"
+            retry_report.write_text(
+                "\n".join(
+                    [
+                        json.dumps(
+                            {
+                                "image_path": "query/a.png",
+                                "status": "ok",
+                                "error": None,
+                                "request_payload": None,
+                                "template_sequence": ["tpl_house"],
+                                "icons": [
+                                    {
+                                        "order": 1,
+                                        "template_id": "tpl_house",
+                                        "zh_name": "房子",
+                                        "family": "symbol",
+                                        "tags": ["home"],
+                                        "description": "房屋轮廓",
+                                        "reason": "house",
+                                        "cluster_id": "cluster_001",
+                                    }
+                                ],
+                            },
+                            ensure_ascii=False,
+                        ),
+                        json.dumps(
+                            {
+                                "image_path": "query/b.png",
+                                "status": "error",
+                                "error": "mock classification failure",
+                                "request_payload": None,
+                                "template_sequence": [],
+                                "icons": [],
+                            },
+                            ensure_ascii=False,
+                        ),
+                    ]
+                )
+                + "\n",
+                encoding="utf-8",
+            )
+
+            classifier_calls: list[str] = []
+
+            def fake_classifier(image_path: Path) -> tuple[QueryIconDecision, ...]:
+                classifier_calls.append(image_path.name)
+                if image_path.name == "a.png":
+                    raise AssertionError("success row should have been reused from retry report")
+                return (
+                    QueryIconDecision(
+                        order=1,
+                        template_id="tpl_star",
+                        zh_name="星星",
+                        family="symbol",
+                        tags=("star",),
+                        description="五角星",
+                        reason="star",
+                    ),
+                )
+
+            with patch("core.materials.query_audit._download_template_variants", return_value=[]):
+                result = run_group1_query_audit(
+                    query_dir=query_dir,
+                    model="gemma4:26b",
+                    output_root=repo_root / "work_home/materials/incoming/group1_icon_pack",
+                    report_root=repo_root / "work_home/reports/group1/materials/20260411",
+                    repo_root=repo_root,
+                    retry_from_report=retry_report,
+                    min_variants_per_template=1,
+                    max_hamming_distance=0,
+                    image_classifier=fake_classifier,
+                    template_enricher=lambda _drafts: (
+                        TemplatePlan(
+                            template_id="tpl_house",
+                            zh_name="房子",
+                            family="symbol",
+                            tags=("home",),
+                            description="房屋轮廓",
+                            cluster_ids=("cluster_001",),
+                            target_variant_count=1,
+                            download_candidates=(),
+                        ),
+                        TemplatePlan(
+                            template_id="tpl_star",
+                            zh_name="星星",
+                            family="symbol",
+                            tags=("star",),
+                            description="五角星",
+                            cluster_ids=("cluster_002",),
+                            target_variant_count=1,
+                            download_candidates=(),
+                        ),
+                    ),
+                )
+
+            self.assertEqual(result["status"], "ok")
+            self.assertEqual(result["template_count"], 2)
+            self.assertEqual(result["generated_variant_count"], 2)
+            self.assertEqual(classifier_calls, ["b.png"])
+
+            rows = read_jsonl(repo_root / "work_home/reports/group1/materials/20260411/group1-query-audit.jsonl")
+            self.assertEqual([row["status"] for row in rows], ["ok", "ok"])
+            self.assertEqual(rows[0]["template_sequence"], ["tpl_house"])
+            self.assertEqual(rows[1]["template_sequence"], ["tpl_star"])
 
 
 if __name__ == "__main__":

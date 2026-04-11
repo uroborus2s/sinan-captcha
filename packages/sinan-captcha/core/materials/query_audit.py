@@ -19,7 +19,7 @@ from urllib.request import Request, urlopen
 
 from core.auto_train.json_extract import extract_json_object
 from core.common.paths import workspace_paths
-from core.common.jsonl import JsonMapping, write_jsonl
+from core.common.jsonl import JsonMapping, read_jsonl, write_jsonl
 from core.materials import service as materials_service
 from core.materials.group1_query_icons import (
     DEFAULT_DARK_THRESHOLD,
@@ -326,6 +326,7 @@ def run_group1_query_audit(
     output_jsonl: Path | None = None,
     trace_jsonl: Path | None = None,
     template_report_json: Path | None = None,
+    retry_from_report: Path | None = None,
     cache_dir: Path = DEFAULT_GROUP1_CACHE_DIR,
     ollama_url: str = DEFAULT_OLLAMA_URL,
     timeout_seconds: int = DEFAULT_OLLAMA_TIMEOUT_SECONDS,
@@ -351,6 +352,9 @@ def run_group1_query_audit(
         template_report_json,
         resolved_report_root,
         DEFAULT_GROUP1_TEMPLATE_REPORT_NAME,
+    )
+    resolved_retry_from_report = (
+        _resolve_from_repo(retry_from_report, resolved_repo_root).resolve() if retry_from_report is not None else None
     )
 
     image_paths = list_query_images(resolved_query_dir)
@@ -397,6 +401,7 @@ def run_group1_query_audit(
         timeout_seconds=timeout_seconds,
         progress_reporter=progress_reporter,
     )
+    retry_rows = _load_retry_report_rows(resolved_retry_from_report, repo_root=resolved_repo_root)
 
     _emit_progress(
         progress_reporter,
@@ -410,10 +415,13 @@ def run_group1_query_audit(
             "model": model,
             "min_variants_per_template": min_variants_per_template,
             "dry_run": dry_run,
+            "retry_from_report": str(resolved_retry_from_report) if resolved_retry_from_report is not None else None,
         },
     )
 
     results: list[QueryImageAuditResult] = []
+    reused_success_count = 0
+    retried_image_count = 0
     for index, image_path in enumerate(image_paths, start=1):
         display_path = _display_path(image_path, resolved_repo_root)
         _emit_progress(
@@ -421,9 +429,36 @@ def run_group1_query_audit(
             f"正在分析 query 图片 {index}/{len(image_paths)}",
             {"image_path": display_path},
         )
+        expected_candidates = candidate_map[image_path.resolve()]
+        cluster_ids = tuple(
+            cluster_by_candidate[(str(image_path.resolve()), candidate.order)]
+            for candidate in expected_candidates
+        )
+        cached_row = retry_rows.get(image_path.resolve())
+        reused_result = _reuse_reported_success(
+            cached_row,
+            image_path=image_path,
+            cluster_ids=cluster_ids,
+            expected_icon_count=len(expected_candidates),
+        )
+        if reused_result is not None:
+            reused_success_count += 1
+            results.append(reused_result)
+            _emit_progress(
+                progress_reporter,
+                f"复用历史成功审计 {index}/{len(image_paths)}",
+                trace_result_to_json_row(reused_result, repo_root=resolved_repo_root),
+            )
+            continue
+        if cached_row is not None and str(cached_row.get("status", "")).strip().lower() != "ok":
+            retried_image_count += 1
+            _emit_progress(
+                progress_reporter,
+                f"重试历史失败审计 {index}/{len(image_paths)}",
+                {"image_path": display_path, "retry_from_report": str(resolved_retry_from_report)},
+            )
         try:
             classification = _normalize_classification_output(classifier(image_path))
-            expected_candidates = candidate_map[image_path.resolve()]
             if len(classification.icons) != len(expected_candidates):
                 raise QueryAuditClassificationError(
                     (
@@ -434,10 +469,6 @@ def run_group1_query_audit(
                     raw_output=classification.raw_output,
                     response_payload=classification.response_payload,
                 )
-            cluster_ids = tuple(
-                cluster_by_candidate[(str(image_path.resolve()), candidate.order)]
-                for candidate in expected_candidates
-            )
             result = QueryImageAuditResult(
                 image_path=image_path,
                 status="ok",
@@ -486,8 +517,9 @@ def run_group1_query_audit(
     generated_variant_count = 0
     insufficient_templates: list[str] = []
 
-    if error_count == 0:
-        assignments = build_cluster_assignments(results, cluster_map=cluster_map)
+    successful_results = [result for result in results if result.status == "ok"]
+    if successful_results:
+        assignments = build_cluster_assignments(successful_results, cluster_map=cluster_map)
         drafts = build_template_drafts(assignments.values())
         try:
             enriched_templates = merge_template_plans_with_drafts(enricher(drafts), drafts)
@@ -543,6 +575,9 @@ def run_group1_query_audit(
         "output_jsonl": str(resolved_output_jsonl),
         "trace_jsonl": str(resolved_trace_jsonl),
         "template_report_json": str(resolved_template_report_json),
+        "retry_from_report": str(resolved_retry_from_report) if resolved_retry_from_report is not None else None,
+        "reused_success_count": reused_success_count,
+        "retried_image_count": retried_image_count,
         "dry_run": dry_run,
         "model": model,
     }
@@ -883,6 +918,49 @@ def trace_result_to_json_row(result: QueryImageAuditResult, *, repo_root: Path) 
     row["raw_output"] = result.raw_output
     row["response_payload"] = result.response_payload
     return row
+
+
+def _load_retry_report_rows(path: Path | None, *, repo_root: Path) -> dict[Path, JsonMapping]:
+    if path is None:
+        return {}
+    rows = read_jsonl(path)
+    resolved: dict[Path, JsonMapping] = {}
+    for row in rows:
+        raw_image_path = row.get("image_path")
+        if not isinstance(raw_image_path, str) or not raw_image_path.strip():
+            continue
+        resolved_path = _resolve_report_image_path(raw_image_path, repo_root=repo_root)
+        resolved[resolved_path.resolve()] = row
+    return resolved
+
+
+def _reuse_reported_success(
+    row: Mapping[str, object] | None,
+    *,
+    image_path: Path,
+    cluster_ids: Sequence[str],
+    expected_icon_count: int,
+) -> QueryImageAuditResult | None:
+    if row is None:
+        return None
+    if str(row.get("status", "")).strip().lower() != "ok":
+        return None
+    raw_icons = row.get("icons")
+    if not isinstance(raw_icons, list) or len(raw_icons) != expected_icon_count:
+        return None
+    icons: list[QueryIconDecision] = []
+    for index, item in enumerate(raw_icons, start=1):
+        if not isinstance(item, dict):
+            return None
+        icons.append(_normalize_query_icon_decision(item, index=index))
+    request_payload = row.get("request_payload")
+    return QueryImageAuditResult(
+        image_path=image_path,
+        status="ok",
+        icons=tuple(icons),
+        cluster_ids=tuple(cluster_ids),
+        request_payload=request_payload if isinstance(request_payload, dict) else None,
+    )
 
 
 def _normalize_query_icon_decision(payload: Mapping[str, object], *, index: int) -> QueryIconDecision:
@@ -1408,6 +1486,11 @@ def _resolve_report_path(path: Path | None, report_root: Path, default_name: str
     if path is None:
         return report_root / default_name
     return path if path.is_absolute() else report_root / path
+
+
+def _resolve_report_image_path(raw_path: str, *, repo_root: Path) -> Path:
+    path = Path(raw_path)
+    return path if path.is_absolute() else repo_root / path
 
 
 def _display_path(path: Path, repo_root: Path) -> str:

@@ -165,10 +165,12 @@ class TrainPrelabelServiceTests(unittest.TestCase):
 
             query_payload = json.loads((exam_root / "reviewed" / "query" / "sample_0001.json").read_text(encoding="utf-8"))
             self.assertEqual(query_payload["imagePath"], "sample_0001.png")
-            self.assertEqual(query_payload["shapes"][0]["label"], "icon_lock")
+            self.assertEqual(query_payload["shapes"][0]["label"], "query_item")
+            self.assertEqual(query_payload["shapes"][0]["flags"]["class_guess"], "icon_lock")
 
             scene_payload = json.loads((exam_root / "reviewed" / "scene" / "sample_0001.json").read_text(encoding="utf-8"))
-            self.assertEqual(scene_payload["shapes"][0]["label"], "01|icon_lock")
+            self.assertEqual(scene_payload["shapes"][0]["label"], "01")
+            self.assertEqual(scene_payload["shapes"][0]["flags"]["class_guess"], "icon_lock")
             source_rows = read_jsonl(result.source_labels_path)
             self.assertEqual(source_rows[0]["label_source"], "seed")
 
@@ -268,7 +270,8 @@ class TrainPrelabelServiceTests(unittest.TestCase):
             self.assertTrue(annotation_path.exists())
             annotation = json.loads(annotation_path.read_text(encoding="utf-8"))
             self.assertEqual(annotation["imagePath"], "sample_0001.png")
-            self.assertEqual(annotation["shapes"][0]["label"], "icon_lock")
+            self.assertEqual(annotation["shapes"][0]["label"], "query_item")
+            self.assertEqual(annotation["shapes"][0]["flags"]["class_guess"], "icon_lock")
             rows = read_jsonl(result.prediction_labels_path)
             self.assertEqual(rows[0]["query_targets"][0]["class"], "icon_lock")
 

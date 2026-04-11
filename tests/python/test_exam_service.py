@@ -161,8 +161,8 @@ class ExamServiceExportTests(unittest.TestCase):
                 "imageWidth": 120,
                 "imageHeight": 36,
                 "shapes": [
-                    {"label": "icon_lock", "shape_type": "rectangle", "points": [[5, 8], [29, 30]]},
-                    {"label": "icon_star", "shape_type": "rectangle", "points": [[40, 8], [64, 30]]},
+                    {"label": "query_item", "shape_type": "rectangle", "points": [[5, 8], [29, 30]]},
+                    {"label": "query_item", "shape_type": "rectangle", "points": [[40, 8], [64, 30]]},
                 ],
             }
             (query_dir / "sample_0001.json").write_text(
@@ -175,8 +175,8 @@ class ExamServiceExportTests(unittest.TestCase):
                 "imageWidth": 320,
                 "imageHeight": 160,
                 "shapes": [
-                    {"label": "01|icon_lock", "shape_type": "rectangle", "points": [[100, 40], [132, 72]]},
-                    {"label": "02|icon_star", "shape_type": "rectangle", "points": [[180, 56], [212, 88]]},
+                    {"label": "01", "shape_type": "rectangle", "points": [[100, 40], [132, 72]]},
+                    {"label": "02", "shape_type": "rectangle", "points": [[180, 56], [212, 88]]},
                 ],
             }
             (scene_dir / "sample_0001.json").write_text(
@@ -190,9 +190,61 @@ class ExamServiceExportTests(unittest.TestCase):
             rows = read_jsonl(exam_root / "reviewed" / "labels.jsonl")
             self.assertEqual(rows[0]["label_source"], "reviewed")
             self.assertEqual(rows[0]["sample_id"], "sample_0001")
-            self.assertEqual([item["class"] for item in rows[0]["query_targets"]], ["icon_lock", "icon_star"])
+            self.assertIn("query_items", rows[0])
+            self.assertNotIn("query_targets", rows[0])
+            self.assertEqual([item["order"] for item in rows[0]["query_items"]], [1, 2])
             self.assertEqual([item["order"] for item in rows[0]["scene_targets"]], [1, 2])
             self.assertEqual(rows[0]["scene_targets"][0]["center"], [116, 56])
+            self.assertNotIn("class_id", rows[0]["query_items"][0])
+            self.assertNotIn("class", rows[0]["scene_targets"][0])
+
+    def test_export_group1_reviewed_labels_keeps_legacy_class_hints_as_optional_metadata(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            root = Path(tmpdir)
+            exam_root = root / "business-exams" / "group1" / "reviewed-v1"
+            query_dir = exam_root / "reviewed" / "query"
+            scene_dir = exam_root / "reviewed" / "scene"
+            _write_png(query_dir / "sample_0002.png", 120, 36, (10, 10, 10))
+            _write_png(scene_dir / "sample_0002.png", 320, 160, (220, 220, 220))
+
+            (query_dir / "sample_0002.json").write_text(
+                json.dumps(
+                    {
+                        "version": "5.5.0",
+                        "imagePath": "sample_0002.png",
+                        "imageWidth": 120,
+                        "imageHeight": 36,
+                        "shapes": [
+                            {"label": "icon_lock", "shape_type": "rectangle", "points": [[5, 8], [29, 30]]},
+                        ],
+                    },
+                    ensure_ascii=False,
+                    indent=2,
+                ),
+                encoding="utf-8",
+            )
+            (scene_dir / "sample_0002.json").write_text(
+                json.dumps(
+                    {
+                        "version": "5.5.0",
+                        "imagePath": "sample_0002.png",
+                        "imageWidth": 320,
+                        "imageHeight": 160,
+                        "shapes": [
+                            {"label": "01|icon_lock", "shape_type": "rectangle", "points": [[100, 40], [132, 72]]},
+                        ],
+                    },
+                    ensure_ascii=False,
+                    indent=2,
+                ),
+                encoding="utf-8",
+            )
+
+            export_group1_reviewed_labels(exam_root=exam_root)
+
+            row = read_jsonl(exam_root / "reviewed" / "labels.jsonl")[0]
+            self.assertEqual(row["query_items"][0]["class_guess"], "icon_lock")
+            self.assertEqual(row["scene_targets"][0]["class_guess"], "icon_lock")
 
     def test_export_group2_reviewed_labels_reads_master_annotation_and_tile_image(self) -> None:
         with tempfile.TemporaryDirectory() as tmpdir:

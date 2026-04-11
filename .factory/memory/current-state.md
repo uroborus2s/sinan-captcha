@@ -17,6 +17,19 @@
 
 ## 当前事实
 
+- 2026-04-11 当前 `uv run sinan materials audit-group1-query` 已补齐“部分成功可落盘 + 失败项可重试”恢复语义：
+  - 当前即使存在 `error_count > 0`，也会基于成功图片先写出可用的 `group1` 模板素材包，而不是整批阻断
+  - 当前 CLI 已支持：
+    - `--retry-from-report <旧的 group1-query-audit.jsonl>`
+  - 当前重试模式会：
+    - 复用旧报告中的成功审计行
+    - 只重新调用模型处理旧报告中的失败图片
+    - 再用“旧成功 + 新成功”的全集重建 `group1.templates.yaml` 与 `group1/icons/tpl_*/var_*.png`
+  - 当前已验证：
+    - `env PYTHONPATH=packages/sinan-captcha ./.venv/bin/python -m unittest discover -s tests/python -p 'test_group1_query_audit.py'`
+    - `env PYTHONPATH=packages/sinan-captcha ./.venv/bin/python -m unittest discover -s tests/python -p 'test_root_cli.py'`
+    - `env PYTHONPATH=packages/sinan-captcha ./.venv/bin/python -m py_compile packages/sinan-captcha/core/materials/query_audit.py packages/sinan-captcha/core/materials/query_audit_cli.py tests/python/test_group1_query_audit.py`
+
 - 2026-04-11 当前仓库结构已切到 monorepo：
   - Python workspace root 现在是根目录 `pyproject.toml`
   - 业务子项目当前固定为：

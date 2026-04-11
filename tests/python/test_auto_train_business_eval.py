@@ -413,7 +413,7 @@ class BusinessEvalExamTests(unittest.TestCase):
                     sample_id="case_0001",
                     success=True,
                     reason_code="pass",
-                    reason_cn="点击序列、类别和中心点误差均达标。",
+                    reason_cn="点击序列与中心点误差均达标。",
                     input_images={"query_image": "/tmp/query/case_0001.jpg", "scene_image": "/tmp/scene/case_0001.jpg"},
                     metrics={"target_count": 2, "predicted_target_count": 2, "matched_target_count": 2, "order_ok": True},
                     prediction={"scene_targets": [{"order": 1, "center": [20, 20]}, {"order": 2, "center": [60, 20]}]},
@@ -431,6 +431,54 @@ class BusinessEvalExamTests(unittest.TestCase):
         self.assertIn("\"matched_target_count\": 2", rendered)
         self.assertIn("\"scene_targets\"", rendered)
         self.assertIn("status=PASS", rendered)
+
+    def test_build_group1_case_results_uses_order_and_center_for_reviewed_rows_without_identity(self) -> None:
+        gold_rows = [
+            {
+                "sample_id": "case_0101",
+                "query_image": "/tmp/query/case_0101.png",
+                "scene_image": "/tmp/scene/case_0101.png",
+                "query_items": [
+                    {"order": 1, "bbox": [5, 6, 23, 24], "center": [14, 15]},
+                    {"order": 2, "bbox": [29, 6, 47, 24], "center": [38, 15]},
+                ],
+                "scene_targets": [
+                    {"order": 1, "bbox": [10, 20, 30, 40], "center": [20, 30]},
+                    {"order": 2, "bbox": [50, 60, 74, 86], "center": [62, 73]},
+                ],
+                "distractors": [],
+                "label_source": "reviewed",
+                "source_batch": "reviewed-v2",
+            }
+        ]
+        prediction_rows = [
+            {
+                "sample_id": "case_0101",
+                "query_image": "/tmp/query/case_0101.png",
+                "scene_image": "/tmp/scene/case_0101.png",
+                "query_items": [],
+                "scene_targets": [
+                    {"order": 1, "class": "wrong_a", "class_id": 7, "bbox": [10, 20, 30, 40], "center": [20, 30]},
+                    {"order": 2, "class": "wrong_b", "class_id": 9, "bbox": [50, 60, 74, 86], "center": [62, 73]},
+                ],
+                "distractors": [],
+                "label_source": "pred",
+                "source_batch": "predict",
+                "status": "matched",
+            }
+        ]
+
+        cases = business_eval.build_case_results(
+            task="group1",
+            gold_rows=gold_rows,
+            prediction_rows=prediction_rows,
+            point_tolerance_px=5,
+            iou_threshold=0.5,
+        )
+
+        self.assertEqual(len(cases), 1)
+        self.assertTrue(cases[0].success)
+        self.assertEqual(cases[0].reason_code, "pass")
 
     def test_business_eval_markdown_lists_group2_case_deviation_and_failed_checks(self) -> None:
         record = contracts.BusinessEvalRecord(

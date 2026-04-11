@@ -133,6 +133,36 @@ class Group1InstanceContractsTests(unittest.TestCase):
         self.assertEqual(normalized["query_items"][0]["variant_id"], "var_outline")
         self.assertEqual(normalized["query_targets"][0]["variant_id"], "var_outline")
 
+    def test_validate_group1_row_accepts_reviewed_order_and_bbox_without_identity_or_class(self) -> None:
+        row = {
+            "sample_id": "exam_0001",
+            "query_image": "query/exam_0001.png",
+            "scene_image": "scene/exam_0001.png",
+            "query_items": [
+                {
+                    "order": 1,
+                    "bbox": [8, 8, 28, 28],
+                    "center": [18, 18],
+                }
+            ],
+            "scene_targets": [
+                {
+                    "order": 1,
+                    "bbox": [80, 32, 120, 72],
+                    "center": [100, 52],
+                }
+            ],
+            "distractors": [],
+            "label_source": "reviewed",
+            "source_batch": "reviewed-v2",
+        }
+
+        normalized = validate_group1_row(row)
+
+        self.assertEqual(normalized["query_items"][0]["center"], [18, 18])
+        self.assertNotIn("class", normalized["query_items"][0])
+        self.assertNotIn("asset_id", normalized["scene_targets"][0])
+
 
 if __name__ == "__main__":
     unittest.main()
