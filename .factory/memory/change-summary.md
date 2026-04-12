@@ -1,5 +1,118 @@
 # 变更摘要
 
+## 2026-04-13 固化 generator preset 约定并实现 `query detector` 训练入口第一切片
+
+- 已更新：
+  - `packages/generator/internal/preset/preset.go`
+  - `packages/generator/internal/preset/preset_test.go`
+  - `packages/generator/internal/workspace/workspace_test.go`
+  - `packages/generator/cmd/sinan-generator/main.go`
+  - `packages/generator/cmd/sinan-generator/main_test.go`
+  - `packages/generator/internal/app/make_dataset_test.go`
+  - `packages/generator/configs/smoke.yaml`
+  - `packages/generator/configs/group1.v1.yaml`
+  - `packages/generator/configs/group2.v1.yaml`
+  - `packages/sinan-captcha/src/train/group1/cli.py`
+  - `packages/sinan-captcha/src/train/group1/service.py`
+  - `packages/sinan-captcha/src/train/group1/runner.py`
+  - `packages/sinan-captcha/src/train/group1/dataset.py`
+  - `packages/sinan-captcha/src/auto_train/runners/train.py`
+  - `tests/python/test_training_jobs.py`
+  - `tests/python/test_auto_train_runners.py`
+  - `tests/python/test_group1_embedder.py`
+  - `docs/04-project-development/05-development-process/group1-instance-matching-refactor-task-breakdown.md`
+  - `.factory/memory/current-state.md`
+  - `.factory/memory/change-summary.md`
+- 当前已完成的目标：
+  - generator 新增正式 `v1` preset，并保留 `firstpass` 为 legacy 兼容 preset
+  - `group1 v1` preset 已固定：
+    - `sample_count = 10000`
+    - `target_count_min = target_count_max = 3`
+  - `smoke` preset 已上调为 200 条；`group1 smoke` 固定 3 个 query 图标
+  - `train group1` 已新增 `query-detector` 组件：
+    - CLI dry-run
+    - `from_run`
+    - `resume`
+    - runner 训练汇总
+    - 训练后自动 query val 评估
+    - `query-detector/failcases.jsonl`
+    - `gate.status / thresholds / failed_checks`
+  - `auto_train.runners.train` 已开始记录：
+    - `query_model_best`
+    - `query_model_last`
+- 已运行验证：
+  - `cd packages/generator && GOCACHE=/Users/uroborus/AiProject/sinan-captcha/work_home/.cache/go-test go test ./internal/preset ./internal/workspace ./internal/app ./cmd/sinan-generator -count=1`
+  - `uv run pytest tests/python/test_training_jobs.py -q`
+  - `uv run pytest tests/python/test_auto_train_runners.py -q`
+  - `uv run pytest tests/python/test_group1_embedder.py -q`
+- 当前状态：
+  - `group1` 已具备 `query detector` 训练入口第一切片
+  - `query detector` 的独立预测入口、主推理接线与 `auto-train` 新阶段机仍待后续实现
+
+## 2026-04-13 实现 `group1 query-yolo` 导出第一切片并通过阶段 1 合同测试
+
+- 已更新：
+  - `packages/generator/internal/dataset/build.go`
+  - `packages/generator/internal/app/make_dataset_test.go`
+  - `packages/sinan-captcha/src/train/group1/dataset.py`
+  - `tests/python/test_training_jobs.py`
+  - `docs/04-project-development/05-development-process/group1-instance-matching-refactor-task-breakdown.md`
+  - `.factory/memory/current-state.md`
+  - `.factory/memory/change-summary.md`
+- 当前已完成的目标：
+  - generator 为 `group1` 新增 `query-yolo/` 导出：
+    - `images/{train,val,test}`
+    - `labels/{train,val,test}`
+    - `dataset.yaml`
+  - `dataset.json` 已新增 `query_detector` 组件合同，并指向 `query-yolo/dataset.yaml`
+  - Python `group1 dataset loader` 已兼容读取 `query_detector` 字段
+  - 生成器测试已新增对 `query-yolo/` 与 `query_detector` 合同的断言
+- 已运行验证：
+  - `cd packages/generator && GOCACHE=/Users/uroborus/AiProject/sinan-captcha/work_home/.cache/go-test go test ./internal/app -count=1`
+  - `uv run pytest tests/python/test_training_jobs.py -q`
+- 当前状态：
+  - 已完成“生成器与数据契约第一切片”
+  - `query detector` 的训练、预测、评估与 stage gate 仍待后续实现
+
+## 2026-04-13 冻结 `group1` 工程化方案为 `query detector + scene proposal detector + icon embedder + matcher`
+
+- 已更新：
+  - `docs/04-project-development/04-design/group1-instance-matching-refactor.md`
+  - `docs/04-project-development/04-design/technical-selection.md`
+  - `docs/04-project-development/04-design/system-architecture.md`
+  - `docs/04-project-development/05-development-process/implementation-plan.md`
+  - `docs/04-project-development/05-development-process/group1-instance-matching-refactor-task-breakdown.md`
+  - `docs/04-project-development/10-traceability/requirements-matrix.md`
+  - `.factory/memory/current-state.md`
+  - `.factory/memory/change-summary.md`
+  - `.factory/memory/tech-stack.summary.md`
+- 当前已完成的目标：
+  - 把 `group1` 的正式目标工程方案从“规则式 `query splitter` 过渡态”改为：
+    - `query detector`
+    - `scene proposal detector`
+    - `icon embedder`
+    - `matcher`
+  - 在正式设计文档中补齐完整工程化工作流：
+    - `dataset_smoke = 200`
+    - `dataset_v1` 建议从 `10000` 条起步
+    - 第一轮严格串行 gate：
+      - `TRAIN_QUERY`
+      - `QUERY_GATE`
+      - `TRAIN_SCENE`
+      - `SCENE_GATE`
+      - `TRAIN_EMBEDDER_BASE`
+      - `BUILD_EMBEDDER_HARDSET`
+      - `TRAIN_EMBEDDER_HARD`
+      - `CALIBRATE_MATCHER`
+      - `OFFLINE_EVAL`
+      - `BUSINESS_EVAL`
+      - `EXPORT`
+  - 明确 `embedder` 需要 detector-aware hard triplets，而不是只吃生成器真值裁剪
+  - 同步技术选型、系统架构、实施计划、任务拆解与 `.factory` 记忆层，避免只留在对话中
+- 当前状态：
+  - 正式文档与 `.factory` 记忆层已同步到新的目标工程方案
+  - 代码主线仍未实现 `query detector`，仓库当前仍处于规则式 query 过渡态
+
 ## 2026-04-12 实现 `TASK-G1-REF-013`：`group1 prelabel-vlm` 支持逐样本恢复与过程工件重建
 
 - 已更新：
@@ -97,6 +210,28 @@
   - `uv run pytest ../../tests/python/test_train_prelabel_service.py`
   - `uv run pytest ../../tests/python/test_auto_train_business_eval.py`
   - `uv run pytest tests/test_group1_service.py tests/test_query_splitter.py`
+
+## 2026-04-13 为 `collect-backgrounds` 补齐汇总 schema 漂移 guardrail、repair 重试与 drift 日志
+
+- 已更新：
+  - `packages/sinan-captcha/src/materials/background_style.py`
+  - `tests/python/test_background_style_collect.py`
+  - `docs/02-user-guide/trainer-cli-reference.md`
+  - `docs/04-project-development/04-design/background-material-expansion-design.md`
+  - `docs/04-project-development/05-development-process/background-material-expansion-task-breakdown.md`
+  - `.factory/memory/current-state.md`
+  - `.factory/memory/change-summary.md`
+- 当前已完成的目标：
+  - `collect-backgrounds` 汇总阶段新增严格 JSON 合同校验，不再默认信任模型输出字段结构
+  - 若汇总响应发生 schema 漂移，当前会自动向同一模型发起 1 次 repair 请求，把原有信息重写回正式 schema
+  - 若 repair 后仍无法恢复严格 schema，但原始或修复响应仍可归一化解析，当前会继续复用可用结果，不再直接报错中断
+  - 若原始与 repair 响应都不可用，当前会自动回退到本地汇总，继续生成下载任务
+  - 当前新增 `reports/background-style-drift-events.jsonl`，记录 drift、repair 和 fallback 事件
+  - 背景采集报告与汇总摘要当前已增加 drift 日志路径与事件计数
+- 已运行验证：
+  - `uv run pytest tests/python/test_background_style_collect.py tests/python/test_root_cli.py -q`
+  - `PYTHONPYCACHEPREFIX=/tmp python3 -m py_compile packages/sinan-captcha/src/materials/background_style.py packages/sinan-captcha/src/materials/background_style_cli.py tests/python/test_background_style_collect.py tests/python/test_root_cli.py`
+  - `uv run ruff check packages/sinan-captcha/src/materials/background_style.py packages/sinan-captcha/src/materials/background_style_cli.py tests/python/test_background_style_collect.py tests/python/test_root_cli.py`
 
 ## 2026-04-12 为 `collect-backgrounds` 补齐断点续传、质量门、重复抑制与正式 backgrounds 合并
 

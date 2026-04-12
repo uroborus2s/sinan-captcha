@@ -1,7 +1,7 @@
 project:
   dataset_name: sinan_group1
   split: smoke
-  sample_count: 20
+  sample_count: 200
   batch_id: smoke_0001
   seed: 20260402
 
@@ -12,8 +12,8 @@ canvas:
   query_height: 36
 
 sampling:
-  target_count_min: 2
-  target_count_max: 2
+  target_count_min: 3
+  target_count_max: 3
   distractor_count_min: 2
   distractor_count_max: 3
 

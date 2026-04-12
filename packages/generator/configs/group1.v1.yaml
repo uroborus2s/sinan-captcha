@@ -1,0 +1,18 @@
+project:
+  dataset_name: sinan_group1_v1
+  split: train
+  sample_count: 10000
+  batch_id: group1_v1_0001
+  seed: 20260413
+
+canvas:
+  scene_width: 300
+  scene_height: 150
+  query_width: 120
+  query_height: 36
+
+sampling:
+  target_count_min: 3
+  target_count_max: 3
+  distractor_count_min: 3
+  distractor_count_max: 6

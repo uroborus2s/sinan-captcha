@@ -1,4 +1,4 @@
-"""Proposal-detector + icon-embedder job helpers for group1."""
+"""Query/proposal detector + icon-embedder job helpers for group1."""
 
 from __future__ import annotations
 
@@ -11,6 +11,7 @@ from train.base import _ensure_training_dependencies
 from train.group1.dataset import load_group1_dataset_config
 
 ALL_COMPONENTS = "all"
+QUERY_COMPONENT = "query-detector"
 PROPOSAL_COMPONENT = "proposal-detector"
 EMBEDDER_COMPONENT = "icon-embedder"
 
@@ -19,6 +20,7 @@ EMBEDDER_COMPONENT = "icon-embedder"
 class Group1TrainingJob:
     dataset_config: Path
     project_dir: Path
+    query_model: str | None
     proposal_model: str | None
     embedder_model: str | None
     epochs: int
@@ -54,6 +56,8 @@ class Group1TrainingJob:
             "--device",
             self.device,
         ]
+        if self.query_model is not None:
+            command.extend(["--query-model", self.query_model])
         if self.proposal_model is not None:
             command.extend(["--proposal-model", self.proposal_model])
         if self.embedder_model is not None:
@@ -126,6 +130,7 @@ def build_group1_training_job(
     model: str = "yolo26n.pt",
     run_name: str = "v1",
     *,
+    query_model: str | None = None,
     proposal_model: str | None = None,
     embedder_model: str | None = None,
     epochs: int | None = None,
@@ -136,15 +141,22 @@ def build_group1_training_job(
     resume: bool = False,
 ) -> Group1TrainingJob:
     normalized_component = normalize_group1_component(component)
+    resolved_query_model = query_model or model
     resolved_proposal_model = proposal_model or model
     resolved_embedder_model = embedder_model
-    if normalized_component == PROPOSAL_COMPONENT:
+    if normalized_component == QUERY_COMPONENT:
+        resolved_proposal_model = None
+        resolved_embedder_model = None
+    elif normalized_component == PROPOSAL_COMPONENT:
+        resolved_query_model = None
         resolved_embedder_model = None
     elif normalized_component == EMBEDDER_COMPONENT:
+        resolved_query_model = None
         resolved_proposal_model = None
     return Group1TrainingJob(
         dataset_config=dataset_config,
         project_dir=project_dir,
+        query_model=resolved_query_model,
         proposal_model=resolved_proposal_model,
         embedder_model=resolved_embedder_model,
         epochs=120 if epochs is None else epochs,
@@ -187,6 +199,7 @@ def execute_group1_training_job(job: Group1TrainingJob) -> int:
     if not job.dataset_config.exists():
         raise RuntimeError(f"未找到 group1 数据集配置文件：{job.dataset_config}")
     for component_name, model in (
+        (QUERY_COMPONENT, job.query_model),
         (PROPOSAL_COMPONENT, job.proposal_model),
         (EMBEDDER_COMPONENT, job.embedder_model),
     ):
@@ -255,6 +268,6 @@ def resolve_group1_component_last_weights(train_root: Path, run_name: str, compo
 
 def normalize_group1_component(component: str) -> str:
     normalized = component.strip()
-    if normalized in {ALL_COMPONENTS, PROPOSAL_COMPONENT, EMBEDDER_COMPONENT}:
+    if normalized in {ALL_COMPONENTS, QUERY_COMPONENT, PROPOSAL_COMPONENT, EMBEDDER_COMPONENT}:
         return normalized
     raise RuntimeError(f"不支持的 group1 训练组件：{component}")

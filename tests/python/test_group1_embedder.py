@@ -6,6 +6,7 @@ import tempfile
 import unittest
 import zlib
 from pathlib import Path
+from unittest.mock import patch
 
 from train.group1.embedder import (
     Group1TripletDataset,
@@ -216,6 +217,162 @@ class Group1EmbedderTests(unittest.TestCase):
             self.assertIn("icon-embedder", summary["components"])
             self.assertIn("metrics", summary["components"]["icon-embedder"])
 
+    def test_evaluate_query_detector_rows_reports_passed_gate(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            root = Path(tmpdir)
+            _write_png(root / "eval" / "query" / "val" / "g1_000001.png", 64, 24, (255, 255, 255))
+            rows = [
+                {
+                    "sample_id": "g1_000001",
+                    "query_image": "eval/query/val/g1_000001.png",
+                    "query_items": [
+                        {"order": 1, "bbox": [0, 0, 10, 10], "center": [5, 5]},
+                        {"order": 2, "bbox": [20, 0, 30, 10], "center": [25, 5]},
+                        {"order": 3, "bbox": [40, 0, 50, 10], "center": [45, 5]},
+                    ],
+                }
+            ]
+
+            metrics, gate, failcases = group1_runner._evaluate_query_detector_rows(
+                rows,
+                dataset_root=root,
+                predict_query_items=lambda path: [
+                    {"order": 1, "bbox": [0, 0, 10, 10], "center": [5, 5]},
+                    {"order": 2, "bbox": [20, 0, 30, 10], "center": [25, 5]},
+                    {"order": 3, "bbox": [40, 0, 50, 10], "center": [45, 5]},
+                ],
+            )
+
+            self.assertEqual(metrics["query_item_recall"], 1.0)
+            self.assertEqual(metrics["query_exact_count_rate"], 1.0)
+            self.assertEqual(metrics["query_strict_hit_rate"], 1.0)
+            self.assertEqual(gate["status"], "passed")
+            self.assertEqual(failcases, [])
+
+    def test_evaluate_query_detector_rows_records_count_mismatch_failcase(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            root = Path(tmpdir)
+            _write_png(root / "eval" / "query" / "val" / "g1_000001.png", 64, 24, (255, 255, 255))
+            rows = [
+                {
+                    "sample_id": "g1_000001",
+                    "query_image": "eval/query/val/g1_000001.png",
+                    "query_items": [
+                        {"order": 1, "bbox": [0, 0, 10, 10], "center": [5, 5]},
+                        {"order": 2, "bbox": [20, 0, 30, 10], "center": [25, 5]},
+                        {"order": 3, "bbox": [40, 0, 50, 10], "center": [45, 5]},
+                    ],
+                }
+            ]
+
+            metrics, gate, failcases = group1_runner._evaluate_query_detector_rows(
+                rows,
+                dataset_root=root,
+                predict_query_items=lambda path: [
+                    {"order": 1, "bbox": [0, 0, 10, 10], "center": [5, 5]},
+                    {"order": 2, "bbox": [20, 0, 30, 10], "center": [25, 5]},
+                    {"order": 3, "bbox": [40, 0, 50, 10], "center": [45, 5]},
+                    {"order": 4, "bbox": [52, 0, 58, 10], "center": [55, 5]},
+                ],
+            )
+
+            self.assertEqual(metrics["query_item_recall"], 1.0)
+            self.assertEqual(metrics["query_exact_count_rate"], 0.0)
+            self.assertEqual(metrics["query_strict_hit_rate"], 0.0)
+            self.assertEqual(gate["status"], "failed")
+            self.assertIn("query_exact_count_rate", gate["failed_checks"])
+            self.assertEqual(len(failcases), 1)
+            self.assertEqual(failcases[0]["reason"], "count_mismatch")
+
+    def test_runner_trains_query_detector_component_and_writes_gate_artifacts(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            root = Path(tmpdir)
+            _write_minimal_dataset_config(root)
+            (root / "query-yolo").mkdir(parents=True, exist_ok=True)
+            (root / "query-yolo" / "dataset.yaml").write_text(
+                "path: .\ntrain: images/train\nval: images/val\nnames:\n  0: query_item\n",
+                encoding="utf-8",
+            )
+            (root / "splits" / "val.jsonl").write_text(
+                json.dumps(
+                    {
+                        "sample_id": "g1_000001",
+                        "query_image": "eval/query/val/g1_000001.png",
+                        "scene_image": "eval/scene/val/g1_000001.png",
+                        "query_items": [
+                            {"order": 1, "bbox": [0, 0, 10, 10], "center": [5, 5]},
+                            {"order": 2, "bbox": [20, 0, 30, 10], "center": [25, 5]},
+                            {"order": 3, "bbox": [40, 0, 50, 10], "center": [45, 5]},
+                        ],
+                        "scene_targets": [],
+                        "distractors": [],
+                        "label_source": "gold",
+                        "source_batch": "batch_0001",
+                    },
+                    ensure_ascii=False,
+                )
+                + "\n",
+                encoding="utf-8",
+            )
+            _write_png(root / "eval" / "query" / "val" / "g1_000001.png", 64, 24, (255, 255, 255))
+
+            def _fake_run(command: list[str], check: bool) -> None:
+                del check
+                if "query-detector" in command:
+                    weights_dir = root / "runs" / "group1" / "smoke" / "query-detector" / "weights"
+                    weights_dir.mkdir(parents=True, exist_ok=True)
+                    (weights_dir / "best.pt").write_bytes(b"pt")
+                    (weights_dir / "last.pt").write_bytes(b"pt")
+
+            with patch("train.group1.runner.subprocess.run", side_effect=_fake_run):
+                with patch(
+                    "train.group1.runner._evaluate_query_detector_component",
+                    return_value=(
+                        {
+                            "query_sample_count": 1,
+                            "query_item_recall": 1.0,
+                            "query_exact_count_rate": 1.0,
+                            "query_full_recall_rate": 1.0,
+                            "query_strict_hit_rate": 1.0,
+                            "query_mean_iou": 1.0,
+                        },
+                        {
+                            "status": "passed",
+                            "thresholds": {"query_item_recall": 0.995},
+                            "failed_checks": [],
+                        },
+                        [],
+                    ),
+                ):
+                    exit_code = group1_runner.main(
+                        [
+                            "train",
+                            "--dataset-config",
+                            str(root / "dataset.json"),
+                            "--project",
+                            str(root / "runs" / "group1"),
+                            "--name",
+                            "smoke",
+                            "--component",
+                            "query-detector",
+                            "--epochs",
+                            "1",
+                            "--batch",
+                            "1",
+                            "--imgsz",
+                            "32",
+                            "--device",
+                            "cpu",
+                        ]
+                    )
+
+            summary_path = root / "runs" / "group1" / "smoke" / "summary.json"
+            self.assertEqual(exit_code, 0)
+            summary = json.loads(summary_path.read_text(encoding="utf-8"))
+            self.assertIn("query-detector", summary["components"])
+            self.assertEqual(summary["components"]["query-detector"]["gate"]["status"], "passed")
+            self.assertTrue((root / "runs" / "group1" / "smoke" / "query-detector" / "failcases.jsonl").exists())
+
 
 def _write_minimal_dataset_config(root: Path) -> None:
     (root / "splits").mkdir(parents=True, exist_ok=True)
@@ -228,6 +385,10 @@ def _write_minimal_dataset_config(root: Path) -> None:
                     "train": "splits/train.jsonl",
                     "val": "splits/val.jsonl",
                     "test": "splits/test.jsonl",
+                },
+                "query_detector": {
+                    "format": "yolo.detect.v1",
+                    "dataset_yaml": "query-yolo/dataset.yaml",
                 },
                 "proposal_detector": {
                     "format": "yolo.detect.v1",

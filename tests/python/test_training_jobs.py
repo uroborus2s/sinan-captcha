@@ -122,6 +122,10 @@ class TrainingJobTests(unittest.TestCase):
                             "val": "splits/val.jsonl",
                             "test": "splits/test.jsonl",
                         },
+                        "query_detector": {
+                            "format": "yolo.detect.v1",
+                            "dataset_yaml": "query-yolo/dataset.yaml",
+                        },
                         "proposal_detector": {
                             "format": "yolo.detect.v1",
                             "dataset_yaml": "proposal-yolo/dataset.yaml",
@@ -146,10 +150,11 @@ class TrainingJobTests(unittest.TestCase):
             config = load_group1_dataset_config(dataset_config_path)
 
             self.assertEqual(config.format, "sinan.group1.instance_matching.v1")
+            self.assertIsNotNone(config.query_component)
+            self.assertEqual(config.query_component.dataset_yaml, (dataset_dir / "query-yolo" / "dataset.yaml").resolve())
             self.assertEqual(config.proposal_component.dataset_yaml, (dataset_dir / "proposal-yolo" / "dataset.yaml").resolve())
             self.assertEqual(config.embedding_pairs_path, (dataset_dir / "embedding" / "pairs.jsonl").resolve())
             self.assertEqual(config.eval_labels_path, (dataset_dir / "eval" / "labels.jsonl").resolve())
-            self.assertFalse(hasattr(config, "query_component"))
 
     def test_preferred_checkpoint_path_returns_best_when_available(self) -> None:
         with tempfile.TemporaryDirectory() as tmpdir:
@@ -208,6 +213,8 @@ class TrainingJobTests(unittest.TestCase):
             device="cpu",
         )
         command = job.command()
+        self.assertIn("--query-model", command)
+        self.assertIn("yolo26s.pt", command)
         self.assertIn("--proposal-model", command)
         self.assertIn("yolo26s.pt", command)
         self.assertIn("--epochs", command)
@@ -218,6 +225,26 @@ class TrainingJobTests(unittest.TestCase):
         self.assertIn("512", command)
         self.assertIn("--device", command)
         self.assertIn("cpu", command)
+        self.assertNotIn("--embedder-model", command)
+
+    def test_group1_query_component_builds_dedicated_training_command(self) -> None:
+        job = build_group1_training_job(
+            Path("datasets/group1/v2/dataset.json"),
+            Path("runs/group1"),
+            run_name="query_v2",
+            component="query-detector",
+            epochs=5,
+            batch=4,
+            imgsz=256,
+            device="cpu",
+        )
+
+        command = job.command()
+        self.assertEqual(command[:5], ["uv", "run", "python", "-m", "train.group1.runner"])
+        self.assertIn("--component", command)
+        self.assertIn("query-detector", command)
+        self.assertIn("--query-model", command)
+        self.assertNotIn("--proposal-model", command)
         self.assertNotIn("--embedder-model", command)
 
     def test_group1_embedder_component_builds_dedicated_training_command(self) -> None:
@@ -279,6 +306,8 @@ class TrainingJobTests(unittest.TestCase):
         self.assertEqual(code, 0)
         output = buffer.getvalue()
         self.assertIn("uv run python -m train.group1.runner train", output)
+        self.assertIn("--query-model yolo26n.pt", output)
+        self.assertIn("--proposal-model yolo26n.pt", output)
         self.assertIn("--batch 8", output)
         self.assertIn("--dataset-config datasets/group1/v1/dataset.json", output)
 
@@ -342,6 +371,8 @@ class TrainingJobTests(unittest.TestCase):
                 )
         self.assertEqual(code, 0)
         output = buffer.getvalue()
+        self.assertIn("--query-model", output)
+        self.assertIn(f"{expected_root / 'runs/group1/firstpass/query-detector/weights/best.pt'}", output)
         self.assertIn(f"--dataset-config {expected_root / 'datasets/group1/firstpass_v2/dataset.json'}", output)
         self.assertIn(f"--proposal-model {expected_root / 'runs/group1/firstpass/proposal-detector/weights/best.pt'}", output)
         self.assertIn(f"--embedder-model {expected_root / 'runs/group1/firstpass/icon-embedder/weights/best.pt'}", output)
@@ -363,6 +394,7 @@ class TrainingJobTests(unittest.TestCase):
         self.assertEqual(code, 0)
         output = buffer.getvalue()
         self.assertIn("uv run python -m train.group1.runner train", output)
+        self.assertIn(f"--query-model {expected_root / 'runs/group1/firstpass/query-detector/weights/last.pt'}", output)
         self.assertIn(f"--proposal-model {expected_root / 'runs/group1/firstpass/proposal-detector/weights/last.pt'}", output)
         self.assertIn(f"--embedder-model {expected_root / 'runs/group1/firstpass/icon-embedder/weights/last.pt'}", output)
         self.assertIn("--resume", output)
@@ -390,6 +422,30 @@ class TrainingJobTests(unittest.TestCase):
         self.assertIn("--component proposal-detector", output)
         self.assertIn(f"--proposal-model {expected_root / 'runs/group1/firstpass/proposal-detector/weights/best.pt'}", output)
         self.assertNotIn("--query-", output)
+
+    def test_group1_cli_can_train_only_query_detector_from_previous_run(self) -> None:
+        buffer = io.StringIO()
+        expected_root = default_work_root()
+        with patch("train.group1.cli.Path.cwd", return_value=Path("D:/sinan-captcha-work")):
+            with redirect_stdout(buffer):
+                code = group1_cli.main(
+                    [
+                        "--dataset-version",
+                        "firstpass_v2",
+                        "--name",
+                        "query_only",
+                        "--component",
+                        "query-detector",
+                        "--from-run",
+                        "firstpass",
+                        "--dry-run",
+                    ]
+                )
+        self.assertEqual(code, 0)
+        output = buffer.getvalue()
+        self.assertIn("--component query-detector", output)
+        self.assertIn(f"--query-model {expected_root / 'runs/group1/firstpass/query-detector/weights/best.pt'}", output)
+        self.assertNotIn("--proposal-model", output)
 
     def test_group1_prelabel_cli_dry_run_uses_reviewed_exam_and_trained_weights(self) -> None:
         buffer = io.StringIO()

@@ -328,7 +328,9 @@ uv run sinan materials collect-backgrounds \
 - `output-root/reports/background-style-image-analysis.jsonl`：逐张参考图的分析结果。已成功分析的图片下次会按 `image_path + image_sha256` 复用。
 - `output-root/reports/background-style-summary.json`：根据逐图分析结果汇总出来的最终背景风格画像和搜索词。
 - `output-root/reports/background-style-download-state.json`：下载任务状态，记录 `reference_image` 保底任务和 `summary` 扩充任务的来源、目标数量、已下载数量、已拒绝数量和下一页游标。
+- `output-root/reports/background-style-drift-events.jsonl`：汇总阶段的大模型 schema 漂移日志，记录严格合同校验失败、repair 重试结果和 fallback 决策。
 - 若命令在下载阶段中断，只要重用同一 `--output-root` 重跑，就会从上次保存的任务状态继续，而不是从第一页重新开始。
+- 汇总阶段会先按固定 JSON 合同校验大模型响应；若字段结构漂移，会自动发起 1 次 repair 请求。repair 仍失败时，命令会优先复用可归一化的原响应；若连原响应都不可用，则自动回退到本地汇总，不再因为 schema 漂移中断整批任务。
 
 #### 最小示例
 
@@ -349,6 +351,7 @@ uv run sinan materials collect-backgrounds \
 - `output-root/reports/background-style-image-analysis.jsonl` 记录逐图分析 checkpoint。
 - `output-root/reports/background-style-summary.json` 记录汇总后的背景风格画像和搜索词。
 - `output-root/reports/background-style-download-state.json` 记录下载任务流状态。
+- `output-root/reports/background-style-drift-events.jsonl` 记录 schema 漂移、repair 和 fallback 事件。
 - `output-root/reports/background-style-collection.json` 记录复用计数、下载任务统计、下载成功项、跳过原因和正式合并结果。
 - 若指定 `--merge-into`，目标素材根的 `backgrounds/` 与 `manifests/backgrounds.csv` 会增量更新，且不会改写已有 `group1/group2` manifest。
 

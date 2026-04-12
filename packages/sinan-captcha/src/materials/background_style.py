@@ -33,6 +33,7 @@ DEFAULT_BACKGROUND_STYLE_REPORT_NAME = "background-style-collection.json"
 DEFAULT_BACKGROUND_STYLE_IMAGE_ANALYSIS_NAME = "background-style-image-analysis.jsonl"
 DEFAULT_BACKGROUND_STYLE_SUMMARY_NAME = "background-style-summary.json"
 DEFAULT_BACKGROUND_STYLE_DOWNLOAD_STATE_NAME = "background-style-download-state.json"
+DEFAULT_BACKGROUND_STYLE_DRIFT_LOG_NAME = "background-style-drift-events.jsonl"
 DEFAULT_BACKGROUND_STYLE_SAMPLE_LIMIT: int | None = None
 DEFAULT_BACKGROUND_STYLE_MAX_QUERIES = 5
 DEFAULT_BACKGROUND_STYLE_PER_QUERY = 8
@@ -223,6 +224,13 @@ class BackgroundDownloadState:
         )
 
 
+@dataclass(frozen=True)
+class BackgroundStyleParseAttempt:
+    profile: BackgroundStyleProfile | None
+    contract_issues: tuple[str, ...]
+    parse_error: str | None
+
+
 class OllamaBackgroundReferenceAnalyzer:
     """Analyze one reference image at a time so the result can be checkpointed."""
 
@@ -306,6 +314,7 @@ class OllamaBackgroundProfileSummarizer:
         *,
         image_profiles: Sequence[BackgroundStyleImageProfile],
         max_queries: int,
+        drift_log_path: Path | None = None,
         **_kwargs: object,
     ) -> BackgroundStyleProfile:
         summary_input = [
@@ -324,6 +333,7 @@ class OllamaBackgroundProfileSummarizer:
         )
         request_payload = {
             "version": BACKGROUND_PROFILE_SUMMARY_VERSION,
+            "mode": "ollama_summary",
             "model": self._model,
             "ollama_url": self._ollama_url,
             "timeout_seconds": self._timeout_seconds,
@@ -332,25 +342,184 @@ class OllamaBackgroundProfileSummarizer:
             "image_profiles": summary_input,
             "prompt": prompt,
         }
+        _emit_progress(self._progress_reporter, "发送背景风格汇总到大模型", request_payload)
+        content = self._request_summary_content(
+            prompt=prompt,
+            raw_response_label="背景风格汇总大模型原始响应",
+        )
+        initial_attempt = _try_parse_background_style_response(
+            content,
+            source_image_count=len(image_profiles),
+            request_payload=request_payload,
+            max_queries=max_queries,
+        )
+        if initial_attempt.profile is not None and not initial_attempt.contract_issues:
+            return initial_attempt.profile
+
+        _record_background_style_drift_event(
+            drift_log_path,
+            {
+                "stage": "background_style_summary",
+                "event_type": "summary_schema_drift_detected",
+                "mode": request_payload["mode"],
+                "model": self._model,
+                "source_image_count": len(image_profiles),
+                "max_queries": max_queries,
+                "contract_issues": list(initial_attempt.contract_issues),
+                "parse_error": initial_attempt.parse_error,
+                "raw_output": content,
+            },
+        )
+        _emit_progress(
+            self._progress_reporter,
+            "背景风格汇总响应漂移，尝试修复",
+            {
+                "contract_issues": list(initial_attempt.contract_issues),
+                "parse_error": initial_attempt.parse_error,
+            },
+        )
+        repair_prompt = _build_background_style_repair_prompt(
+            raw_output=content,
+            max_queries=max_queries,
+            contract_issues=initial_attempt.contract_issues,
+            parse_error=initial_attempt.parse_error,
+        )
+        repair_request_payload = {
+            **request_payload,
+            "mode": "ollama_summary_repair",
+            "repair_of": request_payload["mode"],
+            "repair_contract_issues": list(initial_attempt.contract_issues),
+            "repair_parse_error": initial_attempt.parse_error,
+            "repair_prompt": repair_prompt,
+        }
+        repair_content = self._request_summary_content(
+            prompt=repair_prompt,
+            raw_response_label="背景风格汇总修复大模型原始响应",
+        )
+        repair_attempt = _try_parse_background_style_response(
+            repair_content,
+            source_image_count=len(image_profiles),
+            request_payload=repair_request_payload,
+            max_queries=max_queries,
+        )
+        if repair_attempt.profile is not None and not repair_attempt.contract_issues:
+            _record_background_style_drift_event(
+                drift_log_path,
+                {
+                    "stage": "background_style_summary",
+                    "event_type": "summary_schema_repair_succeeded",
+                    "mode": repair_request_payload["mode"],
+                    "model": self._model,
+                    "source_image_count": len(image_profiles),
+                    "max_queries": max_queries,
+                    "contract_issues": list(initial_attempt.contract_issues),
+                    "raw_output": repair_content,
+                },
+            )
+            return repair_attempt.profile
+        if repair_attempt.profile is not None:
+            normalized_repair_payload = {
+                **repair_request_payload,
+                "mode": "ollama_summary_repair_normalized",
+                "normalized_contract_issues": list(repair_attempt.contract_issues),
+            }
+            _record_background_style_drift_event(
+                drift_log_path,
+                {
+                    "stage": "background_style_summary",
+                    "event_type": "summary_schema_repair_still_drifted",
+                    "mode": normalized_repair_payload["mode"],
+                    "model": self._model,
+                    "source_image_count": len(image_profiles),
+                    "max_queries": max_queries,
+                    "contract_issues": list(repair_attempt.contract_issues),
+                    "parse_error": repair_attempt.parse_error,
+                    "raw_output": repair_content,
+                },
+            )
+            return parse_background_style_response(
+                repair_content,
+                source_image_count=len(image_profiles),
+                request_payload=normalized_repair_payload,
+                max_queries=max_queries,
+            )
+        if initial_attempt.profile is not None:
+            normalized_initial_payload = {
+                **request_payload,
+                "mode": "ollama_summary_normalized",
+                "normalized_contract_issues": list(initial_attempt.contract_issues),
+                "repair_parse_error": repair_attempt.parse_error,
+            }
+            _record_background_style_drift_event(
+                drift_log_path,
+                {
+                    "stage": "background_style_summary",
+                    "event_type": "summary_schema_repair_failed_using_normalized_initial",
+                    "mode": normalized_initial_payload["mode"],
+                    "model": self._model,
+                    "source_image_count": len(image_profiles),
+                    "max_queries": max_queries,
+                    "contract_issues": list(initial_attempt.contract_issues),
+                    "parse_error": repair_attempt.parse_error,
+                    "raw_output": content,
+                    "repair_raw_output": repair_content,
+                },
+            )
+            return parse_background_style_response(
+                content,
+                source_image_count=len(image_profiles),
+                request_payload=normalized_initial_payload,
+                max_queries=max_queries,
+            )
+        fallback_profile = _summarize_background_style_profiles_locally(
+            image_profiles=image_profiles,
+            max_queries=max_queries,
+            request_mode="ollama_summary_local_fallback",
+            request_context={
+                "model": self._model,
+                "repair_parse_error": repair_attempt.parse_error,
+                "repair_contract_issues": list(repair_attempt.contract_issues),
+            },
+        )
+        _record_background_style_drift_event(
+            drift_log_path,
+            {
+                "stage": "background_style_summary",
+                "event_type": "summary_schema_repair_failed_local_fallback",
+                "mode": fallback_profile.request_payload.get(
+                    "mode",
+                    "ollama_summary_local_fallback",
+                ),
+                "model": self._model,
+                "source_image_count": len(image_profiles),
+                "max_queries": max_queries,
+                "contract_issues": list(initial_attempt.contract_issues),
+                "parse_error": repair_attempt.parse_error,
+                "raw_output": content,
+                "repair_raw_output": repair_content,
+            },
+        )
+        return fallback_profile
+
+    def _request_summary_content(
+        self,
+        *,
+        prompt: str,
+        raw_response_label: str,
+    ) -> str:
         payload = {
             "model": self._model,
             "stream": False,
             "messages": [{"role": "user", "content": prompt}],
         }
-        _emit_progress(self._progress_reporter, "发送背景风格汇总到大模型", request_payload)
         raw_response = _post_json(
             f"{self._ollama_url}/api/chat",
             payload,
             timeout_seconds=self._timeout_seconds,
         )
         content = _extract_ollama_message_content(raw_response)
-        _emit_progress(self._progress_reporter, "背景风格汇总大模型原始响应", content)
-        return parse_background_style_response(
-            content,
-            source_image_count=len(image_profiles),
-            request_payload=request_payload,
-            max_queries=max_queries,
-        )
+        _emit_progress(self._progress_reporter, raw_response_label, content)
+        return content
 
 
 def run_background_style_collection(
@@ -386,6 +555,7 @@ def run_background_style_collection(
     analysis_jsonl = reports_dir / DEFAULT_BACKGROUND_STYLE_IMAGE_ANALYSIS_NAME
     summary_json = reports_dir / DEFAULT_BACKGROUND_STYLE_SUMMARY_NAME
     download_state_json = reports_dir / DEFAULT_BACKGROUND_STYLE_DOWNLOAD_STATE_NAME
+    drift_log_jsonl = reports_dir / DEFAULT_BACKGROUND_STYLE_DRIFT_LOG_NAME
 
     if image_analyzer is not None:
         profile = image_analyzer(
@@ -417,6 +587,7 @@ def run_background_style_collection(
             ),
             analysis_reused_count=analysis_reused_count,
             summary_reused=summary_reused,
+            drift_log_path=drift_log_jsonl,
         )
     else:
         (
@@ -445,6 +616,7 @@ def run_background_style_collection(
                 min_width=min_width,
                 min_height=min_height,
                 max_hamming_distance=max_hamming_distance,
+                drift_log_path=drift_log_jsonl,
             )
         )
     planned_download_tasks = _build_download_tasks(
@@ -521,6 +693,8 @@ def run_background_style_collection(
         "analysis_jsonl": str(analysis_jsonl),
         "style_summary_json": str(summary_json),
         "download_state_json": str(download_state_json),
+        "drift_log_jsonl": str(drift_log_jsonl),
+        "drift_event_count": _jsonl_row_count(drift_log_jsonl),
         "analysis_reused_count": analysis_reused_count,
         "analysis_completed_count": analysis_completed_count,
         "summary_reused": summary_reused,
@@ -627,13 +801,34 @@ def parse_background_style_response(
     request_payload: JsonMapping,
     max_queries: int = DEFAULT_BACKGROUND_STYLE_MAX_QUERIES,
 ) -> BackgroundStyleProfile:
+    payload = _extract_background_style_payload(raw_output)
+    return _parse_background_style_payload(
+        payload,
+        raw_output=raw_output,
+        source_image_count=source_image_count,
+        request_payload=request_payload,
+        max_queries=max_queries,
+    )
+
+
+def _extract_background_style_payload(raw_output: str) -> dict[str, object]:
     try:
-        payload = extract_json_object(
+        return extract_json_object(
             raw_output,
             required_keys={"style_summary_zh", "style_summary_en", "search_queries"},
         )
     except ValueError:
-        payload = extract_json_object(raw_output, required_keys=set())
+        return extract_json_object(raw_output, required_keys=set())
+
+
+def _parse_background_style_payload(
+    payload: dict[str, object],
+    *,
+    raw_output: str,
+    source_image_count: int,
+    request_payload: JsonMapping,
+    max_queries: int,
+) -> BackgroundStyleProfile:
     style_features = _normalize_text_tuple(payload.get("style_features"), limit=8)
     style_summary_zh = _first_available_text(
         payload,
@@ -642,6 +837,8 @@ def parse_background_style_response(
         "summary_zh",
         "summary_cn",
     )
+    if not style_summary_zh:
+        style_summary_zh = _nested_text(payload, "style_summary", "zh", "cn")
     style_summary_en = _first_available_text(
         payload,
         "style_summary_en",
@@ -649,6 +846,8 @@ def parse_background_style_response(
         "summary_en",
         "summary",
     )
+    if not style_summary_en:
+        style_summary_en = _nested_text(payload, "style_summary", "en")
     if not style_summary_en and style_features:
         style_summary_en = "; ".join(style_features[:3])
     if not style_summary_zh:
@@ -687,6 +886,43 @@ def parse_background_style_response(
     )
 
 
+def _try_parse_background_style_response(
+    raw_output: str,
+    *,
+    source_image_count: int,
+    request_payload: JsonMapping,
+    max_queries: int,
+) -> BackgroundStyleParseAttempt:
+    try:
+        payload = _extract_background_style_payload(raw_output)
+    except ValueError as exc:
+        return BackgroundStyleParseAttempt(
+            profile=None,
+            contract_issues=("unparseable_json_object",),
+            parse_error=str(exc),
+        )
+    contract_issues = _strict_background_style_contract_issues(payload)
+    try:
+        profile = _parse_background_style_payload(
+            payload,
+            raw_output=raw_output,
+            source_image_count=source_image_count,
+            request_payload=request_payload,
+            max_queries=max_queries,
+        )
+    except ValueError as exc:
+        return BackgroundStyleParseAttempt(
+            profile=None,
+            contract_issues=contract_issues,
+            parse_error=str(exc),
+        )
+    return BackgroundStyleParseAttempt(
+        profile=profile,
+        contract_issues=contract_issues,
+        parse_error=None,
+    )
+
+
 def list_background_images(source_dir: Path, *, limit: int | None = None) -> list[Path]:
     image_paths = sorted(
         path
@@ -716,6 +952,7 @@ def _load_or_create_background_style_profile(
     min_width: int,
     min_height: int,
     max_hamming_distance: int,
+    drift_log_path: Path,
 ) -> tuple[
     BackgroundStyleProfile,
     tuple[BackgroundStyleImageProfile, ...],
@@ -811,6 +1048,7 @@ def _load_or_create_background_style_profile(
         ollama_url=ollama_url,
         timeout_seconds=timeout_seconds,
         progress_reporter=progress_reporter,
+        drift_log_path=drift_log_path,
     )
     _write_background_style_summary(
         summary_json,
@@ -820,6 +1058,7 @@ def _load_or_create_background_style_profile(
         summary_signature=summary_signature,
         analysis_reused_count=reused_count,
         summary_reused=summary_reused,
+        drift_log_path=drift_log_path,
     )
     return profile, tuple(results), reused_count, len(results), summary_reused
 
@@ -1087,10 +1326,39 @@ def _build_background_style_summary_prompt(*, summary_input: str, max_queries: i
     )
 
 
+def _build_background_style_repair_prompt(
+    *,
+    raw_output: str,
+    max_queries: int,
+    contract_issues: Sequence[str],
+    parse_error: str | None,
+) -> str:
+    issues = [f"- {issue}" for issue in contract_issues]
+    if parse_error:
+        issues.append(f"- parse_error: {parse_error}")
+    issues_block = "\n".join(issues) if issues else "- schema_mismatch"
+    return (
+        "你上次输出不符合合同。请不要重新分析，不要新增事实，只把已有信息重写成目标 JSON。\n\n"
+        "发现的问题：\n"
+        f"{issues_block}\n\n"
+        "你上次输出如下：\n"
+        f"{raw_output}\n\n"
+        "现在只输出 JSON，不要 markdown，不要代码块，字段必须完全匹配：\n"
+        "{\n"
+        '  "style_summary_zh": "中文背景风格总结",\n'
+        '  "style_summary_en": "short English style summary",\n'
+        f'  "search_queries": ["english query 1", "...最多 {max_queries} 条"],\n'
+        '  "negative_terms": ["captcha", "icons", "puzzle gap"]\n'
+        "}"
+    )
+
+
 def _summarize_background_style_profiles_locally(
     *,
     image_profiles: Sequence[BackgroundStyleImageProfile],
     max_queries: int,
+    request_mode: str = "local_fallback_summary",
+    request_context: JsonMapping | None = None,
     **_kwargs: object,
 ) -> BackgroundStyleProfile:
     style_summary_zh = "；".join(
@@ -1113,10 +1381,12 @@ def _summarize_background_style_profiles_locally(
         limit=12,
     )
     request_payload = {
-        "mode": "local_fallback_summary",
+        "mode": request_mode,
         "source_image_count": len(image_profiles),
         "max_queries": max_queries,
     }
+    if request_context:
+        request_payload["context"] = request_context
     raw_output = json.dumps(
         {
             "style_summary_zh": style_summary_zh,
@@ -1202,9 +1472,39 @@ def _first_available_text(payload: dict[str, object], *keys: str) -> str:
     return ""
 
 
+def _nested_text(payload: dict[str, object], parent_key: str, *child_keys: str) -> str:
+    parent = payload.get(parent_key)
+    if not isinstance(parent, dict):
+        return ""
+    for child_key in child_keys:
+        value = parent.get(child_key)
+        if isinstance(value, str) and value.strip():
+            return " ".join(value.strip().split())
+    return ""
+
+
 def _compact_search_query(value: str) -> str:
     words = [word for word in value.lower().replace(",", " ").split() if word]
     return " ".join(words[:8]) or "natural landscape background"
+
+
+def _strict_background_style_contract_issues(payload: dict[str, object]) -> tuple[str, ...]:
+    issues: list[str] = []
+    if not _has_non_empty_text(payload.get("style_summary_zh")):
+        issues.append("missing_top_level_style_summary_zh")
+    if not _has_non_empty_text(payload.get("style_summary_en")):
+        issues.append("missing_top_level_style_summary_en")
+    search_queries = payload.get("search_queries")
+    if not (
+        isinstance(search_queries, list)
+        and any(isinstance(item, str) and item.strip() for item in search_queries)
+    ):
+        issues.append("missing_top_level_search_queries")
+    return tuple(issues)
+
+
+def _has_non_empty_text(value: object) -> bool:
+    return isinstance(value, str) and bool(value.strip())
 
 
 def _write_json(path: Path, payload: dict[str, object]) -> None:
@@ -1433,6 +1733,7 @@ def _write_background_style_summary(
     summary_signature: str,
     analysis_reused_count: int,
     summary_reused: bool,
+    drift_log_path: Path | None = None,
 ) -> None:
     _write_json(
         path,
@@ -1443,10 +1744,29 @@ def _write_background_style_summary(
             "analysis_reused_count": analysis_reused_count,
             "summary_reused": summary_reused,
             "summary_signature": summary_signature,
+            "drift_log_jsonl": str(drift_log_path) if drift_log_path is not None else None,
+            "drift_event_count": _jsonl_row_count(drift_log_path),
             "image_profiles": [item.to_dict() for item in image_profiles],
             "style_profile": profile.to_dict(),
         },
     )
+
+
+def _record_background_style_drift_event(
+    path: Path | None,
+    row: dict[str, object],
+) -> None:
+    if path is None:
+        return
+    rows = read_jsonl(path) if path.exists() else []
+    rows.append(row)
+    write_jsonl(path, rows)
+
+
+def _jsonl_row_count(path: Path | None) -> int:
+    if path is None or not path.exists():
+        return 0
+    return len(read_jsonl(path))
 
 
 def _clone_download_tasks(tasks: Sequence[BackgroundDownloadTask]) -> list[BackgroundDownloadTask]:

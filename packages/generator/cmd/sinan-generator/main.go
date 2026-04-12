@@ -63,8 +63,8 @@ func usage() string {
 		"  materials fetch               Fetch a zipped materials pack into the workspace.\n" +
 		"  make-dataset                  Generate a ready-to-train YOLO dataset directory.\n\n" +
 		"Notes:\n" +
-		"  Presets: firstpass=200 samples, hard=200 samples, smoke=20 samples.\n" +
-		"  make-dataset --preset accepts firstpass, hard, or smoke.\n" +
+		"  Presets: smoke=200 samples, v1=10000 samples, firstpass=200 samples (legacy), hard=200 samples.\n" +
+		"  make-dataset --preset accepts smoke, v1, firstpass, or hard.\n" +
 		"  make-dataset also accepts --override-file with JSON overrides for sample_count, sampling, and effects.\n" +
 		"  Without --materials, make-dataset samples from every task-compatible pack in the workspace.\n" +
 		"  Pass --runtime-seed to reproduce one specific generation run.\n" +
@@ -77,7 +77,7 @@ func usage() string {
 		"  sinan-generator materials import --workspace D:\\sinan-captcha-generator\\workspace --from D:\\materials-pack-v3\n" +
 		"  sinan-generator materials import --workspace D:\\sinan-captcha-generator\\workspace --from D:\\materials-pack-v3-group1 --task group1\n" +
 		"  sinan-generator materials fetch --workspace D:\\sinan-captcha-generator\\workspace --source https://example.com/materials-pack.zip\n" +
-		"  sinan-generator make-dataset --workspace D:\\sinan-captcha-generator\\workspace --task group1 --dataset-dir D:\\sinan-captcha-work\\datasets\\group1\\firstpass\\yolo\n"
+		"  sinan-generator make-dataset --workspace D:\\sinan-captcha-generator\\workspace --task group1 --preset v1 --dataset-dir D:\\sinan-captcha-work\\datasets\\group1\\v1\\yolo\n"
 }
 
 func runWorkspace(args []string) error {
@@ -173,7 +173,7 @@ func runMaterials(args []string) error {
 func runMakeDataset(args []string) error {
 	fs := flag.NewFlagSet("make-dataset", flag.ContinueOnError)
 	task := fs.String("task", "group1", "dataset task: group1 or group2")
-	presetName := fs.String("preset", "firstpass", "preset name: firstpass, hard, or smoke")
+	presetName := fs.String("preset", "firstpass", "preset name: smoke, v1, firstpass, or hard")
 	datasetDir := fs.String("dataset-dir", "", "path to the output dataset directory")
 	workspaceRoot := fs.String("workspace", "", "override workspace root")
 	materialsSelector := fs.String("materials", "", "materials selector in the form official/name or local/name")

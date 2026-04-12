@@ -19,7 +19,7 @@
 | REQ-003 | 来源 | docs/04-project-development/02-discovery/input.md | 有效 | 2026-04-05 | Codex | 已明确 `group1` 输出有序中心点序列 |
 | REQ-003 | 落点 | docs/04-project-development/03-requirements/prd.md | 有效 | 2026-04-05 | Codex | 已重写 `group1` 业务语义 |
 | REQ-003 | 落点 | docs/04-project-development/03-requirements/requirements-analysis.md | 有效 | 2026-04-11 | Codex | 已分析 query 切分、候选召回、向量混淆与分配风险 |
-| REQ-003 | 落点 | docs/04-project-development/04-design/group1-instance-matching-refactor.md | 有效 | 2026-04-11 | Codex | 已冻结 `query splitter + proposal detector + embedder + matcher` 主线 |
+| REQ-003 | 落点 | docs/04-project-development/04-design/group1-instance-matching-refactor.md | 有效 | 2026-04-13 | Codex | 已冻结 `query detector + scene proposal detector + icon embedder + matcher` 工程化主线 |
 | REQ-003 | 落点 | docs/04-project-development/04-design/api-design.md | 有效 | 2026-04-05 | Codex | 已补齐 `group1` 统一响应与顺序结果设计 |
 | REQ-003 | 落点 | docs/04-project-development/05-development-process/group1-instance-matching-refactor-task-breakdown.md | 有效 | 2026-04-11 | Codex | 已新增 `group1` 实例匹配重构任务拆解 |
 | REQ-004 | 来源 | docs/04-project-development/02-discovery/input.md | 有效 | 2026-04-05 | Codex | 最终交付为单一 bundle 和单一入口 |

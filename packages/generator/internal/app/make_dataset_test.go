@@ -33,6 +33,8 @@ func TestMakeDatasetBuildsGroup1TrainingDirectory(t *testing.T) {
 	}
 
 	assertFileExists(t, filepath.Join(trainingDir, "dataset.json"))
+	assertDirHasFiles(t, filepath.Join(trainingDir, "query-yolo", "images", "train"))
+	assertDirHasFiles(t, filepath.Join(trainingDir, "query-yolo", "labels", "train"))
 	assertDirHasFiles(t, filepath.Join(trainingDir, "proposal-yolo", "images", "train"))
 	assertDirHasFiles(t, filepath.Join(trainingDir, "proposal-yolo", "labels", "train"))
 	assertDirHasFiles(t, filepath.Join(trainingDir, "embedding", "queries", "train"))
@@ -232,7 +234,7 @@ func TestMakeDatasetBuildsGroup1FromGroup1OnlyMaterials(t *testing.T) {
 	}
 
 	assertFileExists(t, filepath.Join(trainingDir, "dataset.json"))
-	if got, want := result.Generated, 20; got != want {
+	if got, want := result.Generated, 200; got != want {
 		t.Fatalf("expected smoke preset to generate %d samples, got %d", want, got)
 	}
 }
@@ -254,7 +256,7 @@ func TestMakeDatasetBuildsGroup2FromGroup2OnlyMaterials(t *testing.T) {
 	}
 
 	assertFileExists(t, filepath.Join(trainingDir, "dataset.json"))
-	if got, want := result.Generated, 20; got != want {
+	if got, want := result.Generated, 200; got != want {
 		t.Fatalf("expected smoke preset to generate %d samples, got %d", want, got)
 	}
 }
@@ -381,6 +383,7 @@ func createMaterialsPack(t *testing.T) string {
 	writePNG(t, filepath.Join(root, "backgrounds", "bg_002.png"), 320, 180)
 	writeMaskIconPNG(t, filepath.Join(root, "group1", "icons", "tpl_house", "var_house_001.png"), 48, 48)
 	writeMaskIconPNG(t, filepath.Join(root, "group1", "icons", "tpl_leaf", "var_leaf_001.png"), 48, 48)
+	writeMaskIconPNG(t, filepath.Join(root, "group1", "icons", "tpl_star", "var_star_001.png"), 48, 48)
 	writeMaskIconPNG(t, filepath.Join(root, "group2", "shapes", "shape_ticket", "001.png"), 48, 48)
 	writeMaskIconPNG(t, filepath.Join(root, "group2", "shapes", "shape_cloud", "001.png"), 48, 48)
 	return root
@@ -395,6 +398,7 @@ func createGroup1OnlyMaterialsPack(t *testing.T) string {
 	writePNG(t, filepath.Join(root, "backgrounds", "bg_002.png"), 320, 180)
 	writeMaskIconPNG(t, filepath.Join(root, "group1", "icons", "tpl_house", "var_house_001.png"), 48, 48)
 	writeMaskIconPNG(t, filepath.Join(root, "group1", "icons", "tpl_leaf", "var_leaf_001.png"), 48, 48)
+	writeMaskIconPNG(t, filepath.Join(root, "group1", "icons", "tpl_star", "var_star_001.png"), 48, 48)
 	return root
 }
 
@@ -419,6 +423,7 @@ func createNamedGroup1MaterialsPack(t *testing.T, name string) string {
 	writePNG(t, filepath.Join(root, "backgrounds", name+"_bg_002.png"), 320, 180)
 	writeMaskIconPNG(t, filepath.Join(root, "group1", "icons", "tpl_"+name+"_house", "var_"+name+"_house_001.png"), 48, 48)
 	writeMaskIconPNG(t, filepath.Join(root, "group1", "icons", "tpl_"+name+"_leaf", "var_"+name+"_leaf_001.png"), 48, 48)
+	writeMaskIconPNG(t, filepath.Join(root, "group1", "icons", "tpl_"+name+"_star", "var_"+name+"_star_001.png"), 48, 48)
 	return root
 }
 
@@ -475,6 +480,16 @@ func writeGroup1TemplatesManifest(t *testing.T, path string) {
 		"      - variant_id: var_leaf_001",
 		"        source: generator_seed",
 		"        source_ref: leaf_seed_001",
+		"        style: flat",
+		"  - template_id: tpl_star",
+		"    zh_name: 星星",
+		"    family: symbol",
+		"    tags: [star]",
+		"    status: active",
+		"    variants:",
+		"      - variant_id: var_star_001",
+		"        source: generator_seed",
+		"        source_ref: star_seed_001",
 		"        style: flat",
 		"",
 	}, "\n")
@@ -533,6 +548,16 @@ func writeNamedGroup1TemplatesManifest(t *testing.T, path string, name string) {
 		"      - variant_id: var_" + name + "_leaf_001",
 		"        source: generator_seed",
 		"        source_ref: " + name + "_leaf_seed_001",
+		"        style: flat",
+		"  - template_id: tpl_" + name + "_star",
+		"    zh_name: " + name + "_星星",
+		"    family: symbol",
+		"    tags: [" + name + ", star]",
+		"    status: active",
+		"    variants:",
+		"      - variant_id: var_" + name + "_star_001",
+		"        source: generator_seed",
+		"        source_ref: " + name + "_star_seed_001",
 		"        style: flat",
 		"",
 	}, "\n")
@@ -648,6 +673,8 @@ func assertGroup1DatasetJSONReferencesPipelineArtifacts(t *testing.T, path strin
 	for _, expected := range []string{
 		`"task": "group1"`,
 		`"format": "sinan.group1.instance_matching.v1"`,
+		`"query_detector"`,
+		`"query-yolo/dataset.yaml"`,
 		`"proposal_detector"`,
 		`"proposal-yolo/dataset.yaml"`,
 		`"embedding"`,
@@ -661,7 +688,7 @@ func assertGroup1DatasetJSONReferencesPipelineArtifacts(t *testing.T, path strin
 			t.Fatalf("dataset json missing %s:\n%s", expected, text)
 		}
 	}
-	for _, unexpected := range []string{`"scene-yolo/`, `"query-yolo/`, `"scene_detector"`, `"query_parser"`, `"matcher"`} {
+	for _, unexpected := range []string{`"scene-yolo/`, `"scene_detector"`, `"query_parser"`, `"matcher"`} {
 		if strings.Contains(text, unexpected) {
 			t.Fatalf("dataset json should not contain legacy field %s:\n%s", unexpected, text)
 		}

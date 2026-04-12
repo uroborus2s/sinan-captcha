@@ -12,8 +12,9 @@
 1. 保持主链路稳定，不把正确率未知的自动修补预处理强塞进主流程。
 2. 允许参考图中带有验证码图标、缺口、滑块、文字等前景干扰，但由本地多模态模型直接在原图上忽略这些元素，只提取背景风格。
 3. 把逐图分析结果、汇总搜索特征和下载任务状态都持久化，支持任务中断后自动恢复。
-4. 为下载结果补齐最低质量门，阻止损坏图、小图和重复图进入正式背景池。
-5. 在不破坏现有 `group1/group2` manifest 的前提下，把通过质量门的新背景图增量并入正式 `backgrounds/` 素材根。
+4. 为汇总阶段补齐 schema 漂移防护，避免模型返回字段结构变化时整批任务直接中断。
+5. 为下载结果补齐最低质量门，阻止损坏图、小图和重复图进入正式背景池。
+6. 在不破坏现有 `group1/group2` manifest 的前提下，把通过质量门的新背景图增量并入正式 `backgrounds/` 素材根。
 
 ## 2. 正式策略
 
@@ -33,10 +34,11 @@
 
 ### 2.2 断点续传策略
 
-- `collect-backgrounds` 在 `output-root/reports/` 下固定写出 3 份状态文件：
+- `collect-backgrounds` 在 `output-root/reports/` 下固定写出 4 份状态文件：
   - `background-style-image-analysis.jsonl`：逐张参考图分析结果；
   - `background-style-summary.json`：基于逐图分析结果汇总出的最终搜索画像；
-  - `background-style-download-state.json`：按搜索词拆分的下载任务流状态。
+  - `background-style-download-state.json`：按搜索词拆分的下载任务流状态；
+  - `background-style-drift-events.jsonl`：汇总阶段 schema 漂移、repair 与 fallback 事件。
 - 逐图分析按图片粒度 checkpoint：
   - 每张图分析成功后立即写入 JSONL；
   - 下次重跑时，只要 `image_path + image_sha256 + analysis_key` 未变化，就直接复用，不再重跑该图片。
@@ -56,7 +58,27 @@
 - 逐图分析和下载任务是两类不同粒度的状态，不应混在一份报告里隐式推断。
 - 若只保留汇总搜索词，参考图数量再多也可能只生成少量下载任务，无法满足“逐图保底扩充”目标。
 
-### 2.3 下载质量门
+### 2.3 汇总 schema 漂移防护
+
+- 汇总阶段先按固定 JSON 合同校验顶层字段：
+  - `style_summary_zh`
+  - `style_summary_en`
+  - `search_queries`
+- 若响应不满足严格合同，但仍可被归一化解析：
+  - 先记录 drift 事件；
+  - 再向同一模型发起 1 次 repair 请求，要求只把已有信息改写成目标 schema；
+  - repair 仍未恢复严格合同，则优先使用可归一化的模型结果继续任务。
+- 若原始响应与 repair 响应都无法解析为可用汇总结果：
+  - 自动退回本地汇总；
+  - 继续生成下载任务，不以 schema 漂移中断整批流程。
+
+设计判断：
+
+- 模型输出结构漂移是运行时事实，不能仅靠 prompt 约束来赌“永不漂移”。
+- repair 适合把“信息还在、字段错了”的响应拉回合同；本地 fallback 适合处理“内容已经不可恢复”的情况。
+- drift 日志需要单独落盘，方便后续统计具体模型和提示词的漂移频次。
+
+### 2.4 下载质量门
 
 每张候选背景图下载后都要通过以下门槛：
 
@@ -73,7 +95,7 @@ V1 去重策略：
 - 优先做确定性内容指纹；
 - 需要近似去重时，允许额外启用基于小尺寸灰度哈希的汉明距离阈值。
 
-### 2.4 正式素材根合并策略
+### 2.5 正式素材根合并策略
 
 - 新增可选 `merge-into` 目标根目录。
 - 合并只处理：
@@ -113,6 +135,7 @@ uv run sinan materials collect-backgrounds --source-dir <dir> --model <ollama-mo
 - 风格画像与原始模型输出
 - 逐图分析 checkpoint 路径与复用计数
 - 汇总结果路径
+- schema 漂移日志路径与事件计数
 - 下载任务状态路径、任务总数和已完成任务数
 - 下载成功项
 - 因损坏、尺寸不足、重复等原因被跳过的项

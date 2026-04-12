@@ -101,11 +101,14 @@ class AutoTrainTrainRunnerTests(unittest.TestCase):
             train_root = Path(tmpdir)
             dataset_config = train_root / "datasets" / "group1" / "firstpass_v2" / "dataset.json"
             dataset_config.parent.mkdir(parents=True)
-            dataset_config.write_text('{"task":"group1","format":"sinan.group1.instance_matching.v1","splits":{"train":"splits/train.jsonl","val":"splits/val.jsonl","test":"splits/test.jsonl"},"proposal_detector":{"format":"yolo.detect.v1","dataset_yaml":"proposal-yolo/dataset.yaml"},"embedding":{"format":"sinan.group1.embedding.v1","queries_dir":"embedding/queries","candidates_dir":"embedding/candidates","pairs_jsonl":"embedding/pairs.jsonl","triplets_jsonl":"embedding/triplets.jsonl"},"eval":{"format":"sinan.group1.eval.v1","labels_jsonl":"eval/labels.jsonl"}}', encoding="utf-8")
+            dataset_config.write_text('{"task":"group1","format":"sinan.group1.instance_matching.v1","splits":{"train":"splits/train.jsonl","val":"splits/val.jsonl","test":"splits/test.jsonl"},"query_detector":{"format":"yolo.detect.v1","dataset_yaml":"query-yolo/dataset.yaml"},"proposal_detector":{"format":"yolo.detect.v1","dataset_yaml":"proposal-yolo/dataset.yaml"},"embedding":{"format":"sinan.group1.embedding.v1","queries_dir":"embedding/queries","candidates_dir":"embedding/candidates","pairs_jsonl":"embedding/pairs.jsonl","triplets_jsonl":"embedding/triplets.jsonl"},"eval":{"format":"sinan.group1.eval.v1","labels_jsonl":"eval/labels.jsonl"}}', encoding="utf-8")
+            query_best = train_root / "runs" / "group1" / "trial_0001" / "query-detector" / "weights" / "best.pt"
             proposal_best = train_root / "runs" / "group1" / "trial_0001" / "proposal-detector" / "weights" / "best.pt"
             embedder_best = train_root / "runs" / "group1" / "trial_0001" / "icon-embedder" / "weights" / "best.pt"
+            query_best.parent.mkdir(parents=True)
             proposal_best.parent.mkdir(parents=True)
             embedder_best.parent.mkdir(parents=True)
+            query_best.write_text("weights", encoding="utf-8")
             proposal_best.write_text("weights", encoding="utf-8")
             embedder_best.write_text("weights", encoding="utf-8")
 
@@ -129,15 +132,17 @@ class AutoTrainTrainRunnerTests(unittest.TestCase):
             self.assertEqual(result.record.resumed_from, "trial_0001")
             self.assertEqual(result.record.run_dir, str(train_root / "runs" / "group1" / "trial_0002"))
             self.assertEqual(result.record.best_weights, str(train_root / "runs" / "group1" / "trial_0002" / "proposal-detector" / "weights" / "best.pt"))
-            self.assertFalse(any(name.startswith("query_") for name in result.record.params))
+            self.assertEqual(result.record.params["query_model_best"], str(train_root / "runs" / "group1" / "trial_0002" / "query-detector" / "weights" / "best.pt"))
+            self.assertIn("--query-model", result.command)
+            self.assertIn(str(query_best), result.command)
             self.assertEqual(result.record.params["embedder_model_best"], str(train_root / "runs" / "group1" / "trial_0002" / "icon-embedder" / "weights" / "best.pt"))
             self.assertIn("--proposal-model", result.command)
             self.assertIn(str(proposal_best), result.command)
-            self.assertNotIn("--query-", result.command)
             self.assertIn("--embedder-model", result.command)
             self.assertIn(str(embedder_best), result.command)
             self.assertEqual(len(captured_jobs), 1)
             self.assertIsInstance(captured_jobs[0], Group1TrainingJob)
+            self.assertEqual(captured_jobs[0].query_model, str(query_best))
             self.assertEqual(captured_jobs[0].embedder_model, str(embedder_best))
 
     def test_train_runner_rejects_invalid_request_without_base_run(self) -> None:

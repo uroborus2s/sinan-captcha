@@ -35,6 +35,50 @@ func TestResolveReturnsBuiltInHardPresets(t *testing.T) {
 	}
 }
 
+func TestResolveReturnsBuiltInV1Presets(t *testing.T) {
+	group1, err := Resolve("group1", "v1")
+	if err != nil {
+		t.Fatalf("resolve group1 v1: %v", err)
+	}
+	group2, err := Resolve("group2", "v1")
+	if err != nil {
+		t.Fatalf("resolve group2 v1: %v", err)
+	}
+
+	if got, want := group1.FileName, "group1.v1.yaml"; got != want {
+		t.Fatalf("unexpected group1 v1 filename: got %s want %s", got, want)
+	}
+	if got, want := group1.Config.Project.SampleCount, 10000; got != want {
+		t.Fatalf("unexpected group1 v1 sample count: got %d want %d", got, want)
+	}
+	if got, want := group1.Config.Sampling.TargetCountMin, 3; got != want {
+		t.Fatalf("unexpected group1 v1 target_count_min: got %d want %d", got, want)
+	}
+	if got, want := group1.Config.Sampling.TargetCountMax, 3; got != want {
+		t.Fatalf("unexpected group1 v1 target_count_max: got %d want %d", got, want)
+	}
+	if got, want := group2.FileName, "group2.v1.yaml"; got != want {
+		t.Fatalf("unexpected group2 v1 filename: got %s want %s", got, want)
+	}
+	if got, want := group2.Config.Project.SampleCount, 10000; got != want {
+		t.Fatalf("unexpected group2 v1 sample count: got %d want %d", got, want)
+	}
+}
+
+func TestResolveStillSupportsLegacyFirstpassPreset(t *testing.T) {
+	group1, err := Resolve("group1", "firstpass")
+	if err != nil {
+		t.Fatalf("resolve group1 firstpass: %v", err)
+	}
+
+	if got, want := group1.FileName, "group1.firstpass.yaml"; got != want {
+		t.Fatalf("unexpected group1 firstpass filename: got %s want %s", got, want)
+	}
+	if got, want := group1.Config.Project.SampleCount, 200; got != want {
+		t.Fatalf("unexpected group1 firstpass sample count: got %d want %d", got, want)
+	}
+}
+
 func TestResolveForWorkspaceUsesOverrideFile(t *testing.T) {
 	dir := t.TempDir()
 	override := builtInGroup1HardConfig()

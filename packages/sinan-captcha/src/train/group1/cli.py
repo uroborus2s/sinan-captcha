@@ -1,4 +1,4 @@
-"""CLI for group1 proposal-detector/icon-embedder training command generation."""
+"""CLI for group1 query/proposal detector + icon-embedder training command generation."""
 
 from __future__ import annotations
 
@@ -11,6 +11,7 @@ from train.group1.service import (
     ALL_COMPONENTS,
     EMBEDDER_COMPONENT,
     PROPOSAL_COMPONENT,
+    QUERY_COMPONENT,
     build_group1_training_job,
     execute_group1_training_job,
     normalize_group1_component,
@@ -33,7 +34,7 @@ from train.prelabel import (
 
 
 def build_parser() -> argparse.ArgumentParser:
-    parser = argparse.ArgumentParser(description="Run the group1 proposal-detector/icon-embedder training command.")
+    parser = argparse.ArgumentParser(description="Run the group1 query/proposal detector + icon-embedder training command.")
     parser.add_argument(
         "--dataset-config",
         type=Path,
@@ -48,8 +49,9 @@ def build_parser() -> argparse.ArgumentParser:
         help="optional; defaults to <repo>/work_home/runs/group1",
     )
     parser.add_argument("--name", default="v1")
-    parser.add_argument("--component", default=ALL_COMPONENTS, help="all | proposal-detector | icon-embedder")
+    parser.add_argument("--component", default=ALL_COMPONENTS, help="all | query-detector | proposal-detector | icon-embedder")
     parser.add_argument("--model", default=None, help="shared base model/checkpoint for detector components")
+    parser.add_argument("--query-model", dest="query_model", default=None, help="optional override for the query detector")
     parser.add_argument("--proposal-model", dest="proposal_model", default=None, help="optional override for the proposal detector")
     parser.add_argument("--embedder-model", default=None, help="optional checkpoint for the icon embedder")
     parser.add_argument(
@@ -146,8 +148,8 @@ def main(argv: list[str] | None = None) -> int:
     args = parser.parse_args(args_list)
     if args.resume and args.from_run:
         parser.error("不能同时传 --resume 和 --from-run。")
-    if args.from_run and any(value is not None for value in (args.model, args.proposal_model, args.embedder_model)):
-        parser.error("传入 --from-run 时不要再同时传 --model / --proposal-model / --embedder-model。")
+    if args.from_run and any(value is not None for value in (args.model, args.query_model, args.proposal_model, args.embedder_model)):
+        parser.error("传入 --from-run 时不要再同时传 --model / --query-model / --proposal-model / --embedder-model。")
 
     train_root = default_train_root(Path.cwd())
     dataset_config = args.dataset_config or (train_root / "datasets" / "group1" / args.dataset_version / "dataset.json")
@@ -155,16 +157,23 @@ def main(argv: list[str] | None = None) -> int:
     component = normalize_group1_component(args.component)
 
     shared_model = args.model or "yolo26n.pt"
+    query_model: str | None = None
     proposal_model: str | None = None
     embedder_model: str | None = args.embedder_model if component in {ALL_COMPONENTS, EMBEDDER_COMPONENT} else None
+    if component in {ALL_COMPONENTS, QUERY_COMPONENT}:
+        query_model = args.query_model or shared_model
     if component in {ALL_COMPONENTS, PROPOSAL_COMPONENT}:
         proposal_model = args.proposal_model or shared_model
     if args.resume:
+        if component in {ALL_COMPONENTS, QUERY_COMPONENT}:
+            query_model = str(resolve_group1_component_last_weights(train_root, args.name, QUERY_COMPONENT))
         if component in {ALL_COMPONENTS, PROPOSAL_COMPONENT}:
             proposal_model = str(resolve_group1_component_last_weights(train_root, args.name, PROPOSAL_COMPONENT))
         if component in {ALL_COMPONENTS, EMBEDDER_COMPONENT}:
             embedder_model = str(resolve_group1_component_last_weights(train_root, args.name, EMBEDDER_COMPONENT))
     elif args.from_run is not None:
+        if component in {ALL_COMPONENTS, QUERY_COMPONENT}:
+            query_model = str(resolve_group1_component_best_weights(train_root, args.from_run, QUERY_COMPONENT))
         if component in {ALL_COMPONENTS, PROPOSAL_COMPONENT}:
             proposal_model = str(resolve_group1_component_best_weights(train_root, args.from_run, PROPOSAL_COMPONENT))
         if component in {ALL_COMPONENTS, EMBEDDER_COMPONENT}:
@@ -174,6 +183,7 @@ def main(argv: list[str] | None = None) -> int:
         dataset_config=dataset_config,
         project_dir=project_dir,
         model=shared_model,
+        query_model=query_model,
         proposal_model=proposal_model,
         embedder_model=embedder_model,
         run_name=args.name,

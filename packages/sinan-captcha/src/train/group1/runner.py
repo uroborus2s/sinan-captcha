@@ -7,18 +7,19 @@ import json
 from pathlib import Path
 import subprocess
 import time
-from typing import Any
+from typing import Any, Callable
 
 from common.jsonl import write_jsonl
 from inference.query_splitter import split_group1_query_image
 from inference.service import map_group1_instances
-from train.base import prepare_dataset_yaml_for_ultralytics
+from train.base import preferred_checkpoint_path, prepare_dataset_yaml_for_ultralytics
 from train.group1.dataset import load_group1_dataset_config, load_group1_rows, resolve_group1_path
 from train.group1.embedder import load_icon_embedder_runtime, train_icon_embedder
 from train.group1.service import (
     ALL_COMPONENTS,
     EMBEDDER_COMPONENT,
     PROPOSAL_COMPONENT,
+    QUERY_COMPONENT,
     normalize_group1_component,
 )
 
@@ -31,7 +32,8 @@ def build_parser() -> argparse.ArgumentParser:
     train_parser.add_argument("--dataset-config", type=Path, required=True)
     train_parser.add_argument("--project", type=Path, required=True)
     train_parser.add_argument("--name", required=True)
-    train_parser.add_argument("--component", default=ALL_COMPONENTS, help="all | proposal-detector | icon-embedder")
+    train_parser.add_argument("--component", default=ALL_COMPONENTS, help="all | query-detector | proposal-detector | icon-embedder")
+    train_parser.add_argument("--query-model", dest="query_model", default=None)
     train_parser.add_argument("--proposal-model", dest="proposal_model", default=None)
     train_parser.add_argument("--embedder-model", default=None)
     train_parser.add_argument("--epochs", type=int, default=120)
@@ -76,6 +78,36 @@ def _run_train(args: argparse.Namespace) -> None:
 
     commands: dict[str, list[str]] = {}
     component_summaries: dict[str, dict[str, Any]] = {}
+
+    if component in {ALL_COMPONENTS, QUERY_COMPONENT}:
+        if dataset_config.query_dataset_yaml is None:
+            raise RuntimeError("当前 group1 dataset.json 未提供 query_detector 数据，无法训练 query-detector。")
+        query_model = _resolve_component_model(
+            component=QUERY_COMPONENT,
+            model=args.query_model,
+            resume=args.resume,
+        )
+        query_yaml = prepare_dataset_yaml_for_ultralytics(dataset_config.query_dataset_yaml)
+        commands[QUERY_COMPONENT] = _build_train_command(
+            dataset_yaml=query_yaml,
+            project_dir=run_dir,
+            run_name=QUERY_COMPONENT,
+            model=query_model,
+            epochs=args.epochs,
+            batch=args.batch,
+            imgsz=args.imgsz,
+            device=args.device,
+            resume=args.resume,
+        )
+        component_summaries[QUERY_COMPONENT] = {
+            "role": "query_detector",
+            "dataset_yaml": str(query_yaml),
+            "weights": {
+                "best": str(run_dir / QUERY_COMPONENT / "weights" / "best.pt"),
+                "last": str(run_dir / QUERY_COMPONENT / "weights" / "last.pt"),
+            },
+            "command": " ".join(commands[QUERY_COMPONENT]),
+        }
 
     if component in {ALL_COMPONENTS, PROPOSAL_COMPONENT}:
         proposal_model = _resolve_component_model(
@@ -122,6 +154,27 @@ def _run_train(args: argparse.Namespace) -> None:
 
     for command in commands.values():
         subprocess.run(command, check=True)
+
+    if component in {ALL_COMPONENTS, QUERY_COMPONENT}:
+        query_component_dir = run_dir / QUERY_COMPONENT
+        query_component_dir.mkdir(parents=True, exist_ok=True)
+        query_metrics, query_gate, query_failcases = _evaluate_query_detector_component(
+            dataset_config=dataset_config,
+            model_path=preferred_checkpoint_path(
+                query_component_dir / "weights" / "best.pt",
+                query_component_dir / "weights" / "last.pt",
+            ),
+            imgsz=args.imgsz,
+            device=args.device,
+        )
+        query_failcases_path = query_component_dir / "failcases.jsonl"
+        write_jsonl(query_failcases_path, query_failcases)
+        component_summaries[QUERY_COMPONENT] = {
+            **component_summaries[QUERY_COMPONENT],
+            "metrics": query_metrics,
+            "gate": query_gate,
+            "failcases": str(query_failcases_path),
+        }
 
     if should_train_embedder and dataset_config.is_instance_matching and dataset_config.embedding is not None:
         embedder_model_path = Path(args.embedder_model) if args.embedder_model is not None else None
@@ -326,6 +379,198 @@ def _build_prediction_row(
         "status": mapping.status,
         "inference_ms": round(elapsed_ms, 4),
     }
+
+
+def _evaluate_query_detector_component(
+    *,
+    dataset_config: Any,
+    model_path: Path,
+    imgsz: int,
+    device: str,
+    conf: float = 0.25,
+    iou_threshold: float = 0.5,
+) -> tuple[dict[str, float | int | None], dict[str, Any], list[dict[str, Any]]]:
+    try:
+        from ultralytics import YOLO
+    except Exception as exc:  # pragma: no cover - import error depends on host env
+        raise RuntimeError(
+            "当前环境缺少 `ultralytics`，无法执行 group1 query-detector 评估。"
+            "请先完成训练环境安装后再重试。"
+        ) from exc
+
+    if not model_path.exists():
+        raise RuntimeError(f"未找到 group1 query-detector 权重：{model_path}")
+
+    rows = load_group1_rows(dataset_config, None, split="val")
+    model = YOLO(str(model_path))
+
+    def _predict_query_items(query_path: Path) -> list[dict[str, Any]]:
+        result = model.predict(
+            source=str(query_path),
+            imgsz=imgsz,
+            conf=conf,
+            device=device,
+            verbose=False,
+        )[0]
+        return _serialize_detections(result, ordered=True)
+
+    return _evaluate_query_detector_rows(
+        rows,
+        dataset_root=dataset_config.root,
+        predict_query_items=_predict_query_items,
+        iou_threshold=iou_threshold,
+    )
+
+
+def _evaluate_query_detector_rows(
+    rows: list[dict[str, Any]],
+    *,
+    dataset_root: Path,
+    predict_query_items: Callable[[Path], list[dict[str, Any]]],
+    iou_threshold: float = 0.5,
+) -> tuple[dict[str, float | int | None], dict[str, Any], list[dict[str, Any]]]:
+    total_gold = 0
+    total_matched = 0
+    exact_count_hits = 0
+    full_recall_hits = 0
+    strict_hit_hits = 0
+    matched_ious: list[float] = []
+    failcases: list[dict[str, Any]] = []
+
+    for row in rows:
+        query_path = resolve_group1_path(dataset_root, Path(str(row["query_image"])))
+        gold_items = [dict(item) for item in row.get("query_items", []) if isinstance(item, dict)]
+        predicted_items = predict_query_items(query_path)
+        matches = _match_query_items(gold_items, predicted_items, iou_threshold=iou_threshold)
+        matched_count = len(matches)
+        exact_count = len(predicted_items) == len(gold_items)
+        full_recall = matched_count == len(gold_items)
+        strict_hit = exact_count and full_recall
+
+        total_gold += len(gold_items)
+        total_matched += matched_count
+        exact_count_hits += 1 if exact_count else 0
+        full_recall_hits += 1 if full_recall else 0
+        strict_hit_hits += 1 if strict_hit else 0
+        matched_ious.extend(match["iou"] for match in matches)
+
+        if not strict_hit:
+            failcases.append(
+                {
+                    "sample_id": row["sample_id"],
+                    "query_image": str(query_path),
+                    "expected_count": len(gold_items),
+                    "predicted_count": len(predicted_items),
+                    "matched_count": matched_count,
+                    "reason": _query_failcase_reason(
+                        expected_count=len(gold_items),
+                        predicted_count=len(predicted_items),
+                        matched_count=matched_count,
+                    ),
+                    "gold_items": gold_items,
+                    "predicted_items": predicted_items,
+                    "matches": matches,
+                }
+            )
+
+    sample_count = len(rows)
+    metrics: dict[str, float | int | None] = {
+        "query_sample_count": sample_count,
+        "query_item_recall": None if total_gold == 0 else total_matched / total_gold,
+        "query_exact_count_rate": None if sample_count == 0 else exact_count_hits / sample_count,
+        "query_full_recall_rate": None if sample_count == 0 else full_recall_hits / sample_count,
+        "query_strict_hit_rate": None if sample_count == 0 else strict_hit_hits / sample_count,
+        "query_mean_iou": None if not matched_ious else sum(matched_ious) / len(matched_ious),
+    }
+    gate = _build_query_detector_gate(metrics)
+    return metrics, gate, failcases
+
+
+def _build_query_detector_gate(metrics: dict[str, float | int | None]) -> dict[str, Any]:
+    thresholds = {
+        "query_item_recall": 0.995,
+        "query_exact_count_rate": 0.995,
+        "query_strict_hit_rate": 0.99,
+    }
+    failed_checks: list[str] = []
+    for key, threshold in thresholds.items():
+        value = metrics.get(key)
+        if value is None or not isinstance(value, (int, float)) or float(value) < threshold:
+            failed_checks.append(key)
+    return {
+        "status": "passed" if not failed_checks else "failed",
+        "thresholds": thresholds,
+        "failed_checks": failed_checks,
+    }
+
+
+def _query_failcase_reason(*, expected_count: int, predicted_count: int, matched_count: int) -> str:
+    if predicted_count != expected_count and matched_count == expected_count:
+        return "count_mismatch"
+    if predicted_count == expected_count and matched_count < expected_count:
+        return "recall_shortfall"
+    if predicted_count != expected_count and matched_count < expected_count:
+        return "count_and_recall"
+    return "strict_gate_failed"
+
+
+def _match_query_items(
+    gold_items: list[dict[str, Any]],
+    predicted_items: list[dict[str, Any]],
+    *,
+    iou_threshold: float,
+) -> list[dict[str, Any]]:
+    candidates: list[tuple[float, int, int]] = []
+    for gold_index, gold_item in enumerate(gold_items):
+        gold_bbox = gold_item.get("bbox")
+        if not isinstance(gold_bbox, list) or len(gold_bbox) != 4:
+            continue
+        for predicted_index, predicted_item in enumerate(predicted_items):
+            predicted_bbox = predicted_item.get("bbox")
+            if not isinstance(predicted_bbox, list) or len(predicted_bbox) != 4:
+                continue
+            iou = _bbox_iou(gold_bbox, predicted_bbox)
+            if iou >= iou_threshold:
+                candidates.append((iou, gold_index, predicted_index))
+
+    candidates.sort(key=lambda item: item[0], reverse=True)
+    used_gold: set[int] = set()
+    used_predicted: set[int] = set()
+    matches: list[dict[str, Any]] = []
+    for iou, gold_index, predicted_index in candidates:
+        if gold_index in used_gold or predicted_index in used_predicted:
+            continue
+        used_gold.add(gold_index)
+        used_predicted.add(predicted_index)
+        matches.append(
+            {
+                "gold_order": gold_items[gold_index].get("order"),
+                "predicted_order": predicted_items[predicted_index].get("order"),
+                "iou": round(iou, 6),
+            }
+        )
+    matches.sort(key=lambda item: (int(item.get("gold_order") or 0), int(item.get("predicted_order") or 0)))
+    return matches
+
+
+def _bbox_iou(left: list[Any], right: list[Any]) -> float:
+    lx1, ly1, lx2, ly2 = [float(value) for value in left]
+    rx1, ry1, rx2, ry2 = [float(value) for value in right]
+    inter_x1 = max(lx1, rx1)
+    inter_y1 = max(ly1, ry1)
+    inter_x2 = min(lx2, rx2)
+    inter_y2 = min(ly2, ry2)
+    inter_w = max(0.0, inter_x2 - inter_x1)
+    inter_h = max(0.0, inter_y2 - inter_y1)
+    inter_area = inter_w * inter_h
+    if inter_area <= 0.0:
+        return 0.0
+    left_area = max(0.0, lx2 - lx1) * max(0.0, ly2 - ly1)
+    right_area = max(0.0, rx2 - rx1) * max(0.0, ry2 - ry1)
+    union = left_area + right_area - inter_area
+    if union <= 0.0:
+        return 0.0
+    return inter_area / union
 
 
 def _build_instance_matching_scene_targets(row: dict[str, Any], mapping: Any) -> list[dict[str, Any]]:

@@ -80,6 +80,9 @@ func Build(request BuildRequest) (BuildResult, error) {
 			embeddingTriplets = append(embeddingTriplets, artifacts.EmbeddingTriplets...)
 			result.SplitCounts[assignment.Split]++
 		}
+		if err := writeDatasetYAML(filepath.Join(request.DatasetDir, "query-yolo", "dataset.yaml"), map[int]string{0: "query_item"}); err != nil {
+			return result, err
+		}
 		if err := writeDatasetYAML(filepath.Join(request.DatasetDir, "proposal-yolo", "dataset.yaml"), map[int]string{0: "icon_object"}); err != nil {
 			return result, err
 		}
@@ -165,6 +168,7 @@ func prepareDatasetDir(task string, datasetDir string, force bool) error {
 	switch task {
 	case "group1":
 		managedPaths = []string{
+			filepath.Join(datasetDir, "query-yolo"),
 			filepath.Join(datasetDir, "proposal-yolo"),
 			filepath.Join(datasetDir, "embedding"),
 			filepath.Join(datasetDir, "eval"),
@@ -196,6 +200,12 @@ func prepareDatasetDir(task string, datasetDir string, force bool) error {
 	switch task {
 	case "group1":
 		for _, split := range []string{"train", "val", "test"} {
+			if err := os.MkdirAll(filepath.Join(datasetDir, "query-yolo", "images", split), 0o755); err != nil {
+				return err
+			}
+			if err := os.MkdirAll(filepath.Join(datasetDir, "query-yolo", "labels", split), 0o755); err != nil {
+				return err
+			}
 			if err := os.MkdirAll(filepath.Join(datasetDir, "proposal-yolo", "images", split), 0o755); err != nil {
 				return err
 			}
@@ -335,9 +345,13 @@ func writeGroup1Assignment(request BuildRequest, item assignment) (group1Assignm
 		return group1AssignmentArtifacts{}, err
 	}
 
+	queryYOLOImageRelative := filepath.ToSlash(filepath.Join("query-yolo", "images", item.Split, filepath.Base(querySource)))
 	proposalRelative := filepath.ToSlash(filepath.Join("proposal-yolo", "images", item.Split, filepath.Base(sceneSource)))
 	evalSceneRelative := filepath.ToSlash(filepath.Join("eval", "scene", item.Split, filepath.Base(sceneSource)))
 	evalQueryRelative := filepath.ToSlash(filepath.Join("eval", "query", item.Split, filepath.Base(querySource)))
+	if err := copyFile(querySource, filepath.Join(request.DatasetDir, filepath.FromSlash(queryYOLOImageRelative))); err != nil {
+		return group1AssignmentArtifacts{}, err
+	}
 	if err := copyFile(sceneSource, filepath.Join(request.DatasetDir, filepath.FromSlash(proposalRelative))); err != nil {
 		return group1AssignmentArtifacts{}, err
 	}
@@ -348,8 +362,21 @@ func writeGroup1Assignment(request BuildRequest, item assignment) (group1Assignm
 		return group1AssignmentArtifacts{}, err
 	}
 
+	queryWidth, queryHeight, err := imageSize(querySource)
+	if err != nil {
+		return group1AssignmentArtifacts{}, err
+	}
 	sceneWidth, sceneHeight, err := imageSize(sceneSource)
 	if err != nil {
+		return group1AssignmentArtifacts{}, err
+	}
+
+	queryLines := make([]string, 0, len(record.QueryTargets))
+	for _, object := range record.QueryTargets {
+		queryLines = append(queryLines, toYOLOLine(withClass(object, 0, "query_item"), queryWidth, queryHeight))
+	}
+	queryLabelPath := filepath.Join(request.DatasetDir, "query-yolo", "labels", item.Split, stringsTrimExt(filepath.Base(querySource))+".txt")
+	if err := os.WriteFile(queryLabelPath, []byte(joinLines(queryLines)), 0o644); err != nil {
 		return group1AssignmentArtifacts{}, err
 	}
 
@@ -478,6 +505,7 @@ type group1DatasetConfig struct {
 	Task             string                `json:"task"`
 	Format           string                `json:"format"`
 	Splits           map[string]string     `json:"splits"`
+	QueryDetector    yoloComponentConfig   `json:"query_detector"`
 	ProposalDetector yoloComponentConfig   `json:"proposal_detector"`
 	Embedding        group1EmbeddingConfig `json:"embedding"`
 	Eval             group1EvalConfig      `json:"eval"`
@@ -505,6 +533,10 @@ func writeGroup1DatasetConfig(path string) error {
 				"train": "splits/train.jsonl",
 				"val":   "splits/val.jsonl",
 				"test":  "splits/test.jsonl",
+			},
+			QueryDetector: yoloComponentConfig{
+				Format:      "yolo.detect.v1",
+				DatasetYAML: "query-yolo/dataset.yaml",
 			},
 			ProposalDetector: yoloComponentConfig{
 				Format:      "yolo.detect.v1",

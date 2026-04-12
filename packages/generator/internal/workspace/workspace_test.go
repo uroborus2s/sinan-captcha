@@ -49,6 +49,8 @@ func TestEnsureCreatesWorkspaceLayoutAndMetadata(t *testing.T) {
 		filepath.Join(state.Layout.PresetsDir, "smoke.yaml"),
 		filepath.Join(state.Layout.PresetsDir, "group1.firstpass.yaml"),
 		filepath.Join(state.Layout.PresetsDir, "group2.firstpass.yaml"),
+		filepath.Join(state.Layout.PresetsDir, "group1.v1.yaml"),
+		filepath.Join(state.Layout.PresetsDir, "group2.v1.yaml"),
 		filepath.Join(state.Layout.PresetsDir, "group1.hard.yaml"),
 		filepath.Join(state.Layout.PresetsDir, "group2.hard.yaml"),
 	}

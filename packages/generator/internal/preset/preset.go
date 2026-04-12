@@ -25,6 +25,10 @@ func Resolve(task string, name string) (Preset, error) {
 		return group1FirstpassPreset(), nil
 	case task == "group2" && name == "firstpass":
 		return group2FirstpassPreset(), nil
+	case task == "group1" && name == "v1":
+		return group1V1Preset(), nil
+	case task == "group2" && name == "v1":
+		return group2V1Preset(), nil
 	case task == "group1" && name == "hard":
 		return group1HardPreset(), nil
 	case task == "group2" && name == "hard":
@@ -80,16 +84,25 @@ func smokePreset(task string) Preset {
 		normalizeTask(task),
 		fmt.Sprintf("sinan_%s_smoke", normalizeTask(task)),
 		"smoke",
-		20,
+		200,
 		"smoke_0001",
 		20260402,
 		defaultEffects(),
 	)
-	cfg.Sampling = config.SamplingConfig{
-		TargetCountMin:     2,
-		TargetCountMax:     2,
-		DistractorCountMin: 2,
-		DistractorCountMax: 3,
+	if normalizeTask(task) == "group1" {
+		cfg.Sampling = config.SamplingConfig{
+			TargetCountMin:     3,
+			TargetCountMax:     3,
+			DistractorCountMin: 2,
+			DistractorCountMax: 3,
+		}
+	} else {
+		cfg.Sampling = config.SamplingConfig{
+			TargetCountMin:     2,
+			TargetCountMax:     2,
+			DistractorCountMin: 2,
+			DistractorCountMax: 3,
+		}
 	}
 	return Preset{
 		Name:     "smoke",
@@ -117,6 +130,27 @@ func group2FirstpassPreset() Preset {
 	}
 }
 
+func group1V1Preset() Preset {
+	cfg := baseConfig("group1", "sinan_group1_v1", "train", 10000, "group1_v1_0001", 20260413, defaultEffects())
+	cfg.Sampling.TargetCountMin = 3
+	cfg.Sampling.TargetCountMax = 3
+	return Preset{
+		Name:     "v1",
+		Task:     "group1",
+		FileName: "group1.v1.yaml",
+		Config:   cfg,
+	}
+}
+
+func group2V1Preset() Preset {
+	return Preset{
+		Name:     "v1",
+		Task:     "group2",
+		FileName: "group2.v1.yaml",
+		Config:   baseConfig("group2", "sinan_group2_v1", "train", 10000, "group2_v1_0001", 20260413, defaultEffects()),
+	}
+}
+
 func group1HardPreset() Preset {
 	return Preset{
 		Name:     "hard",
@@ -140,6 +174,8 @@ func builtInPresets() []Preset {
 		smokePreset("group1"),
 		group1FirstpassPreset(),
 		group2FirstpassPreset(),
+		group1V1Preset(),
+		group2V1Preset(),
 		group1HardPreset(),
 		group2HardPreset(),
 	}

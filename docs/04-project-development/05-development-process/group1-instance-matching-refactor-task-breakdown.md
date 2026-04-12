@@ -2,7 +2,7 @@
 
 - 文档状态：实施中
 - 当前阶段：IMPLEMENTATION
-- 最近更新：2026-04-12
+- 最近更新：2026-04-13
 - 负责人：Codex
 - 上游输入：
   - `docs/04-project-development/04-design/group1-instance-matching-refactor.md`
@@ -23,9 +23,10 @@
 | `TASK-G1-REF-001` | 冻结新需求与设计基线 | 需求、设计、矩阵同步完成 | 文档冻结 |
 | `TASK-G1-REF-002` | 冻结新 `group1` 数据契约 | `dataset.json` 字段表、样例、校验规则 | 契约冻结 |
 | `TASK-G1-REF-003` | 重构素材库主键与 manifest | `asset_id/template_id/variant_id` 规则 | 素材主键冻结 |
-| `TASK-G1-REF-004` | 重构生成器 `group1` 导出链 | `proposal-yolo/embedding/eval` 数据产物 | 生成链冻结 |
+| `TASK-G1-REF-004` | 重构生成器 `group1` 导出链 | `query-yolo/proposal-yolo/embedding/eval` 数据产物 | 生成链冻结 |
 | `TASK-G1-REF-005` | 重构商业试卷与 reviewed 导出 | 新试卷标注规则与导出器 | 试卷合同冻结 |
-| `TASK-G1-REF-006` | 实现 `proposal detector` | 训练、预测、评估入口 | proposal 可用 |
+| `TASK-G1-REF-014` | 实现 `query detector` | `query-yolo` 导出、训练、预测、评估入口 | query 可用 |
+| `TASK-G1-REF-006` | 实现 `scene proposal detector` | 训练、预测、评估入口 | scene proposal 可用 |
 | `TASK-G1-REF-007` | 实现 `icon embedder` | metric learning 训练与检索验证 | embedder 可用 |
 | `TASK-G1-REF-008` | 实现 `matcher` 与整链路推理 | 相似度分配、歧义判定、统一输出 | E2E 可用 |
 | `TASK-G1-REF-009` | 重构预标注与人工审核工具 | query/scene 新预标注合同 | 预标主线冻结 |
@@ -33,6 +34,7 @@
 | `TASK-G1-REF-011` | 重构 solver 导出与运行时编排 | 新 ONNX 资产和 runtime 配置 | solver 可交付 |
 | `TASK-G1-REF-012` | 删除旧方案代码并完成 cutover | 旧 CLI/测试/文档/资产清单删除 | 主线切换完成 |
 | `TASK-G1-REF-013` | 为 `prelabel-vlm` 增加过程目录与断点续传 | 逐样本状态目录、恢复语义、聚合重建规则 | VLM 预标注恢复冻结 |
+| `TASK-G1-REF-015` | 固化 `group1` 严格串行工程化工作流 | smoke/v1/gate/回退/商业门禁方案 | 工作流冻结 |
 
 ## 3. 分阶段执行
 
@@ -58,13 +60,14 @@
 
 完成标准：
 
-- 生成器可稳定导出 `proposal-yolo/embedding/eval`
+- 生成器可稳定导出 `query-yolo/proposal-yolo/embedding/eval`
 - 商业试卷可按“顺序 + 框”完成标注与导出
 
 ### 阶段 C：模型链与推理链重构
 
 包含任务：
 
+ - `TASK-G1-REF-014`
 - `TASK-G1-REF-006`
 - `TASK-G1-REF-007`
 - `TASK-G1-REF-008`
@@ -72,7 +75,7 @@
 
 完成标准：
 
-- proposal detector、embedder、matcher 整链路可跑
+- query detector、proposal detector、embedder、matcher 整链路可跑
 - solver 产物可导出并可被统一运行时加载
 
 ### 阶段 D：自动学习与工具链切换
@@ -82,6 +85,7 @@
 - `TASK-G1-REF-009`
 - `TASK-G1-REF-010`
 - `TASK-G1-REF-013`
+ - `TASK-G1-REF-015`
 
 完成标准：
 
@@ -103,19 +107,50 @@
 ### `TASK-G1-REF-004`
 
 - 必须能导出：
+  - `query-yolo/`
   - `proposal-yolo/`
   - `embedding/`
   - `eval/labels.jsonl`
 - 必须能从 `asset_id` 追溯回素材来源
+
+### `TASK-G1-REF-014`
+
+- 当前 2026-04-13 已完成第一切片：
+  - generator 已写出 `query-yolo/images|labels/{train,val,test}` 与 `query-yolo/dataset.yaml`
+  - `dataset.json` 已新增 `query_detector` 组件合同，指向 `query-yolo/dataset.yaml`
+  - Python `group1 dataset loader` 已能读取 `query_detector` 字段
+  - `train group1` 已新增 `query-detector` 组件：
+    - CLI 已支持 `--component query-detector`
+    - dry-run / from-run / resume 已能显式带出 `--query-model`
+    - runner 已能消费 `query-yolo/dataset.yaml` 并写出 `query-detector/weights/*.pt`
+    - 训练完成后已会在 `val` 上自动产出：
+      - `query_item_recall`
+      - `query_exact_count_rate`
+      - `query_strict_hit_rate`
+      - `query-detector/failcases.jsonl`
+      - `query-detector gate`
+  - 已通过：
+    - `go test ./internal/app -count=1`
+    - `uv run pytest tests/python/test_training_jobs.py -q`
+    - `uv run pytest tests/python/test_auto_train_runners.py -q`
+    - `uv run pytest tests/python/test_group1_embedder.py -q`
+- 剩余待补齐：
+  - `query detector` 推理接线
+  - `auto-train` 对 query gate 的正式阶段消费
+  - `query detector` 对外预测入口（替换规则 splitter 前的独立链路）
+- 第一阶段验收要求：
+  - 能消费 `query-yolo/dataset.yaml`
+  - 能输出 `best.pt / last.pt / summary.json / failcases.jsonl`
+  - 必须报告 query 侧“稳定输出正好 3 个目标”的业务指标
 
 ### `TASK-G1-REF-006`
 
 - 第一阶段已要求：
   - Python `group1 dataset loader` 能读取 `sinan.group1.instance_matching.v1`
   - `train group1` 至少能消费 `proposal-yolo/dataset.yaml`
-  - 训练入口必须只接受 `proposal-detector` 与 `icon-embedder` 组件，不得静默回退到旧 query 检测链路
+  - 训练入口必须明确区分 `query-detector`、`proposal-detector` 与 `icon-embedder`，不得静默回退到旧 query 检测链路
 - 第二阶段再进入：
-  - `proposal detector` 真实训练指标
+  - `scene proposal detector` 真实训练指标
   - embedder / matcher 主线接管最终位置挑选
 
 ### `TASK-G1-REF-007`
@@ -257,7 +292,7 @@
 ### `TASK-G1-REF-010`
 
 - `group1` 自动训练必须能区分：
-  - `query_split_error`
+  - `query_error`
   - `proposal_miss`
   - `embedding_confusion`
   - `assignment_error`
@@ -272,7 +307,37 @@
     - reviewed 稀疏答案时按 `order + center` 判
 - 当前仍待补齐：
   - 面向 controller/judge 的细粒度失败归因落盘
-  - 旧 `query_split_error` 等诊断口径与新 matcher 失败模式的统一映射
+  - `query detector`、`scene detector`、`embedder`、`matcher` 的阶段 gate 编排
+
+### `TASK-G1-REF-015`
+
+- 必须冻结首版严格串行工作流：
+  - `dataset_smoke`
+  - `dataset_v1`
+  - `TRAIN_QUERY`
+  - `QUERY_GATE`
+  - `TRAIN_SCENE`
+  - `SCENE_GATE`
+  - `TRAIN_EMBEDDER_BASE`
+  - `BUILD_EMBEDDER_HARDSET`
+  - `TRAIN_EMBEDDER_HARD`
+  - `CALIBRATE_MATCHER`
+  - `OFFLINE_EVAL`
+  - `BUSINESS_EVAL`
+  - `EXPORT`
+- 必须冻结每个阶段允许的状态：
+  - `PASS`
+  - `CONTINUE_TRAIN`
+  - `REBUILD_DATASET`
+  - `FIX_EXPORTER`
+  - `BACK_TO_QUERY`
+  - `BACK_TO_SCENE`
+  - `BACK_TO_EMBEDDER`
+  - `TUNE_MATCHER`
+- 必须明确：
+  - `dataset_smoke = 200`
+  - `dataset_v1` 为第一版正式训练集，建议从 `10000` 条起步
+  - 第一轮工程化流程不以三模型并行训练为默认前提
 
 ### `TASK-G1-REF-012`
 

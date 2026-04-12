@@ -17,6 +17,61 @@
 
 ## 当前事实
 
+- 2026-04-13 当前 `group1` 生成器重构已完成 `query-yolo/` 第一切片：
+  - generator 现已为 `group1` 额外导出：
+    - `query-yolo/images/{train,val,test}`
+    - `query-yolo/labels/{train,val,test}`
+    - `query-yolo/dataset.yaml`
+  - `dataset.json` 现已新增：
+    - `query_detector`
+    - `query-yolo/dataset.yaml`
+  - Python `group1 dataset loader` 现已兼容读取 `query_detector` 字段
+  - 当前已验证：
+    - `cd packages/generator && GOCACHE=/Users/uroborus/AiProject/sinan-captcha/work_home/.cache/go-test go test ./internal/app -count=1`
+    - `uv run pytest tests/python/test_training_jobs.py -q`
+  - 当前状态：
+    - 阶段 1 的生成器/合同测试已通过
+    - `query detector` 训练入口第一切片已完成：
+      - `train group1 --component query-detector`
+      - `--from-run / --resume` 已能解析 `query-detector` 权重
+      - `auto_train.runners.train` 已能记录 `query_model_best/query_model_last`
+    - `query detector` 训练后评估第一切片已完成：
+      - 会在 `val` 上自动产出 `query_item_recall / query_exact_count_rate / query_strict_hit_rate`
+      - 会写 `query-detector/failcases.jsonl`
+      - 会在训练 summary 中写 `gate.status / thresholds / failed_checks`
+    - `query detector` 的独立预测入口、主推理接线与 `auto-train` 新阶段机仍未实现，仓库尚未进入完整 `TRAIN_QUERY -> QUERY_GATE` 阶段
+
+- 2026-04-13 当前 generator preset 约定已开始向新工程口径收口：
+  - 当前已新增正式 `v1` preset：
+    - `group1.v1.yaml`
+    - `group2.v1.yaml`
+  - 当前 `group1 v1` 训练集配置已固定为：
+    - `sample_count = 10000`
+    - `target_count_min = target_count_max = 3`
+  - 当前 `smoke` preset 已上调为 200 条，并对 `group1` 固定 3 个 query 图标
+  - 当前 `firstpass` 仍保留为 200 条 legacy 兼容 preset，避免旧脚本立即失效
+
+- 2026-04-13 当前 `group1` 工程化设计基线已重新冻结：
+  - 当前目标正式方案已改为：
+    - `query detector`
+    - `scene proposal detector`
+    - `icon embedder`
+    - `matcher`
+  - 当前已把完整工程化工作流写入正式设计文档：
+    - `dataset_smoke = 200`
+    - `dataset_v1` 建议从 `10000` 条起步
+    - 第一轮按严格串行 gate 推进：
+      - `TRAIN_QUERY -> QUERY_GATE -> TRAIN_SCENE -> SCENE_GATE -> TRAIN_EMBEDDER_BASE -> BUILD_EMBEDDER_HARDSET -> TRAIN_EMBEDDER_HARD -> CALIBRATE_MATCHER -> OFFLINE_EVAL -> BUSINESS_EVAL -> EXPORT`
+  - 当前设计已明确：
+    - 规则式 `query splitter` 不再是正式收口目标
+    - 现有代码主线仍停留在规则式 query 过渡态，后续实现需继续对齐最新设计
+  - 当前已同步：
+    - `docs/04-project-development/04-design/group1-instance-matching-refactor.md`
+    - `docs/04-project-development/04-design/technical-selection.md`
+    - `docs/04-project-development/04-design/system-architecture.md`
+    - `docs/04-project-development/05-development-process/implementation-plan.md`
+    - `docs/04-project-development/05-development-process/group1-instance-matching-refactor-task-breakdown.md`
+
 - 2026-04-12 当前 `group1 prelabel-vlm` 需求基线已新增逐样本恢复与过程工件目录增量：
   - 当前已创建变更单：
     - `.factory/workitems/changes/CR-001-group1-vlm-prelabel-resume-and-process-artifacts.md`
@@ -114,11 +169,13 @@
     - 当前新增汇总缓存：逐图分析完成后会输出 `reports/background-style-summary.json`
     - 当前下载任务模型已改成“每张参考图至少 1 个 `reference_image` 保底任务，再叠加 `summary` 扩充任务”
     - 当前新增下载任务恢复：每个 task 的 `target/downloaded/rejected/next_page` 会持久化到 `reports/background-style-download-state.json`
+    - 当前新增汇总 schema 漂移防护：严格合同校验失败时会记录 `reports/background-style-drift-events.jsonl`
+    - 当前汇总阶段会自动发起 1 次 repair 请求；repair 仍失败时优先复用可归一化原响应，再不行才回退到本地汇总
     - 当前同一 `output-root` 重跑会自动复用已分析参考图，并从上次下载页继续
     - 当前新增下载质量门：图片必须可解码，且满足 `--min-width/--min-height`
     - 当前新增重复抑制：至少覆盖同批下载集、`incoming/backgrounds/` 和 `--merge-into` 目标根中的已有背景图
     - 当前新增 `--merge-into <materials-root>`，可把通过质量门的新背景图增量并入正式 `backgrounds/` 与 `manifests/backgrounds.csv`
-    - 当前报告已新增 `analysis_reused_count/analysis_completed_count/download_task_count/download_completed_task_count`
+    - 当前报告已新增 `analysis_reused_count/analysis_completed_count/download_task_count/download_completed_task_count/drift_event_count`
     - 当前报告已保留 `rejected_count/rejected_backgrounds/merged_count/merged_backgrounds`
   - 当前已验证：
     - `uv run pytest tests/python/test_group1_query_audit.py tests/python/test_background_style_collect.py tests/python/test_root_cli.py -q`

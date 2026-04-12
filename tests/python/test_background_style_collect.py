@@ -89,6 +89,25 @@ class BackgroundStyleCollectTests(unittest.TestCase):
         )
         self.assertIn("overlay", profile.negative_terms)
 
+    def test_parse_background_style_response_supports_nested_style_summary_object(self) -> None:
+        profile = parse_background_style_response(
+            """
+            {
+              "style_summary": {
+                "zh": "宏伟自然景观与城市夜景背景",
+                "en": "majestic landscapes and night cityscapes"
+              }
+            }
+            """,
+            source_image_count=1,
+            request_payload={"model": "gemma4:26b"},
+            max_queries=3,
+        )
+
+        self.assertEqual(profile.style_summary_zh, "宏伟自然景观与城市夜景背景")
+        self.assertEqual(profile.style_summary_en, "majestic landscapes and night cityscapes")
+        self.assertEqual(profile.search_queries, ("majestic landscapes and night cityscapes",))
+
     def test_ollama_reference_analyzer_returns_image_profile(self) -> None:
         with tempfile.TemporaryDirectory() as tmpdir:
             image_path = Path(tmpdir) / "reference.png"
@@ -158,6 +177,157 @@ class BackgroundStyleCollectTests(unittest.TestCase):
 
         self.assertEqual(profile.source_image_count, 1)
         self.assertEqual(profile.search_queries, ("lake mountain landscape",))
+
+    def test_ollama_profile_summarizer_repairs_schema_drift_and_logs_events(self) -> None:
+        summarizer = OllamaBackgroundProfileSummarizer(model="gemma4:26b")
+        image_profiles = (
+            BackgroundStyleImageProfile(
+                image_path="/tmp/a.png",
+                image_sha256="sha-a",
+                style_summary_zh="自然湖景背景",
+                style_summary_en="natural lake landscape",
+                search_hints=("lake landscape", "green mountains"),
+                negative_terms=("captcha",),
+                request_payload={},
+                raw_output="{}",
+            ),
+        )
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            drift_log = Path(tmpdir) / "background-style-drift-events.jsonl"
+            prompts: list[str] = []
+
+            def fake_post_json(
+                _url: str,
+                payload: dict[str, object],
+                *,
+                timeout_seconds: int,
+            ) -> dict[str, object]:
+                del timeout_seconds
+                messages = payload["messages"]
+                self.assertIsInstance(messages, list)
+                prompts.append(str(messages[0]["content"]))
+                if len(prompts) == 1:
+                    return {
+                        "message": {
+                            "content": json.dumps(
+                                {
+                                    "style_summary": {
+                                        "zh": "自然湖景与山脉背景",
+                                        "en": "natural lake and mountain landscape",
+                                    }
+                                },
+                                ensure_ascii=False,
+                            )
+                        }
+                    }
+                return {
+                    "message": {
+                        "content": json.dumps(
+                            {
+                                "style_summary_zh": "自然湖景与山脉背景",
+                                "style_summary_en": "natural lake and mountain landscape",
+                                "search_queries": ["lake mountain landscape"],
+                                "negative_terms": ["captcha"],
+                            },
+                            ensure_ascii=False,
+                        )
+                    }
+                }
+
+            with patch("materials.background_style._post_json", side_effect=fake_post_json):
+                profile = summarizer(
+                    image_profiles=image_profiles,
+                    max_queries=3,
+                    drift_log_path=drift_log,
+                )
+
+            self.assertEqual(profile.search_queries, ("lake mountain landscape",))
+            self.assertEqual(profile.request_payload["mode"], "ollama_summary_repair")
+            self.assertEqual(len(prompts), 2)
+            self.assertIn("请不要重新分析", prompts[1])
+            drift_rows = read_jsonl(drift_log)
+            self.assertEqual(
+                [row["event_type"] for row in drift_rows],
+                [
+                    "summary_schema_drift_detected",
+                    "summary_schema_repair_succeeded",
+                ],
+            )
+            self.assertIn("missing_top_level_search_queries", drift_rows[0]["contract_issues"])
+
+    def test_run_background_style_collection_falls_back_after_unusable_summary_repair(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            root = Path(tmpdir)
+            source_dir = root / "reference-backgrounds"
+            _write_background(source_dir / "a.png", (120, 180, 220))
+            _write_background(source_dir / "b.png", (80, 120, 160))
+            output_root = root / "background-pack"
+
+            def fake_reference_analyzer(**kwargs: object) -> BackgroundStyleImageProfile:
+                image_path = Path(str(kwargs["image_path"]))
+                hints = (
+                    ("lake", "landscape", "background")
+                    if image_path.name == "a.png"
+                    else ("city", "skyline", "night")
+                )
+                return BackgroundStyleImageProfile(
+                    image_path=str(image_path),
+                    image_sha256=str(kwargs["image_sha256"]),
+                    style_summary_zh="背景",
+                    style_summary_en="background",
+                    search_hints=hints,
+                    negative_terms=("captcha",),
+                    request_payload={"image_path": str(image_path)},
+                    raw_output="{}",
+                )
+
+            responses = [
+                {
+                    "message": {
+                        "content": json.dumps(
+                            {"style_summary_zh": "只有中文摘要"},
+                            ensure_ascii=False,
+                        )
+                    }
+                },
+                {
+                    "message": {
+                        "content": json.dumps(
+                            {"style_summary": {"zh": "还是只有中文摘要"}},
+                            ensure_ascii=False,
+                        )
+                    }
+                },
+            ]
+
+            with patch("materials.background_style._post_json", side_effect=responses):
+                result = run_background_style_collection(
+                    source_dir=source_dir,
+                    output_root=output_root,
+                    model="gemma4:26b",
+                    api_key="token",
+                    reference_image_analyzer=fake_reference_analyzer,
+                    search_client=lambda **_kwargs: {"photos": []},
+                    downloader=lambda _url, _destination: None,
+                )
+
+            self.assertEqual(result["status"], "ok")
+            self.assertEqual(
+                result["style_profile"]["request_payload"]["mode"],
+                "ollama_summary_local_fallback",
+            )
+            self.assertEqual(
+                result["style_profile"]["search_queries"],
+                ["lake landscape background", "city skyline night"],
+            )
+            self.assertTrue(Path(result["drift_log_jsonl"]).exists())
+            self.assertGreaterEqual(result["drift_event_count"], 2)
+            drift_rows = read_jsonl(Path(result["drift_log_jsonl"]))
+            self.assertEqual(
+                drift_rows[-1]["event_type"],
+                "summary_schema_repair_failed_local_fallback",
+            )
 
     def test_run_background_style_collection_downloads_pexels_results(self) -> None:
         with tempfile.TemporaryDirectory() as tmpdir:

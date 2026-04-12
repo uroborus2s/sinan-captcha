@@ -96,7 +96,7 @@ flowchart LR
 - Python API 负责参数归一化、图片解码和异常语义
 - Rust 扩展负责 ONNX Runtime provider 选择、会话建立和推理桥接
 - `group1` 执行：
-  - `query splitter -> scene proposal detector ONNX -> icon embedder ONNX -> matcher`
+  - `query detector ONNX -> scene proposal detector ONNX -> icon embedder ONNX -> matcher`
 - `group2` 执行：
   - `slider gap locator ONNX`
 - 统一输出：
@@ -125,6 +125,7 @@ flowchart LR
 ### 5. 训练与评估层
 
 - `group1`：
+  - 训练 `query detector`
   - 训练 `scene proposal detector`
   - 训练 `icon embedder`
   - 校准 `matcher`
@@ -146,10 +147,11 @@ flowchart LR
 ### `group1`
 
 1. 生成器输出查询图、场景图、目标顺序、实例身份和 `gold`
-2. 数据层导出 `dataset.json + proposal-yolo/ + embedding/ + eval/ + splits`
-3. 训练 `scene proposal detector`、`icon embedder`，并校准 `matcher`
-4. Rust 扩展加载 ONNX 模型和 matcher 配置，统一求解层调用实例匹配链
-5. 输出有序中心点序列
+2. 数据层导出 `dataset.json + query-yolo/ + proposal-yolo/ + embedding/ + eval/ + splits`
+3. 先训练 `query detector`，再训练 `scene proposal detector`
+4. 生成 detector-aware `embedder` 样本，训练 `icon embedder`，并校准 `matcher`
+5. Rust 扩展加载 ONNX 模型和 matcher 配置，统一求解层调用实例匹配链
+6. 输出有序中心点序列
 
 ### `group2`
 

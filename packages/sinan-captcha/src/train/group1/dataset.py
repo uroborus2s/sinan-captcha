@@ -43,6 +43,7 @@ class Group1DatasetConfig:
     task: str
     format: str
     splits: dict[str, Path]
+    query_component: Group1ComponentConfig | None
     proposal_component: Group1ComponentConfig
     embedding: Group1EmbeddingConfig | None
     eval: Group1EvalConfig | None
@@ -54,6 +55,12 @@ class Group1DatasetConfig:
     @property
     def proposal_dataset_yaml(self) -> Path:
         return self.proposal_component.dataset_yaml
+
+    @property
+    def query_dataset_yaml(self) -> Path | None:
+        if self.query_component is None:
+            return None
+        return self.query_component.dataset_yaml
 
     @property
     def embedding_pairs_path(self) -> Path | None:
@@ -90,6 +97,7 @@ def load_group1_dataset_config(path: Path) -> Group1DatasetConfig:
         )
 
     splits = _load_group1_splits(payload, path)
+    query_component = _load_optional_named_component(payload, path, field="query_detector")
     proposal_component = _load_named_component(payload, path, field="proposal_detector")
     embedding = _load_embedding_config(payload, path)
     eval_config = _load_eval_config(payload, path)
@@ -99,6 +107,7 @@ def load_group1_dataset_config(path: Path) -> Group1DatasetConfig:
         task=task,
         format=data_format,
         splits=splits,
+        query_component=query_component,
         proposal_component=proposal_component,
         embedding=embedding,
         eval=eval_config,
@@ -145,6 +154,15 @@ def _load_named_component(payload: dict[str, Any], path: Path, *, field: str) ->
     raw_component = payload.get(field)
     if not isinstance(raw_component, dict):
         raise RuntimeError(f"group1 数据集配置文件缺少 {field}：{path}")
+    return _parse_component(raw_component, path, component_name=field)
+
+
+def _load_optional_named_component(payload: dict[str, Any], path: Path, *, field: str) -> Group1ComponentConfig | None:
+    raw_component = payload.get(field)
+    if raw_component is None:
+        return None
+    if not isinstance(raw_component, dict):
+        raise RuntimeError(f"group1 数据集配置文件字段 {field} 格式非法：{path}")
     return _parse_component(raw_component, path, component_name=field)
 
 

@@ -13,7 +13,7 @@
 - 最终交付由 `sinanz` 平台 wheel、内嵌 ONNX 资产和 Rust 原生扩展组成
 - `group2` 当前已切到 `.onnx + native_bridge` 契约，训练仓库已支持导出 `slider_gap_locator.onnx`
 - 第一专项使用预训练 YOLO 检测权重微调
-- 第一专项采用 `query splitter + proposal detector + icon embedder + matcher`
+- 第一专项当前目标工程基线采用 `query detector + scene proposal detector + icon embedder + matcher`
 - 第二专项做双输入滑块缺口定位，并以中心点作为正式主结果
 - 生成端优先直接导出真值并执行硬门禁校验
 - 生成器采用“受控集成 + 可插拔 backend”
@@ -56,6 +56,13 @@
 - 生成器工作区与训练目录分离，`materials/` 只属于生成器工作区。
 - 公开示例统一显式传入 `sinan-generator --workspace <generator-workspace>`，避免默认 `%LOCALAPPDATA%` 工作区造成读者误判。
 - 使用 JSONL 作为标签主事实源；`group1` 的 `proposal-yolo/embedding/eval` 与 `group2` 的 paired split 清单都只是派生产物。
+- `group1` 工程化流程采用“分组件训练 + 整链路 gate”：
+  - `dataset_smoke`
+  - `dataset_v1`
+  - `query detector`
+  - `scene proposal detector`
+  - `icon embedder`
+  - `matcher` 校准与商业门禁
 - 两专项模型独立训练和独立验收，不合并成单一万能模型。
 - 任何实现都要遵守已固定的数据契约和模块边界。
 - 任何 `gold` 样本都必须来自生成器内部真值，且通过一致性校验与重放校验。

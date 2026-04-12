@@ -24,6 +24,7 @@ from train.group1.service import Group1TrainingJob, build_group1_training_job, e
 from train.group1.service import (
     EMBEDDER_COMPONENT,
     PROPOSAL_COMPONENT,
+    QUERY_COMPONENT,
     resolve_group1_component_best_weights,
     resolve_group1_component_last_weights,
 )
@@ -81,6 +82,16 @@ def run_training_request(
                 if request.train_mode == "resume"
                 else resolve_group1_component_best_weights
             )
+            if group1_dataset is not None and group1_dataset.query_component is not None:
+                require_existing_path(
+                    component_resolver(
+                        request.train_root,
+                        request.train_name if request.train_mode == "resume" else request.base_run or "",
+                        QUERY_COMPONENT,
+                    ),
+                    stage="TRAIN",
+                    label="group1 query detector 检查点",
+                )
             require_existing_path(
                 component_resolver(request.train_root, request.train_name if request.train_mode == "resume" else request.base_run or "", PROPOSAL_COMPONENT),
                 stage="TRAIN",
@@ -154,6 +165,13 @@ def run_training_request(
     if request.task == "group1":
         best_weights = resolve_group1_component_best_weights(request.train_root, request.train_name, PROPOSAL_COMPONENT)
         last_weights = resolve_group1_component_last_weights(request.train_root, request.train_name, PROPOSAL_COMPONENT)
+        if group1_dataset is not None and group1_dataset.query_component is not None:
+            params["query_model_best"] = str(
+                resolve_group1_component_best_weights(request.train_root, request.train_name, QUERY_COMPONENT)
+            )
+            params["query_model_last"] = str(
+                resolve_group1_component_last_weights(request.train_root, request.train_name, QUERY_COMPONENT)
+            )
         if group1_dataset is not None and group1_dataset.is_instance_matching:
             params["embedder_model_best"] = str(
                 resolve_group1_component_best_weights(request.train_root, request.train_name, EMBEDDER_COMPONENT)
@@ -230,13 +248,18 @@ def _build_training_job(
 ) -> object:
     if request.task == "group1":
         group1_dataset = load_group1_dataset_config(dataset_config)
+        query_model = None
         proposal_model = None
         embedder_model = None
         if request.train_mode == "resume":
+            if group1_dataset.query_component is not None:
+                query_model = str(resolve_group1_component_last_weights(request.train_root, request.train_name, QUERY_COMPONENT))
             proposal_model = str(resolve_group1_component_last_weights(request.train_root, request.train_name, PROPOSAL_COMPONENT))
             if group1_dataset.is_instance_matching:
                 embedder_model = str(resolve_group1_component_last_weights(request.train_root, request.train_name, EMBEDDER_COMPONENT))
         elif request.train_mode == "from_run" and request.base_run is not None:
+            if group1_dataset.query_component is not None:
+                query_model = str(_preferred_group1_component_weights(request.train_root, request.base_run, QUERY_COMPONENT))
             proposal_model = str(_preferred_group1_component_weights(request.train_root, request.base_run, PROPOSAL_COMPONENT))
             if group1_dataset.is_instance_matching:
                 embedder_model = str(_preferred_group1_component_weights(request.train_root, request.base_run, EMBEDDER_COMPONENT))
@@ -244,6 +267,7 @@ def _build_training_job(
             dataset_config=dataset_config,
             project_dir=project_dir,
             model=model,
+            query_model=query_model,
             proposal_model=proposal_model,
             embedder_model=embedder_model,
             run_name=request.train_name,

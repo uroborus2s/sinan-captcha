@@ -413,7 +413,7 @@ uv run sinan train group2 --dataset-version v1 --name v1 --epochs 100 --batch 16
 
 ### 10.2 第一专项后训练
 
-第一组的正式目标改为实例匹配流水线：`scene proposal detector + icon embedder + matcher`。
+第一组的正式目标改为实例匹配流水线：`query detector + scene proposal detector + icon embedder + matcher`。
 
 示例命令：
 
@@ -421,12 +421,14 @@ uv run sinan train group2 --dataset-version v1 --name v1 --epochs 100 --batch 16
 uv run sinan train group1 --dataset-config D:\sinan-captcha-work\datasets\group1\v1\dataset.json --name v1 --epochs 120 --batch 16 --imgsz 640 --device 0
 ```
 
-训练入口后续应支持分别训练 proposal detector 和 embedder，推理阶段再做顺序映射：
+训练入口后续应支持分阶段执行，第一轮工程化流程按严格串行 gate 推进：
 
-1. 读取查询图中的目标顺序并切出 query 项。
-2. 检测 scene 里的全部图标候选。
-3. 对 query 项和 scene 候选做向量匹配与全局分配。
-4. 输出每个目标的点击点坐标。
+1. 先生成 `dataset_smoke`，只验证导出链和标签合同。
+2. 再生成 `dataset_v1`，作为第一版正式训练集。
+3. 先训练 `query detector`，通过 query gate 后再训练 `scene detector`。
+4. 两个 detector 过门后，先训练基础版 `icon embedder`，再构造 detector-aware hard triplets 训练增强版 `icon embedder`。
+5. 最后校准 `matcher`，跑离线整链路评估，再进入商业测试。
+6. 只有商业测试通过后，才允许冻结最佳组合并导出 solver 资产。
 
 所以第一组验收时看的是“点位和顺序”，不是只看检测框。
 
@@ -452,7 +454,7 @@ uv run sinan train group1 --dataset-config D:\sinan-captcha-work\datasets\group1
 
 只要“整组顺序全部命中率”还很低，就不要急着追求更多 epoch，先查：
 
-1. query 切分是否错位
+1. query detector 是否漏检、误检或没有稳定输出 3 个目标
 2. 候选检测是否漏检
 3. 相似图标是否发生向量混淆
 4. 全局分配和歧义拒判是否合理
