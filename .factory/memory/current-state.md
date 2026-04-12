@@ -17,6 +17,35 @@
 
 ## 当前事实
 
+- 2026-04-12 当前 `group1 prelabel-vlm` 需求基线已新增逐样本恢复与过程工件目录增量：
+  - 当前已创建变更单：
+    - `.factory/workitems/changes/CR-001-group1-vlm-prelabel-resume-and-process-artifacts.md`
+  - 当前正式需求已新增 `REQ-017`
+  - 当前设计与任务层已冻结目标目录：
+    - `<project>/process/index.json`
+    - `<project>/process/samples/<sample_id>/{status,request,response,normalized,error}.json`
+  - 当前恢复规则已冻结为：
+    - 只有 `status=completed` 且 `normalized.json` 完整存在时，样本才允许跳过
+    - `failed/running/partial` 只重跑该样本
+    - `reviewed/*.json` 不能单独作为恢复依据
+  - 当前最终聚合文件仍定义为：
+    - `reviewed/query|scene/*.json`
+    - `labels.jsonl`
+    - `trace.jsonl`
+    - `summary.json`
+  - 当前状态：
+    - 需求、设计、任务与追踪矩阵已同步
+    - `TASK-G1-REF-013` 已实现：
+      - `process/index.json` 会按样本状态实时更新
+      - 已完成样本会按 `status + normalized` 复用，不重复请求大模型
+      - 失败样本会写 `error.json`，下次只重跑失败样本
+      - `reviewed/*.json`、`labels.jsonl`、`trace.jsonl`、`summary.json` 可由过程工件重建
+    - 当前已验证：
+      - `uv run pytest tests/python/test_train_prelabel_service.py -q`
+      - `uv run pytest tests/python/test_training_jobs.py -q -k group1_vlm_prelabel_cli_dry_run_uses_pair_root_and_local_model`
+      - `uv run python -m py_compile packages/sinan-captcha/src/train/prelabel.py tests/python/test_train_prelabel_service.py`
+    - 公开用户文档尚未切换为“已支持”，后续可按实现状态再收口外部表述
+
 - 2026-04-12 当前 `group1` 主业务链路已完成一次正式 cutover：
   - 当前 `predict / test / solve / auto-train / solver bundle / solver asset export` 已统一切到：
     - `query splitter(规则式)`

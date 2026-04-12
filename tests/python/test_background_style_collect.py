@@ -6,11 +6,14 @@ import tempfile
 import unittest
 from io import BytesIO
 from pathlib import Path
+from unittest.mock import patch
 
 from common.jsonl import read_jsonl
 from materials.background_style import (
     BackgroundStyleImageProfile,
     BackgroundStyleProfile,
+    OllamaBackgroundProfileSummarizer,
+    OllamaBackgroundReferenceAnalyzer,
     parse_background_style_response,
     run_background_style_collection,
 )
@@ -62,6 +65,76 @@ class BackgroundStyleCollectTests(unittest.TestCase):
             ("pastel beach landscape", "minimal ocean background"),
         )
         self.assertIn("puzzle gap", profile.negative_terms)
+
+    def test_ollama_reference_analyzer_returns_image_profile(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            image_path = Path(tmpdir) / "reference.png"
+            _write_background(image_path, (120, 180, 220))
+            analyzer = OllamaBackgroundReferenceAnalyzer(model="gemma4:26b")
+
+            with patch(
+                "materials.background_style._post_json",
+                return_value={
+                    "message": {
+                        "content": json.dumps(
+                            {
+                                "style_summary_zh": "自然湖景背景",
+                                "style_summary_en": "natural lake landscape",
+                                "search_hints": ["lake landscape", "green mountains"],
+                                "negative_terms": ["captcha"],
+                            },
+                            ensure_ascii=False,
+                        )
+                    }
+                },
+            ):
+                profile = analyzer(
+                    image_path=image_path,
+                    image_sha256="sha256",
+                )
+
+            self.assertEqual(profile.image_path, str(image_path))
+            self.assertEqual(profile.image_sha256, "sha256")
+            self.assertEqual(profile.search_hints, ("lake landscape", "green mountains"))
+
+    def test_ollama_profile_summarizer_returns_style_profile(self) -> None:
+        summarizer = OllamaBackgroundProfileSummarizer(model="gemma4:26b")
+        image_profiles = (
+            BackgroundStyleImageProfile(
+                image_path="/tmp/a.png",
+                image_sha256="sha-a",
+                style_summary_zh="自然湖景背景",
+                style_summary_en="natural lake landscape",
+                search_hints=("lake landscape", "green mountains"),
+                negative_terms=("captcha",),
+                request_payload={},
+                raw_output="{}",
+            ),
+        )
+
+        with patch(
+            "materials.background_style._post_json",
+            return_value={
+                "message": {
+                    "content": json.dumps(
+                        {
+                            "style_summary_zh": "自然湖景与山脉背景",
+                            "style_summary_en": "natural lake and mountain landscape",
+                            "search_queries": ["lake mountain landscape"],
+                            "negative_terms": ["captcha"],
+                        },
+                        ensure_ascii=False,
+                    )
+                }
+            },
+        ):
+            profile = summarizer(
+                image_profiles=image_profiles,
+                max_queries=3,
+            )
+
+        self.assertEqual(profile.source_image_count, 1)
+        self.assertEqual(profile.search_queries, ("lake mountain landscape",))
 
     def test_run_background_style_collection_downloads_pexels_results(self) -> None:
         with tempfile.TemporaryDirectory() as tmpdir:
@@ -134,6 +207,43 @@ class BackgroundStyleCollectTests(unittest.TestCase):
                 report["downloaded_backgrounds"][0]["source_url"],
                 "https://images.example/bg-1001.jpg",
             )
+
+    def test_run_background_style_collection_without_sample_limit_analyzes_all_images(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            root = Path(tmpdir)
+            source_dir = root / "reference-backgrounds"
+            _write_background(source_dir / "a.png", (120, 180, 220))
+            _write_background(source_dir / "b.png", (80, 120, 160))
+            output_root = root / "background-pack"
+
+            analyzed: list[str] = []
+
+            def fake_reference_analyzer(**kwargs: object) -> BackgroundStyleImageProfile:
+                image_path = Path(str(kwargs["image_path"]))
+                analyzed.append(image_path.name)
+                return BackgroundStyleImageProfile(
+                    image_path=str(image_path),
+                    image_sha256=str(kwargs["image_sha256"]),
+                    style_summary_zh="背景",
+                    style_summary_en="background",
+                    search_hints=("background",),
+                    negative_terms=(),
+                    request_payload={"image_path": str(image_path)},
+                    raw_output="{}",
+                )
+
+            result = run_background_style_collection(
+                source_dir=source_dir,
+                output_root=output_root,
+                model="qwen2.5vl:7b",
+                api_key=None,
+                dry_run=True,
+                sample_limit=None,
+                reference_image_analyzer=fake_reference_analyzer,
+            )
+
+            self.assertEqual(sorted(analyzed), ["a.png", "b.png"])
+            self.assertEqual(result["analysis_completed_count"], 2)
 
     def test_run_background_style_collection_dry_run_skips_api_key_and_downloads(self) -> None:
         with tempfile.TemporaryDirectory() as tmpdir:

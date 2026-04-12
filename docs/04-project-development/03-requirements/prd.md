@@ -509,6 +509,44 @@
 - 关联设计：背景素材扩充设计、素材质量门设计、背景合并设计。
 - 关联测试：参考图分析回归、下载质检回归、重复抑制测试、正式素材根合并测试。
 
+### REQ-017 `group1 prelabel-vlm` 逐样本过程工件与断点续传
+
+- 目标：让 `uv run sinan train group1 prelabel-vlm` 在本地多模态预标注场景下具备逐样本可恢复、可跳过已完成样本、可按文件名审计原始返回的正式运行语义。
+- 用户故事：作为训练机操作者，我希望在同一 `--project` 目录下重跑 `prelabel-vlm` 时，只继续未完成样本，并能按 `sample_id` 查看请求、原始返回和归一化结果，以便降低本地大模型预标注的时间成本和排障成本。
+- 前置条件：`query/` 与 `scene|scence/` 成对图片目录可用，本地 Ollama 多模态模型可达，`group1 reviewed` 合同已冻结。
+- 主流程：
+  1. 系统扫描同名 `query + scene|scence` 图片对，并在 `--project` 下创建正式过程目录 `process/`。
+  2. 系统为每个 `sample_id` 建立 `process/samples/<sample_id>/` 目录，并在调用模型前先写入 `status.json` 与 `request.json`。
+  3. 系统在收到模型结果后，按样本分别写入 `response.json`、`normalized.json` 和必要的 `error.json`。
+  4. 当同一 `--project` 目录再次执行时，系统必须先读取 `process/index.json` 与逐样本状态，只重跑未完成样本。
+  5. 已完成样本必须直接复用已有过程工件，不得重复调用大模型。
+  6. 全部样本完成后，系统基于逐样本过程工件重建 `reviewed/*.json`、`labels.jsonl`、`trace.jsonl` 和 `summary.json`。
+- 异常/边界：
+  - 仅存在 `reviewed/*.json` 不得单独作为样本“已完成”的正式依据，必须同时具备合法状态与归一化结果工件。
+  - 若 `status.json`、`normalized.json` 或关键过程文件缺失、损坏或互相不一致，则该样本只能视为 `partial` 或 `failed`，不得跳过。
+  - 若单样本失败，系统必须保留该样本错误信息，并允许后续只重试该样本，而不是强制整批重做。
+  - 最终仍必须经过人工复核，再执行 `exam export-reviewed`；本需求不把 VLM 输出升级为正式真值。
+- 业务规则：
+  - `process/` 是 `prelabel-vlm` 的正式恢复入口和审计入口，不能仅依赖聚合 `trace.jsonl` 做恢复。
+  - 正式过程目录必须按 `sample_id` 分组，支持按文件名直接检查请求、原始响应和归一化结果。
+  - 已完成样本在同一 `--project` 目录重跑时，默认必须跳过，不得再次消耗大模型推理成本；只有显式强制重跑时才允许覆盖。
+  - 最终人工复核输出格式仍保持 `query=query_item`、`scene=NN`，可选类别提示继续保留在附属元数据中。
+- 数据约束：
+  - `--project/process/index.json` 必须记录运行级元数据、样本总数、状态统计和恢复所需索引。
+  - `--project/process/samples/<sample_id>/` 至少保留 `status.json`、`request.json`、`response.json`、`normalized.json`、`error.json` 这五类过程文件中的适用子集。
+  - 只有 `status=completed` 且 `normalized.json` 完整存在时，样本才允许在后续重跑中被判定为已完成。
+  - `labels.jsonl`、`trace.jsonl` 与 `summary.json` 必须可由逐样本过程工件确定性重建。
+- 权限/角色：项目维护者冻结恢复语义和过程目录合同；实现者负责状态机、逐样本工件和回归测试；训练机操作者只通过正式 CLI 启动、恢复和检查任务。
+- 验收标准：
+  1. AC-1: 给定一批图片对在执行到一半时中断，当操作者在同一 `--project` 目录重跑命令，则系统只继续未完成样本，已完成样本不会再次请求大模型。
+  2. AC-2: 给定某个 `sample_id` 已存在 `status=completed` 且 `normalized.json` 完整，当再次运行同一任务时，则该样本会被直接复用，并保留原有请求/响应过程文件。
+  3. AC-3: 给定任一 `sample_id` 的模型调用成功或失败，当任务结束后，则都能在 `process/samples/<sample_id>/` 下找到对应的状态文件和原始过程工件，用于按文件名检查。
+  4. AC-4: 给定同一 `--project` 目录内已有逐样本过程工件，当全部样本完成时，则系统能基于这些工件重建 `reviewed/*.json`、`labels.jsonl`、`trace.jsonl` 与 `summary.json`。
+- 优先级：P1
+- 状态：已定义
+- 关联设计：`group1` 实例匹配重构设计、`prelabel-vlm` 过程目录设计、人工复核前预标注审计设计。
+- 关联测试：逐样本恢复测试、已完成样本跳过测试、过程工件落盘测试、聚合结果重建测试。
+
 ## 非功能需求
 
 ### NFR-001 业务正确性

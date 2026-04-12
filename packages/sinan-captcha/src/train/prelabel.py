@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import base64
 from dataclasses import asdict, dataclass
+from datetime import datetime, timezone
 import json
 from pathlib import Path
 import shutil
@@ -13,6 +14,7 @@ from typing import Any
 from auto_train.json_extract import extract_json_object
 from common.images import get_image_size
 from common.jsonl import read_jsonl, write_jsonl
+from inference.query_splitter import split_group1_query_image
 from materials.query_audit import (
     DEFAULT_OLLAMA_TIMEOUT_SECONDS,
     DEFAULT_OLLAMA_URL,
@@ -39,7 +41,6 @@ class Group1PrelabelRequest:
     exam_root: Path
     dataset_config: Path
     proposal_model_path: Path
-    query_model_path: Path
     project_dir: Path
     embedder_model_path: Path | None = None
     run_name: str = "prelabel"
@@ -66,12 +67,8 @@ class Group2PrelabelRequest:
 @dataclass(frozen=True)
 class Group1QueryDirectoryPrelabelRequest:
     input_dir: Path
-    query_model_path: Path
     project_dir: Path
     run_name: str = "prelabel-query"
-    conf: float = 0.25
-    imgsz: int = 640
-    device: str = "0"
     limit: int | None = None
     overwrite: bool = False
 
@@ -122,26 +119,19 @@ class Group2PrelabelPlan:
 @dataclass(frozen=True)
 class Group1QueryDirectoryPrelabelPlan:
     input_dir: Path
-    query_model_path: Path
     project_dir: Path
     output_dir: Path
     run_name: str
-    conf: float
-    imgsz: int
-    device: str
     limit: int | None
     overwrite: bool
 
     def to_dict(self) -> dict[str, object]:
         return {
             "input_dir": str(self.input_dir),
-            "query_model_path": str(self.query_model_path),
+            "query_splitter_strategy": "rule_based_v1",
             "project_dir": str(self.project_dir),
             "output_dir": str(self.output_dir),
             "run_name": self.run_name,
-            "conf": self.conf,
-            "imgsz": self.imgsz,
-            "device": self.device,
             "limit": self.limit,
             "overwrite": self.overwrite,
         }
@@ -152,6 +142,8 @@ class Group1VlmPrelabelPlan:
     pair_root: Path
     project_dir: Path
     review_dir: Path
+    process_dir: Path
+    process_index_path: Path
     source_labels_path: Path
     prediction_labels_path: Path
     trace_path: Path
@@ -166,6 +158,8 @@ class Group1VlmPrelabelPlan:
             "pair_root": str(self.pair_root),
             "project_dir": str(self.project_dir),
             "review_dir": str(self.review_dir),
+            "process_dir": str(self.process_dir),
+            "process_index_path": str(self.process_index_path),
             "source_labels_path": str(self.source_labels_path),
             "prediction_labels_path": str(self.prediction_labels_path),
             "trace_path": str(self.trace_path),
@@ -184,7 +178,7 @@ class Group1QueryDirectoryPrelabelResult:
     prediction_labels_path: Path
     sample_count: int
     annotation_count: int
-    model_path: Path
+    splitter_strategy: str
 
     def to_dict(self) -> dict[str, object]:
         return {
@@ -193,7 +187,7 @@ class Group1QueryDirectoryPrelabelResult:
             "prediction_labels_path": str(self.prediction_labels_path),
             "sample_count": self.sample_count,
             "annotation_count": self.annotation_count,
-            "model_path": str(self.model_path),
+            "query_splitter_strategy": self.splitter_strategy,
         }
 
 
@@ -202,7 +196,6 @@ def build_group1_prelabel_plan(request: Group1PrelabelRequest) -> Group1Prelabel
     job = build_group1_prediction_job(
         dataset_config=request.dataset_config,
         proposal_model_path=request.proposal_model_path,
-        query_model_path=request.query_model_path,
         embedder_model_path=request.embedder_model_path,
         source=source_labels_path,
         project_dir=request.project_dir,
@@ -234,13 +227,9 @@ def build_group1_query_directory_prelabel_plan(
     output_dir = request.project_dir / request.run_name
     return Group1QueryDirectoryPrelabelPlan(
         input_dir=request.input_dir,
-        query_model_path=request.query_model_path,
         project_dir=request.project_dir,
         output_dir=output_dir,
         run_name=request.run_name,
-        conf=request.conf,
-        imgsz=request.imgsz,
-        device=request.device,
         limit=request.limit,
         overwrite=request.overwrite,
     )
@@ -253,6 +242,8 @@ def build_group1_vlm_prelabel_plan(
         pair_root=request.pair_root,
         project_dir=request.project_dir,
         review_dir=request.project_dir / "reviewed",
+        process_dir=request.project_dir / "process",
+        process_index_path=request.project_dir / "process" / "index.json",
         source_labels_path=request.project_dir / "source.jsonl",
         prediction_labels_path=request.project_dir / "labels.jsonl",
         trace_path=request.project_dir / "trace.jsonl",
@@ -454,87 +445,81 @@ def run_group1_vlm_prelabel(request: Group1VlmPrelabelRequest) -> PrelabelResult
     )
 
     plan = build_group1_vlm_prelabel_plan(request)
-    review_query_dir = plan.review_dir / "query"
-    review_scene_dir = plan.review_dir / "scene"
-    _ensure_annotation_targets(
-        sample_ids=[pair.sample_id for pair in pairs],
-        annotation_dirs=[review_query_dir, review_scene_dir],
-        overwrite=request.overwrite,
-    )
     plan.project_dir.mkdir(parents=True, exist_ok=True)
-
-    source_rows: list[dict[str, object]] = []
-    prediction_rows: list[dict[str, object]] = []
-    trace_rows: list[dict[str, object]] = []
-    annotation_count = 0
+    plan.process_dir.mkdir(parents=True, exist_ok=True)
+    existing_index = _read_json_if_exists(plan.process_index_path)
+    if isinstance(existing_index, dict):
+        _emit_group1_vlm_log(
+            "resume scan "
+            f"process_index={plan.process_index_path} "
+            f"status_counts={existing_index.get('status_counts', {})}"
+        )
+    _write_group1_vlm_process_index(
+        plan=plan,
+        pairs=pairs,
+        query_dir=query_dir,
+        scene_dir=scene_dir,
+        source_batch=request.pair_root.name,
+        model=request.model,
+        ollama_url=request.ollama_url,
+        timeout_seconds=request.timeout_seconds,
+    )
 
     total_pairs = len(pairs)
+    failed_sample_ids: list[str] = []
+    processed_sample_ids: set[str] = set()
     for index, pair in enumerate(pairs, start=1):
-        _emit_group1_vlm_log(
-            f"[{index}/{total_pairs}] sample_id={pair.sample_id} copy reviewed assets"
-        )
-        review_query_image = _copy_review_asset(pair.query_image, review_query_dir)
-        review_scene_image = _copy_review_asset(pair.scene_image, review_scene_dir)
-        source_rows.append(
-            {
-                "sample_id": pair.sample_id,
-                "query_image": str(pair.query_image),
-                "scene_image": str(pair.scene_image),
-                "query_items": [],
-                "scene_targets": [],
-                "distractors": [],
-                "label_source": "seed",
-                "source_batch": request.pair_root.name,
-            }
-        )
-        prediction_row, trace_row = _run_group1_vlm_prelabel_sample(
-            sample_index=index,
-            sample_total=total_pairs,
-            sample_id=pair.sample_id,
-            query_image=pair.query_image,
-            scene_image=pair.scene_image,
-            model=request.model,
-            ollama_url=request.ollama_url,
-            timeout_seconds=request.timeout_seconds,
-            source_batch=request.pair_root.name,
-        )
-        prediction_rows.append(prediction_row)
-        trace_rows.append(trace_row)
+        process_paths = _group1_vlm_sample_process_paths(plan.process_dir, pair.sample_id)
+        if _can_reuse_group1_vlm_sample(process_paths):
+            _emit_group1_vlm_log(
+                f"[{index}/{total_pairs}] sample_id={pair.sample_id} reuse completed process artifacts"
+            )
+            continue
 
-        _write_labelme_annotation(
-            review_query_dir / f"{pair.sample_id}.json",
-            image_path=review_query_image.name,
-            image_width=get_image_size(review_query_image)[0],
-            image_height=get_image_size(review_query_image)[1],
-            shapes=[
-                _build_rectangle_shape(
-                    label="query_item",
-                    bbox=_coerce_bbox(target["bbox"]),
-                    flags=_group1_shape_flags(target),
-                )
-                for target in prediction_row["query_items"]
-            ],
+        _ensure_group1_vlm_review_targets(
+            pair=pair,
+            review_dir=plan.review_dir,
+            overwrite=request.overwrite,
         )
-        _write_labelme_annotation(
-            review_scene_dir / f"{pair.sample_id}.json",
-            image_path=review_scene_image.name,
-            image_width=get_image_size(review_scene_image)[0],
-            image_height=get_image_size(review_scene_image)[1],
-            shapes=[
-                _build_rectangle_shape(
-                    label=f"{int(target['order']):02d}",
-                    bbox=_coerce_bbox(target["bbox"]),
-                    flags=_group1_shape_flags(target),
-                )
-                for target in prediction_row["scene_targets"]
-            ],
-        )
-        annotation_count += 2
-        _emit_group1_vlm_log(
-            f"[{index}/{total_pairs}] sample_id={pair.sample_id} wrote reviewed annotations "
-            f"query_json={review_query_dir / f'{pair.sample_id}.json'} "
-            f"scene_json={review_scene_dir / f'{pair.sample_id}.json'}"
-        )
+        try:
+            _run_group1_vlm_prelabel_sample(
+                sample_index=index,
+                sample_total=total_pairs,
+                sample_id=pair.sample_id,
+                query_image=pair.query_image,
+                scene_image=pair.scene_image,
+                model=request.model,
+                ollama_url=request.ollama_url,
+                timeout_seconds=request.timeout_seconds,
+                source_batch=request.pair_root.name,
+                process_paths=process_paths,
+            )
+            processed_sample_ids.add(pair.sample_id)
+        except Exception as exc:
+            failed_sample_ids.append(pair.sample_id)
+            _emit_group1_vlm_log(
+                f"[{index}/{total_pairs}] sample_id={pair.sample_id} failed error={exc}"
+            )
+        finally:
+            _write_group1_vlm_process_index(
+                plan=plan,
+                pairs=pairs,
+                query_dir=query_dir,
+                scene_dir=scene_dir,
+                source_batch=request.pair_root.name,
+                model=request.model,
+                ollama_url=request.ollama_url,
+                timeout_seconds=request.timeout_seconds,
+            )
+
+    source_rows, prediction_rows, trace_rows, status_counts = _rebuild_group1_vlm_outputs(
+        plan=plan,
+        pairs=pairs,
+        source_batch=request.pair_root.name,
+        processed_sample_ids=processed_sample_ids,
+        overwrite=request.overwrite,
+    )
+    annotation_count = len(prediction_rows) * 2
 
     write_jsonl(plan.source_labels_path, source_rows)
     write_jsonl(plan.prediction_labels_path, prediction_rows)
@@ -547,7 +532,12 @@ def run_group1_vlm_prelabel(request: Group1VlmPrelabelRequest) -> PrelabelResult
                 "query_dir": str(query_dir),
                 "scene_dir": str(scene_dir),
                 "review_dir": str(plan.review_dir),
-                "sample_count": len(prediction_rows),
+                "process_dir": str(plan.process_dir),
+                "sample_count": len(pairs),
+                "completed_sample_count": len(prediction_rows),
+                "failed_sample_count": status_counts.get("failed", 0),
+                "partial_sample_count": status_counts.get("partial", 0),
+                "status_counts": status_counts,
                 "source_labels_path": str(plan.source_labels_path),
                 "prediction_labels_path": str(plan.prediction_labels_path),
                 "trace_path": str(plan.trace_path),
@@ -562,10 +552,25 @@ def run_group1_vlm_prelabel(request: Group1VlmPrelabelRequest) -> PrelabelResult
     )
     _emit_group1_vlm_log(
         "finished "
-        f"sample_count={len(prediction_rows)} "
+        f"completed_sample_count={len(prediction_rows)} "
+        f"failed_sample_count={status_counts.get('failed', 0)} "
         f"prediction_labels_path={plan.prediction_labels_path} "
         f"trace_path={plan.trace_path}"
     )
+    _write_group1_vlm_process_index(
+        plan=plan,
+        pairs=pairs,
+        query_dir=query_dir,
+        scene_dir=scene_dir,
+        source_batch=request.pair_root.name,
+        model=request.model,
+        ollama_url=request.ollama_url,
+        timeout_seconds=request.timeout_seconds,
+    )
+
+    if failed_sample_ids:
+        failed_display = ", ".join(sorted(set(failed_sample_ids)))
+        raise RuntimeError(f"group1 VLM 预标注存在失败样本：{failed_display}")
 
     return PrelabelResult(
         task="group1",
@@ -584,40 +589,21 @@ def run_group1_vlm_prelabel(request: Group1VlmPrelabelRequest) -> PrelabelResult
 def run_group1_query_directory_prelabel(
     request: Group1QueryDirectoryPrelabelRequest,
 ) -> Group1QueryDirectoryPrelabelResult:
-    _ensure_training_dependencies()
     if not request.input_dir.exists():
         raise RuntimeError(f"未找到 query 图片目录：{request.input_dir}")
     if not request.input_dir.is_dir():
         raise RuntimeError(f"query 输入路径不是目录：{request.input_dir}")
-    if not request.query_model_path.exists():
-        raise RuntimeError(f"未找到 group1 query parser 权重：{request.query_model_path}")
 
     image_paths = _list_annotation_images(request.input_dir, limit=request.limit)
     if not image_paths:
         raise RuntimeError(f"query 图片目录为空：{request.input_dir}")
     _ensure_query_annotation_targets(image_paths=image_paths, overwrite=request.overwrite)
-
-    try:
-        from ultralytics import YOLO
-    except Exception as exc:  # pragma: no cover - host environment dependent
-        raise RuntimeError(
-            "当前环境缺少 `ultralytics`，无法执行 group1 query 目录预标注。"
-        ) from exc
-
-    model = YOLO(str(request.query_model_path))
     plan = build_group1_query_directory_prelabel_plan(request)
     plan.output_dir.mkdir(parents=True, exist_ok=True)
 
     prediction_rows: list[dict[str, object]] = []
     for image_path in image_paths:
-        prediction = model.predict(
-            source=str(image_path),
-            imgsz=request.imgsz,
-            conf=request.conf,
-            device=request.device,
-            verbose=False,
-        )[0]
-        detections = _serialize_query_detections(prediction)
+        detections = split_group1_query_image(image_path)
         width, height = get_image_size(image_path)
         _write_labelme_annotation(
             request.input_dir / f"{image_path.stem}.json",
@@ -649,7 +635,7 @@ def run_group1_query_directory_prelabel(
             {
                 "task": "group1_query_prelabel",
                 "input_dir": str(request.input_dir),
-                "query_model_path": str(request.query_model_path),
+                "query_splitter_strategy": "rule_based_v1",
                 "sample_count": len(prediction_rows),
                 "prediction_labels_path": str(prediction_labels_path),
             },
@@ -665,7 +651,7 @@ def run_group1_query_directory_prelabel(
         prediction_labels_path=prediction_labels_path,
         sample_count=len(prediction_rows),
         annotation_count=len(prediction_rows),
-        model_path=request.query_model_path,
+        splitter_strategy="rule_based_v1",
     )
 
 
@@ -746,6 +732,26 @@ class Group1VlmPair:
     sample_id: str
     query_image: Path
     scene_image: Path
+
+
+@dataclass(frozen=True)
+class Group1VlmSampleProcessPaths:
+    sample_root: Path
+    status_path: Path
+    request_path: Path
+    response_path: Path
+    normalized_path: Path
+    error_path: Path
+
+
+@dataclass(frozen=True)
+class Group1VlmPreparedSampleRequest:
+    prompt: str
+    query_width: int
+    query_height: int
+    scene_width: int
+    scene_height: int
+    request_payload: dict[str, object]
 
 
 def _resolve_group1_scene_dir(pair_root: Path) -> Path:
@@ -840,11 +846,348 @@ def _resolve_sample_asset(exam_root: Path, sample: dict[str, object], key: str) 
     return resolved
 
 
-def _copy_review_asset(source: Path, review_dir: Path) -> Path:
+def _copy_review_asset(source: Path, review_dir: Path, *, overwrite: bool = True) -> Path:
     review_dir.mkdir(parents=True, exist_ok=True)
     destination = review_dir / source.name
-    shutil.copy2(source, destination)
+    if overwrite or not destination.exists():
+        shutil.copy2(source, destination)
     return destination
+
+
+def _group1_vlm_sample_process_paths(process_dir: Path, sample_id: str) -> Group1VlmSampleProcessPaths:
+    sample_root = process_dir / "samples" / sample_id
+    return Group1VlmSampleProcessPaths(
+        sample_root=sample_root,
+        status_path=sample_root / "status.json",
+        request_path=sample_root / "request.json",
+        response_path=sample_root / "response.json",
+        normalized_path=sample_root / "normalized.json",
+        error_path=sample_root / "error.json",
+    )
+
+
+def _group1_vlm_status_counts_template() -> dict[str, int]:
+    return {
+        "pending": 0,
+        "running": 0,
+        "completed": 0,
+        "failed": 0,
+        "partial": 0,
+    }
+
+
+def _group1_vlm_now() -> str:
+    return datetime.now(timezone.utc).isoformat()
+
+
+def _read_json_if_exists(path: Path) -> Any:
+    if not path.exists():
+        return None
+    return json.loads(path.read_text(encoding="utf-8"))
+
+
+def _write_json_document(path: Path, payload: dict[str, object]) -> None:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(json.dumps(payload, ensure_ascii=False, indent=2), encoding="utf-8")
+
+
+def _normalize_group1_vlm_status(
+    *,
+    sample_id: str,
+    process_paths: Group1VlmSampleProcessPaths,
+) -> str:
+    status_payload = _read_json_if_exists(process_paths.status_path)
+    status = ""
+    if isinstance(status_payload, dict):
+        raw_status = status_payload.get("status")
+        if isinstance(raw_status, str):
+            status = raw_status.strip().lower()
+    if status == "completed" and process_paths.normalized_path.exists():
+        return "completed"
+    if status == "completed":
+        return "partial"
+    if status in {"running", "failed", "partial", "pending"}:
+        return status
+    if any(
+        artifact.exists()
+        for artifact in (
+            process_paths.request_path,
+            process_paths.response_path,
+            process_paths.normalized_path,
+            process_paths.error_path,
+        )
+    ):
+        return "partial"
+    _ = sample_id
+    return "pending"
+
+
+def _can_reuse_group1_vlm_sample(process_paths: Group1VlmSampleProcessPaths) -> bool:
+    return (
+        _normalize_group1_vlm_status(
+            sample_id=process_paths.sample_root.name,
+            process_paths=process_paths,
+        )
+        == "completed"
+    )
+
+
+def _reset_group1_vlm_sample_process(process_paths: Group1VlmSampleProcessPaths) -> None:
+    process_paths.sample_root.mkdir(parents=True, exist_ok=True)
+    for artifact in (
+        process_paths.request_path,
+        process_paths.response_path,
+        process_paths.normalized_path,
+        process_paths.error_path,
+    ):
+        if artifact.exists():
+            artifact.unlink()
+
+
+def _write_group1_vlm_status(
+    *,
+    process_paths: Group1VlmSampleProcessPaths,
+    sample_id: str,
+    status: str,
+    attempt_count: int,
+    query_image: Path,
+    scene_image: Path,
+    model: str,
+    ollama_url: str,
+    timeout_seconds: int,
+    error_message: str | None = None,
+) -> None:
+    payload: dict[str, object] = {
+        "sample_id": sample_id,
+        "status": status,
+        "attempt_count": attempt_count,
+        "updated_at": _group1_vlm_now(),
+        "query_image": str(query_image),
+        "scene_image": str(scene_image),
+        "model": model,
+        "ollama_url": ollama_url,
+        "timeout_seconds": timeout_seconds,
+        "artifacts": {
+            "request": str(process_paths.request_path),
+            "response": str(process_paths.response_path),
+            "normalized": str(process_paths.normalized_path),
+            "error": str(process_paths.error_path),
+        },
+    }
+    if error_message:
+        payload["error_message"] = error_message
+    _write_json_document(process_paths.status_path, payload)
+
+
+def _write_group1_vlm_process_index(
+    *,
+    plan: Group1VlmPrelabelPlan,
+    pairs: list[Group1VlmPair],
+    query_dir: Path,
+    scene_dir: Path,
+    source_batch: str,
+    model: str,
+    ollama_url: str,
+    timeout_seconds: int,
+) -> None:
+    status_counts = _group1_vlm_status_counts_template()
+    samples: list[dict[str, object]] = []
+    for pair in pairs:
+        process_paths = _group1_vlm_sample_process_paths(plan.process_dir, pair.sample_id)
+        status = _normalize_group1_vlm_status(sample_id=pair.sample_id, process_paths=process_paths)
+        status_counts[status] += 1
+        samples.append(
+            {
+                "sample_id": pair.sample_id,
+                "status": status,
+                "query_image": str(pair.query_image),
+                "scene_image": str(pair.scene_image),
+                "sample_root": str(process_paths.sample_root),
+                "status_path": str(process_paths.status_path),
+                "request_path": str(process_paths.request_path),
+                "response_path": str(process_paths.response_path),
+                "normalized_path": str(process_paths.normalized_path),
+                "error_path": str(process_paths.error_path),
+            }
+        )
+    _write_json_document(
+        plan.process_index_path,
+        {
+            "task": "group1_vlm_prelabel",
+            "updated_at": _group1_vlm_now(),
+            "pair_root": str(plan.pair_root),
+            "query_dir": str(query_dir),
+            "scene_dir": str(scene_dir),
+            "project_dir": str(plan.project_dir),
+            "review_dir": str(plan.review_dir),
+            "process_dir": str(plan.process_dir),
+            "source_batch": source_batch,
+            "sample_count": len(pairs),
+            "status_counts": status_counts,
+            "model": model,
+            "ollama_url": ollama_url,
+            "timeout_seconds": timeout_seconds,
+            "samples": samples,
+        },
+    )
+
+
+def _ensure_group1_vlm_review_targets(
+    *,
+    pair: Group1VlmPair,
+    review_dir: Path,
+    overwrite: bool,
+) -> None:
+    if overwrite:
+        return
+    for annotation_path in (
+        review_dir / "query" / f"{pair.sample_id}.json",
+        review_dir / "scene" / f"{pair.sample_id}.json",
+    ):
+        if annotation_path.exists():
+            raise RuntimeError(
+                "发现已存在的 reviewed 标注文件，已停止以避免覆盖人工复核结果："
+                f"{annotation_path}\n如确需重跑，请显式传入 --overwrite。"
+            )
+
+
+def _build_group1_vlm_source_row(*, pair: Group1VlmPair, source_batch: str) -> dict[str, object]:
+    return {
+        "sample_id": pair.sample_id,
+        "query_image": str(pair.query_image),
+        "scene_image": str(pair.scene_image),
+        "query_items": [],
+        "scene_targets": [],
+        "distractors": [],
+        "label_source": "seed",
+        "source_batch": source_batch,
+    }
+
+
+def _load_group1_vlm_prediction_from_process(
+    *,
+    pair: Group1VlmPair,
+    process_paths: Group1VlmSampleProcessPaths,
+) -> dict[str, object]:
+    payload = _read_json_if_exists(process_paths.normalized_path)
+    if not isinstance(payload, dict):
+        raise RuntimeError(
+            "group1 VLM 过程工件缺少有效 normalized.json："
+            f"sample_id={pair.sample_id} path={process_paths.normalized_path}"
+        )
+    prediction = payload.get("prediction")
+    if not isinstance(prediction, dict):
+        raise RuntimeError(
+            "group1 VLM 过程工件 normalized.json 缺少 prediction："
+            f"sample_id={pair.sample_id} path={process_paths.normalized_path}"
+        )
+    return prediction
+
+
+def _build_group1_vlm_trace_from_process(
+    *,
+    pair: Group1VlmPair,
+    process_paths: Group1VlmSampleProcessPaths,
+) -> dict[str, object]:
+    request_payload = _read_json_if_exists(process_paths.request_path)
+    response_payload = _read_json_if_exists(process_paths.response_path)
+    trace_row: dict[str, object] = {
+        "sample_id": pair.sample_id,
+        "query_image": str(pair.query_image),
+        "scene_image": str(pair.scene_image),
+    }
+    if isinstance(request_payload, dict):
+        if isinstance(request_payload.get("model"), str):
+            trace_row["model"] = request_payload["model"]
+        if isinstance(request_payload.get("ollama_url"), str):
+            trace_row["ollama_url"] = request_payload["ollama_url"]
+        if isinstance(request_payload.get("prompt"), str):
+            trace_row["prompt"] = request_payload["prompt"]
+    if isinstance(response_payload, dict):
+        if isinstance(response_payload.get("raw_output"), str):
+            trace_row["raw_output"] = response_payload["raw_output"]
+        if "response_payload" in response_payload:
+            trace_row["response_payload"] = response_payload["response_payload"]
+    return trace_row
+
+
+def _write_group1_vlm_reviewed_sample(
+    *,
+    pair: Group1VlmPair,
+    prediction_row: dict[str, object],
+    review_dir: Path,
+    overwrite: bool,
+) -> None:
+    review_query_dir = review_dir / "query"
+    review_scene_dir = review_dir / "scene"
+    review_query_image = _copy_review_asset(pair.query_image, review_query_dir, overwrite=overwrite)
+    review_scene_image = _copy_review_asset(pair.scene_image, review_scene_dir, overwrite=overwrite)
+    query_width, query_height = get_image_size(review_query_image)
+    scene_width, scene_height = get_image_size(review_scene_image)
+    _write_labelme_annotation(
+        review_query_dir / f"{pair.sample_id}.json",
+        image_path=review_query_image.name,
+        image_width=query_width,
+        image_height=query_height,
+        shapes=[
+            _build_rectangle_shape(
+                label="query_item",
+                bbox=_coerce_bbox(target["bbox"]),
+                flags=_group1_shape_flags(target),
+            )
+            for target in _group1_query_items(prediction_row)
+        ],
+        overwrite=overwrite,
+    )
+    _write_labelme_annotation(
+        review_scene_dir / f"{pair.sample_id}.json",
+        image_path=review_scene_image.name,
+        image_width=scene_width,
+        image_height=scene_height,
+        shapes=[
+            _build_rectangle_shape(
+                label=f"{int(target['order']):02d}",
+                bbox=_coerce_bbox(target["bbox"]),
+                flags=_group1_shape_flags(target),
+            )
+            for target in prediction_row.get("scene_targets", [])
+            if isinstance(target, dict)
+        ],
+        overwrite=overwrite,
+    )
+
+
+def _rebuild_group1_vlm_outputs(
+    *,
+    plan: Group1VlmPrelabelPlan,
+    pairs: list[Group1VlmPair],
+    source_batch: str,
+    processed_sample_ids: set[str],
+    overwrite: bool,
+) -> tuple[list[dict[str, object]], list[dict[str, object]], list[dict[str, object]], dict[str, int]]:
+    source_rows: list[dict[str, object]] = []
+    prediction_rows: list[dict[str, object]] = []
+    trace_rows: list[dict[str, object]] = []
+    status_counts = _group1_vlm_status_counts_template()
+
+    for pair in pairs:
+        source_rows.append(_build_group1_vlm_source_row(pair=pair, source_batch=source_batch))
+        process_paths = _group1_vlm_sample_process_paths(plan.process_dir, pair.sample_id)
+        status = _normalize_group1_vlm_status(sample_id=pair.sample_id, process_paths=process_paths)
+        status_counts[status] += 1
+        if status != "completed":
+            continue
+        prediction_row = _load_group1_vlm_prediction_from_process(pair=pair, process_paths=process_paths)
+        prediction_rows.append(prediction_row)
+        trace_rows.append(_build_group1_vlm_trace_from_process(pair=pair, process_paths=process_paths))
+        _write_group1_vlm_reviewed_sample(
+            pair=pair,
+            prediction_row=prediction_row,
+            review_dir=plan.review_dir,
+            overwrite=overwrite or pair.sample_id in processed_sample_ids,
+        )
+
+    return source_rows, prediction_rows, trace_rows, status_counts
 
 
 def _ensure_annotation_targets(*, sample_ids: list[str], annotation_dirs: list[Path], overwrite: bool) -> None:
@@ -879,7 +1222,10 @@ def _write_labelme_annotation(
     image_width: int,
     image_height: int,
     shapes: list[dict[str, object]],
+    overwrite: bool = True,
 ) -> None:
+    if not overwrite and path.exists():
+        return
     path.parent.mkdir(parents=True, exist_ok=True)
     payload = {
         "version": "5.5.0",
@@ -918,24 +1264,15 @@ def _bbox_center(bbox: list[int]) -> list[int]:
     return [int(round((bbox[0] + bbox[2]) / 2)), int(round((bbox[1] + bbox[3]) / 2))]
 
 
-def _run_group1_vlm_prelabel_sample(
+def _prepare_group1_vlm_prelabel_request(
     *,
-    sample_index: int,
-    sample_total: int,
     sample_id: str,
     query_image: Path,
     scene_image: Path,
     model: str,
-    ollama_url: str,
-    timeout_seconds: int,
-    source_batch: str,
-) -> tuple[dict[str, object], dict[str, object]]:
+) -> Group1VlmPreparedSampleRequest:
     query_width, query_height = get_image_size(query_image)
     scene_width, scene_height = get_image_size(scene_image)
-    _emit_group1_vlm_log(
-        f"[{sample_index}/{sample_total}] sample_id={sample_id} build prompt "
-        f"query_image={query_image} scene_image={scene_image}"
-    )
     prompt = _build_group1_vlm_prelabel_prompt(
         sample_id=sample_id,
         query_width=query_width,
@@ -943,17 +1280,13 @@ def _run_group1_vlm_prelabel_sample(
         scene_width=scene_width,
         scene_height=scene_height,
     )
-    _emit_group1_vlm_block(
-        title=f"[{sample_index}/{sample_total}] sample_id={sample_id} prompt",
-        content=prompt,
-    )
-    _emit_group1_vlm_log(
-        f"[{sample_index}/{sample_total}] sample_id={sample_id} sending request "
-        f"model={model} url={ollama_url.rstrip('/')}/api/chat"
-    )
-    raw_response = _post_json(
-        f"{ollama_url.rstrip('/')}/api/chat",
-        {
+    return Group1VlmPreparedSampleRequest(
+        prompt=prompt,
+        query_width=query_width,
+        query_height=query_height,
+        scene_width=scene_width,
+        scene_height=scene_height,
+        request_payload={
             "model": model,
             "stream": False,
             "messages": [
@@ -967,30 +1300,170 @@ def _run_group1_vlm_prelabel_sample(
                 }
             ],
         },
+    )
+
+
+def _run_group1_vlm_prelabel_sample(
+    *,
+    sample_index: int,
+    sample_total: int,
+    sample_id: str,
+    query_image: Path,
+    scene_image: Path,
+    model: str,
+    ollama_url: str,
+    timeout_seconds: int,
+    source_batch: str,
+    process_paths: Group1VlmSampleProcessPaths,
+) -> None:
+    previous_status = _read_json_if_exists(process_paths.status_path)
+    attempt_count = 1
+    if isinstance(previous_status, dict):
+        previous_attempt_count = previous_status.get("attempt_count")
+        if isinstance(previous_attempt_count, int) and previous_attempt_count > 0:
+            attempt_count = previous_attempt_count + 1
+    _reset_group1_vlm_sample_process(process_paths)
+
+    _emit_group1_vlm_log(
+        f"[{sample_index}/{sample_total}] sample_id={sample_id} build prompt "
+        f"query_image={query_image} scene_image={scene_image}"
+    )
+    prepared_request = _prepare_group1_vlm_prelabel_request(
+        sample_id=sample_id,
+        query_image=query_image,
+        scene_image=scene_image,
+        model=model,
+    )
+    request_record = {
+        "sample_id": sample_id,
+        "attempt_count": attempt_count,
+        "created_at": _group1_vlm_now(),
+        "query_image": str(query_image),
+        "scene_image": str(scene_image),
+        "query_size": {
+            "width": prepared_request.query_width,
+            "height": prepared_request.query_height,
+        },
+        "scene_size": {
+            "width": prepared_request.scene_width,
+            "height": prepared_request.scene_height,
+        },
+        "model": model,
+        "ollama_url": ollama_url,
+        "timeout_seconds": timeout_seconds,
+        "source_batch": source_batch,
+        "prompt": prepared_request.prompt,
+        "request_payload": prepared_request.request_payload,
+    }
+    _write_group1_vlm_status(
+        process_paths=process_paths,
+        sample_id=sample_id,
+        status="running",
+        attempt_count=attempt_count,
+        query_image=query_image,
+        scene_image=scene_image,
+        model=model,
+        ollama_url=ollama_url,
         timeout_seconds=timeout_seconds,
     )
+    _write_json_document(process_paths.request_path, request_record)
+    _emit_group1_vlm_block(
+        title=f"[{sample_index}/{sample_total}] sample_id={sample_id} prompt",
+        content=prepared_request.prompt,
+    )
+    _emit_group1_vlm_log(
+        f"[{sample_index}/{sample_total}] sample_id={sample_id} sending request "
+        f"model={model} url={ollama_url.rstrip('/')}/api/chat"
+    )
+    try:
+        raw_response = _post_json(
+            f"{ollama_url.rstrip('/')}/api/chat",
+            prepared_request.request_payload,
+            timeout_seconds=timeout_seconds,
+        )
+    except Exception as exc:
+        _write_json_document(
+            process_paths.error_path,
+            {
+                "sample_id": sample_id,
+                "attempt_count": attempt_count,
+                "stage": "request",
+                "error_type": exc.__class__.__name__,
+                "message": str(exc),
+                "updated_at": _group1_vlm_now(),
+            },
+        )
+        _write_group1_vlm_status(
+            process_paths=process_paths,
+            sample_id=sample_id,
+            status="failed",
+            attempt_count=attempt_count,
+            query_image=query_image,
+            scene_image=scene_image,
+            model=model,
+            ollama_url=ollama_url,
+            timeout_seconds=timeout_seconds,
+            error_message=str(exc),
+        )
+        raise
     _emit_group1_vlm_block(
         title=f"[{sample_index}/{sample_total}] sample_id={sample_id} raw response payload",
         content=json.dumps(raw_response, ensure_ascii=False, indent=2, default=str),
     )
     raw_output = _extract_ollama_message_content(raw_response)
+    _write_json_document(
+        process_paths.response_path,
+        {
+            "sample_id": sample_id,
+            "attempt_count": attempt_count,
+            "received_at": _group1_vlm_now(),
+            "response_payload": raw_response,
+            "raw_output": raw_output,
+        },
+    )
     _emit_group1_vlm_block(
         title=f"[{sample_index}/{sample_total}] sample_id={sample_id} model content",
         content=raw_output,
     )
-    payload = extract_json_object(raw_output, required_keys={"query_items", "scene_targets"})
-    query_items = _normalize_vlm_query_items(
-        payload.get("query_items"),
-        image_width=query_width,
-        image_height=query_height,
-    )
-    scene_targets = _normalize_vlm_scene_targets(
-        payload.get("scene_targets"),
-        image_width=scene_width,
-        image_height=scene_height,
-    )
-    if not query_items:
-        raise RuntimeError(f"group1 VLM 预标注未返回有效 query_items：sample_id={sample_id}")
+    try:
+        payload = extract_json_object(raw_output, required_keys={"query_items", "scene_targets"})
+        query_items = _normalize_vlm_query_items(
+            payload.get("query_items"),
+            image_width=prepared_request.query_width,
+            image_height=prepared_request.query_height,
+        )
+        scene_targets = _normalize_vlm_scene_targets(
+            payload.get("scene_targets"),
+            image_width=prepared_request.scene_width,
+            image_height=prepared_request.scene_height,
+        )
+        if not query_items:
+            raise RuntimeError(f"group1 VLM 预标注未返回有效 query_items：sample_id={sample_id}")
+    except Exception as exc:
+        _write_json_document(
+            process_paths.error_path,
+            {
+                "sample_id": sample_id,
+                "attempt_count": attempt_count,
+                "stage": "normalize",
+                "error_type": exc.__class__.__name__,
+                "message": str(exc),
+                "updated_at": _group1_vlm_now(),
+            },
+        )
+        _write_group1_vlm_status(
+            process_paths=process_paths,
+            sample_id=sample_id,
+            status="partial",
+            attempt_count=attempt_count,
+            query_image=query_image,
+            scene_image=scene_image,
+            model=model,
+            ollama_url=ollama_url,
+            timeout_seconds=timeout_seconds,
+            error_message=str(exc),
+        )
+        raise
     _emit_group1_vlm_log(
         f"[{sample_index}/{sample_total}] sample_id={sample_id} normalized "
         f"query_items={len(query_items)} scene_targets={len(scene_targets)}"
@@ -1005,17 +1478,28 @@ def _run_group1_vlm_prelabel_sample(
         "label_source": "vlm_pred",
         "source_batch": source_batch,
     }
-    trace_row = {
-        "sample_id": sample_id,
-        "query_image": str(query_image),
-        "scene_image": str(scene_image),
-        "model": model,
-        "ollama_url": ollama_url,
-        "prompt": prompt,
-        "raw_output": raw_output,
-        "response_payload": raw_response,
-    }
-    return prediction_row, trace_row
+    _write_json_document(
+        process_paths.normalized_path,
+        {
+            "sample_id": sample_id,
+            "attempt_count": attempt_count,
+            "updated_at": _group1_vlm_now(),
+            "prediction": prediction_row,
+        },
+    )
+    if process_paths.error_path.exists():
+        process_paths.error_path.unlink()
+    _write_group1_vlm_status(
+        process_paths=process_paths,
+        sample_id=sample_id,
+        status="completed",
+        attempt_count=attempt_count,
+        query_image=query_image,
+        scene_image=scene_image,
+        model=model,
+        ollama_url=ollama_url,
+        timeout_seconds=timeout_seconds,
+    )
 
 
 def _build_group1_vlm_prelabel_prompt(
@@ -1169,31 +1653,3 @@ def _group1_shape_flags(target: dict[str, Any]) -> dict[str, object]:
     if not isinstance(class_guess, str) or not class_guess.strip():
         return {}
     return {"class_guess": class_guess.strip()}
-
-
-def _serialize_query_detections(result: Any) -> list[dict[str, Any]]:
-    boxes = result.boxes
-    if boxes is None:
-        return []
-    names = result.names if isinstance(result.names, dict) else {}
-    detections: list[dict[str, Any]] = []
-    xyxy = boxes.xyxy.tolist()
-    cls_ids = boxes.cls.tolist()
-    confidences = boxes.conf.tolist()
-    for bbox, class_id, score in zip(xyxy, cls_ids, confidences, strict=False):
-        x1, y1, x2, y2 = [int(round(value)) for value in bbox]
-        center_x = int(round((x1 + x2) / 2))
-        center_y = int(round((y1 + y2) / 2))
-        detection = {
-            "bbox": [x1, y1, x2, y2],
-            "center": [center_x, center_y],
-            "score": float(score),
-        }
-        raw_name = names.get(int(class_id))
-        if isinstance(raw_name, str) and raw_name.strip():
-            detection["class_guess"] = raw_name.strip()
-        detections.append(detection)
-    detections.sort(key=lambda item: (int(item["center"][0]), int(item["center"][1])))
-    for order, detection in enumerate(detections, start=1):
-        detection["order"] = order
-    return detections

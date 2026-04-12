@@ -88,7 +88,6 @@ class ModelTestRequest:
     train_name: str
     dataset_config: Path
     model_path: Path
-    query_model_path: Path | None
     source: Path
     project_dir: Path
     report_dir: Path
@@ -106,7 +105,6 @@ class ModelTestResult:
     dataset_version: str
     train_name: str
     model_path: Path
-    query_model_path: Path | None
     dataset_config: Path
     source: Path
     project_dir: Path
@@ -127,7 +125,6 @@ class ModelTestResult:
         payload = asdict(self)
         for key in (
             "model_path",
-            "query_model_path",
             "embedder_model_path",
             "dataset_config",
             "source",
@@ -156,7 +153,6 @@ class ModelTestResult:
                 f"- 数据版本：{self.dataset_version}",
                 f"- 训练版本：{self.train_name}",
                 f"- 主权重文件：{self.model_path}",
-                *([f"- Query Parser 权重：{self.query_model_path}"] if self.query_model_path is not None else []),
                 *([f"- Icon Embedder 权重：{self.embedder_model_path}"] if self.embedder_model_path is not None else []),
                 f"- 本次预测样本数：{self.source_image_count}",
                 f"- 预测输出目录：{self.predict_output_dir}",
@@ -205,7 +201,6 @@ def build_model_test_jobs(
             source=request.source,
             project_dir=request.project_dir,
             run_name=request.predict_name,
-            query_model_path=request.query_model_path,
             conf=request.conf,
             imgsz=request.imgsz,
             device=request.device,
@@ -291,7 +286,6 @@ def run_model_test(request: ModelTestRequest) -> ModelTestResult:
         dataset_version=request.dataset_version,
         train_name=request.train_name,
         model_path=request.model_path,
-        query_model_path=None,
         embedder_model_path=None,
         dataset_config=request.dataset_config,
         source=request.source,
@@ -316,8 +310,6 @@ def _run_group1_model_test(request: ModelTestRequest) -> ModelTestResult:
     _ensure_training_dependencies("group1")
     if not request.model_path.exists():
         raise RuntimeError(f"未找到 group1 proposal detector 权重：{request.model_path}")
-    if request.query_model_path is not None and not request.query_model_path.exists():
-        raise RuntimeError(f"未找到 group1 query parser 权重：{request.query_model_path}")
     dataset_config = load_group1_dataset_config(request.dataset_config)
     if (
         dataset_config.is_instance_matching
@@ -336,7 +328,6 @@ def _run_group1_model_test(request: ModelTestRequest) -> ModelTestResult:
         source=request.source,
         project_dir=request.project_dir,
         run_name=request.predict_name,
-        query_model_path=request.query_model_path,
         conf=request.conf,
         imgsz=request.imgsz,
         device=request.device,
@@ -367,7 +358,6 @@ def _run_group1_model_test(request: ModelTestRequest) -> ModelTestResult:
         dataset_version=request.dataset_version,
         train_name=request.train_name,
         model_path=request.model_path,
-        query_model_path=request.query_model_path,
         embedder_model_path=request.embedder_model_path,
         dataset_config=request.dataset_config,
         source=request.source,
@@ -436,7 +426,6 @@ def _run_group2_model_test(request: ModelTestRequest) -> ModelTestResult:
         dataset_version=request.dataset_version,
         train_name=request.train_name,
         model_path=request.model_path,
-        query_model_path=None,
         embedder_model_path=None,
         dataset_config=request.dataset_config,
         source=request.source,
@@ -688,7 +677,6 @@ def _render_markdown(result: ModelTestResult) -> str:
         "## 本次测试做了什么",
         "",
         f"- 已加载主权重：`{result.model_path}`",
-        *([f"- 已加载 Query Parser 权重：`{result.query_model_path}`"] if result.query_model_path is not None else []),
         *([f"- 已加载 Icon Embedder 权重：`{result.embedder_model_path}`"] if result.embedder_model_path is not None else []),
         f"- 已在验证集来源上执行预测：`{result.source}`",
         f"- 已执行验证/评估：`{result.dataset_config}`",

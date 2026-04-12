@@ -1,5 +1,58 @@
 # 变更摘要
 
+## 2026-04-12 实现 `TASK-G1-REF-013`：`group1 prelabel-vlm` 支持逐样本恢复与过程工件重建
+
+- 已更新：
+  - `packages/sinan-captcha/src/train/prelabel.py`
+  - `tests/python/test_train_prelabel_service.py`
+  - `.factory/memory/current-state.md`
+  - `.factory/memory/change-summary.md`
+  - `.factory/memory/tasks.summary.md`
+- 当前已完成的目标：
+  - `group1 prelabel-vlm` 新增 `process/index.json` 与 `process/samples/<sample_id>/status|request|response|normalized|error.json`
+  - 重跑同一 `--project` 时，已完成样本会直接复用过程工件，不再重复请求大模型
+  - 请求失败样本会保留已完成样本结果，并在 `error.json` 与 `status.json` 中记录失败状态
+  - 最终 `reviewed/query|scene/*.json`、`labels.jsonl`、`trace.jsonl`、`summary.json` 会在每次运行结束后按过程工件重建
+  - 补齐恢复语义回归测试与失败样本只重跑测试
+- 已运行验证：
+  - `uv run pytest tests/python/test_train_prelabel_service.py -q`
+  - `uv run pytest tests/python/test_training_jobs.py -q -k group1_vlm_prelabel_cli_dry_run_uses_pair_root_and_local_model`
+  - `uv run python -m py_compile packages/sinan-captcha/src/train/prelabel.py tests/python/test_train_prelabel_service.py`
+  - `git diff --check`
+
+## 2026-04-12 为 `group1 prelabel-vlm` 新增 `CR-001` 与 `REQ-017`，冻结逐样本恢复和过程目录合同
+
+- 已更新：
+  - `.factory/workitems/changes/CR-001-group1-vlm-prelabel-resume-and-process-artifacts.md`
+  - `docs/04-project-development/03-requirements/prd.md`
+  - `docs/04-project-development/03-requirements/requirements-analysis.md`
+  - `docs/04-project-development/03-requirements/requirements-verification.md`
+  - `docs/04-project-development/04-design/group1-instance-matching-refactor.md`
+  - `docs/04-project-development/05-development-process/group1-instance-matching-refactor-task-breakdown.md`
+  - `docs/04-project-development/10-traceability/requirements-matrix.md`
+  - `.factory/memory/prd.summary.md`
+  - `.factory/memory/current-state.md`
+  - `.factory/memory/change-summary.md`
+  - `.factory/memory/traceability.summary.md`
+  - `.factory/memory/requirements-verification.summary.md`
+  - `.factory/memory/tasks.summary.md`
+- 当前已完成的目标：
+  - 为 `group1 prelabel-vlm` 新增正式变更单 `CR-001`
+  - 正式新增 `REQ-017`，要求 `prelabel-vlm` 支持：
+    - 逐样本过程目录
+    - 同目录断点续传
+    - 已完成样本跳过
+    - 按 `sample_id` 检查原始请求/响应/归一化结果
+  - 在 `group1` 设计中冻结 `process/index.json + process/samples/<sample_id>/...` 目录合同
+  - 在任务拆解中新增 `TASK-G1-REF-013` 承接实现
+  - 追踪矩阵和 `.factory` 记忆层已同步新增需求与任务关系
+- 当前未完成：
+  - Python 代码实现
+  - 恢复回归测试与聚合重建测试
+  - 公开 CLI 文档切换为“已支持”表述
+- 已运行验证：
+  - 未运行代码测试；本轮仅同步需求、设计、任务与记忆层文档
+
 ## 2026-04-12 `group1` 主链路完成 `query-parser` 收口，默认切到规则式 `query splitter`
 
 - 已更新：

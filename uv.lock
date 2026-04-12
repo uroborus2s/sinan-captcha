@@ -1707,7 +1707,7 @@ wheels = [
 
 [[package]]
 name = "sinan-captcha"
-version = "0.1.48"
+version = "0.1.52"
 source = { editable = "packages/sinan-captcha" }
 
 [package.optional-dependencies]

@@ -19,7 +19,6 @@ from train.group1.service import (
     ALL_COMPONENTS,
     EMBEDDER_COMPONENT,
     PROPOSAL_COMPONENT,
-    QUERY_COMPONENT,
     normalize_group1_component,
 )
 
@@ -32,9 +31,8 @@ def build_parser() -> argparse.ArgumentParser:
     train_parser.add_argument("--dataset-config", type=Path, required=True)
     train_parser.add_argument("--project", type=Path, required=True)
     train_parser.add_argument("--name", required=True)
-    train_parser.add_argument("--component", default=ALL_COMPONENTS, help="all | proposal-detector | query-parser | icon-embedder")
+    train_parser.add_argument("--component", default=ALL_COMPONENTS, help="all | proposal-detector | icon-embedder")
     train_parser.add_argument("--proposal-model", dest="proposal_model", default=None)
-    train_parser.add_argument("--query-model", default=None)
     train_parser.add_argument("--embedder-model", default=None)
     train_parser.add_argument("--epochs", type=int, default=120)
     train_parser.add_argument("--batch", type=int, default=16)
@@ -45,7 +43,6 @@ def build_parser() -> argparse.ArgumentParser:
     predict_parser = subparsers.add_parser("predict", help="run group1 pipeline prediction")
     predict_parser.add_argument("--dataset-config", type=Path, required=True)
     predict_parser.add_argument("--proposal-model", dest="proposal_model", type=Path, required=True)
-    predict_parser.add_argument("--query-model", type=Path, required=False)
     predict_parser.add_argument("--embedder-model", type=Path, required=True)
     predict_parser.add_argument("--source", type=Path, required=True)
     predict_parser.add_argument("--project", type=Path, required=True)
@@ -107,41 +104,6 @@ def _run_train(args: argparse.Namespace) -> None:
             },
             "command": " ".join(commands[PROPOSAL_COMPONENT]),
         }
-
-    if component in {ALL_COMPONENTS, QUERY_COMPONENT}:
-        if dataset_config.query_component is None:
-            if component == QUERY_COMPONENT:
-                raise RuntimeError(
-                    "当前 group1 dataset.json 未提供 query_parser 数据集。"
-                    "请先完成 query splitter / embedder 主线，再显式训练该组件。"
-                )
-        else:
-            query_model = _resolve_component_model(
-                component=QUERY_COMPONENT,
-                model=args.query_model,
-                resume=args.resume,
-            )
-            query_yaml = prepare_dataset_yaml_for_ultralytics(dataset_config.query_component.dataset_yaml)
-            commands[QUERY_COMPONENT] = _build_train_command(
-                dataset_yaml=query_yaml,
-                project_dir=run_dir,
-                run_name=QUERY_COMPONENT,
-                model=query_model,
-                epochs=args.epochs,
-                batch=args.batch,
-                imgsz=args.imgsz,
-                device=args.device,
-                resume=args.resume,
-            )
-            component_summaries[QUERY_COMPONENT] = {
-                "role": "query_parser",
-                "dataset_yaml": str(query_yaml),
-                "weights": {
-                    "best": str(run_dir / QUERY_COMPONENT / "weights" / "best.pt"),
-                    "last": str(run_dir / QUERY_COMPONENT / "weights" / "last.pt"),
-                },
-                "command": " ".join(commands[QUERY_COMPONENT]),
-            }
 
     should_train_embedder = component in {ALL_COMPONENTS, EMBEDDER_COMPONENT}
     if should_train_embedder:
@@ -208,7 +170,6 @@ def _run_predict(args: argparse.Namespace) -> None:
         raise RuntimeError("group1 预测必须显式传入 --embedder-model。")
 
     proposal_model = YOLO(str(args.proposal_model))
-    query_model = YOLO(str(args.query_model)) if args.query_model is not None else None
     embedding_provider = load_icon_embedder_runtime(args.embedder_model, device_name=args.device)
     output_dir = args.project / args.name
     output_dir.mkdir(parents=True, exist_ok=True)
@@ -227,17 +188,7 @@ def _run_predict(args: argparse.Namespace) -> None:
         )[0]
         elapsed_ms = (time.perf_counter() - started) * 1000.0
 
-        if query_model is None:
-            predicted_query_items = split_group1_query_image(query_path)
-        else:
-            query_result = query_model.predict(
-                source=str(query_path),
-                imgsz=args.imgsz,
-                conf=args.conf,
-                device=args.device,
-                verbose=False,
-            )[0]
-            predicted_query_items = _serialize_detections(query_result, ordered=True)
+        predicted_query_items = split_group1_query_image(query_path)
         predicted_scene_targets = _serialize_detections(proposal_result, ordered=False)
         mapping = map_group1_instances(
             predicted_query_items,
@@ -263,7 +214,6 @@ def _run_predict(args: argparse.Namespace) -> None:
                 "dataset_config": str(args.dataset_config),
                 "source": str(args.source),
                 "proposal_model": str(args.proposal_model),
-                "query_model": str(args.query_model) if args.query_model is not None else None,
                 "embedder_model": str(args.embedder_model) if args.embedder_model is not None else None,
                 "sample_count": len(predictions),
                 "labels_path": str(output_dir / "labels.jsonl"),

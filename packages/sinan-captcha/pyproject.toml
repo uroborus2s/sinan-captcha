@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "sinan-captcha"
-version = "0.1.48"
+version = "0.1.52"
 description = "Training and data engineering workspace for graphical captcha models."
 readme = "README.md"
 requires-python = ">=3.12"

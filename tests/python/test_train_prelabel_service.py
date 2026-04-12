@@ -3,8 +3,8 @@ from __future__ import annotations
 import io
 import json
 import os
+import shutil
 import struct
-import types
 import tempfile
 import unittest
 from contextlib import redirect_stderr
@@ -157,7 +157,6 @@ class TrainPrelabelServiceTests(unittest.TestCase):
                         exam_root=exam_root,
                         dataset_config=root / "datasets" / "group1" / "v1" / "dataset.json",
                         proposal_model_path=root / "runs" / "group1" / "demo" / "proposal-detector" / "weights" / "best.pt",
-                        query_model_path=root / "runs" / "group1" / "demo" / "query-parser" / "weights" / "best.pt",
                         project_dir=prediction_dir,
                     )
                 )
@@ -213,7 +212,6 @@ class TrainPrelabelServiceTests(unittest.TestCase):
                         exam_root=exam_root,
                         dataset_config=root / "datasets" / "group1" / "v1" / "dataset.json",
                         proposal_model_path=root / "runs" / "group1" / "demo" / "proposal-detector" / "weights" / "best.pt",
-                        query_model_path=root / "runs" / "group1" / "demo" / "query-parser" / "weights" / "best.pt",
                         project_dir=root / "reports" / "group1",
                     )
                 )
@@ -224,53 +222,27 @@ class TrainPrelabelServiceTests(unittest.TestCase):
             input_dir = root / "materials" / "test" / "group1" / "query"
             image_path = input_dir / "sample_0001.png"
             _write_png(image_path, 120, 36, (10, 10, 10))
-            query_model = root / "runs" / "group1" / "demo" / "query-parser" / "weights" / "best.pt"
-            query_model.parent.mkdir(parents=True, exist_ok=True)
-            query_model.write_text("fake-model", encoding="utf-8")
-
-            class _TensorLike:
-                def __init__(self, values: list[list[float]] | list[float]) -> None:
-                    self._values = values
-
-                def tolist(self):
-                    return self._values
-
-            fake_result = types.SimpleNamespace(
-                names={0: "icon_lock"},
-                boxes=types.SimpleNamespace(
-                    xyxy=_TensorLike([[5.0, 8.0, 29.0, 30.0]]),
-                    cls=_TensorLike([0.0]),
-                    conf=_TensorLike([0.98]),
-                ),
-            )
-
-            class _FakeYOLO:
-                def __init__(self, model_path: str) -> None:
-                    self.model_path = model_path
-
-                def predict(self, *, source: str, imgsz: int, conf: float, device: str, verbose: bool):
-                    self.last_call = {
-                        "source": source,
-                        "imgsz": imgsz,
-                        "conf": conf,
-                        "device": device,
-                        "verbose": verbose,
+            with patch(
+                "train.prelabel.split_group1_query_image",
+                return_value=[
+                    {
+                        "order": 1,
+                        "bbox": [5, 8, 29, 30],
+                        "center": [17, 19],
+                        "class_guess": "icon_lock",
                     }
-                    return [fake_result]
-
-            with patch("train.prelabel._ensure_training_dependencies") as ensure_deps:
-                ensure_deps.return_value = None
-                with patch.dict("sys.modules", {"ultralytics": types.SimpleNamespace(YOLO=_FakeYOLO)}):
-                    result = run_group1_query_directory_prelabel(
-                        Group1QueryDirectoryPrelabelRequest(
-                            input_dir=input_dir,
-                            query_model_path=query_model,
-                            project_dir=root / "reports" / "group1" / "query-prelabel",
-                        )
+                ],
+            ):
+                result = run_group1_query_directory_prelabel(
+                    Group1QueryDirectoryPrelabelRequest(
+                        input_dir=input_dir,
+                        project_dir=root / "reports" / "group1" / "query-prelabel",
                     )
+                )
 
             self.assertEqual(result.sample_count, 1)
             self.assertEqual(result.annotation_count, 1)
+            self.assertEqual(result.splitter_strategy, "rule_based_v1")
             annotation_path = input_dir / "sample_0001.json"
             self.assertTrue(annotation_path.exists())
             annotation = json.loads(annotation_path.read_text(encoding="utf-8"))
@@ -279,6 +251,8 @@ class TrainPrelabelServiceTests(unittest.TestCase):
             self.assertEqual(annotation["shapes"][0]["flags"]["class_guess"], "icon_lock")
             rows = read_jsonl(result.prediction_labels_path)
             self.assertEqual(rows[0]["query_items"][0]["class_guess"], "icon_lock")
+            summary = json.loads((result.output_dir / "summary.json").read_text(encoding="utf-8"))
+            self.assertEqual(summary["query_splitter_strategy"], "rule_based_v1")
 
     def test_group1_query_directory_prelabel_refuses_to_overwrite_existing_json_by_default(self) -> None:
         with tempfile.TemporaryDirectory() as tmpdir:
@@ -287,20 +261,13 @@ class TrainPrelabelServiceTests(unittest.TestCase):
             image_path = input_dir / "sample_0001.png"
             _write_png(image_path, 120, 36, (10, 10, 10))
             (input_dir / "sample_0001.json").write_text("{}", encoding="utf-8")
-            query_model = root / "runs" / "group1" / "demo" / "query-parser" / "weights" / "best.pt"
-            query_model.parent.mkdir(parents=True, exist_ok=True)
-            query_model.write_text("fake-model", encoding="utf-8")
-
-            with patch("train.prelabel._ensure_training_dependencies") as ensure_deps:
-                ensure_deps.return_value = None
-                with self.assertRaisesRegex(RuntimeError, "--overwrite"):
-                    run_group1_query_directory_prelabel(
-                        Group1QueryDirectoryPrelabelRequest(
-                            input_dir=input_dir,
-                            query_model_path=query_model,
-                            project_dir=root / "reports" / "group1" / "query-prelabel",
-                        )
+            with self.assertRaisesRegex(RuntimeError, "--overwrite"):
+                run_group1_query_directory_prelabel(
+                    Group1QueryDirectoryPrelabelRequest(
+                        input_dir=input_dir,
+                        project_dir=root / "reports" / "group1" / "query-prelabel",
                     )
+                )
 
     def test_group1_vlm_prelabel_pairs_query_and_scence_and_writes_reviewed_annotations(self) -> None:
         with tempfile.TemporaryDirectory() as tmpdir:
@@ -381,6 +348,141 @@ class TrainPrelabelServiceTests(unittest.TestCase):
             self.assertIn('"query_items"', logs)
             self.assertIn("normalized query_items=2 scene_targets=2", logs)
             self.assertEqual(result.review_dir, output_root / "reviewed")
+            process_root = output_root / "process"
+            sample_root = process_root / "samples" / "sample_0001"
+            self.assertTrue((process_root / "index.json").exists())
+            self.assertTrue((sample_root / "status.json").exists())
+            self.assertTrue((sample_root / "request.json").exists())
+            self.assertTrue((sample_root / "response.json").exists())
+            self.assertTrue((sample_root / "normalized.json").exists())
+            status_payload = json.loads((sample_root / "status.json").read_text(encoding="utf-8"))
+            self.assertEqual(status_payload["status"], "completed")
+            normalized_payload = json.loads((sample_root / "normalized.json").read_text(encoding="utf-8"))
+            self.assertEqual(normalized_payload["prediction"]["sample_id"], "sample_0001")
+            index_payload = json.loads((process_root / "index.json").read_text(encoding="utf-8"))
+            self.assertEqual(index_payload["status_counts"]["completed"], 1)
+
+    def test_group1_vlm_prelabel_reuses_completed_samples_and_rebuilds_reviewed_outputs(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            root = Path(tmpdir)
+            pair_root = root / "work_home" / "materials" / "validation" / "group1"
+            query_image = pair_root / "query" / "sample_0001.png"
+            scene_image = pair_root / "scene" / "sample_0001.png"
+            _write_png(query_image, 120, 36, (10, 10, 10))
+            _write_png(scene_image, 320, 160, (220, 220, 220))
+
+            fake_content = json.dumps(
+                {
+                    "query_items": [
+                        {"bbox": [5, 8, 29, 30], "class_guess": "icon_lock", "confidence": 0.91},
+                    ],
+                    "scene_targets": [
+                        {"order": 1, "bbox": [100, 40, 132, 72], "class_guess": "icon_lock", "confidence": 0.93},
+                    ],
+                },
+                ensure_ascii=False,
+            )
+
+            output_root = root / "reports" / "group1" / "vlm-prelabel"
+            with patch("train.prelabel._post_json", return_value={"message": {"content": fake_content}}):
+                first_result = run_group1_vlm_prelabel(
+                    Group1VlmPrelabelRequest(
+                        pair_root=pair_root,
+                        model="qwen2.5vl:7b",
+                        project_dir=output_root,
+                    )
+                )
+
+            self.assertEqual(first_result.sample_count, 1)
+            shutil.rmtree(output_root / "reviewed")
+            (output_root / "labels.jsonl").unlink()
+            (output_root / "trace.jsonl").unlink()
+            (output_root / "summary.json").unlink()
+
+            with patch("train.prelabel._post_json", side_effect=AssertionError("should not call model")):
+                resumed_result = run_group1_vlm_prelabel(
+                    Group1VlmPrelabelRequest(
+                        pair_root=pair_root,
+                        model="qwen2.5vl:7b",
+                        project_dir=output_root,
+                    )
+                )
+
+            self.assertEqual(resumed_result.sample_count, 1)
+            self.assertTrue((output_root / "reviewed" / "query" / "sample_0001.png").exists())
+            self.assertTrue((output_root / "reviewed" / "query" / "sample_0001.json").exists())
+            self.assertTrue((output_root / "reviewed" / "scene" / "sample_0001.png").exists())
+            self.assertTrue((output_root / "reviewed" / "scene" / "sample_0001.json").exists())
+            self.assertTrue((output_root / "labels.jsonl").exists())
+            self.assertTrue((output_root / "trace.jsonl").exists())
+            self.assertTrue((output_root / "summary.json").exists())
+
+    def test_group1_vlm_prelabel_retries_only_failed_samples_when_resuming(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            root = Path(tmpdir)
+            pair_root = root / "work_home" / "materials" / "validation" / "group1"
+            query_dir = pair_root / "query"
+            scene_dir = pair_root / "scene"
+            _write_png(query_dir / "sample_0001.png", 120, 36, (10, 10, 10))
+            _write_png(scene_dir / "sample_0001.png", 320, 160, (220, 220, 220))
+            _write_png(query_dir / "sample_0002.png", 120, 36, (20, 20, 20))
+            _write_png(scene_dir / "sample_0002.png", 320, 160, (200, 200, 200))
+
+            success_content = json.dumps(
+                {
+                    "query_items": [
+                        {"bbox": [5, 8, 29, 30], "class_guess": "icon_lock", "confidence": 0.91},
+                    ],
+                    "scene_targets": [
+                        {"order": 1, "bbox": [100, 40, 132, 72], "class_guess": "icon_lock", "confidence": 0.93},
+                    ],
+                },
+                ensure_ascii=False,
+            )
+            output_root = root / "reports" / "group1" / "vlm-prelabel"
+
+            call_order: list[str] = []
+
+            def _fail_once(url: str, payload: dict[str, object], *, timeout_seconds: int) -> dict[str, object]:
+                prompt = str(payload["messages"][0]["content"])
+                if "sample_0001" in prompt:
+                    call_order.append("sample_0001")
+                    return {"message": {"content": success_content}}
+                call_order.append("sample_0002")
+                raise RuntimeError("ollama transient error")
+
+            with patch("train.prelabel._post_json", side_effect=_fail_once):
+                with self.assertRaisesRegex(RuntimeError, "sample_0002"):
+                    run_group1_vlm_prelabel(
+                        Group1VlmPrelabelRequest(
+                            pair_root=pair_root,
+                            model="qwen2.5vl:7b",
+                            project_dir=output_root,
+                        )
+                    )
+
+            self.assertEqual(call_order, ["sample_0001", "sample_0002"])
+            sample1_status = json.loads((output_root / "process" / "samples" / "sample_0001" / "status.json").read_text(encoding="utf-8"))
+            sample2_status = json.loads((output_root / "process" / "samples" / "sample_0002" / "status.json").read_text(encoding="utf-8"))
+            self.assertEqual(sample1_status["status"], "completed")
+            self.assertEqual(sample2_status["status"], "failed")
+            self.assertTrue((output_root / "process" / "samples" / "sample_0002" / "error.json").exists())
+            first_rows = read_jsonl(output_root / "labels.jsonl")
+            self.assertEqual([row["sample_id"] for row in first_rows], ["sample_0001"])
+
+            with patch("train.prelabel._post_json", return_value={"message": {"content": success_content}}) as post_json:
+                result = run_group1_vlm_prelabel(
+                    Group1VlmPrelabelRequest(
+                        pair_root=pair_root,
+                        model="qwen2.5vl:7b",
+                        project_dir=output_root,
+                    )
+                )
+
+            self.assertEqual(post_json.call_count, 1)
+            self.assertEqual(result.sample_count, 2)
+            final_rows = read_jsonl(output_root / "labels.jsonl")
+            self.assertEqual([row["sample_id"] for row in final_rows], ["sample_0001", "sample_0002"])
 
     def test_group2_prelabel_copies_assets_and_writes_master_annotation(self) -> None:
         with tempfile.TemporaryDirectory() as tmpdir:

@@ -2,14 +2,14 @@
 
 - 文档状态：草稿
 - 当前阶段：DESIGN
-- 最近更新：2026-04-11
+- 最近更新：2026-04-12
 - 目标读者：架构负责人、生成器实现者、训练链路实现者、自主训练维护者
 - 负责人：Codex
 - 上游输入：
   - `docs/04-project-development/03-requirements/prd.md`
   - `docs/04-project-development/03-requirements/requirements-analysis.md`
   - `docs/04-project-development/02-discovery/brainstorm-record.md`
-- 关联需求：`REQ-003`、`REQ-005`、`REQ-006`、`REQ-008`、`REQ-014`、`NFR-001`、`NFR-010`
+- 关联需求：`REQ-003`、`REQ-005`、`REQ-006`、`REQ-008`、`REQ-014`、`REQ-017`、`NFR-001`、`NFR-010`
 
 ## 1. 设计结论
 
@@ -288,6 +288,77 @@ group1/
 - 输入为同名配对的 `query/` 与 `scene/` 或历史 `scence/`
 - 输出为 `reviewed/query|scene/*.json` 的人工复核草稿，以及 `.sinan/prelabel/group1/vlm/*.jsonl`
 - 最终仍必须经过人工审核，再导出 `reviewed/labels.jsonl`
+
+当前实现仍有一个正式差距：
+
+- 现状只保留聚合级 `source/labels/trace/summary` 文件
+- 中断后缺少逐样本恢复入口
+- 已完成样本缺少稳定的“已完成”判定依据
+- 这部分差距由 `REQ-017` / `TASK-G1-REF-013` 收口
+
+### 6.2.1 `prelabel-vlm` 过程目录与恢复语义
+
+`prelabel-vlm` 的正式输出结构新增一层过程状态目录：
+
+```text
+<project>/
+  reviewed/
+    query/
+    scene/
+  labels.jsonl
+  trace.jsonl
+  summary.json
+  process/
+    index.json
+    samples/
+      <sample_id>/
+        status.json
+        request.json
+        response.json
+        normalized.json
+        error.json
+```
+
+职责划分：
+
+- `process/` 是恢复和审计的事实源
+- `reviewed/*.json`、`labels.jsonl`、`trace.jsonl`、`summary.json` 是最终聚合产物
+- 逐样本请求、原始返回、归一化结果必须能直接按 `sample_id` 独立查看
+
+逐样本状态至少包括：
+
+- `pending`
+- `running`
+- `completed`
+- `failed`
+- `partial`
+
+恢复规则固定为：
+
+1. 同一 `--project` 目录重跑时，必须先读 `process/index.json`
+2. 再逐样本读 `process/samples/<sample_id>/status.json`
+3. 只有 `status=completed` 且 `normalized.json` 完整存在时，才允许跳过该样本
+4. 仅存在 `reviewed/*.json` 不足以判定样本已完成
+5. `failed`、`running`、`partial` 或关键工件缺失的样本，只允许重跑该样本本身
+
+### 6.2.2 最终聚合产物重建
+
+`prelabel-vlm` 不应把最终聚合文件当成唯一事实源。
+
+正式要求是：
+
+- `reviewed/query|scene/*.json`
+- `labels.jsonl`
+- `trace.jsonl`
+- `summary.json`
+
+都必须能由逐样本过程工件确定性重建。
+
+这样才能保证：
+
+- 已完成样本重跑时不重复请求模型
+- 聚合文件损坏或缺失时仍可恢复
+- 人工审核或排障时能直接回到单样本证据，而不是只翻大 JSONL
 
 适合做：
 

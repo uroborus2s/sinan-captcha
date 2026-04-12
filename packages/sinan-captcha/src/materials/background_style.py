@@ -33,7 +33,7 @@ DEFAULT_BACKGROUND_STYLE_REPORT_NAME = "background-style-collection.json"
 DEFAULT_BACKGROUND_STYLE_IMAGE_ANALYSIS_NAME = "background-style-image-analysis.jsonl"
 DEFAULT_BACKGROUND_STYLE_SUMMARY_NAME = "background-style-summary.json"
 DEFAULT_BACKGROUND_STYLE_DOWNLOAD_STATE_NAME = "background-style-download-state.json"
-DEFAULT_BACKGROUND_STYLE_SAMPLE_LIMIT = 12
+DEFAULT_BACKGROUND_STYLE_SAMPLE_LIMIT: int | None = None
 DEFAULT_BACKGROUND_STYLE_MAX_QUERIES = 5
 DEFAULT_BACKGROUND_STYLE_PER_QUERY = 8
 DEFAULT_PEXELS_API_KEY_ENV = "PEXELS_API_KEY"
@@ -271,7 +271,6 @@ class OllamaBackgroundReferenceAnalyzer:
             image_path=image_path,
             image_sha256=image_sha256,
             request_payload=request_payload,
-            raw_output=content,
         )
 
 
@@ -339,7 +338,6 @@ class OllamaBackgroundProfileSummarizer:
             content,
             source_image_count=len(image_profiles),
             request_payload=request_payload,
-            raw_output=content,
             max_queries=max_queries,
         )
 
@@ -351,7 +349,7 @@ def run_background_style_collection(
     model: str,
     ollama_url: str = DEFAULT_OLLAMA_URL,
     timeout_seconds: int = DEFAULT_OLLAMA_TIMEOUT_SECONDS,
-    sample_limit: int = DEFAULT_BACKGROUND_STYLE_SAMPLE_LIMIT,
+    sample_limit: int | None = DEFAULT_BACKGROUND_STYLE_SAMPLE_LIMIT,
     max_queries: int = DEFAULT_BACKGROUND_STYLE_MAX_QUERIES,
     per_query: int = DEFAULT_BACKGROUND_STYLE_PER_QUERY,
     limit: int | None = None,
@@ -520,7 +518,7 @@ def analyze_background_style(
     model: str,
     ollama_url: str = DEFAULT_OLLAMA_URL,
     timeout_seconds: int = DEFAULT_OLLAMA_TIMEOUT_SECONDS,
-    sample_limit: int = DEFAULT_BACKGROUND_STYLE_SAMPLE_LIMIT,
+    sample_limit: int | None = DEFAULT_BACKGROUND_STYLE_SAMPLE_LIMIT,
     max_queries: int = DEFAULT_BACKGROUND_STYLE_MAX_QUERIES,
     progress_reporter: ProgressReporter | None = None,
 ) -> BackgroundStyleProfile:
@@ -561,7 +559,6 @@ def analyze_background_style(
         content,
         source_image_count=len(image_paths),
         request_payload=request_payload,
-        raw_output=content,
         max_queries=max_queries,
     )
 
@@ -640,7 +637,7 @@ def _load_or_create_background_style_profile(
     model: str,
     ollama_url: str,
     timeout_seconds: int,
-    sample_limit: int,
+    sample_limit: int | None,
     max_queries: int,
     progress_reporter: ProgressReporter | None,
     reference_image_analyzer: ReferenceImageAnalyzer | None,

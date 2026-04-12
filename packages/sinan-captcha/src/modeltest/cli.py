@@ -36,7 +36,6 @@ def build_parser() -> argparse.ArgumentParser:
     group1_parser.add_argument("--dataset-version", default="v1")
     group1_parser.add_argument("--proposal-model", dest="proposal_model", type=Path, required=False)
     group1_parser.add_argument("--scene-model", dest="proposal_model", type=Path, required=False, help=argparse.SUPPRESS)
-    group1_parser.add_argument("--query-model", type=Path, required=False)
     group1_parser.add_argument("--embedder-model", type=Path, required=False)
     group1_parser.add_argument("--train-name", default="v1")
     group1_parser.add_argument(
@@ -123,7 +122,6 @@ def main(argv: list[str] | None = None) -> int:
             train_name=args.train_name,
             dataset_config=dataset_config,
             model_path=proposal_model,
-            query_model_path=args.query_model,
             embedder_model_path=embedder_model,
             source=source,
             project_dir=project_dir,
@@ -142,7 +140,6 @@ def main(argv: list[str] | None = None) -> int:
             train_name=args.train_name,
             dataset_config=dataset_config,
             model_path=model_path,
-            query_model_path=None,
             source=source,
             project_dir=project_dir,
             report_dir=report_dir,

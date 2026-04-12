@@ -7,7 +7,7 @@
 - 上游输入：
   - `docs/04-project-development/04-design/group1-instance-matching-refactor.md`
   - `docs/04-project-development/03-requirements/prd.md`
-- 关联需求：`REQ-003`、`REQ-005`、`REQ-006`、`REQ-008`、`REQ-014`、`NFR-010`
+- 关联需求：`REQ-003`、`REQ-005`、`REQ-006`、`REQ-008`、`REQ-014`、`REQ-017`、`NFR-010`
 
 ## 1. 总原则
 
@@ -32,6 +32,7 @@
 | `TASK-G1-REF-010` | 重构 `auto-train` 指标、阶段和 gate | 新阶段、失败归因、晋级门 | auto-train 冻结 |
 | `TASK-G1-REF-011` | 重构 solver 导出与运行时编排 | 新 ONNX 资产和 runtime 配置 | solver 可交付 |
 | `TASK-G1-REF-012` | 删除旧方案代码并完成 cutover | 旧 CLI/测试/文档/资产清单删除 | 主线切换完成 |
+| `TASK-G1-REF-013` | 为 `prelabel-vlm` 增加过程目录与断点续传 | 逐样本状态目录、恢复语义、聚合重建规则 | VLM 预标注恢复冻结 |
 
 ## 3. 分阶段执行
 
@@ -80,10 +81,12 @@
 
 - `TASK-G1-REF-009`
 - `TASK-G1-REF-010`
+- `TASK-G1-REF-013`
 
 完成标准：
 
 - 预标注、人审、auto-train 全部切到新口径
+- `prelabel-vlm` 具备逐样本恢复和按文件名审计能力
 
 ### 阶段 E：旧方案清理与 cutover
 
@@ -167,6 +170,29 @@
 - 当前仍待补齐：
   - 面向人工审核的全量文档收口
   - 旧 reviewed 目录的批量迁移脚本（如需要）
+
+### `TASK-G1-REF-013`
+
+- `train group1 prelabel-vlm` 必须新增正式过程目录：
+  - `process/index.json`
+  - `process/samples/<sample_id>/status.json`
+  - `process/samples/<sample_id>/request.json`
+  - `process/samples/<sample_id>/response.json`
+  - `process/samples/<sample_id>/normalized.json`
+  - `process/samples/<sample_id>/error.json`
+- 同一 `--project` 目录重跑时，必须按逐样本状态恢复：
+  - `completed + normalized.json 完整` 的样本直接复用
+  - `failed/running/partial` 只重跑该样本
+- `reviewed/*.json`、`labels.jsonl`、`trace.jsonl`、`summary.json` 必须可由逐样本工件重建
+- 当前 2026-04-12 已完成需求与设计冻结：
+  - 已新增 `CR-001`
+  - 已新增 `REQ-017`
+  - 已冻结 `process/` 目录为正式恢复入口
+- 当前仍待补齐：
+  - CLI 参数与默认行为收口
+  - 逐样本状态机实现
+  - 同目录恢复回归测试
+  - 聚合文件重建测试
 
 ### `TASK-G1-REF-008`
 

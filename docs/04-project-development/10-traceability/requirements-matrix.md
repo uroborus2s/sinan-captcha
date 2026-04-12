@@ -1,6 +1,6 @@
 # 需求追踪矩阵
 
-本矩阵按 2026-04-11 最新需求增量更新：项目一级产品仍是“统一验证码求解包/库”，`group1` 正式路线已切到实例匹配求解，且 solver 输入兼容已新增多输入/全格式要求。
+本矩阵按 2026-04-12 最新需求增量更新：项目一级产品仍是“统一验证码求解包/库”，`group1` 正式路线已切到实例匹配求解，且已新增 solver 多输入、背景素材扩充，以及 `prelabel-vlm` 逐样本恢复要求。
 
 ## 追踪关系
 
@@ -95,6 +95,11 @@
 | REQ-016 | 落点 | docs/04-project-development/03-requirements/requirements-analysis.md | 有效 | 2026-04-12 | Codex | 已分析原图直送 VLM 策略、质量门和合并风险 |
 | REQ-016 | 落点 | docs/04-project-development/04-design/background-material-expansion-design.md | 有效 | 2026-04-12 | Codex | 已冻结不依赖自动修补的正式设计策略 |
 | REQ-016 | 落点 | docs/04-project-development/05-development-process/background-material-expansion-task-breakdown.md | 有效 | 2026-04-12 | Codex | 已拆出 `TASK-MAT-BG-001` 到 `TASK-MAT-BG-006` |
+| REQ-017 | 来源 | .factory/workitems/changes/CR-001-group1-vlm-prelabel-resume-and-process-artifacts.md | 有效 | 2026-04-12 | Codex | 用户已确认 `prelabel-vlm` 需要逐样本恢复与过程目录 |
+| REQ-017 | 落点 | docs/04-project-development/03-requirements/prd.md | 有效 | 2026-04-12 | Codex | 已定义 `prelabel-vlm` 过程工件、断点续传和聚合重建要求 |
+| REQ-017 | 落点 | docs/04-project-development/03-requirements/requirements-analysis.md | 有效 | 2026-04-12 | Codex | 已分析整批重跑、弱恢复语义和审计成本风险 |
+| REQ-017 | 落点 | docs/04-project-development/04-design/group1-instance-matching-refactor.md | 有效 | 2026-04-12 | Codex | 已冻结 `process/` 目录、逐样本状态和恢复规则 |
+| REQ-017 | 落点 | docs/04-project-development/05-development-process/group1-instance-matching-refactor-task-breakdown.md | 有效 | 2026-04-12 | Codex | 已新增 `TASK-G1-REF-013` 承接实现 |
 
 ## 更新记录
 
@@ -104,3 +109,4 @@
 - 2026-04-11：按 `group1` 实例匹配重构决策更新追踪关系，并补入 `REQ-011` 到 `REQ-014`，维护人：Codex。
 - 2026-04-11：新增 `REQ-015`（多输入与全格式兼容）追踪关系，并补入 solver 输入适配任务，维护人：Codex。
 - 2026-04-12：新增 `REQ-016`（背景素材扩充、质量门与正式 backgrounds 合并）追踪关系，维护人：Codex。
+- 2026-04-12：新增 `CR-001` 与 `REQ-017`（`group1 prelabel-vlm` 逐样本恢复与过程工件目录）追踪关系，维护人：Codex。

@@ -44,7 +44,6 @@ class Group1DatasetConfig:
     format: str
     splits: dict[str, Path]
     proposal_component: Group1ComponentConfig
-    query_component: Group1ComponentConfig | None
     embedding: Group1EmbeddingConfig | None
     eval: Group1EvalConfig | None
 
@@ -92,7 +91,6 @@ def load_group1_dataset_config(path: Path) -> Group1DatasetConfig:
 
     splits = _load_group1_splits(payload, path)
     proposal_component = _load_named_component(payload, path, field="proposal_detector")
-    query_component = _load_optional_named_component(payload, path, field="query_parser")
     embedding = _load_embedding_config(payload, path)
     eval_config = _load_eval_config(payload, path)
 
@@ -102,7 +100,6 @@ def load_group1_dataset_config(path: Path) -> Group1DatasetConfig:
         format=data_format,
         splits=splits,
         proposal_component=proposal_component,
-        query_component=query_component,
         embedding=embedding,
         eval=eval_config,
     )
@@ -148,15 +145,6 @@ def _load_named_component(payload: dict[str, Any], path: Path, *, field: str) ->
     raw_component = payload.get(field)
     if not isinstance(raw_component, dict):
         raise RuntimeError(f"group1 数据集配置文件缺少 {field}：{path}")
-    return _parse_component(raw_component, path, component_name=field)
-
-
-def _load_optional_named_component(payload: dict[str, Any], path: Path, *, field: str) -> Group1ComponentConfig | None:
-    raw_component = payload.get(field)
-    if raw_component is None:
-        return None
-    if not isinstance(raw_component, dict):
-        raise RuntimeError(f"group1 数据集配置文件的 {field} 必须是对象：{path}")
     return _parse_component(raw_component, path, component_name=field)
 
 

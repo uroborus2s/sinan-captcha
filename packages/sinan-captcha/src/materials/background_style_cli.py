@@ -34,7 +34,12 @@ def build_parser() -> argparse.ArgumentParser:
     )
     parser.add_argument("--ollama-url", default=DEFAULT_OLLAMA_URL)
     parser.add_argument("--timeout-seconds", type=int, default=DEFAULT_OLLAMA_TIMEOUT_SECONDS)
-    parser.add_argument("--sample-limit", type=int, default=DEFAULT_BACKGROUND_STYLE_SAMPLE_LIMIT)
+    parser.add_argument(
+        "--sample-limit",
+        type=int,
+        default=DEFAULT_BACKGROUND_STYLE_SAMPLE_LIMIT,
+        help="Maximum number of reference images to analyze. Default: analyze all images.",
+    )
     parser.add_argument("--max-queries", type=int, default=DEFAULT_BACKGROUND_STYLE_MAX_QUERIES)
     parser.add_argument("--per-query", type=int, default=DEFAULT_BACKGROUND_STYLE_PER_QUERY)
     parser.add_argument("--limit", type=int)
