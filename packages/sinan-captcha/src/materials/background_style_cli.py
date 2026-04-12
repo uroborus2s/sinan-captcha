@@ -39,6 +39,10 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--per-query", type=int, default=DEFAULT_BACKGROUND_STYLE_PER_QUERY)
     parser.add_argument("--limit", type=int)
     parser.add_argument("--orientation", default="landscape")
+    parser.add_argument("--min-width", type=int, default=256)
+    parser.add_argument("--min-height", type=int, default=128)
+    parser.add_argument("--max-hamming-distance", type=int, default=0)
+    parser.add_argument("--merge-into", type=Path)
     parser.add_argument("--api-key-env", default=DEFAULT_PEXELS_API_KEY_ENV)
     parser.add_argument("--dry-run", action="store_true")
     parser.add_argument("--quiet", action="store_true")
@@ -62,6 +66,10 @@ def main(argv: list[str] | None = None) -> int:
         per_query=args.per_query,
         limit=args.limit,
         orientation=args.orientation,
+        min_width=args.min_width,
+        min_height=args.min_height,
+        max_hamming_distance=args.max_hamming_distance,
+        merge_into=args.merge_into,
         api_key_env=args.api_key_env,
         dry_run=args.dry_run,
         progress_reporter=progress_reporter,

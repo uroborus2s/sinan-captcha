@@ -28,3 +28,7 @@
 - `REQ-010` --落点--> `docs/04-project-development/07-release-delivery/delivery-package.md`
 - `REQ-010` --落点--> `docs/04-project-development/07-release-delivery/release-checklist.md`
 - `REQ-010` --落点--> `docs/02-user-guide/use-solver-bundle.md`
+- `REQ-016` --落点--> `docs/04-project-development/03-requirements/prd.md`
+- `REQ-016` --落点--> `docs/04-project-development/03-requirements/requirements-analysis.md`
+- `REQ-016` --落点--> `docs/04-project-development/04-design/background-material-expansion-design.md`
+- `REQ-016` --落点--> `docs/04-project-development/05-development-process/background-material-expansion-task-breakdown.md`

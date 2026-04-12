@@ -9,6 +9,7 @@
 - [技术选型与工程规则](./technical-selection.md)
 - [模块边界基线](./module-boundaries.md)
 - [系统架构基线](./system-architecture.md)
+- [背景素材扩充设计](./background-material-expansion-design.md)
 - [group1 实例匹配重构设计](./group1-instance-matching-refactor.md)
 - [接口与入口基线](./api-design.md)
 - [Solver 资产导出合同](./solver-asset-export-contract.md)

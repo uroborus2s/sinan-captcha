@@ -95,7 +95,9 @@ def _build_model_test_request(request: TestRunnerRequest) -> ModelTestRequest:
     if task == "group1":
         group1_dataset_config = load_group1_dataset_config(dataset_config)
         model_path = request.model_path or resolve_group1_component_best_weights(request.train_root, request.train_name, PROPOSAL_COMPONENT)
-        query_model_path = request.query_model_path or resolve_group1_component_best_weights(request.train_root, request.train_name, QUERY_COMPONENT)
+        query_model_path = request.query_model_path
+        if query_model_path is None and group1_dataset_config.query_component is not None:
+            query_model_path = resolve_group1_component_best_weights(request.train_root, request.train_name, QUERY_COMPONENT)
         embedder_model_path = None
         if group1_dataset_config.is_instance_matching:
             embedder_model_path = (

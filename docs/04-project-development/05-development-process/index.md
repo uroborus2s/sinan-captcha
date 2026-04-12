@@ -9,6 +9,7 @@
 - 配套执行清单：
 - [Windows 训练环境 Checklist](./windows-environment-checklist.md)
 - [样本导出与自动标注 Checklist](./data-export-auto-labeling-checklist.md)
+- [背景素材扩充任务拆解](./background-material-expansion-task-breakdown.md)
 - [多模式验证码生成器任务拆解](./generator-task-breakdown.md)
 - [自主训练任务拆解](./autonomous-training-task-breakdown.md)
 - [独立 solver 迁移任务拆解](./standalone-solver-migration-task-breakdown.md)

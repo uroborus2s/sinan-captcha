@@ -1,0 +1,47 @@
+# 背景素材扩充任务拆解
+
+- 当前阶段：IMPLEMENTATION（`REQ-016`）
+- 关联需求：`REQ-016`、`NFR-004`
+- 负责人：Codex
+- 最近更新：2026-04-12
+
+## 1. 任务目标
+
+把现有 `materials collect-backgrounds` 升级为正式可维护背景池的增量能力：
+
+1. 冻结“原图直送 VLM、不强依赖自动前景预处理”的正式策略。
+2. 为逐图分析、风格汇总和下载任务流补齐可恢复 checkpoint。
+3. 为下载结果补齐质量门与重复抑制。
+4. 增加把新背景图并入正式 `backgrounds/` 素材根的显式入口。
+5. 补齐回归测试、用户文档和 AI 记忆同步。
+
+## 2. 任务总表
+
+| 任务 ID | 任务名称 | 负责人 | 主要输入 | 主要输出 | 完成标准 | 估算 |
+| --- | --- | --- | --- | --- | --- | --- |
+| TASK-MAT-BG-001 | 冻结背景扩充正式策略 | 项目维护者 | `REQ-016`、现有 `collect-backgrounds` | 设计说明、边界冻结 | 明确 V1 不以自动修补为主链路 | 0.5 天 |
+| TASK-MAT-BG-002 | 实现逐图分析 checkpoint | Python 实现者 | 设计说明、现有背景分析链路 | `background-style-image-analysis.jsonl` | 已分析成功的参考图可复用且不重复跑模型 | 0.5 天 |
+| TASK-MAT-BG-003 | 实现风格汇总缓存 | Python 实现者 | 逐图分析结果、汇总提示词 | `background-style-summary.json` | 汇总结果可单独保存并在输入不变时复用 | 0.5 天 |
+| TASK-MAT-BG-004 | 实现下载任务恢复 | Python 实现者 | 汇总搜索词、Pexels 下载链路 | `background-style-download-state.json` | query 任务流可记录进度并从中断页继续 | 0.5 天 |
+| TASK-MAT-BG-005 | 实现下载质量门与重复抑制 | Python 实现者 | 设计说明、现有下载链路 | 图片解码、尺寸校验、重复检测、跳过原因记录 | 坏图、小图和重复图不会进入背景索引 | 0.5 天 |
+| TASK-MAT-BG-006 | 实现正式 backgrounds 合并 | Python 实现者 | 目标素材根合同、背景索引格式 | `merge-into` 合并入口 | 可增量写入正式背景根且不破坏其他 manifest | 0.5 天 |
+| TASK-MAT-BG-007 | 补齐 CLI、报告、测试与记忆同步 | Python 实现者/文档维护者 | 实现代码、现有 CLI 参考 | CLI 参数说明、报告字段说明、回归结果 | 用户可按文档恢复任务并理解状态文件 | 0.5 天 |
+
+## 3. 执行顺序
+
+1. `TASK-MAT-BG-001`
+2. `TASK-MAT-BG-002`
+3. `TASK-MAT-BG-003`
+4. `TASK-MAT-BG-004`
+5. `TASK-MAT-BG-005`
+6. `TASK-MAT-BG-006`
+7. `TASK-MAT-BG-007`
+
+## 4. 验收要点
+
+- 参考图中即使存在验证码前景干扰，也不要求先手工修图。
+- 逐图分析完成后必须落盘；中断重跑时不得重复分析已完成图片。
+- 搜索词下载任务必须记录每个 query 的目标数量、已完成数量和恢复页码。
+- 下载图片损坏、尺寸不足或重复时，命令必须明确记录跳过原因。
+- 合并到正式素材根时，`backgrounds/` 与 `backgrounds.csv` 会增量更新，`group1/group2` manifest 保持不变。
+- `dry-run` 仍然不触发下载和合并，但会落盘逐图分析和汇总结果。

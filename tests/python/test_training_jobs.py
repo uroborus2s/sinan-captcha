@@ -8,6 +8,7 @@ import tempfile
 from unittest.mock import patch
 import zlib
 
+from common.paths import default_work_root
 from common.jsonl import read_jsonl
 from inference.service import ClickPoint, Group1ClickTarget, Group1MappingResult
 from train.base import (
@@ -250,7 +251,6 @@ class TrainingJobTests(unittest.TestCase):
         job = build_group1_prediction_job(
             dataset_config=Path("datasets/group1/v2/dataset.json"),
             proposal_model_path=Path("runs/group1/v2/proposal-detector/weights/best.pt"),
-            query_model_path=Path("runs/group1/v2/query-parser/weights/best.pt"),
             embedder_model_path=Path("runs/group1/v2/icon-embedder/weights/best.pt"),
             source=Path("datasets/group1/v2/splits/val.jsonl"),
             project_dir=Path("reports/group1"),
@@ -260,6 +260,7 @@ class TrainingJobTests(unittest.TestCase):
         command = job.command()
         self.assertIn("--embedder-model", command)
         self.assertIn("runs/group1/v2/icon-embedder/weights/best.pt", command)
+        self.assertNotIn("--query-model", command)
 
     def test_group1_cli_dry_run_prints_command(self) -> None:
         buffer = io.StringIO()
@@ -305,6 +306,7 @@ class TrainingJobTests(unittest.TestCase):
 
     def test_group1_cli_uses_default_paths_from_training_root(self) -> None:
         buffer = io.StringIO()
+        expected_root = default_work_root()
         with patch("train.group1.cli.Path.cwd", return_value=Path("D:/sinan-captcha-work")):
             with redirect_stdout(buffer):
                 code = group1_cli.main(
@@ -318,12 +320,13 @@ class TrainingJobTests(unittest.TestCase):
                 )
         self.assertEqual(code, 0)
         output = buffer.getvalue()
-        self.assertIn("--dataset-config D:/sinan-captcha-work/datasets/group1/firstpass/dataset.json", output)
-        self.assertIn("--project D:/sinan-captcha-work/runs/group1", output)
+        self.assertIn(f"--dataset-config {expected_root / 'datasets/group1/firstpass/dataset.json'}", output)
+        self.assertIn(f"--project {expected_root / 'runs/group1'}", output)
         self.assertIn("--name smoke", output)
 
     def test_group1_cli_uses_previous_best_checkpoint_from_training_root(self) -> None:
         buffer = io.StringIO()
+        expected_root = default_work_root()
         with patch("train.group1.cli.Path.cwd", return_value=Path("D:/sinan-captcha-work")):
             with redirect_stdout(buffer):
                 code = group1_cli.main(
@@ -339,13 +342,14 @@ class TrainingJobTests(unittest.TestCase):
                 )
         self.assertEqual(code, 0)
         output = buffer.getvalue()
-        self.assertIn("--dataset-config D:/sinan-captcha-work/datasets/group1/firstpass_v2/dataset.json", output)
-        self.assertIn("--proposal-model D:/sinan-captcha-work/runs/group1/firstpass/proposal-detector/weights/best.pt", output)
-        self.assertIn("--query-model D:/sinan-captcha-work/runs/group1/firstpass/query-parser/weights/best.pt", output)
+        self.assertIn(f"--dataset-config {expected_root / 'datasets/group1/firstpass_v2/dataset.json'}", output)
+        self.assertIn(f"--proposal-model {expected_root / 'runs/group1/firstpass/proposal-detector/weights/best.pt'}", output)
+        self.assertIn(f"--query-model {expected_root / 'runs/group1/firstpass/query-parser/weights/best.pt'}", output)
         self.assertIn("--name round2", output)
 
     def test_group1_cli_resumes_same_run_from_last_checkpoint(self) -> None:
         buffer = io.StringIO()
+        expected_root = default_work_root()
         with patch("train.group1.cli.Path.cwd", return_value=Path("D:/sinan-captcha-work")):
             with redirect_stdout(buffer):
                 code = group1_cli.main(
@@ -359,8 +363,8 @@ class TrainingJobTests(unittest.TestCase):
         self.assertEqual(code, 0)
         output = buffer.getvalue()
         self.assertIn("uv run python -m train.group1.runner train", output)
-        self.assertIn("--proposal-model D:/sinan-captcha-work/runs/group1/firstpass/proposal-detector/weights/last.pt", output)
-        self.assertIn("--query-model D:/sinan-captcha-work/runs/group1/firstpass/query-parser/weights/last.pt", output)
+        self.assertIn(f"--proposal-model {expected_root / 'runs/group1/firstpass/proposal-detector/weights/last.pt'}", output)
+        self.assertIn(f"--query-model {expected_root / 'runs/group1/firstpass/query-parser/weights/last.pt'}", output)
         self.assertIn("--resume", output)
 
     def test_group1_cli_can_train_only_query_parser(self) -> None:
@@ -386,6 +390,7 @@ class TrainingJobTests(unittest.TestCase):
 
     def test_group1_cli_can_train_only_proposal_detector_from_previous_run(self) -> None:
         buffer = io.StringIO()
+        expected_root = default_work_root()
         with patch("train.group1.cli.Path.cwd", return_value=Path("D:/sinan-captcha-work")):
             with redirect_stdout(buffer):
                 code = group1_cli.main(
@@ -404,11 +409,12 @@ class TrainingJobTests(unittest.TestCase):
         self.assertEqual(code, 0)
         output = buffer.getvalue()
         self.assertIn("--component proposal-detector", output)
-        self.assertIn("--proposal-model D:/sinan-captcha-work/runs/group1/firstpass/proposal-detector/weights/best.pt", output)
+        self.assertIn(f"--proposal-model {expected_root / 'runs/group1/firstpass/proposal-detector/weights/best.pt'}", output)
         self.assertNotIn("--query-model", output)
 
     def test_group1_prelabel_cli_dry_run_uses_reviewed_exam_and_trained_weights(self) -> None:
         buffer = io.StringIO()
+        expected_root = default_work_root()
         with patch("train.group1.cli.Path.cwd", return_value=Path("D:/sinan-captcha-work")):
             with redirect_stdout(buffer):
                 code = group1_cli.main(
@@ -426,13 +432,14 @@ class TrainingJobTests(unittest.TestCase):
         self.assertEqual(code, 0)
         output = buffer.getvalue()
         self.assertIn("uv run python -m train.group1.runner predict", output)
-        self.assertIn("--dataset-config D:/sinan-captcha-work/datasets/group1/firstpass/dataset.json", output)
-        self.assertIn("--proposal-model D:/sinan-captcha-work/runs/group1/round1/proposal-detector/weights/best.pt", output)
-        self.assertIn("--query-model D:/sinan-captcha-work/runs/group1/round1/query-parser/weights/best.pt", output)
+        self.assertIn(f"--dataset-config {expected_root / 'datasets/group1/firstpass/dataset.json'}", output)
+        self.assertIn(f"--proposal-model {expected_root / 'runs/group1/round1/proposal-detector/weights/best.pt'}", output)
+        self.assertIn(f"--query-model {expected_root / 'runs/group1/round1/query-parser/weights/best.pt'}", output)
         self.assertIn("--source materials/business_exams/group1/reviewed-v1/.sinan/prelabel/group1/source.jsonl", output)
 
     def test_group1_query_directory_prelabel_cli_dry_run_uses_query_parser_weights(self) -> None:
         buffer = io.StringIO()
+        expected_root = default_work_root()
         with patch("train.group1.cli.Path.cwd", return_value=Path("D:/sinan-captcha-work")):
             with redirect_stdout(buffer):
                 code = group1_cli.main(
@@ -448,7 +455,7 @@ class TrainingJobTests(unittest.TestCase):
         self.assertEqual(code, 0)
         output = buffer.getvalue()
         self.assertIn('"input_dir": "materials/test/group1/query"', output)
-        self.assertIn('"query_model_path": "D:/sinan-captcha-work/runs/group1/round1/query-parser/weights/best.pt"', output)
+        self.assertIn(f'"query_model_path": "{expected_root / "runs/group1/round1/query-parser/weights/best.pt"}"', output)
         self.assertIn('"project_dir": "materials/test/group1/query/.sinan/prelabel/group1/query"', output)
         self.assertIn('"run_name": "prelabel-query"', output)
 
@@ -513,6 +520,7 @@ class TrainingJobTests(unittest.TestCase):
 
     def test_group2_cli_uses_default_paths_from_training_root(self) -> None:
         buffer = io.StringIO()
+        expected_root = default_work_root()
         with patch("train.group2.cli.Path.cwd", return_value=Path("D:/sinan-captcha-work")):
             with redirect_stdout(buffer):
                 code = group2_cli.main(
@@ -526,12 +534,13 @@ class TrainingJobTests(unittest.TestCase):
                 )
         self.assertEqual(code, 0)
         output = buffer.getvalue()
-        self.assertIn("--dataset-config D:/sinan-captcha-work/datasets/group2/firstpass/dataset.json", output)
-        self.assertIn("--project D:/sinan-captcha-work/runs/group2", output)
+        self.assertIn(f"--dataset-config {expected_root / 'datasets/group2/firstpass/dataset.json'}", output)
+        self.assertIn(f"--project {expected_root / 'runs/group2'}", output)
         self.assertIn("--name smoke", output)
 
     def test_group2_prelabel_cli_dry_run_uses_reviewed_exam_and_trained_weights(self) -> None:
         buffer = io.StringIO()
+        expected_root = default_work_root()
         with patch("train.group2.cli.Path.cwd", return_value=Path("D:/sinan-captcha-work")):
             with redirect_stdout(buffer):
                 code = group2_cli.main(
@@ -549,8 +558,8 @@ class TrainingJobTests(unittest.TestCase):
         self.assertEqual(code, 0)
         output = buffer.getvalue()
         self.assertIn("uv run python -m train.group2.runner predict", output)
-        self.assertIn("--dataset-config D:/sinan-captcha-work/datasets/group2/firstpass/dataset.json", output)
-        self.assertIn("--model D:/sinan-captcha-work/runs/group2/round2/weights/best.pt", output)
+        self.assertIn(f"--dataset-config {expected_root / 'datasets/group2/firstpass/dataset.json'}", output)
+        self.assertIn(f"--model {expected_root / 'runs/group2/round2/weights/best.pt'}", output)
         self.assertIn("--source materials/business_exams/group2/reviewed-v1/.sinan/prelabel/group2/source.jsonl", output)
 
     def test_group2_prediction_job_runs_per_sample_when_tile_sizes_differ(self) -> None:

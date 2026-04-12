@@ -10,6 +10,7 @@ import time
 from typing import Any
 
 from common.jsonl import write_jsonl
+from inference.query_splitter import split_group1_query_image
 from inference.service import map_group1_instances
 from train.base import prepare_dataset_yaml_for_ultralytics
 from train.group1.dataset import load_group1_dataset_config, load_group1_rows, resolve_group1_path
@@ -44,7 +45,7 @@ def build_parser() -> argparse.ArgumentParser:
     predict_parser = subparsers.add_parser("predict", help="run group1 pipeline prediction")
     predict_parser.add_argument("--dataset-config", type=Path, required=True)
     predict_parser.add_argument("--proposal-model", dest="proposal_model", type=Path, required=True)
-    predict_parser.add_argument("--query-model", type=Path, required=True)
+    predict_parser.add_argument("--query-model", type=Path, required=False)
     predict_parser.add_argument("--embedder-model", type=Path, required=True)
     predict_parser.add_argument("--source", type=Path, required=True)
     predict_parser.add_argument("--project", type=Path, required=True)
@@ -195,7 +196,7 @@ def _run_predict(args: argparse.Namespace) -> None:
         from ultralytics import YOLO
     except Exception as exc:  # pragma: no cover - import error depends on host env
         raise RuntimeError(
-            "当前环境缺少 `ultralytics`，无法执行 group1 proposal-detector/query-parser 预测。"
+            "当前环境缺少 `ultralytics`，无法执行 group1 proposal-detector 预测。"
             "请先完成训练环境安装后再重试。"
         ) from exc
 
@@ -207,7 +208,7 @@ def _run_predict(args: argparse.Namespace) -> None:
         raise RuntimeError("group1 预测必须显式传入 --embedder-model。")
 
     proposal_model = YOLO(str(args.proposal_model))
-    query_model = YOLO(str(args.query_model))
+    query_model = YOLO(str(args.query_model)) if args.query_model is not None else None
     embedding_provider = load_icon_embedder_runtime(args.embedder_model, device_name=args.device)
     output_dir = args.project / args.name
     output_dir.mkdir(parents=True, exist_ok=True)
@@ -217,13 +218,6 @@ def _run_predict(args: argparse.Namespace) -> None:
         query_path = resolve_group1_path(dataset_config.root, Path(str(row["query_image"])))
         scene_path = resolve_group1_path(dataset_config.root, Path(str(row["scene_image"])))
         started = time.perf_counter()
-        query_result = query_model.predict(
-            source=str(query_path),
-            imgsz=args.imgsz,
-            conf=args.conf,
-            device=args.device,
-            verbose=False,
-        )[0]
         proposal_result = proposal_model.predict(
             source=str(scene_path),
             imgsz=args.imgsz,
@@ -233,7 +227,17 @@ def _run_predict(args: argparse.Namespace) -> None:
         )[0]
         elapsed_ms = (time.perf_counter() - started) * 1000.0
 
-        predicted_query_items = _serialize_detections(query_result, ordered=True)
+        if query_model is None:
+            predicted_query_items = split_group1_query_image(query_path)
+        else:
+            query_result = query_model.predict(
+                source=str(query_path),
+                imgsz=args.imgsz,
+                conf=args.conf,
+                device=args.device,
+                verbose=False,
+            )[0]
+            predicted_query_items = _serialize_detections(query_result, ordered=True)
         predicted_scene_targets = _serialize_detections(proposal_result, ordered=False)
         mapping = map_group1_instances(
             predicted_query_items,
@@ -259,7 +263,7 @@ def _run_predict(args: argparse.Namespace) -> None:
                 "dataset_config": str(args.dataset_config),
                 "source": str(args.source),
                 "proposal_model": str(args.proposal_model),
-                "query_model": str(args.query_model),
+                "query_model": str(args.query_model) if args.query_model is not None else None,
                 "embedder_model": str(args.embedder_model) if args.embedder_model is not None else None,
                 "sample_count": len(predictions),
                 "labels_path": str(output_dir / "labels.jsonl"),

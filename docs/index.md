@@ -103,6 +103,9 @@ mkdocs:
             - title: 系统架构基线
               path: 04-project-development/04-design/system-architecture.md
               access: private
+            - title: 背景素材扩充设计
+              path: 04-project-development/04-design/background-material-expansion-design.md
+              access: private
             - title: 模块边界基线
               path: 04-project-development/04-design/module-boundaries.md
               access: private
@@ -137,6 +140,9 @@ mkdocs:
               access: private
             - title: 样本导出与自动标注 Checklist
               path: 04-project-development/05-development-process/data-export-auto-labeling-checklist.md
+              access: private
+            - title: 背景素材扩充任务拆解
+              path: 04-project-development/05-development-process/background-material-expansion-task-breakdown.md
               access: private
             - title: 多模式验证码生成器任务拆解
               path: 04-project-development/05-development-process/generator-task-breakdown.md

@@ -13,7 +13,6 @@ class SolverAssetContractTests(unittest.TestCase):
             contract.MODEL_FILENAMES,
             {
                 "click_proposal_detector": "click_proposal_detector.onnx",
-                "click_query_parser": "click_query_parser.onnx",
                 "click_icon_embedder": "click_icon_embedder.onnx",
                 "slider_gap_locator": "slider_gap_locator.onnx",
             },
@@ -28,16 +27,6 @@ class SolverAssetContractTests(unittest.TestCase):
             input_names=("images",),
             output_names=("predictions",),
             image_size=(640, 640),
-            postprocess="yolo_detect_v1",
-        )
-        query = contract.SolverOnnxModelAsset(
-            model_id="click_query_parser",
-            task="group1",
-            component="query_parser",
-            opset=17,
-            input_names=("images",),
-            output_names=("predictions",),
-            image_size=(320, 320),
             postprocess="yolo_detect_v1",
         )
         embedder = contract.SolverOnnxModelAsset(
@@ -64,7 +53,7 @@ class SolverAssetContractTests(unittest.TestCase):
         manifest = contract.SolverAssetManifest(
             asset_version="20260405",
             exported_at="2026-04-05T12:00:00Z",
-            model_assets=(scene, query, embedder, gap),
+            model_assets=(scene, embedder, gap),
         )
         payload = manifest.to_dict()
 

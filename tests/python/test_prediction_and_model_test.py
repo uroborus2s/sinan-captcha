@@ -7,6 +7,7 @@ import tempfile
 import unittest
 from unittest.mock import patch
 
+from common.paths import default_work_root
 from modeltest.service import ModelTestRequest, run_model_test
 from predict import cli as predict_cli
 from train.group1.service import Group1PredictionResult
@@ -16,6 +17,7 @@ from train.group2.service import Group2PredictionResult
 class PredictionCliTests(unittest.TestCase):
     def test_group1_predict_cli_uses_default_paths_from_training_root(self) -> None:
         buffer = io.StringIO()
+        expected_root = default_work_root()
         with patch("predict.cli.Path.cwd", return_value=Path("D:/sinan-captcha-work")):
             with redirect_stdout(buffer):
                 code = predict_cli.main(
@@ -31,16 +33,16 @@ class PredictionCliTests(unittest.TestCase):
         self.assertEqual(code, 0)
         output = buffer.getvalue()
         self.assertIn("uv run python -m train.group1.runner predict", output)
-        self.assertIn("--dataset-config D:/sinan-captcha-work/datasets/group1/firstpass/dataset.json", output)
-        self.assertIn("--proposal-model D:/sinan-captcha-work/runs/group1/firstpass/proposal-detector/weights/best.pt", output)
-        self.assertIn("--query-model D:/sinan-captcha-work/runs/group1/firstpass/query-parser/weights/best.pt", output)
-        self.assertIn("--embedder-model D:/sinan-captcha-work/runs/group1/firstpass/icon-embedder/weights/best.pt", output)
-        self.assertIn("--source D:/sinan-captcha-work/datasets/group1/firstpass/splits/val.jsonl", output)
-        self.assertIn("--project D:/sinan-captcha-work/reports/group1", output)
+        self.assertIn(f"--dataset-config {expected_root / 'datasets/group1/firstpass/dataset.json'}", output)
+        self.assertIn(f"--proposal-model {expected_root / 'runs/group1/firstpass/proposal-detector/weights/best.pt'}", output)
+        self.assertIn(f"--embedder-model {expected_root / 'runs/group1/firstpass/icon-embedder/weights/best.pt'}", output)
+        self.assertIn(f"--source {expected_root / 'datasets/group1/firstpass/splits/val.jsonl'}", output)
+        self.assertIn(f"--project {expected_root / 'reports/group1'}", output)
         self.assertIn("--name predict_firstpass", output)
 
     def test_group2_predict_cli_uses_paired_dataset_defaults(self) -> None:
         buffer = io.StringIO()
+        expected_root = default_work_root()
         with patch("predict.cli.Path.cwd", return_value=Path("D:/sinan-captcha-work")):
             with redirect_stdout(buffer):
                 code = predict_cli.main(
@@ -56,10 +58,10 @@ class PredictionCliTests(unittest.TestCase):
         self.assertEqual(code, 0)
         output = buffer.getvalue()
         self.assertIn("uv run python -m train.group2.runner predict", output)
-        self.assertIn("--dataset-config D:/sinan-captcha-work/datasets/group2/firstpass/dataset.json", output)
-        self.assertIn("--source D:/sinan-captcha-work/datasets/group2/firstpass/splits/val.jsonl", output)
-        self.assertIn("--model D:/sinan-captcha-work/runs/group2/firstpass/weights/best.pt", output)
-        self.assertIn("--project D:/sinan-captcha-work/reports/group2", output)
+        self.assertIn(f"--dataset-config {expected_root / 'datasets/group2/firstpass/dataset.json'}", output)
+        self.assertIn(f"--source {expected_root / 'datasets/group2/firstpass/splits/val.jsonl'}", output)
+        self.assertIn(f"--model {expected_root / 'runs/group2/firstpass/weights/best.pt'}", output)
+        self.assertIn(f"--project {expected_root / 'reports/group2'}", output)
         self.assertIn("--name predict_firstpass", output)
 
 
@@ -99,13 +101,10 @@ class ModelTestServiceTests(unittest.TestCase):
                 encoding="utf-8",
             )
             proposal_model_path = root / "runs" / "group1" / "firstpass" / "proposal-detector" / "weights" / "best.pt"
-            query_model_path = root / "runs" / "group1" / "firstpass" / "query-parser" / "weights" / "best.pt"
             embedder_model_path = root / "runs" / "group1" / "firstpass" / "icon-embedder" / "weights" / "best.pt"
             proposal_model_path.parent.mkdir(parents=True)
-            query_model_path.parent.mkdir(parents=True)
             embedder_model_path.parent.mkdir(parents=True)
             proposal_model_path.write_bytes(b"pt")
-            query_model_path.write_bytes(b"pt")
             embedder_model_path.write_bytes(b"pt")
 
             project_dir = root / "reports" / "group1"
@@ -140,7 +139,7 @@ class ModelTestServiceTests(unittest.TestCase):
                                 train_name="firstpass",
                                 dataset_config=dataset_config,
                                 model_path=proposal_model_path,
-                                query_model_path=query_model_path,
+                                query_model_path=None,
                                 embedder_model_path=embedder_model_path,
                                 source=source,
                                 project_dir=project_dir,

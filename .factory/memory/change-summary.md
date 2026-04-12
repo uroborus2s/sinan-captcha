@@ -1,5 +1,81 @@
 # 变更摘要
 
+## 2026-04-12 `group1` 主链路完成 `query-parser` 收口，默认切到规则式 `query splitter`
+
+- 已更新：
+  - `packages/sinan-captcha/src/inference/query_splitter.py`
+  - `packages/sinan-captcha/src/train/group1/service.py`
+  - `packages/sinan-captcha/src/train/group1/runner.py`
+  - `packages/sinan-captcha/src/predict/cli.py`
+  - `packages/sinan-captcha/src/modeltest/cli.py`
+  - `packages/sinan-captcha/src/modeltest/service.py`
+  - `packages/sinan-captcha/src/solve/service.py`
+  - `packages/sinan-captcha/src/solve/bundle.py`
+  - `packages/sinan-captcha/src/auto_train/runners/train.py`
+  - `packages/sinan-captcha/src/auto_train/runners/test.py`
+  - `packages/sinan-captcha/src/auto_train/business_eval.py`
+  - `packages/solver/src/sinanz_query_splitter.py`
+  - `packages/solver/src/sinanz_group1_runtime.py`
+  - `packages/solver/src/sinanz_group1_service.py`
+  - `packages/solver/pyproject.toml`
+  - `scripts/repo_tools/repo_solver_asset_contract.py`
+  - `scripts/repo_tools/repo_solver_export.py`
+  - `scripts/repo_tools/repo_cli.py`
+  - `tests/python/test_query_splitter.py`
+  - `packages/solver/tests/test_query_splitter.py`
+  - `tests/python/test_prediction_and_model_test.py`
+  - `tests/python/test_solve_service.py`
+  - `tests/python/test_solver_asset_contract.py`
+  - `tests/python/test_solver_asset_export_group2.py`
+  - `tests/python/test_auto_train_runners.py`
+  - `tests/python/test_training_jobs.py`
+  - `packages/solver/tests/test_group1_service.py`
+  - `.factory/memory/current-state.md`
+  - `.factory/memory/change-summary.md`
+  - `docs/04-project-development/05-development-process/group1-instance-matching-refactor-task-breakdown.md`
+- 当前已完成的目标：
+  - `group1` 默认预测、模型测试、统一 solver 和 auto-train 不再要求 `query-parser` 权重
+  - 新增规则式 `query splitter`，由代码切 query，不再把 query 检测模型当 solver 主线
+  - solver bundle 与 ONNX 资产导出已移除 `click_query_parser.onnx` 主线依赖
+  - `query-parser` 仅保留为 legacy 训练/预标注能力，不再参与默认正式交付
+  - 已补齐主仓库与独立 `sinanz` 包的 splitter 回归测试
+- 已运行验证：
+  - `uv run pytest ../../tests/python/test_query_splitter.py ../../tests/python/test_prediction_and_model_test.py ../../tests/python/test_solve_service.py ../../tests/python/test_solver_asset_contract.py ../../tests/python/test_solver_asset_export_group2.py ../../tests/python/test_auto_train_runners.py ../../tests/python/test_training_jobs.py`
+  - `uv run pytest ../../tests/python/test_train_prelabel_service.py`
+  - `uv run pytest ../../tests/python/test_auto_train_business_eval.py`
+  - `uv run pytest tests/test_group1_service.py tests/test_query_splitter.py`
+
+## 2026-04-12 为 `collect-backgrounds` 补齐断点续传、质量门、重复抑制与正式 backgrounds 合并
+
+- 已更新：
+  - `packages/sinan-captcha/src/materials/background_style.py`
+  - `packages/sinan-captcha/src/materials/background_style_cli.py`
+  - `tests/python/test_background_style_collect.py`
+  - `docs/02-user-guide/trainer-cli-reference.md`
+  - `docs/04-project-development/03-requirements/prd.md`
+  - `docs/04-project-development/03-requirements/requirements-analysis.md`
+  - `docs/04-project-development/03-requirements/requirements-verification.md`
+  - `docs/04-project-development/04-design/background-material-expansion-design.md`
+  - `docs/04-project-development/05-development-process/background-material-expansion-task-breakdown.md`
+  - `docs/04-project-development/10-traceability/requirements-matrix.md`
+  - `.factory/memory/prd.summary.md`
+  - `.factory/memory/traceability.summary.md`
+  - `.factory/memory/current-state.md`
+  - `.factory/memory/change-summary.md`
+- 当前已完成的目标：
+  - 新增 `REQ-016`，正式冻结背景素材扩充策略为“原图直送多模态模型”，不强依赖自动前景修补
+  - `collect-backgrounds` 新增逐图分析 checkpoint，已完成参考图不会重复送模型
+  - `collect-backgrounds` 新增汇总缓存，逐图分析完成后会保存最终搜索画像
+  - `collect-backgrounds` 新增按 query 的下载任务状态，可记录已下载数量、已拒绝数量和恢复页码
+  - `collect-backgrounds` 新增下载质量门：图片解码校验、最小宽高阈值
+  - `collect-backgrounds` 新增重复抑制，覆盖同批下载集、`incoming/backgrounds/` 和 `--merge-into` 目标根
+  - `collect-backgrounds` 新增 `--merge-into <materials-root>`，可增量并入正式 `backgrounds/` 与 `manifests/backgrounds.csv`
+  - 背景采集报告新增分析复用计数、下载任务统计，以及成功/跳过/合并结果，便于任务恢复与审计
+  - 补齐 `REQ-016` 的设计文档、任务拆解和追踪关系
+- 已运行验证：
+  - `uv run pytest tests/python/test_background_style_collect.py tests/python/test_root_cli.py -q`
+  - `PYTHONPYCACHEPREFIX=/tmp python3 -m py_compile packages/sinan-captcha/src/materials/background_style.py packages/sinan-captcha/src/materials/background_style_cli.py tests/python/test_background_style_collect.py tests/python/test_root_cli.py`
+
 ## 2026-04-12 补齐 Ollama 连接异常包装，避免 `prelabel-vlm` 直接打印底层 traceback
 
 - 已更新：

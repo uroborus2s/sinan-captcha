@@ -17,6 +17,27 @@
 
 ## 当前事实
 
+- 2026-04-12 当前 `group1` 主业务链路已完成一次正式 cutover：
+  - 当前 `predict / test / solve / auto-train / solver bundle / solver asset export` 已统一切到：
+    - `query splitter(规则式)`
+    - `proposal detector`
+    - `icon embedder`
+    - `matcher`
+  - 当前主链路默认已不再要求 `query-parser` 权重
+  - 当前 `query-parser` 只保留为 legacy 能力：
+    - `train group1 --component query-parser`
+    - `train group1 prelabel`
+    - `train group1 prelabel-query-dir`
+  - 当前 solver 交付物与导出契约已移除 `click_query_parser.onnx` 强依赖
+  - 当前已补齐规则式 query splitter：
+    - 仓库主包 `inference/query_splitter.py`
+    - 独立 `sinanz` 包 `sinanz_query_splitter.py`
+  - 当前已验证：
+    - `uv run pytest ../../tests/python/test_query_splitter.py ../../tests/python/test_prediction_and_model_test.py ../../tests/python/test_solve_service.py ../../tests/python/test_solver_asset_contract.py ../../tests/python/test_solver_asset_export_group2.py ../../tests/python/test_auto_train_runners.py ../../tests/python/test_training_jobs.py`
+    - `uv run pytest ../../tests/python/test_train_prelabel_service.py`
+    - `uv run pytest ../../tests/python/test_auto_train_business_eval.py`
+    - `uv run pytest tests/test_group1_service.py tests/test_query_splitter.py`
+
 - 2026-04-12 当前根目录散装仓库级 CLI 已收口到 `scripts/repo_tools/`：
   - 当前已把：
     - `repo_cli.py`
@@ -61,6 +82,17 @@
   - 当前命令会补齐 `incoming/manifests/materials.yaml`，让下载结果更自然并入现有素材根
   - 当前支持 `--dry-run` 只分析风格与搜索词，不要求 Pexels API key、不下载图片
   - 当前下载源复用既有 Pexels API 链路，默认从 `PEXELS_API_KEY` 读取 key
+  - 2026-04-12 当前已按 `REQ-016` 收口为“原图直送多模态模型”正式策略：
+    - 当前不把自动前景修补或 inpaint 作为正式主链路前置条件
+    - 当前新增逐图分析 checkpoint：每张参考图分析成功后会立即落到 `reports/background-style-image-analysis.jsonl`
+    - 当前新增汇总缓存：逐图分析完成后会输出 `reports/background-style-summary.json`
+    - 当前新增下载任务恢复：每个搜索词的 `target/downloaded/rejected/next_page` 会持久化到 `reports/background-style-download-state.json`
+    - 当前同一 `output-root` 重跑会自动复用已分析参考图，并从上次下载页继续
+    - 当前新增下载质量门：图片必须可解码，且满足 `--min-width/--min-height`
+    - 当前新增重复抑制：至少覆盖同批下载集、`incoming/backgrounds/` 和 `--merge-into` 目标根中的已有背景图
+    - 当前新增 `--merge-into <materials-root>`，可把通过质量门的新背景图增量并入正式 `backgrounds/` 与 `manifests/backgrounds.csv`
+    - 当前报告已新增 `analysis_reused_count/analysis_completed_count/download_task_count/download_completed_task_count`
+    - 当前报告已保留 `rejected_count/rejected_backgrounds/merged_count/merged_backgrounds`
   - 当前已验证：
     - `uv run pytest tests/python/test_group1_query_audit.py tests/python/test_background_style_collect.py tests/python/test_root_cli.py -q`
     - `uv run python -m py_compile packages/sinan-captcha/src/materials/query_audit.py packages/sinan-captcha/src/materials/background_style.py packages/sinan-captcha/src/materials/background_style_cli.py packages/sinan-captcha/src/cli.py tests/python/test_background_style_collect.py tests/python/test_group1_query_audit.py tests/python/test_root_cli.py`

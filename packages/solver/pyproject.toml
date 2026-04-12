@@ -24,6 +24,7 @@ py-modules = [
   "sinanz_group2_runtime",
   "sinanz_group2_service",
   "sinanz_image_io",
+  "sinanz_query_splitter",
   "sinanz_resources",
   "sinanz_types",
 ]

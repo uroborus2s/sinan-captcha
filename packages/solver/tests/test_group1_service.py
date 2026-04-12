@@ -22,13 +22,11 @@ class Group1ServiceTest(unittest.TestCase):
             background = root / "background.png"
             asset_root = root / "assets"
             proposal_model = asset_root / "click_proposal_detector.onnx"
-            query_model = asset_root / "click_query_parser.onnx"
             embedder_model = asset_root / "click_icon_embedder.onnx"
             query.write_bytes(b"query")
             background.write_bytes(b"background")
             asset_root.mkdir(parents=True, exist_ok=True)
             proposal_model.write_bytes(b"onnx")
-            query_model.write_bytes(b"onnx")
             embedder_model.write_bytes(b"onnx")
 
             runtime_target = Mock(
@@ -58,7 +56,6 @@ class Group1ServiceTest(unittest.TestCase):
 
             match_mock.assert_called_once_with(
                 proposal_model_path=proposal_model,
-                query_model_path=query_model,
                 embedder_model_path=embedder_model,
                 query_image_path=query,
                 background_image_path=background,
@@ -80,11 +77,9 @@ class Group1ServiceTest(unittest.TestCase):
             root = Path(tmpdir)
             asset_root = root / "assets"
             proposal_model = asset_root / "click_proposal_detector.onnx"
-            query_model = asset_root / "click_query_parser.onnx"
             embedder_model = asset_root / "click_icon_embedder.onnx"
             asset_root.mkdir(parents=True, exist_ok=True)
             proposal_model.write_bytes(b"onnx")
-            query_model.write_bytes(b"onnx")
             embedder_model.write_bytes(b"onnx")
 
             runtime_target = Mock(

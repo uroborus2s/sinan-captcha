@@ -22,7 +22,6 @@ from .repo_solver_asset_contract import (
 )
 
 GROUP1_PROPOSAL_MODEL_ID = "click_proposal_detector"
-GROUP1_QUERY_MODEL_ID = "click_query_parser"
 GROUP1_EMBEDDER_MODEL_ID = "click_icon_embedder"
 GROUP2_MODEL_ID = "slider_gap_locator"
 
@@ -37,7 +36,6 @@ GROUP2_OUTPUT_NAMES = ("response_map",)
 GROUP2_POSTPROCESS = "paired_gap_bbox_v1"
 
 GROUP1_PROPOSAL_COMPONENT = "proposal_detector"
-GROUP1_QUERY_COMPONENT = "query_parser"
 GROUP1_EMBEDDER_COMPONENT = "icon_embedder"
 GROUP2_COMPONENT = "locator"
 
@@ -58,12 +56,10 @@ class ExportSolverAssetsRequest:
     group2_run: str
     group1_run: str = ""
     group1_proposal_checkpoint: Path | None = None
-    group1_query_checkpoint: Path | None = None
     group1_embedder_checkpoint: Path | None = None
     exported_at: str | None = None
     source_checkpoint: str | None = None
     group1_proposal_source_checkpoint: str | None = None
-    group1_query_source_checkpoint: str | None = None
     group1_embedder_source_checkpoint: str | None = None
     opset: int = GROUP2_DEFAULT_OPSET
 
@@ -206,12 +202,11 @@ def export_group2_solver_assets(request: ExportGroup2SolverAssetsRequest) -> Exp
 def _validate_group1_export_request(request: ExportSolverAssetsRequest) -> None:
     provided = [
         request.group1_proposal_checkpoint is not None,
-        request.group1_query_checkpoint is not None,
         request.group1_embedder_checkpoint is not None,
     ]
     if any(provided) and not all(provided):
         raise ValueError(
-            "group1 solver 资产导出必须同时提供 proposal/query/embedder 三个 checkpoint。"
+            "group1 solver 资产导出必须同时提供 proposal/embedder 两个 checkpoint。"
         )
     if all(provided) and not request.group1_run.strip():
         raise ValueError("group1 solver 资产导出缺少 group1_run。")
@@ -220,7 +215,6 @@ def _validate_group1_export_request(request: ExportSolverAssetsRequest) -> None:
 def _has_group1_assets(request: ExportSolverAssetsRequest) -> bool:
     return (
         request.group1_proposal_checkpoint is not None
-        and request.group1_query_checkpoint is not None
         and request.group1_embedder_checkpoint is not None
     )
 
@@ -236,54 +230,40 @@ def _export_group1_assets(
     model_paths: dict[str, Path] = {}
     metadata_paths: dict[str, Path] = {}
 
-    for model_id, component, checkpoint_path, explicit_source in (
-        (
-            GROUP1_PROPOSAL_MODEL_ID,
-            GROUP1_PROPOSAL_COMPONENT,
-            request.group1_proposal_checkpoint,
-            request.group1_proposal_source_checkpoint,
-        ),
-        (
-            GROUP1_QUERY_MODEL_ID,
-            GROUP1_QUERY_COMPONENT,
-            request.group1_query_checkpoint,
-            request.group1_query_source_checkpoint,
-        ),
-    ):
-        assert checkpoint_path is not None
-        model_path = model_dir / MODEL_FILENAMES[model_id]
-        exported_onnx = _export_yolo_onnx_from_checkpoint(
-            checkpoint_path=checkpoint_path,
-            output_path=model_path,
-            opset=request.opset,
+    assert request.group1_proposal_checkpoint is not None
+    proposal_model_path = model_dir / MODEL_FILENAMES[GROUP1_PROPOSAL_MODEL_ID]
+    proposal_onnx = _export_yolo_onnx_from_checkpoint(
+        checkpoint_path=request.group1_proposal_checkpoint,
+        output_path=proposal_model_path,
+        opset=request.opset,
+    )
+    proposal_asset = SolverOnnxModelAsset(
+        model_id=GROUP1_PROPOSAL_MODEL_ID,
+        task="group1",
+        component=GROUP1_PROPOSAL_COMPONENT,
+        opset=proposal_onnx.opset,
+        input_names=GROUP1_DETECT_INPUT_NAMES,
+        output_names=GROUP1_DETECT_OUTPUT_NAMES,
+        image_size=(proposal_onnx.image_size, proposal_onnx.image_size),
+        postprocess=GROUP1_DETECT_POSTPROCESS,
+    )
+    proposal_metadata_path = _write_model_metadata(
+        output_dir=request.output_dir,
+        metadata_dir=metadata_dir,
+        model_asset=proposal_asset,
+    )
+    assets.append(proposal_asset)
+    records.append(
+        _build_export_record(
+            model_asset=proposal_asset,
+            checkpoint_path=request.group1_proposal_checkpoint,
+            project_dir=request.project_dir,
+            explicit_source=request.group1_proposal_source_checkpoint,
+            model_path=proposal_model_path,
         )
-        model_asset = SolverOnnxModelAsset(
-            model_id=model_id,
-            task="group1",
-            component=component,
-            opset=exported_onnx.opset,
-            input_names=GROUP1_DETECT_INPUT_NAMES,
-            output_names=GROUP1_DETECT_OUTPUT_NAMES,
-            image_size=(exported_onnx.image_size, exported_onnx.image_size),
-            postprocess=GROUP1_DETECT_POSTPROCESS,
-        )
-        metadata_path = _write_model_metadata(
-            output_dir=request.output_dir,
-            metadata_dir=metadata_dir,
-            model_asset=model_asset,
-        )
-        assets.append(model_asset)
-        records.append(
-            _build_export_record(
-                model_asset=model_asset,
-                checkpoint_path=checkpoint_path,
-                project_dir=request.project_dir,
-                explicit_source=explicit_source,
-                model_path=model_path,
-            )
-        )
-        model_paths[model_id] = model_path
-        metadata_paths[model_id] = metadata_path
+    )
+    model_paths[GROUP1_PROPOSAL_MODEL_ID] = proposal_model_path
+    metadata_paths[GROUP1_PROPOSAL_MODEL_ID] = proposal_metadata_path
 
     embedder_model_path = model_dir / MODEL_FILENAMES[GROUP1_EMBEDDER_MODEL_ID]
     assert request.group1_embedder_checkpoint is not None
@@ -404,9 +384,9 @@ def _write_group1_ready_metadata(metadata_dir: Path) -> None:
                 "strategy": GROUP1_MATCHER_STRATEGY,
                 "models": {
                     "proposal_detector": GROUP1_PROPOSAL_MODEL_ID,
-                    "query_parser": GROUP1_QUERY_MODEL_ID,
                     "icon_embedder": GROUP1_EMBEDDER_MODEL_ID,
                 },
+                "query_splitter_strategy": "rule_based_v1",
                 "similarity_threshold": GROUP1_SIMILARITY_THRESHOLD,
                 "ambiguity_margin": GROUP1_AMBIGUITY_MARGIN,
             },

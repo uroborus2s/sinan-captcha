@@ -42,7 +42,16 @@ class RootCliTests(unittest.TestCase):
 
     def test_dispatches_materials_audit_group1_query(self) -> None:
         with patch("cli._run_command", return_value=0) as handler:
-            code = cli.main(["materials", "audit-group1-query", "--query-dir", "query", "--model", "qwen2.5vl:7b"])
+            code = cli.main(
+                [
+                    "materials",
+                    "audit-group1-query",
+                    "--query-dir",
+                    "query",
+                    "--model",
+                    "qwen2.5vl:7b",
+                ]
+            )
         self.assertEqual(code, 0)
         handler.assert_called_once_with(
             "materials.query_audit_cli",
@@ -51,7 +60,16 @@ class RootCliTests(unittest.TestCase):
 
     def test_dispatches_materials_collect_backgrounds(self) -> None:
         with patch("cli._run_command", return_value=0) as handler:
-            code = cli.main(["materials", "collect-backgrounds", "--source-dir", "backgrounds", "--model", "qwen2.5vl:7b"])
+            code = cli.main(
+                [
+                    "materials",
+                    "collect-backgrounds",
+                    "--source-dir",
+                    "backgrounds",
+                    "--model",
+                    "qwen2.5vl:7b",
+                ]
+            )
         self.assertEqual(code, 0)
         handler.assert_called_once_with(
             "materials.background_style_cli",
@@ -60,7 +78,16 @@ class RootCliTests(unittest.TestCase):
 
     def test_dispatches_solve_run(self) -> None:
         with patch("cli._run_command", return_value=0) as handler:
-            code = cli.main(["solve", "run", "--bundle-dir", "bundles/current", "--request", "req.json"])
+            code = cli.main(
+                [
+                    "solve",
+                    "run",
+                    "--bundle-dir",
+                    "bundles/current",
+                    "--request",
+                    "req.json",
+                ]
+            )
         self.assertEqual(code, 0)
         handler.assert_called_once_with(
             "solve.cli",

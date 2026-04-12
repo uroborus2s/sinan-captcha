@@ -16,7 +16,6 @@ from train.base import (
 from train.group1.service import (
     EMBEDDER_COMPONENT,
     PROPOSAL_COMPONENT,
-    QUERY_COMPONENT,
     resolve_group1_component_best_weights,
 )
 
@@ -117,7 +116,6 @@ def main(argv: list[str] | None = None) -> int:
 
     if task == "group1":
         proposal_model = args.proposal_model or resolve_group1_component_best_weights(train_root, args.train_name, PROPOSAL_COMPONENT)
-        query_model = args.query_model or resolve_group1_component_best_weights(train_root, args.train_name, QUERY_COMPONENT)
         embedder_model = args.embedder_model or resolve_group1_component_best_weights(train_root, args.train_name, EMBEDDER_COMPONENT)
         request = ModelTestRequest(
             task=task,
@@ -125,7 +123,7 @@ def main(argv: list[str] | None = None) -> int:
             train_name=args.train_name,
             dataset_config=dataset_config,
             model_path=proposal_model,
-            query_model_path=query_model,
+            query_model_path=args.query_model,
             embedder_model_path=embedder_model,
             source=source,
             project_dir=project_dir,

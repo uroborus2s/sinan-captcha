@@ -145,7 +145,7 @@ class ModelTestResult:
         next_actions = "\n".join(f"- {item}" for item in self.next_actions)
         workflow_line = ""
         if self.task == "group1":
-            workflow_line = "- 本次重点验证最终位置挑选：query parser + proposal detector + icon embedder + matcher。"
+            workflow_line = "- 本次重点验证最终位置挑选：query splitter + proposal detector + icon embedder + matcher。"
         elif self.task == "group2":
             workflow_line = "- 本次重点验证最终定位结果，而不是单纯看中间特征。"
         return "\n".join(
@@ -198,16 +198,14 @@ def build_model_test_jobs(
     request: ModelTestRequest,
 ) -> tuple[PredictionJob | Group1PredictionJob | Group2PredictionJob, ValidationJob | CommandPreview]:
     if request.task == "group1":
-        if request.query_model_path is None:
-            raise RuntimeError("group1 模型测试缺少 query_model_path。")
         prediction_job = build_group1_prediction_job(
             dataset_config=request.dataset_config,
             proposal_model_path=request.model_path,
-            query_model_path=request.query_model_path,
             embedder_model_path=request.embedder_model_path,
             source=request.source,
             project_dir=request.project_dir,
             run_name=request.predict_name,
+            query_model_path=request.query_model_path,
             conf=request.conf,
             imgsz=request.imgsz,
             device=request.device,
@@ -316,11 +314,9 @@ def run_model_test(request: ModelTestRequest) -> ModelTestResult:
 
 def _run_group1_model_test(request: ModelTestRequest) -> ModelTestResult:
     _ensure_training_dependencies("group1")
-    if request.query_model_path is None:
-        raise RuntimeError("group1 模型测试缺少 query parser 权重。")
     if not request.model_path.exists():
         raise RuntimeError(f"未找到 group1 proposal detector 权重：{request.model_path}")
-    if not request.query_model_path.exists():
+    if request.query_model_path is not None and not request.query_model_path.exists():
         raise RuntimeError(f"未找到 group1 query parser 权重：{request.query_model_path}")
     dataset_config = load_group1_dataset_config(request.dataset_config)
     if (
@@ -336,11 +332,11 @@ def _run_group1_model_test(request: ModelTestRequest) -> ModelTestResult:
     prediction_job = build_group1_prediction_job(
         dataset_config=request.dataset_config,
         proposal_model_path=request.model_path,
-        query_model_path=request.query_model_path,
         embedder_model_path=request.embedder_model_path,
         source=request.source,
         project_dir=request.project_dir,
         run_name=request.predict_name,
+        query_model_path=request.query_model_path,
         conf=request.conf,
         imgsz=request.imgsz,
         device=request.device,
@@ -614,7 +610,7 @@ def _build_next_actions(task: str, metrics: dict[str, float | None]) -> list[str
         if full_sequence_hit_rate is not None and full_sequence_hit_rate < 0.7:
             next_actions.append("优先补更多 query/scene 成对难样本，特别是相似图标、边缘位置和复杂背景样本。")
         if order_error_rate is not None and order_error_rate > 0.2:
-            next_actions.append("重点检查 query parser 的检测排序和 matcher 规则，确认 query_items 的 order 恢复是否稳定。")
+            next_actions.append("重点检查 query splitter 的切分排序和 matcher 规则，确认 query_items 的 order 恢复是否稳定。")
         if center_error is not None and center_error > 12:
             next_actions.append("当前更像是 proposal detector 定位偏差偏大，建议固定数据集后单独调 imgsz、batch 或继续训练轮数。")
         if not next_actions:
@@ -684,7 +680,7 @@ def _render_markdown(result: ModelTestResult) -> str:
         f"- {result.verdict_detail}",
         "- 这是一份入门级阅读口径，方便你先判断“这轮值不值得继续”。",
         *(
-            ["- 这次重点验证最终位置挑选链路：query parser + proposal detector + icon embedder + matcher。"]
+            ["- 这次重点验证最终位置挑选链路：query splitter + proposal detector + icon embedder + matcher。"]
             if result.task == "group1"
             else []
         ),

@@ -8,6 +8,7 @@ from pathlib import Path
 from typing import Any
 
 from sinanz_errors import SolverRuntimeError
+from sinanz_query_splitter import split_query_icons
 
 DEFAULT_DETECT_IMGSZ = 640
 DEFAULT_EMBEDDER_IMGSZ = 64
@@ -48,7 +49,6 @@ class ClickTargetsRuntimeResult:
 def match_click_targets(
     *,
     proposal_model_path: Path,
-    query_model_path: Path,
     embedder_model_path: Path,
     query_image_path: Path,
     background_image_path: Path,
@@ -57,14 +57,23 @@ def match_click_targets(
     ort = _load_onnxruntime()
     providers = _select_execution_providers(ort, device)
     proposal_session = ort.InferenceSession(str(proposal_model_path), providers=providers)
-    query_session = ort.InferenceSession(str(query_model_path), providers=providers)
     embedder_session = ort.InferenceSession(str(embedder_model_path), providers=providers)
 
     np, image_cls = _load_image_modules()
     query_image = _load_rgb_image(image_cls, query_image_path)
     background_image = _load_rgb_image(image_cls, background_image_path)
 
-    query_detections = _run_detection_session(np, query_session, query_image, ordered=True)
+    query_detections = [
+        DetectedTarget(
+            order=item.order,
+            bbox=item.bbox,
+            center=item.center,
+            score=item.score,
+            class_id=item.order - 1,
+            class_name=f"query_item_{item.order:02d}",
+        )
+        for item in split_query_icons(query_image_path)
+    ]
     scene_detections = _run_detection_session(np, proposal_session, background_image, ordered=False)
     query_embeddings = [
         _embed_detection(np, embedder_session, query_image, detection)

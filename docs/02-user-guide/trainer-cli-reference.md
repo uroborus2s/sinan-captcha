@@ -271,7 +271,10 @@ uv run sinan materials audit-group1-query --model gemma4:26b --overwrite --yes
 
 #### 用途
 
-使用本地 Ollama 多模态模型分析参考文件夹中的背景图片风格，忽略图标、缺口、滑块、文字和点击目标等前景信息，再用生成的英文搜索词从 Pexels 下载风格类似的背景图。
+使用本地 Ollama 多模态模型直接分析参考文件夹中的原始背景图片风格，忽略图标、缺口、滑块、文字和点击目标等前景信息，再用生成的英文搜索词从 Pexels 下载风格类似的背景图。
+
+当前正式主线不强依赖自动前景修补或 inpaint。若参考图里带有验证码干扰元素，命令会直接把原图送给多模态模型，并通过提示词要求模型只关注背景风格。
+同一 `--output-root` 下重跑时，命令会自动复用已完成的逐图分析结果和已保存的下载任务状态。
 
 #### 适用场景
 
@@ -292,6 +295,10 @@ uv run sinan materials collect-backgrounds \
   [--per-query <int>] \
   [--limit <int>] \
   [--orientation landscape|portrait|square] \
+  [--min-width <int>] \
+  [--min-height <int>] \
+  [--max-hamming-distance <int>] \
+  [--merge-into <materials-root>] \
   [--api-key-env PEXELS_API_KEY] \
   [--dry-run] \
   [--quiet]
@@ -308,8 +315,19 @@ uv run sinan materials collect-backgrounds \
 | `--max-queries` | 默认 `5`，大模型输出的英文搜索词上限。 |
 | `--per-query` | 默认 `8`，每个搜索词最多下载的图片数。 |
 | `--limit` | 全局下载上限。 |
+| `--min-width` | 默认 `256`。下载图片的最小宽度；小于阈值会被跳过。 |
+| `--min-height` | 默认 `128`。下载图片的最小高度；小于阈值会被跳过。 |
+| `--max-hamming-distance` | 默认 `0`。重复抑制阈值；`0` 只做保守重复检测。 |
+| `--merge-into` | 可选。把通过质量门的新背景图增量并入指定正式素材根的 `backgrounds/` 与 `manifests/backgrounds.csv`。 |
 | `--api-key-env` | 默认 `PEXELS_API_KEY`，用于读取 Pexels API key。 |
 | `--dry-run` | 只分析风格和输出搜索词，不访问 Pexels、不下载图片。 |
+
+#### 断点续传与状态文件
+
+- `output-root/reports/background-style-image-analysis.jsonl`：逐张参考图的分析结果。已成功分析的图片下次会按 `image_path + image_sha256` 复用。
+- `output-root/reports/background-style-summary.json`：根据逐图分析结果汇总出来的最终背景风格画像和搜索词。
+- `output-root/reports/background-style-download-state.json`：每个搜索词的下载任务状态，记录目标数量、已下载数量、已拒绝数量和下一页游标。
+- 若命令在下载阶段中断，只要重用同一 `--output-root` 重跑，就会从上次保存的任务状态继续，而不是从第一页重新开始。
 
 #### 最小示例
 
@@ -326,7 +344,11 @@ uv run sinan materials collect-backgrounds \
 - `output-root/backgrounds/` 下生成下载的背景图。
 - `output-root/manifests/materials.yaml` 会补齐素材根 schema 标记。
 - `output-root/manifests/backgrounds.csv` 记录来源、搜索词、作者和文件名。
-- `output-root/reports/background-style-collection.json` 记录背景风格画像、大模型原始输出和下载结果。
+- `output-root/reports/background-style-image-analysis.jsonl` 记录逐图分析 checkpoint。
+- `output-root/reports/background-style-summary.json` 记录汇总后的背景风格画像和搜索词。
+- `output-root/reports/background-style-download-state.json` 记录下载任务流状态。
+- `output-root/reports/background-style-collection.json` 记录复用计数、下载任务统计、下载成功项、跳过原因和正式合并结果。
+- 若指定 `--merge-into`，目标素材根的 `backgrounds/` 与 `manifests/backgrounds.csv` 会增量更新，且不会改写已有 `group1/group2` manifest。
 
 ### 4.4 `dataset validate`
 

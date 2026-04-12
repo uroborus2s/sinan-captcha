@@ -13,7 +13,6 @@ from train.base import default_best_weights
 from train.group1.service import (
     EMBEDDER_COMPONENT,
     PROPOSAL_COMPONENT,
-    QUERY_COMPONENT,
     resolve_group1_component_best_weights,
 )
 
@@ -34,7 +33,7 @@ class SolverBundle:
     bundle_version: str
     manifest_path: Path
     proposal_model_path: Path
-    query_model_path: Path
+    query_model_path: Path | None
     icon_embedder_model_path: Path
     matcher_config_path: Path
     group2_model_path: Path
@@ -46,7 +45,7 @@ class SolverBundle:
             "manifest": str(self.manifest_path),
             "router_strategy": self.router_strategy,
             "proposal_model": str(self.proposal_model_path),
-            "query_model": str(self.query_model_path),
+            **({"query_model": str(self.query_model_path)} if self.query_model_path is not None else {}),
             "icon_embedder_model": str(self.icon_embedder_model_path),
             "matcher_config": str(self.matcher_config_path),
             "group2_model": str(self.group2_model_path),
@@ -63,12 +62,10 @@ def build_solver_bundle(
     force: bool = False,
 ) -> SolverBundle:
     proposal_source = resolve_group1_component_best_weights(train_root, group1_run, PROPOSAL_COMPONENT)
-    query_source = resolve_group1_component_best_weights(train_root, group1_run, QUERY_COMPONENT)
     embedder_source = resolve_group1_component_best_weights(train_root, group1_run, EMBEDDER_COMPONENT)
     group2_source = default_best_weights(train_root, "group2", group2_run)
     for label, source in (
         ("group1 proposal-detector", proposal_source),
-        ("group1 query-parser", query_source),
         ("group1 icon-embedder", embedder_source),
         ("group2 locator", group2_source),
     ):
@@ -82,12 +79,10 @@ def build_solver_bundle(
 
     version = bundle_version or bundle_dir.name
     proposal_target = bundle_dir / "models" / "group1" / PROPOSAL_COMPONENT / "model.pt"
-    query_target = bundle_dir / "models" / "group1" / QUERY_COMPONENT / "model.pt"
     embedder_target = bundle_dir / "models" / "group1" / EMBEDDER_COMPONENT / "model.pt"
     matcher_target = bundle_dir / "models" / "group1" / "matcher" / "config.json"
     group2_target = bundle_dir / "models" / "group2" / "locator" / "model.pt"
     _copy_with_metadata(proposal_source, proposal_target, source_run=group1_run, component=PROPOSAL_COMPONENT)
-    _copy_with_metadata(query_source, query_target, source_run=group1_run, component=QUERY_COMPONENT)
     _copy_with_metadata(embedder_source, embedder_target, source_run=group1_run, component=EMBEDDER_COMPONENT)
     _copy_with_metadata(group2_source, group2_target, source_run=group2_run, component="locator")
     matcher_target.parent.mkdir(parents=True, exist_ok=True)
@@ -120,11 +115,6 @@ def build_solver_bundle(
                     "format": "ultralytics.detect.pt.v1",
                     "path": proposal_target.relative_to(bundle_dir).as_posix(),
                     "metadata": proposal_target.with_name("metadata.json").relative_to(bundle_dir).as_posix(),
-                },
-                "query_parser": {
-                    "format": "ultralytics.detect.pt.v1",
-                    "path": query_target.relative_to(bundle_dir).as_posix(),
-                    "metadata": query_target.with_name("metadata.json").relative_to(bundle_dir).as_posix(),
                 },
                 "icon_embedder": {
                     "format": "sinan.group1.icon_embedder.pt.v1",
@@ -179,7 +169,7 @@ def load_solver_bundle(bundle_dir: Path) -> SolverBundle:
     group1 = _require_dict(models.get("group1"), field="models.group1")
     group2 = _require_dict(models.get("group2"), field="models.group2")
     proposal_model = _resolve_model_path(bundle_dir, _require_dict(group1.get("proposal_detector"), field="models.group1.proposal_detector"))
-    query_model = _resolve_model_path(bundle_dir, _require_dict(group1.get("query_parser"), field="models.group1.query_parser"))
+    query_model = _resolve_optional_model_path(bundle_dir, group1.get("query_parser"), field="models.group1.query_parser")
     icon_embedder_model = _resolve_model_path(bundle_dir, _require_dict(group1.get("icon_embedder"), field="models.group1.icon_embedder"))
     matcher = _require_dict(group1.get("matcher"), field="models.group1.matcher")
     matcher_config = _resolve_relative_path(bundle_dir, matcher.get("path"), field="models.group1.matcher.path")
@@ -214,6 +204,12 @@ def _copy_with_metadata(source: Path, target: Path, *, source_run: str, componen
 
 def _resolve_model_path(bundle_dir: Path, model_payload: dict[str, Any]) -> Path:
     return _resolve_relative_path(bundle_dir, model_payload.get("path"), field="model.path")
+
+
+def _resolve_optional_model_path(bundle_dir: Path, model_payload: Any, *, field: str) -> Path | None:
+    if model_payload is None:
+        return None
+    return _resolve_model_path(bundle_dir, _require_dict(model_payload, field=field))
 
 
 def _resolve_relative_path(bundle_dir: Path, raw_path: Any, *, field: str) -> Path:

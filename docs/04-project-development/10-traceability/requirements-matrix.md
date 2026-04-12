@@ -90,6 +90,11 @@
 | REQ-015 | 落点 | docs/04-project-development/05-development-process/standalone-solver-migration-task-breakdown.md | 有效 | 2026-04-11 | Codex | 已新增 `TASK-SOLVER-MIG-013/014/015` 实施任务 |
 | REQ-015 | 落点 | docs/02-user-guide/solver-package-usage-guide.md | 有效 | 2026-04-11 | Codex | 已同步当前限制与目标输入口径说明 |
 | REQ-015 | 落点 | docs/02-user-guide/solver-package-function-reference.md | 有效 | 2026-04-11 | Codex | 已同步输入类型定义与实施状态说明 |
+| REQ-016 | 来源 | docs/04-project-development/02-discovery/input.md | 有效 | 2026-04-12 | Codex | 已明确需要扩充背景素材且样本来源必须来自授权环境 |
+| REQ-016 | 落点 | docs/04-project-development/03-requirements/prd.md | 有效 | 2026-04-12 | Codex | 已定义背景素材扩充、质量门与正式 backgrounds 合并要求 |
+| REQ-016 | 落点 | docs/04-project-development/03-requirements/requirements-analysis.md | 有效 | 2026-04-12 | Codex | 已分析原图直送 VLM 策略、质量门和合并风险 |
+| REQ-016 | 落点 | docs/04-project-development/04-design/background-material-expansion-design.md | 有效 | 2026-04-12 | Codex | 已冻结不依赖自动修补的正式设计策略 |
+| REQ-016 | 落点 | docs/04-project-development/05-development-process/background-material-expansion-task-breakdown.md | 有效 | 2026-04-12 | Codex | 已拆出 `TASK-MAT-BG-001` 到 `TASK-MAT-BG-006` |
 
 ## 更新记录
 
@@ -98,3 +103,4 @@
 - 2026-04-05：按最新业务澄清重构追踪矩阵，正式把求解包/库提升为一级产品，维护人：Codex。
 - 2026-04-11：按 `group1` 实例匹配重构决策更新追踪关系，并补入 `REQ-011` 到 `REQ-014`，维护人：Codex。
 - 2026-04-11：新增 `REQ-015`（多输入与全格式兼容）追踪关系，并补入 solver 输入适配任务，维护人：Codex。
+- 2026-04-12：新增 `REQ-016`（背景素材扩充、质量门与正式 backgrounds 合并）追踪关系，维护人：Codex。

@@ -2,7 +2,7 @@
 
 - 文档状态：实施中
 - 当前阶段：IMPLEMENTATION
-- 最近更新：2026-04-11
+- 最近更新：2026-04-12
 - 负责人：Codex
 - 上游输入：
   - `docs/04-project-development/04-design/group1-instance-matching-refactor.md`
@@ -193,6 +193,14 @@
     - embedding 全局 assignment 与歧义拒判
   - `sinanz.sn_match_targets(...)` / `CaptchaSolver.sn_match_targets(...)` 已不再是占位接口
   - 当前 `TASK-G1-REF-008` 已收口到首版正式 E2E
+- 当前 2026-04-12 已完成主链路 query cutover：
+  - `uv run sinan predict group1`
+  - `uv run sinan test group1`
+  - `UnifiedSolverService`
+  - `auto-train test / business_eval`
+  默认已改为 `query splitter + proposal detector + icon embedder + matcher`
+  - 主链路默认不再解析 `query-parser` 权重
+  - `query-parser` 仅保留为 legacy 训练/预标注能力
 
 ### `TASK-G1-REF-011`
 
@@ -216,6 +224,10 @@
     - `onnxruntime`
     - staged ONNX assets
 - 当前 `TASK-G1-REF-011` 已按现阶段目标收口；Rust/native 不再作为本任务验收前置
+- 当前 2026-04-12 已完成 solver 资产收口：
+  - `export-solver-assets` 主线已移除 `click_query_parser.onnx`
+  - `metadata/click_matcher.json` 已改为声明 `query_splitter_strategy = rule_based_v1`
+  - 独立 `sinanz` 包已内置规则式 query splitter，不再要求 query parser ONNX 模型
 
 ### `TASK-G1-REF-010`
 
@@ -248,3 +260,11 @@
   - 删除清单
   - cutover 验证记录
   - 回归测试结果
+- 当前 2026-04-12 已完成第一批正式删除/收口：
+  - 已从默认 CLI、默认 bundle、默认 solver 资产导出和 auto-train 主链路移除 `query-parser` 依赖
+  - 已删除主线对 `click_query_parser.onnx` 的正式交付要求
+  - 已补齐主仓库与 `sinanz` 包的 cutover 回归测试
+- 当前仍保留的 legacy 边界：
+  - `train group1 --component query-parser`
+  - `train group1 prelabel`
+  - `train group1 prelabel-query-dir`

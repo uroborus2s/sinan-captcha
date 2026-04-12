@@ -238,7 +238,6 @@ def build_parser() -> argparse.ArgumentParser:
         help="Export group1/group2 PT checkpoints into sinanz ONNX solver assets.",
     )
     export_parser.add_argument("--group1-proposal-checkpoint", type=Path, default=None)
-    export_parser.add_argument("--group1-query-checkpoint", type=Path, default=None)
     export_parser.add_argument("--group1-embedder-checkpoint", type=Path, default=None)
     export_parser.add_argument("--group1-run", default="")
     export_parser.add_argument("--group2-checkpoint", type=Path, required=True)
@@ -297,7 +296,6 @@ def _handle_export_solver_assets(args: argparse.Namespace, *, layout: RepoLayout
         ExportSolverAssetsRequest(
             project_dir=layout.repo_root,
             group1_proposal_checkpoint=args.group1_proposal_checkpoint,
-            group1_query_checkpoint=args.group1_query_checkpoint,
             group1_embedder_checkpoint=args.group1_embedder_checkpoint,
             group1_run=args.group1_run,
             group2_checkpoint=args.group2_checkpoint,

@@ -16,7 +16,6 @@ from sinanz_types import (
 )
 
 GROUP1_PROPOSAL_MODEL_FILENAME = "click_proposal_detector.onnx"
-GROUP1_QUERY_MODEL_FILENAME = "click_query_parser.onnx"
 GROUP1_EMBEDDER_MODEL_FILENAME = "click_icon_embedder.onnx"
 
 
@@ -28,14 +27,13 @@ def solve_click_targets(
     asset_root: Path | None,
     return_debug: bool,
 ) -> OrderedClickTargetsResult:
-    proposal_model_path, query_model_path, embedder_model_path = _resolve_group1_models(asset_root)
+    proposal_model_path, embedder_model_path = _resolve_group1_models(asset_root)
     with (
         resolved_image_path(query_icons_image, field="query_icons_image") as query_path,
         resolved_image_path(background_image, field="background_image") as background_path,
     ):
         runtime_result = group1_runtime.match_click_targets(
             proposal_model_path=proposal_model_path,
-            query_model_path=query_model_path,
             embedder_model_path=embedder_model_path,
             query_image_path=query_path,
             background_image_path=background_path,
@@ -58,7 +56,7 @@ def solve_click_targets(
             f"device={device}",
             f"runtime={runtime_result.runtime_target}",
             f"model={GROUP1_PROPOSAL_MODEL_FILENAME}",
-            f"query-model={GROUP1_QUERY_MODEL_FILENAME}",
+            "query-splitter=rule_based_v1",
             f"embedder={GROUP1_EMBEDDER_MODEL_FILENAME}",
         ]
         if runtime_result.execution_provider:
@@ -73,11 +71,10 @@ def solve_click_targets(
     )
 
 
-def _resolve_group1_models(asset_root: Path | None) -> tuple[Path, Path, Path]:
+def _resolve_group1_models(asset_root: Path | None) -> tuple[Path, Path]:
     if asset_root is not None:
         return (
             _require_model(asset_root / GROUP1_PROPOSAL_MODEL_FILENAME, label="点选 proposal"),
-            _require_model(asset_root / GROUP1_QUERY_MODEL_FILENAME, label="点选 query"),
             _require_model(asset_root / GROUP1_EMBEDDER_MODEL_FILENAME, label="点选 embedder"),
         )
 
@@ -86,10 +83,6 @@ def _resolve_group1_models(asset_root: Path | None) -> tuple[Path, Path, Path]:
         _require_model(
             embedded_root / GROUP1_PROPOSAL_MODEL_FILENAME,
             label="内嵌点选 proposal",
-        ),
-        _require_model(
-            embedded_root / GROUP1_QUERY_MODEL_FILENAME,
-            label="内嵌点选 query",
         ),
         _require_model(
             embedded_root / GROUP1_EMBEDDER_MODEL_FILENAME,

@@ -1,4 +1,4 @@
-"""Proposal-detector + query-parser + icon-embedder job helpers for group1."""
+"""Proposal-detector + icon-embedder job helpers for group1."""
 
 from __future__ import annotations
 
@@ -74,7 +74,7 @@ class Group1TrainingJob:
 class Group1PredictionJob:
     dataset_config: Path
     proposal_model_path: Path
-    query_model_path: Path
+    query_model_path: Path | None
     embedder_model_path: Path | None
     source: Path
     project_dir: Path
@@ -98,8 +98,7 @@ class Group1PredictionJob:
             str(self.dataset_config),
             "--proposal-model",
             str(self.proposal_model_path),
-            "--query-model",
-            str(self.query_model_path),
+            *(["--query-model", str(self.query_model_path)] if self.query_model_path is not None else []),
             *(["--embedder-model", str(self.embedder_model_path)] if self.embedder_model_path is not None else []),
             "--source",
             str(self.source),
@@ -142,10 +141,11 @@ def build_group1_training_job(
     imgsz: int = 640,
     device: str = "0",
     resume: bool = False,
+    include_query_component: bool = True,
 ) -> Group1TrainingJob:
     normalized_component = normalize_group1_component(component)
     resolved_proposal_model = proposal_model or model
-    resolved_query_model = query_model or model
+    resolved_query_model = query_model if not include_query_component else (query_model or model)
     resolved_embedder_model = embedder_model
     if normalized_component == PROPOSAL_COMPONENT:
         resolved_query_model = None
@@ -175,11 +175,11 @@ def build_group1_training_job(
 def build_group1_prediction_job(
     dataset_config: Path,
     proposal_model_path: Path,
-    query_model_path: Path,
     source: Path,
     project_dir: Path,
     run_name: str,
     *,
+    query_model_path: Path | None = None,
     embedder_model_path: Path | None = None,
     conf: float = 0.25,
     imgsz: int = 640,
@@ -229,7 +229,7 @@ def run_group1_prediction_job(job: Group1PredictionJob) -> Group1PredictionResul
     dataset_config = load_group1_dataset_config(job.dataset_config)
     if not job.proposal_model_path.exists():
         raise RuntimeError(f"未找到 group1 proposal detector 权重：{job.proposal_model_path}")
-    if not job.query_model_path.exists():
+    if job.query_model_path is not None and not job.query_model_path.exists():
         raise RuntimeError(f"未找到 group1 query parser 权重：{job.query_model_path}")
     if dataset_config.is_instance_matching and job.embedder_model_path is None:
         raise RuntimeError("group1 instance-matching 预测缺少 icon embedder 权重。")

@@ -7,6 +7,7 @@ from pathlib import Path
 import time
 from typing import Any
 
+from inference.query_splitter import split_group1_query_image
 from inference.service import Group1ClickTarget, map_group1_instances
 from solve.bundle import SolverBundle, load_solver_bundle
 from solve import group2_runtime
@@ -32,7 +33,6 @@ class UnifiedSolverService:
     def __init__(self, bundle: SolverBundle) -> None:
         self.bundle = bundle
         self._proposal_model: Any | None = None
-        self._query_model: Any | None = None
         self._group1_embedder_cache: dict[str, Any] = {}
         self._group2_cache: dict[str, tuple[Any, int, Any]] = {}
 
@@ -94,16 +94,9 @@ class UnifiedSolverService:
         if not inputs.scene_image.exists():
             raise FileNotFoundError(f"未找到 scene_image：{inputs.scene_image}")
 
-        proposal_model, query_model = self._load_group1_models()
+        proposal_model = self._load_group1_proposal_model()
         embedding_provider = self._load_group1_embedder(device)
         started = time.perf_counter()
-        query_result = query_model.predict(
-            source=str(inputs.query_image),
-            imgsz=GROUP1_IMGSZ,
-            conf=GROUP1_CONF,
-            device=device,
-            verbose=False,
-        )[0]
         proposal_result = proposal_model.predict(
             source=str(inputs.scene_image),
             imgsz=GROUP1_IMGSZ,
@@ -113,7 +106,7 @@ class UnifiedSolverService:
         )[0]
         inference_ms = (time.perf_counter() - started) * 1000.0
 
-        query_items = _serialize_yolo_detections(query_result, ordered=True)
+        query_items = split_group1_query_image(inputs.query_image)
         scene_detections = _serialize_yolo_detections(proposal_result, ordered=False)
         matcher_kwargs: dict[str, Any] = {
             "query_image_path": inputs.query_image,
@@ -167,16 +160,15 @@ class UnifiedSolverService:
             payload["tile_start_bbox"] = list(inputs.tile_start_bbox)
         return payload
 
-    def _load_group1_models(self) -> tuple[Any, Any]:
-        if self._proposal_model is not None and self._query_model is not None:
-            return self._proposal_model, self._query_model
+    def _load_group1_proposal_model(self) -> Any:
+        if self._proposal_model is not None:
+            return self._proposal_model
         try:
             from ultralytics import YOLO
         except Exception as exc:  # pragma: no cover - import path depends on host env
             raise RuntimeError("当前环境缺少 `ultralytics`，无法加载 group1 solver bundle。") from exc
         self._proposal_model = YOLO(str(self.bundle.proposal_model_path))
-        self._query_model = YOLO(str(self.bundle.query_model_path))
-        return self._proposal_model, self._query_model
+        return self._proposal_model
 
     def _load_group1_embedder(self, device: str) -> Any:
         if device not in self._group1_embedder_cache:

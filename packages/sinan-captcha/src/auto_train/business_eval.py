@@ -23,7 +23,6 @@ from train.base import default_dataset_config, preferred_checkpoint_path, prefer
 from train.group1.service import (
     EMBEDDER_COMPONENT,
     PROPOSAL_COMPONENT,
-    QUERY_COMPONENT,
     resolve_group1_component_best_weights,
     resolve_group1_component_last_weights,
 )
@@ -362,7 +361,7 @@ def _build_business_model_test_request(
             train_name=train_name,
             dataset_config=dataset_config,
             model_path=_preferred_group1_component_weights(train_root, train_name, PROPOSAL_COMPONENT),
-            query_model_path=_preferred_group1_component_weights(train_root, train_name, QUERY_COMPONENT),
+            query_model_path=None,
             embedder_model_path=_preferred_group1_component_weights(train_root, train_name, EMBEDDER_COMPONENT),
             source=source,
             project_dir=report_dir / "modeltest",

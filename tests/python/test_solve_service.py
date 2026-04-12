@@ -48,10 +48,9 @@ class SolveBundleTests(unittest.TestCase):
             root = Path(tmpdir)
             train_root = root / "train-root"
             proposal_weight = train_root / "runs" / "group1" / "firstpass" / "proposal-detector" / "weights" / "best.pt"
-            query_weight = train_root / "runs" / "group1" / "firstpass" / "query-parser" / "weights" / "best.pt"
             embedder_weight = train_root / "runs" / "group1" / "firstpass" / "icon-embedder" / "weights" / "best.pt"
             group2_weight = train_root / "runs" / "group2" / "firstpass" / "weights" / "best.pt"
-            for path in (proposal_weight, query_weight, embedder_weight, group2_weight):
+            for path in (proposal_weight, embedder_weight, group2_weight):
                 path.parent.mkdir(parents=True, exist_ok=True)
                 path.write_text("weights", encoding="utf-8")
 
@@ -66,7 +65,6 @@ class SolveBundleTests(unittest.TestCase):
             self.assertEqual(loaded.bundle_version, "current")
             self.assertTrue(loaded.manifest_path.exists())
             self.assertTrue(loaded.proposal_model_path.exists())
-            self.assertTrue(loaded.query_model_path.exists())
             self.assertIsNotNone(loaded.icon_embedder_model_path)
             self.assertTrue(loaded.icon_embedder_model_path.exists())
             self.assertTrue(loaded.group2_model_path.exists())
@@ -124,9 +122,10 @@ class UnifiedSolverServiceTests(unittest.TestCase):
             )
 
             with (
-                patch.object(service.UnifiedSolverService, "_load_group1_models", return_value=(_FakeGroup1Model(), _FakeGroup1Model())),
+                patch.object(service.UnifiedSolverService, "_load_group1_proposal_model", return_value=_FakeGroup1Model()),
                 patch.object(service.UnifiedSolverService, "_load_group1_embedder", return_value=None),
-                patch("solve.service._serialize_yolo_detections", side_effect=[fake_query_items, fake_scene_targets]),
+                patch("solve.service.split_group1_query_image", return_value=fake_query_items),
+                patch("solve.service._serialize_yolo_detections", return_value=fake_scene_targets),
                 patch("solve.service.map_group1_instances", return_value=fake_mapping) as matcher,
             ):
                 response = solver.solve(request)
@@ -168,9 +167,10 @@ class UnifiedSolverServiceTests(unittest.TestCase):
             )
 
             with (
-                patch.object(service.UnifiedSolverService, "_load_group1_models", return_value=(_FakeGroup1Model(), _FakeGroup1Model())),
+                patch.object(service.UnifiedSolverService, "_load_group1_proposal_model", return_value=_FakeGroup1Model()),
                 patch.object(service.UnifiedSolverService, "_load_group1_embedder", return_value=fake_embedder),
-                patch("solve.service._serialize_yolo_detections", side_effect=[[], []]),
+                patch("solve.service.split_group1_query_image", return_value=[]),
+                patch("solve.service._serialize_yolo_detections", return_value=[]),
                 patch("solve.service.map_group1_instances", return_value=fake_mapping) as matcher,
             ):
                 response = solver.solve(request)
@@ -290,7 +290,7 @@ def _fake_bundle(*, icon_embedder: bool = False) -> bundle.SolverBundle:
         bundle_version="bundle_20260405",
         manifest_path=fake_root / "manifest.json",
         proposal_model_path=fake_root / "models" / "group1" / "proposal-detector" / "model.pt",
-        query_model_path=fake_root / "models" / "group1" / "query-parser" / "model.pt",
+        query_model_path=None,
         icon_embedder_model_path=fake_root / "models" / "group1" / "icon-embedder" / "model.pt",
         matcher_config_path=fake_root / "models" / "group1" / "matcher" / "config.json",
         group2_model_path=fake_root / "models" / "group2" / "locator" / "model.pt",
