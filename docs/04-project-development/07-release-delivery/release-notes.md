@@ -89,7 +89,7 @@
 
 - `manifest.json`
 - `models/group1/scene-detector/...`
-- `models/group1/query-parser/...`
+- `models/group1/icon-embedder/...`
 - `models/group1/matcher/...`
 - `models/group2/locator/...`
 

@@ -113,7 +113,7 @@
 - 第一阶段已要求：
   - Python `group1 dataset loader` 能读取 `sinan.group1.instance_matching.v1`
   - `train group1` 至少能消费 `proposal-yolo/dataset.yaml`
-  - 当 `dataset.json` 未提供 `query_parser` 数据集时，训练入口必须显式拒绝该组件，而不是静默读旧目录
+  - 训练入口必须只接受 `proposal-detector` 与 `icon-embedder` 组件，不得静默回退到旧 query 检测链路
 - 第二阶段再进入：
   - `proposal detector` 真实训练指标
   - embedder / matcher 主线接管最终位置挑选
@@ -210,11 +210,10 @@
 - 当前 2026-04-11 已完成第三实现切片：
   - `uv run sinan release export-solver-assets` 已能同时导出：
     - `click_proposal_detector.onnx`
-    - `click_query_parser.onnx`
     - `click_icon_embedder.onnx`
     - `slider_gap_locator.onnx`
   - `solver/src/sinanz_group1_runtime.py` 已提供：
-    - query parser / proposal detector ONNX Runtime 调用
+    - 内置 query splitter / proposal detector 运行时调用
     - icon embedder ONNX Runtime 调用
     - embedding 全局 assignment 与歧义拒判
   - `sinanz.sn_match_targets(...)` / `CaptchaSolver.sn_match_targets(...)` 已不再是占位接口
@@ -225,8 +224,8 @@
   - `UnifiedSolverService`
   - `auto-train test / business_eval`
   默认已改为 `query splitter + proposal detector + icon embedder + matcher`
-  - 主链路默认不再解析 `query-parser` 权重
-  - `query-parser` 仅保留为 legacy 训练/预标注能力
+  - 主链路默认不再解析独立 query 检测模型权重
+  - 旧 query 检测组件已从正式训练/预标注边界删除
 
 ### `TASK-G1-REF-011`
 
@@ -251,9 +250,9 @@
     - staged ONNX assets
 - 当前 `TASK-G1-REF-011` 已按现阶段目标收口；Rust/native 不再作为本任务验收前置
 - 当前 2026-04-12 已完成 solver 资产收口：
-  - `export-solver-assets` 主线已移除 `click_query_parser.onnx`
+  - `export-solver-assets` 主线已移除独立 query 检测模型导出物
   - `metadata/click_matcher.json` 已改为声明 `query_splitter_strategy = rule_based_v1`
-  - 独立 `sinanz` 包已内置规则式 query splitter，不再要求 query parser ONNX 模型
+  - 独立 `sinanz` 包已内置规则式 query splitter，不再要求独立 query 检测模型
 
 ### `TASK-G1-REF-010`
 
@@ -287,10 +286,10 @@
   - cutover 验证记录
   - 回归测试结果
 - 当前 2026-04-12 已完成第一批正式删除/收口：
-  - 已从默认 CLI、默认 bundle、默认 solver 资产导出和 auto-train 主链路移除 `query-parser` 依赖
-  - 已删除主线对 `click_query_parser.onnx` 的正式交付要求
+  - 已从默认 CLI、默认 bundle、默认 solver 资产导出和 auto-train 主链路移除旧 query 检测依赖
+  - 已删除主线对独立 query 检测 ONNX 资产的正式交付要求
   - 已补齐主仓库与 `sinanz` 包的 cutover 回归测试
-- 当前仍保留的 legacy 边界：
-  - `train group1 --component query-parser`
-  - `train group1 prelabel`
-  - `train group1 prelabel-query-dir`
+- 当前 2026-04-12 已完成第二批正式删除/收口：
+  - 已删除旧独立 query 检测训练入口
+  - `train group1 prelabel-query-dir` 已改为纯规则式 splitter 预标注
+  - `train group1 prelabel` 只保留 proposal detector + icon embedder 主线能力

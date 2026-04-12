@@ -123,8 +123,11 @@ class BackgroundFingerprint:
 
 @dataclass
 class BackgroundDownloadTask:
+    task_id: str
+    task_type: str
     query: str
     target_count: int
+    source_ref: str | None = None
     downloaded_count: int = 0
     rejected_count: int = 0
     next_page: int = 1
@@ -133,8 +136,11 @@ class BackgroundDownloadTask:
 
     def to_dict(self) -> dict[str, object]:
         return {
+            "task_id": self.task_id,
+            "task_type": self.task_type,
             "query": self.query,
             "target_count": self.target_count,
+            "source_ref": self.source_ref,
             "downloaded_count": self.downloaded_count,
             "rejected_count": self.rejected_count,
             "next_page": self.next_page,
@@ -144,9 +150,14 @@ class BackgroundDownloadTask:
 
     @classmethod
     def from_dict(cls, payload: JsonMapping) -> BackgroundDownloadTask:
+        task_id = str(payload.get("task_id", "")).strip()
+        query = str(payload.get("query", "")).strip()
         return cls(
-            query=str(payload.get("query", "")).strip(),
+            task_id=task_id or f"legacy:{query}",
+            task_type=str(payload.get("task_type", "summary")).strip() or "summary",
+            query=query,
             target_count=int(payload.get("target_count", 0)),
+            source_ref=str(payload.get("source_ref", "")).strip() or None,
             downloaded_count=int(payload.get("downloaded_count", 0)),
             rejected_count=int(payload.get("rejected_count", 0)),
             next_page=max(1, int(payload.get("next_page", 1))),
@@ -386,6 +397,7 @@ def run_background_style_collection(
             max_queries=max_queries,
             progress_reporter=progress_reporter,
         )
+        image_profiles: tuple[BackgroundStyleImageProfile, ...] = ()
         analysis_reused_count = 0
         analysis_completed_count = profile.source_image_count
         summary_reused = False
@@ -407,7 +419,13 @@ def run_background_style_collection(
             summary_reused=summary_reused,
         )
     else:
-        profile, analysis_reused_count, analysis_completed_count, summary_reused = (
+        (
+            profile,
+            image_profiles,
+            analysis_reused_count,
+            analysis_completed_count,
+            summary_reused,
+        ) = (
             _load_or_create_background_style_profile(
                 source_dir=resolved_source_dir,
                 analysis_jsonl=analysis_jsonl,
@@ -429,6 +447,12 @@ def run_background_style_collection(
                 max_hamming_distance=max_hamming_distance,
             )
         )
+    planned_download_tasks = _build_download_tasks(
+        image_profiles=image_profiles,
+        summary_queries=profile.search_queries,
+        per_query=per_query,
+        limit=limit,
+    )
 
     download_state: BackgroundDownloadState | None = None
     merged_rows: list[dict[str, str]] = []
@@ -445,6 +469,7 @@ def run_background_style_collection(
         )
         download_state = _download_pexels_backgrounds_for_profile(
             profile=profile,
+            tasks=planned_download_tasks,
             output_root=resolved_output_root,
             state_path=download_state_json,
             api_key=resolved_api_key,
@@ -462,19 +487,22 @@ def run_background_style_collection(
         _write_materials_manifest(resolved_output_root / "manifests" / "materials.yaml")
         materials_service._write_csv(
             resolved_output_root / "manifests" / "backgrounds.csv",
-            download_state.downloaded_rows,
+            _manifest_background_rows(download_state.downloaded_rows),
         )
         if resolved_merge_into is not None:
             merged_rows = merge_background_rows_into_materials_root(
                 source_root=resolved_output_root,
                 target_root=resolved_merge_into,
-                rows=download_state.downloaded_rows,
+                rows=_manifest_background_rows(download_state.downloaded_rows),
                 progress_reporter=progress_reporter,
             )
 
     downloaded_rows = download_state.downloaded_rows if download_state is not None else []
     rejected_rows = download_state.rejected_rows if download_state is not None else []
-    download_tasks = [task.to_dict() for task in download_state.tasks] if download_state else []
+    download_tasks = [
+        task.to_dict()
+        for task in (download_state.tasks if download_state else planned_download_tasks)
+    ]
     report_path = resolved_output_root / "reports" / DEFAULT_BACKGROUND_STYLE_REPORT_NAME
     report = {
         "status": "ok",
@@ -599,16 +627,55 @@ def parse_background_style_response(
     request_payload: JsonMapping,
     max_queries: int = DEFAULT_BACKGROUND_STYLE_MAX_QUERIES,
 ) -> BackgroundStyleProfile:
-    payload = extract_json_object(
-        raw_output,
-        required_keys={"style_summary_zh", "style_summary_en", "search_queries"},
+    try:
+        payload = extract_json_object(
+            raw_output,
+            required_keys={"style_summary_zh", "style_summary_en", "search_queries"},
+        )
+    except ValueError:
+        payload = extract_json_object(raw_output, required_keys=set())
+    style_features = _normalize_text_tuple(payload.get("style_features"), limit=8)
+    style_summary_zh = _first_available_text(
+        payload,
+        "style_summary_zh",
+        "style_summary_cn",
+        "summary_zh",
+        "summary_cn",
     )
-    style_summary_zh = _required_text(payload, "style_summary_zh")
-    style_summary_en = _required_text(payload, "style_summary_en")
-    search_queries = _normalize_text_tuple(payload.get("search_queries"), limit=max_queries)
+    style_summary_en = _first_available_text(
+        payload,
+        "style_summary_en",
+        "style_summary",
+        "summary_en",
+        "summary",
+    )
+    if not style_summary_en and style_features:
+        style_summary_en = "; ".join(style_features[:3])
+    if not style_summary_zh:
+        style_summary_zh = style_summary_en
+    if not style_summary_zh or not style_summary_en:
+        raise ValueError("background style response missing usable summary fields")
+    search_queries = _normalize_text_tuple(
+        payload.get("search_queries")
+        or payload.get("search_terms")
+        or payload.get("queries")
+        or payload.get("search_keywords")
+        or payload.get("keywords"),
+        limit=max_queries,
+    )
+    if not search_queries and style_features:
+        search_queries = _normalize_text_tuple(
+            [_compact_search_query(feature) for feature in style_features],
+            limit=max_queries,
+        )
     if not search_queries:
         search_queries = (_compact_search_query(style_summary_en),)
-    negative_terms = _normalize_text_tuple(payload.get("negative_terms"), limit=12)
+    negative_terms = _normalize_text_tuple(
+        payload.get("negative_terms")
+        or payload.get("negative_keywords")
+        or payload.get("avoid_terms"),
+        limit=12,
+    )
     return BackgroundStyleProfile(
         source_image_count=source_image_count,
         style_summary_zh=style_summary_zh,
@@ -649,7 +716,13 @@ def _load_or_create_background_style_profile(
     min_width: int,
     min_height: int,
     max_hamming_distance: int,
-) -> tuple[BackgroundStyleProfile, int, int, bool]:
+) -> tuple[
+    BackgroundStyleProfile,
+    tuple[BackgroundStyleImageProfile, ...],
+    int,
+    int,
+    bool,
+]:
     image_paths = list_background_images(source_dir, limit=sample_limit)
     if not image_paths:
         raise RuntimeError(f"未找到背景参考图片：{source_dir}")
@@ -748,12 +821,13 @@ def _load_or_create_background_style_profile(
         analysis_reused_count=reused_count,
         summary_reused=summary_reused,
     )
-    return profile, reused_count, len(results), summary_reused
+    return profile, tuple(results), reused_count, len(results), summary_reused
 
 
 def _download_pexels_backgrounds_for_profile(
     *,
     profile: BackgroundStyleProfile,
+    tasks: Sequence[BackgroundDownloadTask],
     output_root: Path,
     state_path: Path,
     api_key: str,
@@ -772,7 +846,9 @@ def _download_pexels_backgrounds_for_profile(
     backgrounds_dir.mkdir(parents=True, exist_ok=True)
     state = _load_or_initialize_download_state(
         profile=profile,
+        tasks=tasks,
         state_path=state_path,
+        output_root=output_root,
         backgrounds_dir=backgrounds_dir,
         per_query=per_query,
         limit=limit,
@@ -805,6 +881,7 @@ def _download_pexels_backgrounds_for_profile(
             for photo in photos:
                 before_seen_count = len(state.seen_photo_ids)
                 row, rejection = _download_pexels_photo(
+                    task=task,
                     photo=photo,
                     query=task.query,
                     backgrounds_dir=backgrounds_dir,
@@ -847,6 +924,7 @@ def _download_pexels_backgrounds_for_profile(
 
 def _download_pexels_photo(
     *,
+    task: BackgroundDownloadTask,
     photo: dict[str, object],
     query: str,
     backgrounds_dir: Path,
@@ -884,6 +962,9 @@ def _download_pexels_photo(
             {"query": query, "photo_id": photo_id, "url": image_url, "error": str(exc)},
         )
         return None, {
+            "task_id": task.task_id,
+            "task_type": task.task_type,
+            "task_source_ref": task.source_ref or "",
             "background_id": destination.stem,
             "photo_id": str(photo_id),
             "query": query,
@@ -896,6 +977,9 @@ def _download_pexels_photo(
     except RuntimeError as exc:
         _safe_unlink(destination)
         return None, {
+            "task_id": task.task_id,
+            "task_type": task.task_type,
+            "task_source_ref": task.source_ref or "",
             "background_id": destination.stem,
             "photo_id": str(photo_id),
             "query": query,
@@ -906,6 +990,9 @@ def _download_pexels_photo(
     if fingerprint.width < min_width or fingerprint.height < min_height:
         _safe_unlink(destination)
         return None, {
+            "task_id": task.task_id,
+            "task_type": task.task_type,
+            "task_source_ref": task.source_ref or "",
             "background_id": destination.stem,
             "photo_id": str(photo_id),
             "query": query,
@@ -923,6 +1010,9 @@ def _download_pexels_photo(
     ):
         _safe_unlink(destination)
         return None, {
+            "task_id": task.task_id,
+            "task_type": task.task_type,
+            "task_source_ref": task.source_ref or "",
             "background_id": destination.stem,
             "photo_id": str(photo_id),
             "query": query,
@@ -931,6 +1021,9 @@ def _download_pexels_photo(
         }
     known_fingerprints.append(fingerprint)
     return {
+        "task_id": task.task_id,
+        "task_type": task.task_type,
+        "task_source_ref": task.source_ref or "",
         "background_id": destination.stem,
         "photo_id": str(photo_id),
         "provider": "pexels",
@@ -1101,6 +1194,14 @@ def _required_text(payload: dict[str, object], key: str) -> str:
     return " ".join(value.strip().split())
 
 
+def _first_available_text(payload: dict[str, object], *keys: str) -> str:
+    for key in keys:
+        value = payload.get(key)
+        if isinstance(value, str) and value.strip():
+            return " ".join(value.strip().split())
+    return ""
+
+
 def _compact_search_query(value: str) -> str:
     words = [word for word in value.lower().replace(",", " ").split() if word]
     return " ".join(words[:8]) or "natural landscape background"
@@ -1269,6 +1370,44 @@ def _build_profile_signature(
     )
 
 
+def _build_download_signature(
+    profile: BackgroundStyleProfile,
+    *,
+    tasks: Sequence[BackgroundDownloadTask],
+    per_query: int,
+    limit: int | None,
+    orientation: str,
+    min_width: int,
+    min_height: int,
+    max_hamming_distance: int,
+) -> str:
+    return _sha256_text(
+        json.dumps(
+            {
+                "style_profile": profile.to_dict(),
+                "tasks": [
+                    {
+                        "task_id": task.task_id,
+                        "task_type": task.task_type,
+                        "query": task.query,
+                        "target_count": task.target_count,
+                        "source_ref": task.source_ref,
+                    }
+                    for task in tasks
+                ],
+                "per_query": per_query,
+                "limit": limit,
+                "orientation": orientation,
+                "min_width": min_width,
+                "min_height": min_height,
+                "max_hamming_distance": max_hamming_distance,
+            },
+            ensure_ascii=False,
+            sort_keys=True,
+        )
+    )
+
+
 def _load_cached_summary_profile(
     path: Path,
     *,
@@ -1310,10 +1449,123 @@ def _write_background_style_summary(
     )
 
 
+def _clone_download_tasks(tasks: Sequence[BackgroundDownloadTask]) -> list[BackgroundDownloadTask]:
+    return [
+        BackgroundDownloadTask(
+            task_id=task.task_id,
+            task_type=task.task_type,
+            query=task.query,
+            target_count=task.target_count,
+            source_ref=task.source_ref,
+            downloaded_count=task.downloaded_count,
+            rejected_count=task.rejected_count,
+            next_page=task.next_page,
+            completed=task.completed,
+            exhausted=task.exhausted,
+        )
+        for task in tasks
+    ]
+
+
+def _build_reference_image_query(image_profile: BackgroundStyleImageProfile) -> str:
+    if image_profile.search_hints:
+        return " ".join(image_profile.search_hints[:4])
+    return _compact_search_query(image_profile.style_summary_en)
+
+
+def _build_reference_image_task_id(
+    image_profile: BackgroundStyleImageProfile,
+    *,
+    index: int,
+) -> str:
+    return f"reference_image:{index}:{image_profile.image_sha256}"
+
+
+def _build_summary_task_id(query: str, *, index: int) -> str:
+    return f"summary:{index}:{_sha256_text(query)[:12]}"
+
+
+def _assign_download_rows_to_tasks(
+    *,
+    rows: Sequence[dict[str, str]],
+    tasks: Sequence[BackgroundDownloadTask],
+) -> list[dict[str, str]]:
+    task_by_id = {task.task_id: task for task in tasks}
+    tasks_by_query: dict[str, list[BackgroundDownloadTask]] = {}
+    for task in tasks:
+        tasks_by_query.setdefault(task.query, []).append(task)
+    assigned_counts: Counter[str] = Counter()
+    assigned_rows: list[dict[str, str]] = []
+    for row in rows:
+        enriched = dict(row)
+        task_id = enriched.get("task_id", "").strip()
+        if task_id in task_by_id:
+            assigned_counts[task_id] += 1
+            assigned_rows.append(enriched)
+            continue
+        query = enriched.get("query", "").strip()
+        selected: BackgroundDownloadTask | None = None
+        for task in tasks_by_query.get(query, []):
+            if assigned_counts[task.task_id] < task.target_count:
+                selected = task
+                break
+        if selected is None:
+            assigned_rows.append(enriched)
+            continue
+        enriched["task_id"] = selected.task_id
+        enriched["task_type"] = selected.task_type
+        enriched["task_source_ref"] = selected.source_ref or ""
+        assigned_counts[selected.task_id] += 1
+        assigned_rows.append(enriched)
+    return assigned_rows
+
+
+def _assign_rejected_rows_to_tasks(
+    *,
+    rows: Sequence[dict[str, str]],
+    tasks: Sequence[BackgroundDownloadTask],
+) -> list[dict[str, str]]:
+    task_by_id = {task.task_id: task for task in tasks}
+    tasks_by_query: dict[str, list[BackgroundDownloadTask]] = {}
+    for task in tasks:
+        tasks_by_query.setdefault(task.query, []).append(task)
+    assigned_rows: list[dict[str, str]] = []
+    for row in rows:
+        enriched = dict(row)
+        task_id = enriched.get("task_id", "").strip()
+        if task_id in task_by_id:
+            assigned_rows.append(enriched)
+            continue
+        query = enriched.get("query", "").strip()
+        candidates = tasks_by_query.get(query, [])
+        if not candidates:
+            assigned_rows.append(enriched)
+            continue
+        selected = candidates[0]
+        enriched["task_id"] = selected.task_id
+        enriched["task_type"] = selected.task_type
+        enriched["task_source_ref"] = selected.source_ref or ""
+        assigned_rows.append(enriched)
+    return assigned_rows
+
+
+def _manifest_background_rows(rows: Sequence[dict[str, str]]) -> list[dict[str, str]]:
+    manifest_rows: list[dict[str, str]] = []
+    for row in rows:
+        manifest_row = dict(row)
+        manifest_row.pop("task_id", None)
+        manifest_row.pop("task_type", None)
+        manifest_row.pop("task_source_ref", None)
+        manifest_rows.append(manifest_row)
+    return manifest_rows
+
+
 def _load_or_initialize_download_state(
     *,
     profile: BackgroundStyleProfile,
+    tasks: Sequence[BackgroundDownloadTask],
     state_path: Path,
+    output_root: Path,
     backgrounds_dir: Path,
     per_query: int,
     limit: int | None,
@@ -1322,8 +1574,9 @@ def _load_or_initialize_download_state(
     min_height: int,
     max_hamming_distance: int,
 ) -> BackgroundDownloadState:
-    signature = _build_profile_signature(
+    signature = _build_download_signature(
         profile,
+        tasks=tasks,
         per_query=per_query,
         limit=limit,
         orientation=orientation,
@@ -1331,22 +1584,39 @@ def _load_or_initialize_download_state(
         min_height=min_height,
         max_hamming_distance=max_hamming_distance,
     )
+    existing_manifest_rows = _read_csv_rows(output_root / "manifests" / "backgrounds.csv")
     fresh_state = BackgroundDownloadState(
         signature=signature,
-        tasks=_build_download_tasks(
-            search_queries=profile.search_queries,
-            per_query=per_query,
-            limit=limit,
-        ),
+        tasks=_clone_download_tasks(tasks),
         downloaded_rows=[],
         rejected_rows=[],
         seen_photo_ids=set(),
     )
     if not state_path.exists():
+        fresh_state.downloaded_rows = _assign_download_rows_to_tasks(
+            rows=existing_manifest_rows,
+            tasks=fresh_state.tasks,
+        )
+        _reconcile_download_state(
+            fresh_state,
+            backgrounds_dir=backgrounds_dir,
+        )
         return fresh_state
     payload = json.loads(state_path.read_text(encoding="utf-8"))
     cached_state = BackgroundDownloadState.from_dict(payload)
     if cached_state.signature != signature:
+        fresh_state.downloaded_rows = _assign_download_rows_to_tasks(
+            rows=cached_state.downloaded_rows or existing_manifest_rows,
+            tasks=fresh_state.tasks,
+        )
+        fresh_state.rejected_rows = _assign_rejected_rows_to_tasks(
+            rows=cached_state.rejected_rows,
+            tasks=fresh_state.tasks,
+        )
+        _reconcile_download_state(
+            fresh_state,
+            backgrounds_dir=backgrounds_dir,
+        )
         return fresh_state
     _reconcile_download_state(
         cached_state,
@@ -1357,13 +1627,28 @@ def _load_or_initialize_download_state(
 
 def _build_download_tasks(
     *,
-    search_queries: Sequence[str],
+    image_profiles: Sequence[BackgroundStyleImageProfile],
+    summary_queries: Sequence[str],
     per_query: int,
     limit: int | None,
 ) -> list[BackgroundDownloadTask]:
     tasks: list[BackgroundDownloadTask] = []
     remaining = limit
-    for query in search_queries:
+    for index, image_profile in enumerate(image_profiles, start=1):
+        if remaining is not None and remaining <= 0:
+            break
+        tasks.append(
+            BackgroundDownloadTask(
+                task_id=_build_reference_image_task_id(image_profile, index=index),
+                task_type="reference_image",
+                query=_build_reference_image_query(image_profile),
+                target_count=1,
+                source_ref=image_profile.image_path,
+            )
+        )
+        if remaining is not None:
+            remaining -= 1
+    for index, query in enumerate(summary_queries, start=1):
         if remaining is None:
             target_count = per_query
         else:
@@ -1373,7 +1658,14 @@ def _build_download_tasks(
             remaining -= target_count
         if target_count <= 0:
             continue
-        tasks.append(BackgroundDownloadTask(query=query, target_count=target_count))
+        tasks.append(
+            BackgroundDownloadTask(
+                task_id=_build_summary_task_id(query, index=index),
+                task_type="summary",
+                query=query,
+                target_count=target_count,
+            )
+        )
     return tasks
 
 
@@ -1388,8 +1680,24 @@ def _reconcile_download_state(
         if file_name and (backgrounds_dir / file_name).exists():
             kept_rows.append(row)
     state.downloaded_rows = kept_rows
-    download_counts = Counter(row.get("query", "") for row in state.downloaded_rows)
-    reject_counts = Counter(row.get("query", "") for row in state.rejected_rows)
+    state.downloaded_rows = _assign_download_rows_to_tasks(
+        rows=state.downloaded_rows,
+        tasks=state.tasks,
+    )
+    state.rejected_rows = _assign_rejected_rows_to_tasks(
+        rows=state.rejected_rows,
+        tasks=state.tasks,
+    )
+    download_counts = Counter(
+        row.get("task_id", "").strip()
+        for row in state.downloaded_rows
+        if row.get("task_id", "").strip()
+    )
+    reject_counts = Counter(
+        row.get("task_id", "").strip()
+        for row in state.rejected_rows
+        if row.get("task_id", "").strip()
+    )
     seen_photo_ids = set(state.seen_photo_ids)
     for row in [*state.downloaded_rows, *state.rejected_rows]:
         photo_id = _extract_photo_id_from_row(row)
@@ -1397,8 +1705,8 @@ def _reconcile_download_state(
             seen_photo_ids.add(photo_id)
     state.seen_photo_ids = seen_photo_ids
     for task in state.tasks:
-        task.downloaded_count = download_counts.get(task.query, 0)
-        task.rejected_count = reject_counts.get(task.query, 0)
+        task.downloaded_count = download_counts.get(task.task_id, 0)
+        task.rejected_count = reject_counts.get(task.task_id, 0)
         if task.downloaded_count >= task.target_count:
             task.completed = True
         if task.exhausted:

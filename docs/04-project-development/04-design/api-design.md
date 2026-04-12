@@ -195,11 +195,9 @@ click_result = sn_match_targets(
 - 输出：
   - `manifest.json`
   - `models/click_proposal_detector.onnx`
-  - `models/click_query_parser.onnx`
   - `models/click_icon_embedder.onnx`
   - `models/slider_gap_locator.onnx`
   - `metadata/click_proposal_detector.json`
-  - `metadata/click_query_parser.json`
   - `metadata/click_icon_embedder.json`
   - `metadata/slider_gap_locator.json`
   - `metadata/click_matcher.json`
@@ -212,7 +210,6 @@ click_result = sn_match_targets(
 uv run sinan release export-solver-assets \
   --project-dir . \
   --group1-proposal-checkpoint runs/group1/firstpass/proposal-detector/weights/best.pt \
-  --group1-query-checkpoint runs/group1/firstpass/query-parser/weights/best.pt \
   --group1-embedder-checkpoint runs/group1/firstpass/icon-embedder/weights/best.pt \
   --group1-run firstpass \
   --group2-checkpoint runs/group2/firstpass/weights/best.pt \
@@ -224,7 +221,7 @@ uv run sinan release export-solver-assets \
 说明：
 
 - 当前命令已统一承载 `group1 + group2` 导出。
-- 若缺少 `group1` 三个 checkpoint，命令仍可只导出 `group2`，但 `click_matcher.json` 与 `class_names.json` 会保持占位状态。
+- 若缺少 `group1` 两个 checkpoint，命令仍可只导出 `group2`，但 `click_matcher.json` 与 `class_names.json` 会保持占位状态。
 
 ### 导出目录基线
 
@@ -235,12 +232,10 @@ dist/
       manifest.json
       models/
         click_proposal_detector.onnx
-        click_query_parser.onnx
         click_icon_embedder.onnx
         slider_gap_locator.onnx
       metadata/
         click_proposal_detector.json
-        click_query_parser.json
         click_icon_embedder.json
         slider_gap_locator.json
         click_matcher.json
@@ -275,7 +270,6 @@ sinanz-0.1.0-py3-none-any.whl
   resources/
     models/
       click_proposal_detector.onnx
-      click_query_parser.onnx
       click_icon_embedder.onnx
       slider_gap_locator.onnx
     metadata/
@@ -404,7 +398,7 @@ uv run sinan auto-train run group1 --study-name study_001 --train-root D:\sinan-
 ```bash
 uv run sinan release build --project-dir .
 uv run sinan release package-windows --project-dir . --generator-exe dist/generator/windows-amd64/sinan-generator.exe --output-dir release/windows/v1
-uv run sinan release export-solver-assets --project-dir . --group1-proposal-checkpoint runs/group1/firstpass/proposal-detector/weights/best.pt --group1-query-checkpoint runs/group1/firstpass/query-parser/weights/best.pt --group1-embedder-checkpoint runs/group1/firstpass/icon-embedder/weights/best.pt --group1-run firstpass --group2-checkpoint runs/group2/firstpass/weights/best.pt --group2-run firstpass --output-dir dist/solver-assets/20260405 --asset-version 20260405
+uv run sinan release export-solver-assets --project-dir . --group1-proposal-checkpoint runs/group1/firstpass/proposal-detector/weights/best.pt --group1-embedder-checkpoint runs/group1/firstpass/icon-embedder/weights/best.pt --group1-run firstpass --group2-checkpoint runs/group2/firstpass/weights/best.pt --group2-run firstpass --output-dir dist/solver-assets/20260405 --asset-version 20260405
 ```
 
 说明：

@@ -290,7 +290,6 @@ def _fake_bundle(*, icon_embedder: bool = False) -> bundle.SolverBundle:
         bundle_version="bundle_20260405",
         manifest_path=fake_root / "manifest.json",
         proposal_model_path=fake_root / "models" / "group1" / "proposal-detector" / "model.pt",
-        query_model_path=None,
         icon_embedder_model_path=fake_root / "models" / "group1" / "icon-embedder" / "model.pt",
         matcher_config_path=fake_root / "models" / "group1" / "matcher" / "config.json",
         group2_model_path=fake_root / "models" / "group2" / "locator" / "model.pt",

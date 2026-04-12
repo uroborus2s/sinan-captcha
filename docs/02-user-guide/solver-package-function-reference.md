@@ -189,8 +189,9 @@ class SolverRuntimeError(SolverError): ...
 
 - `slider_gap_locator.onnx`
 - `click_proposal_detector.onnx`
-- `click_query_parser.onnx`
 - `click_icon_embedder.onnx`
+
+query splitter 为运行时内置规则，不从 `asset_root` 读取单独模型。
 
 未传入 `asset_root` 时，默认读取包内 `resources/models`。
 

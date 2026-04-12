@@ -52,12 +52,9 @@
     - `proposal detector`
     - `icon embedder`
     - `matcher`
-  - 当前主链路默认已不再要求 `query-parser` 权重
-  - 当前 `query-parser` 只保留为 legacy 能力：
-    - `train group1 --component query-parser`
-    - `train group1 prelabel`
-    - `train group1 prelabel-query-dir`
-  - 当前 solver 交付物与导出契约已移除 `click_query_parser.onnx` 强依赖
+  - 当前主链路默认已不再要求独立 query 检测模型权重
+  - 当前旧 query 检测组件入口已从正式链路删除；`train group1 prelabel-query-dir` 现为规则式 splitter 工具
+  - 当前 solver 交付物与导出契约已移除独立 query 检测 ONNX 资产
   - 当前已补齐规则式 query splitter：
     - 仓库主包 `inference/query_splitter.py`
     - 独立 `sinanz` 包 `sinanz_query_splitter.py`
@@ -115,7 +112,8 @@
     - 当前不把自动前景修补或 inpaint 作为正式主链路前置条件
     - 当前新增逐图分析 checkpoint：每张参考图分析成功后会立即落到 `reports/background-style-image-analysis.jsonl`
     - 当前新增汇总缓存：逐图分析完成后会输出 `reports/background-style-summary.json`
-    - 当前新增下载任务恢复：每个搜索词的 `target/downloaded/rejected/next_page` 会持久化到 `reports/background-style-download-state.json`
+    - 当前下载任务模型已改成“每张参考图至少 1 个 `reference_image` 保底任务，再叠加 `summary` 扩充任务”
+    - 当前新增下载任务恢复：每个 task 的 `target/downloaded/rejected/next_page` 会持久化到 `reports/background-style-download-state.json`
     - 当前同一 `output-root` 重跑会自动复用已分析参考图，并从上次下载页继续
     - 当前新增下载质量门：图片必须可解码，且满足 `--min-width/--min-height`
     - 当前新增重复抑制：至少覆盖同批下载集、`incoming/backgrounds/` 和 `--merge-into` 目标根中的已有背景图
@@ -396,7 +394,6 @@
     - `embedding`
     - `eval`
   - 当前 `uv run sinan train group1` 已能用新 `dataset.json` 读取 `proposal-yolo/dataset.yaml`
-  - 当前若显式请求 `query-parser`、但 `dataset.json` 未提供对应数据集，会直接报错而不是回退读旧目录
   - 当前 `group1` Python 正式入口已切到 `proposal-detector` 命名：
     - `uv run sinan train group1 --component proposal-detector ...`
     - `uv run sinan predict group1 --proposal-model ...`
@@ -404,12 +401,12 @@
   - 当前旧 `scene-detector` / `--scene-model` 兼容别名已删除：
     - CLI 只接受 `proposal-detector` / `--proposal-model`
     - solver bundle 只接受 `proposal_detector`
-  - 当前也已支持显式按组件训练：
-    - `uv run sinan train group1 --component query-parser ...`
+  - 当前显式按组件训练已收口为：
     - `uv run sinan train group1 --component proposal-detector ...`
+    - `uv run sinan train group1 --component icon-embedder ...`
   - 当前 `uv run sinan test group1 ...` 的报告口径已明确为：
     - 最终位置挑选验证
-    - 即 `query-parser + proposal-detector + matcher` 的整链路验证
+    - 即 `query splitter + proposal-detector + icon-embedder + matcher` 的整链路验证
   - 当前已验证：
     - `uv run python -m unittest discover -s tests/python -p 'test_training_jobs.py'`
     - `uv run python -m unittest discover -s tests/python -p 'test_prediction_and_model_test.py'`
@@ -425,7 +422,7 @@
     - 全局 assignment
     - `missing_candidate / ambiguous_match` 判定
   - 当前 `core.train.group1.runner predict` 在 `sinan.group1.instance_matching.v1` 数据集上已切到：
-    - `proposal-detector + query-parser + instance matcher`
+    - `query splitter + proposal-detector + instance matcher`
   - 当前实例匹配预测输出的 `scene_targets` 已改为优先复制：
     - `asset_id`
     - `template_id`
@@ -504,7 +501,6 @@
 - 2026-04-11 当前 `TASK-G1-REF-008/011` 已完成首版正式收口：
   - `core.release.solver_export` 已支持同一命令导出：
     - `click_proposal_detector.onnx`
-    - `click_query_parser.onnx`
     - `click_icon_embedder.onnx`
     - `slider_gap_locator.onnx`
   - `metadata/click_matcher.json` 已切到真实配置：
@@ -568,7 +564,7 @@
     - `env PYTHONPATH=. ./.venv/bin/python -m unittest discover -s tests/python -p 'test_group1_query_audit.py'`
     - `env PYTHONPATH=. ./.venv/bin/python -m unittest discover -s tests/python -p 'test_root_cli.py'`
 - 2026-04-10 当前仓库已新增 `uv run sinan train group1 prelabel-query-dir`，用于对单独一批 `group1 query` 图片执行本地模型预标注：
-  - 当前该命令使用本地 `runs/group1/<train-name>/query-parser/weights/best.pt`
+  - 当前该命令使用内置规则式 query splitter
   - 当前输入目录中的每张图片会直接生成同名 `json` 标注文件，供 `X-AnyLabeling` 打开
   - 当前额外汇总产物会写到：
     - `<input-dir>/.sinan/prelabel/group1/query/<run-name>/labels.jsonl`

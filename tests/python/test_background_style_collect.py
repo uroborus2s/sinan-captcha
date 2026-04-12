@@ -66,6 +66,29 @@ class BackgroundStyleCollectTests(unittest.TestCase):
         )
         self.assertIn("puzzle gap", profile.negative_terms)
 
+    def test_parse_background_style_response_falls_back_to_style_features(self) -> None:
+        profile = parse_background_style_response(
+            """
+            {
+              "style_features": [
+                "night cityscape blue and gold",
+                "epic aerial nature photography"
+              ],
+              "negative_terms": ["text", "overlay"]
+            }
+            """,
+            source_image_count=1,
+            request_payload={"model": "gemma4:26b"},
+            max_queries=3,
+        )
+
+        self.assertIn("night cityscape blue and gold", profile.style_summary_en)
+        self.assertEqual(
+            profile.search_queries,
+            ("night cityscape blue and gold", "epic aerial nature photography"),
+        )
+        self.assertIn("overlay", profile.negative_terms)
+
     def test_ollama_reference_analyzer_returns_image_profile(self) -> None:
         with tempfile.TemporaryDirectory() as tmpdir:
             image_path = Path(tmpdir) / "reference.png"
@@ -244,6 +267,99 @@ class BackgroundStyleCollectTests(unittest.TestCase):
 
             self.assertEqual(sorted(analyzed), ["a.png", "b.png"])
             self.assertEqual(result["analysis_completed_count"], 2)
+
+    def test_run_background_style_collection_prioritizes_one_download_per_reference_image(
+        self,
+    ) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            root = Path(tmpdir)
+            source_dir = root / "reference-backgrounds"
+            _write_background(source_dir / "a.png", (120, 180, 220))
+            _write_background(source_dir / "b.png", (80, 120, 160))
+            output_root = root / "background-pack"
+
+            def fake_reference_analyzer(**kwargs: object) -> BackgroundStyleImageProfile:
+                image_path = Path(str(kwargs["image_path"]))
+                if image_path.name == "a.png":
+                    hints = ("forest", "lake", "background")
+                else:
+                    hints = ("snow", "mountain", "background")
+                return BackgroundStyleImageProfile(
+                    image_path=str(image_path),
+                    image_sha256=str(kwargs["image_sha256"]),
+                    style_summary_zh="背景",
+                    style_summary_en="background",
+                    search_hints=hints,
+                    negative_terms=(),
+                    request_payload={"image_path": str(image_path)},
+                    raw_output="{}",
+                )
+
+            def fake_profile_summarizer(**_kwargs: object) -> BackgroundStyleProfile:
+                return BackgroundStyleProfile(
+                    source_image_count=2,
+                    style_summary_zh="汇总背景",
+                    style_summary_en="summary background",
+                    search_queries=("shared summary query",),
+                    negative_terms=(),
+                    request_payload={},
+                    raw_output="{}",
+                )
+
+            search_calls: list[str] = []
+
+            def fake_search(**kwargs: object) -> dict[str, object]:
+                query = str(kwargs["query"])
+                search_calls.append(query)
+                photo_map = {
+                    "forest lake background": 1001,
+                    "snow mountain background": 1002,
+                    "shared summary query": 1003,
+                }
+                photo_id = photo_map[query]
+                return {
+                    "photos": [
+                        {
+                            "id": photo_id,
+                            "photographer": f"Author-{photo_id}",
+                            "src": {"large": f"https://images.example/bg-{photo_id}.jpg"},
+                        }
+                    ]
+                }
+
+            def fake_download(url: str, destination: Path) -> None:
+                color_map = {
+                    "https://images.example/bg-1001.jpg": (120, 180, 220),
+                    "https://images.example/bg-1002.jpg": (80, 120, 160),
+                    "https://images.example/bg-1003.jpg": (50, 60, 70),
+                }
+                destination.write_bytes(_make_downloaded_background_bytes(color_map[url]))
+
+            result = run_background_style_collection(
+                source_dir=source_dir,
+                output_root=output_root,
+                model="qwen2.5vl:7b",
+                api_key="token",
+                per_query=1,
+                limit=2,
+                reference_image_analyzer=fake_reference_analyzer,
+                profile_summarizer=fake_profile_summarizer,
+                search_client=fake_search,
+                downloader=fake_download,
+            )
+
+            self.assertEqual(result["downloaded_count"], 2)
+            self.assertEqual(
+                search_calls,
+                ["forest lake background", "snow mountain background"],
+            )
+            manifest_path = output_root / "manifests" / "backgrounds.csv"
+            with manifest_path.open("r", encoding="utf-8", newline="") as handle:
+                rows = list(csv.DictReader(handle))
+            self.assertEqual(
+                {row["query"] for row in rows},
+                {"forest lake background", "snow mountain background"},
+            )
 
     def test_run_background_style_collection_dry_run_skips_api_key_and_downloads(self) -> None:
         with tempfile.TemporaryDirectory() as tmpdir:

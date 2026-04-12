@@ -43,8 +43,10 @@
 - 汇总阶段按整批参考图状态缓存：
   - 汇总输入由逐图分析结果组成；
   - 若参考图分析集合未变化，则直接复用上一次汇总结果。
-- 下载阶段按 query 任务流缓存：
-  - 每个搜索词都有 `target_count / downloaded_count / rejected_count / next_page / completed / exhausted`；
+- 下载阶段按 task 任务流缓存：
+  - 每张参考图先生成 1 个 `reference_image` 保底任务；
+  - 汇总搜索词再生成 `summary` 扩充任务；
+  - 每个任务都有 `task_id / task_type / query / target_count / downloaded_count / rejected_count / next_page / completed / exhausted`；
   - 每次接受或拒绝候选图后立即刷盘；
   - 若搜索翻页前发生中断，下次从 `next_page` 继续，而不是从第 1 页重扫。
 
@@ -52,6 +54,7 @@
 
 - 真正稳定的恢复语义必须建立在“任务状态显式持久化”上，不能依赖同目录重跑的偶然幂等。
 - 逐图分析和下载任务是两类不同粒度的状态，不应混在一份报告里隐式推断。
+- 若只保留汇总搜索词，参考图数量再多也可能只生成少量下载任务，无法满足“逐图保底扩充”目标。
 
 ### 2.3 下载质量门
 

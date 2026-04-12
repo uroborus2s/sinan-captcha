@@ -13,7 +13,7 @@
 - 最终交付由 `sinanz` 平台 wheel、内嵌 ONNX 资产和 Rust 原生扩展组成
 - `group2` 当前已切到 `.onnx + native_bridge` 契约，训练仓库已支持导出 `slider_gap_locator.onnx`
 - 第一专项使用预训练 YOLO 检测权重微调
-- 第一专项采用 `proposal detector + query parser + matcher`
+- 第一专项采用 `query splitter + proposal detector + icon embedder + matcher`
 - 第二专项做双输入滑块缺口定位，并以中心点作为正式主结果
 - 生成端优先直接导出真值并执行硬门禁校验
 - 生成器采用“受控集成 + 可插拔 backend”

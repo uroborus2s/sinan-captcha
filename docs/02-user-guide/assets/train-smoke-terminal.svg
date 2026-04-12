@@ -13,11 +13,11 @@
     <text x="48" y="188">[proposal-detector] Ultralytics 8.x  Python-3.12  torch-2.x  CUDA:0</text>
     <text x="48" y="224">train: scanning datasets/group1/firstpass/scene-yolo/labels/train... 160 images</text>
     <text x="48" y="260">val: scanning datasets/group1/firstpass/scene-yolo/labels/val... 20 images</text>
-    <text x="48" y="296">[query-parser] train: scanning datasets/group1/firstpass/query-yolo/labels/train...</text>
-    <text x="48" y="332">[query-parser] val: scanning datasets/group1/firstpass/query-yolo/labels/val...</text>
+    <text x="48" y="296">[icon-embedder] train: loading datasets/group1/firstpass/embedding/triplets.jsonl...</text>
+    <text x="48" y="332">[icon-embedder] val: evaluating embedding recall on held-out pairs...</text>
     <text x="48" y="380">Results saved to runs/group1/smoke/proposal-detector</text>
-    <text x="48" y="416">Results saved to runs/group1/smoke/query-parser</text>
+    <text x="48" y="416">Results saved to runs/group1/smoke/icon-embedder</text>
     <text x="48" y="452">proposal-detector/weights/best.pt</text>
-    <text x="48" y="488">query-parser/weights/best.pt</text>
+    <text x="48" y="488">icon-embedder/weights/best.pt</text>
   </g>
 </svg>

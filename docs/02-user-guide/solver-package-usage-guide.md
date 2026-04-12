@@ -145,8 +145,11 @@ clicks = solver.sn_match_targets(
 
 - `slider_gap_locator.onnx`
 - `click_proposal_detector.onnx`
-- `click_query_parser.onnx`
 - `click_icon_embedder.onnx`
+
+说明：
+
+- query splitter 已内置在运行时中，不再单独对应模型文件。
 
 如果 `asset_root` 缺文件，会抛 `SolverAssetError`。
 

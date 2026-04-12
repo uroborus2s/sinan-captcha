@@ -77,7 +77,6 @@ def _usage() -> str:
             "  uv run sinan exam prepare --task group1 --materials-root work_home/materials --output-dir work_home/materials/business_exams/group1/reviewed-v1",
             "  uv run sinan auto-train run group1 --study-name study_001 --train-root D:\\sinan-captcha-work --generator-workspace D:\\sinan-generator\\workspace",
             "  uv run sinan predict group1 --dataset-version firstpass --train-name firstpass",
-            "  uv run sinan train group1 --dataset-version v1 --name g1_query --component query-parser",
             "  uv run sinan train group1 --dataset-version v1 --name g1_proposal --component proposal-detector",
             "  uv run sinan train group1 --dataset-version v1 --name g1_embed --component icon-embedder",
             "  uv run sinan test group2 --dataset-version firstpass --train-name firstpass",

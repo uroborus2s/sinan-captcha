@@ -53,7 +53,7 @@
 - 已运行验证：
   - 未运行代码测试；本轮仅同步需求、设计、任务与记忆层文档
 
-## 2026-04-12 `group1` 主链路完成 `query-parser` 收口，默认切到规则式 `query splitter`
+## 2026-04-12 `group1` 主链路完成独立 query 检测链路收口，默认切到规则式 `query splitter`
 
 - 已更新：
   - `packages/sinan-captcha/src/inference/query_splitter.py`
@@ -87,10 +87,10 @@
   - `.factory/memory/change-summary.md`
   - `docs/04-project-development/05-development-process/group1-instance-matching-refactor-task-breakdown.md`
 - 当前已完成的目标：
-  - `group1` 默认预测、模型测试、统一 solver 和 auto-train 不再要求 `query-parser` 权重
+  - `group1` 默认预测、模型测试、统一 solver 和 auto-train 不再要求独立 query 检测模型权重
   - 新增规则式 `query splitter`，由代码切 query，不再把 query 检测模型当 solver 主线
-  - solver bundle 与 ONNX 资产导出已移除 `click_query_parser.onnx` 主线依赖
-  - `query-parser` 仅保留为 legacy 训练/预标注能力，不再参与默认正式交付
+  - solver bundle 与 ONNX 资产导出已移除独立 query 检测 ONNX 资产依赖
+  - 旧 query 检测训练/预标注入口已从默认正式交付中删除
   - 已补齐主仓库与独立 `sinanz` 包的 splitter 回归测试
 - 已运行验证：
   - `uv run pytest ../../tests/python/test_query_splitter.py ../../tests/python/test_prediction_and_model_test.py ../../tests/python/test_solve_service.py ../../tests/python/test_solver_asset_contract.py ../../tests/python/test_solver_asset_export_group2.py ../../tests/python/test_auto_train_runners.py ../../tests/python/test_training_jobs.py`
@@ -119,7 +119,8 @@
   - 新增 `REQ-016`，正式冻结背景素材扩充策略为“原图直送多模态模型”，不强依赖自动前景修补
   - `collect-backgrounds` 新增逐图分析 checkpoint，已完成参考图不会重复送模型
   - `collect-backgrounds` 新增汇总缓存，逐图分析完成后会保存最终搜索画像
-  - `collect-backgrounds` 新增按 query 的下载任务状态，可记录已下载数量、已拒绝数量和恢复页码
+  - `collect-backgrounds` 下载任务模型已改成“逐图保底 1 张 + 汇总扩充”，避免参考图很多但最终只生成少量下载任务
+  - `collect-backgrounds` 新增按 task 的下载任务状态，可记录已下载数量、已拒绝数量和恢复页码
   - `collect-backgrounds` 新增下载质量门：图片解码校验、最小宽高阈值
   - `collect-backgrounds` 新增重复抑制，覆盖同批下载集、`incoming/backgrounds/` 和 `--merge-into` 目标根
   - `collect-backgrounds` 新增 `--merge-into <materials-root>`，可增量并入正式 `backgrounds/` 与 `manifests/backgrounds.csv`
@@ -758,7 +759,7 @@
     - `embedding`
     - `eval`
   - `core.train.group1.runner train` 现在会优先消费 `proposal-yolo/dataset.yaml`
-  - 当 `dataset.json` 未提供 `query_parser` 数据集时，显式训练 `query-parser` 会直接报错，避免偷偷回退到旧目录
+  - 训练入口已只接受 `proposal-detector` 与 `icon-embedder`，避免偷偷回退到旧 query 检测目录
   - `auto-train` 与 `modeltest` 相关测试 fixture 已切到新的 `dataset.json` 结构
 - 当前尚未完成：
   - `query splitter / embedder / matcher` 的真实训练与推理 cutover
@@ -938,16 +939,16 @@
   - `.factory/memory/change-summary.md`
 - 当前已完成的目标：
   - 当前 `group1` 已支持显式按组件训练：
-    - `uv run sinan train group1 --component query-parser ...`
     - `uv run sinan train group1 --component proposal-detector ...`
-  - 当前默认 `uv run sinan train group1 ...` 仍保持兼容：
-    - 顺序训练 `query-parser + proposal-detector`
+    - `uv run sinan train group1 --component icon-embedder ...`
+  - 当前默认 `uv run sinan train group1 ...` 已收口为：
+    - `proposal-detector + icon-embedder`
   - 当前生成器继续输出同一份 `group1 pipeline dataset`，训练侧按组件复用其中的：
-    - `query-yolo/`
-    - `scene-yolo/`
+    - `proposal-yolo/`
+    - `embedding/`
   - 当前 `uv run sinan test group1 ...` 的中文报告已明确写成：
     - 最终位置挑选验证
-    - 即 `query-parser + proposal-detector + matcher` 整链路
+    - 即 `query splitter + proposal-detector + icon-embedder + matcher` 整链路
 - 已运行验证：
   - `uv run python -m unittest discover -s tests/python -p 'test_training_jobs.py'`
   - `uv run python -m unittest discover -s tests/python -p 'test_prediction_and_model_test.py'`
@@ -1005,7 +1006,7 @@
   - `uv run python -m unittest discover -s tests/python -p 'test_solver_asset_contract.py'`
   - `uv run python -m unittest discover -s tests/python -p 'test_root_cli.py'`
 
-## 2026-04-10 新增 `uv run sinan train group1 prelabel-query-dir`：对单独一批 query 图片执行本地模型预标注
+## 2026-04-10 新增 `uv run sinan train group1 prelabel-query-dir`：对单独一批 query 图片执行规则式预标注
 
 - 已更新：
   - `core/train/group1/cli.py`
@@ -1017,8 +1018,8 @@
   - `.factory/memory/change-summary.md`
 - 当前已完成的目标：
   - 当前新增子命令：
-    - `uv run sinan train group1 prelabel-query-dir --input-dir <query-dir> --train-name <run>`
-  - 当前该命令使用本地 `query-parser` 权重，对 query 目录中的每张图片直接写同名 `json` 标注文件
+    - `uv run sinan train group1 prelabel-query-dir --input-dir <query-dir>`
+  - 当前该命令使用内置规则式 query splitter，对 query 目录中的每张图片直接写同名 `json` 标注文件
   - 当前额外汇总产物会写到：
     - `<input-dir>/.sinan/prelabel/group1/query/<run-name>/labels.jsonl`
     - `<input-dir>/.sinan/prelabel/group1/query/<run-name>/summary.json`
@@ -4519,7 +4520,7 @@
 
 ## 2026-04-02
 
-- 2026-04-11：完成 `TASK-G1-REF-008/011` 的首版正式收口。`core/release/solver_export.py` 已从 group2-only 扩到 `group1 + group2` 统一导出，当前可同时产出 `click_proposal_detector.onnx`、`click_query_parser.onnx`、`click_icon_embedder.onnx`、`slider_gap_locator.onnx`，并写出真实 `click_matcher.json` 配置。
+- 2026-04-11：完成 `TASK-G1-REF-008/011` 的首版正式收口。`core/release/solver_export.py` 已从 group2-only 扩到 `group1 + group2` 统一导出，当前可同时产出 `click_proposal_detector.onnx`、`click_icon_embedder.onnx`、`slider_gap_locator.onnx`，并写出真实 `click_matcher.json` 配置。
 - 2026-04-11：新增 `solver/src/sinanz_group1_runtime.py` 与 `solver/src/sinanz_group1_service.py`，让 `CaptchaSolver.sn_match_targets(...)` / `sn_match_targets(...)` 进入真实 ONNX Runtime 推理、embedding 全局 assignment 和歧义拒判链路，不再抛占位异常。
 - 2026-04-11：同步更新 `solver/pyproject.toml` 的资源打包规则，改为通配收集 `resources/models/*.onnx*` 与 `resources/metadata/*.json`，确保后续 `stage-solver-assets` 后构建出来的 `sinanz` wheel 能携带完整新规范 group1 资产。
 - 2026-04-11：补齐并通过定向测试：

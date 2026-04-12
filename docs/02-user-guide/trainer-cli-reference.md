@@ -275,6 +275,7 @@ uv run sinan materials audit-group1-query --model gemma4:26b --overwrite --yes
 
 当前正式主线不强依赖自动前景修补或 inpaint。若参考图里带有验证码干扰元素，命令会直接把原图送给多模态模型，并通过提示词要求模型只关注背景风格。
 同一 `--output-root` 下重跑时，命令会自动复用已完成的逐图分析结果和已保存的下载任务状态。
+当前下载策略不是“只按汇总搜索词找图”，而是“每张参考图至少 1 个保底下载任务，再叠加汇总扩充任务”。
 
 #### 适用场景
 
@@ -311,7 +312,7 @@ uv run sinan materials collect-backgrounds \
 | `--source-dir` | 必填，参考背景图片目录。 |
 | `--model` | 必填，本地 Ollama 多模态模型名。 |
 | `--output-root` | 默认 `work_home/materials/incoming`。下载图片写到 `output-root/backgrounds/`。 |
-| `--sample-limit` | 默认 `12`，最多送入大模型分析的参考图数量。 |
+| `--sample-limit` | 默认不限制。只在你显式传入时才限制参考图分析数量。 |
 | `--max-queries` | 默认 `5`，大模型输出的英文搜索词上限。 |
 | `--per-query` | 默认 `8`，每个搜索词最多下载的图片数。 |
 | `--limit` | 全局下载上限。 |
@@ -326,7 +327,7 @@ uv run sinan materials collect-backgrounds \
 
 - `output-root/reports/background-style-image-analysis.jsonl`：逐张参考图的分析结果。已成功分析的图片下次会按 `image_path + image_sha256` 复用。
 - `output-root/reports/background-style-summary.json`：根据逐图分析结果汇总出来的最终背景风格画像和搜索词。
-- `output-root/reports/background-style-download-state.json`：每个搜索词的下载任务状态，记录目标数量、已下载数量、已拒绝数量和下一页游标。
+- `output-root/reports/background-style-download-state.json`：下载任务状态，记录 `reference_image` 保底任务和 `summary` 扩充任务的来源、目标数量、已下载数量、已拒绝数量和下一页游标。
 - 若命令在下载阶段中断，只要重用同一 `--output-root` 重跑，就会从上次保存的任务状态继续，而不是从第一页重新开始。
 
 #### 最小示例
@@ -344,6 +345,7 @@ uv run sinan materials collect-backgrounds \
 - `output-root/backgrounds/` 下生成下载的背景图。
 - `output-root/manifests/materials.yaml` 会补齐素材根 schema 标记。
 - `output-root/manifests/backgrounds.csv` 记录来源、搜索词、作者和文件名。
+- 若未设置更小的全局 `--limit`，系统会优先保证每张参考图至少下载 1 张通过质量门的背景图。
 - `output-root/reports/background-style-image-analysis.jsonl` 记录逐图分析 checkpoint。
 - `output-root/reports/background-style-summary.json` 记录汇总后的背景风格画像和搜索词。
 - `output-root/reports/background-style-download-state.json` 记录下载任务流状态。
@@ -572,7 +574,7 @@ uv run sinan autolabel --task group1 --mode warmup-auto --input-dir work_home/ma
 
 #### 用途
 
-训练 `group1` 组件链（`proposal-detector/query-parser/icon-embedder`）。
+训练 `group1` 组件链（`proposal-detector/icon-embedder`）。
 
 #### 适用场景
 
@@ -587,10 +589,9 @@ uv run sinan train group1 \
   [--dataset-version <name>] \
   [--project <dir>] \
   [--name <run-name>] \
-  [--component all|proposal-detector|query-parser|icon-embedder] \
+  [--component all|proposal-detector|icon-embedder] \
   [--model <model>] \
   [--proposal-model <path-or-name>] \
-  [--query-model <path-or-name>] \
   [--embedder-model <path>] \
   [--from-run <run-name>] \
   [--resume] \
@@ -617,7 +618,7 @@ uv run sinan train group1 \
 约束：
 
 - `--resume` 与 `--from-run` 不能同时传。
-- 传 `--from-run` 时不要再传 `--model/--proposal-model/--query-model/--embedder-model`。
+- 传 `--from-run` 时不要再传 `--model/--proposal-model/--embedder-model`。
 
 #### 最小示例
 
@@ -651,7 +652,6 @@ uv run sinan train group1 prelabel \
   [--project <dir>] \
   [--train-name <run-name>] \
   [--proposal-model <path>] \
-  [--query-model <path>] \
   [--embedder-model <path>] \
   [--name <predict-run-name>] \
   [--conf <float>] \
@@ -672,7 +672,6 @@ uv run sinan train group1 prelabel \
 | `--project` | 否 | `<exam-root>/.sinan/prelabel/group1/predict` | 预测输出目录。 |
 | `--train-name` | 否 | `v1` | 权重来源 run 名。 |
 | `--proposal-model` | 否 | 从 `train-name` 推导 | proposal 模型覆盖。 |
-| `--query-model` | 否 | 从 `train-name` 推导 | query 模型覆盖。 |
 | `--embedder-model` | 否 | 视配置自动推导 | embedder 模型覆盖。 |
 | `--name` | 否 | `prelabel` | 预测 run 名。 |
 | `--conf` | 否 | `0.25` | 预测阈值。 |
@@ -708,6 +707,7 @@ uv run sinan train group1 prelabel --exam-root work_home/materials/business_exam
 
 - 只需要维护 query 图标语义，不涉及背景图匹配。
 - 快速构建 query 标注初稿供人工修订。
+- 希望直接使用内置规则式 query splitter，而不是依赖单独模型。
 
 #### 语法
 
@@ -715,12 +715,7 @@ uv run sinan train group1 prelabel --exam-root work_home/materials/business_exam
 uv run sinan train group1 prelabel-query-dir \
   --input-dir <dir> \
   [--project <dir>] \
-  [--train-name <run-name>] \
-  [--query-model <path>] \
   [--name <predict-run-name>] \
-  [--conf <float>] \
-  [--imgsz <int>] \
-  [--device <device>] \
   [--limit <int>] \
   [--overwrite] \
   [--dry-run]
@@ -732,12 +727,7 @@ uv run sinan train group1 prelabel-query-dir \
 | --- | --- | --- | --- |
 | `--input-dir` | 是 | 无 | query 图片目录。 |
 | `--project` | 否 | `<input-dir>/.sinan/prelabel/group1/query` | 输出目录。 |
-| `--train-name` | 否 | `v1` | 默认 query 模型来源 run。 |
-| `--query-model` | 否 | 从 `train-name` 推导 | 显式 query 模型。 |
 | `--name` | 否 | `prelabel-query` | 预测 run 名。 |
-| `--conf` | 否 | `0.25` | 预测阈值。 |
-| `--imgsz` | 否 | `640` | 输入尺寸。 |
-| `--device` | 否 | `0` | 推理设备。 |
 | `--limit` | 否 | 空 | 限制样本数。 |
 | `--overwrite` | 否 | `false` | 覆盖已有结果。 |
 | `--dry-run` | 否 | `false` | 仅输出执行计划。 |
@@ -745,7 +735,7 @@ uv run sinan train group1 prelabel-query-dir \
 #### 最小示例
 
 ```bash
-uv run sinan train group1 prelabel-query-dir --input-dir work_home/query_pool --train-name firstpass --limit 300
+uv run sinan train group1 prelabel-query-dir --input-dir work_home/query_pool --limit 300
 ```
 
 #### 成功标志
@@ -755,8 +745,8 @@ uv run sinan train group1 prelabel-query-dir --input-dir work_home/query_pool --
 
 #### 常见误用
 
-- 把 mixed 目录传给 `--input-dir`（含非 query 图），导致结果噪声高。
-- 未固定 `--train-name`，多次运行拿到不同模型结果难对比。
+- 把 mixed 目录传给 `--input-dir`（含非 query 图），导致规则切分结果噪声高。
+- 未先人工抽检规则切分结果，就直接大批量导入审核流程。
 
 ### 7.4 `train group1 prelabel-vlm`
 

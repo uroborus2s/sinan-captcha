@@ -191,7 +191,6 @@ uv run repo publish-solver --token-env <TOKEN_ENV>
 ```bash
 uv run repo export-solver-assets \
   --group1-proposal-checkpoint runs/group1/<group1-run>/proposal-detector/weights/best.pt \
-  --group1-query-checkpoint runs/group1/<group1-run>/query-parser/weights/best.pt \
   --group1-embedder-checkpoint runs/group1/<group1-run>/icon-embedder/weights/best.pt \
   --group1-run <group1-run> \
   --group2-checkpoint runs/group2/<group2-run>/weights/best.pt \

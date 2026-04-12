@@ -129,11 +129,11 @@ class AutoTrainTrainRunnerTests(unittest.TestCase):
             self.assertEqual(result.record.resumed_from, "trial_0001")
             self.assertEqual(result.record.run_dir, str(train_root / "runs" / "group1" / "trial_0002"))
             self.assertEqual(result.record.best_weights, str(train_root / "runs" / "group1" / "trial_0002" / "proposal-detector" / "weights" / "best.pt"))
-            self.assertNotIn("query_model_best", result.record.params)
+            self.assertFalse(any(name.startswith("query_") for name in result.record.params))
             self.assertEqual(result.record.params["embedder_model_best"], str(train_root / "runs" / "group1" / "trial_0002" / "icon-embedder" / "weights" / "best.pt"))
             self.assertIn("--proposal-model", result.command)
             self.assertIn(str(proposal_best), result.command)
-            self.assertNotIn("--query-model", result.command)
+            self.assertNotIn("--query-", result.command)
             self.assertIn("--embedder-model", result.command)
             self.assertIn(str(embedder_best), result.command)
             self.assertEqual(len(captured_jobs), 1)
@@ -210,18 +210,17 @@ class AutoTrainTestRunnerTests(unittest.TestCase):
             embedder_model_path.write_text("weights", encoding="utf-8")
 
             observed_embedder_path: Path | None = None
-            observed_query_path: Path | None = Path("/unexpected")
+            observed_has_legacy_query_path: bool | None = None
 
             def _fake_runner(_request):
-                nonlocal observed_embedder_path, observed_query_path
+                nonlocal observed_embedder_path, observed_has_legacy_query_path
                 observed_embedder_path = _request.embedder_model_path
-                observed_query_path = _request.query_model_path
+                observed_has_legacy_query_path = any(name.startswith("query_") for name in vars(_request))
                 return ModelTestResult(
                     task="group1",
                     dataset_version="firstpass",
                     train_name="trial_0001",
                     model_path=proposal_model_path,
-                    query_model_path=None,
                     embedder_model_path=embedder_model_path,
                     dataset_config=dataset_config,
                     source=source,
@@ -258,7 +257,7 @@ class AutoTrainTestRunnerTests(unittest.TestCase):
             self.assertEqual(result.record.dataset_version, "firstpass")
             self.assertEqual(result.record.metrics["full_sequence_hit_rate"], 0.88)
             self.assertEqual(observed_embedder_path, embedder_model_path)
-            self.assertIsNone(observed_query_path)
+            self.assertFalse(observed_has_legacy_query_path)
             self.assertIn("predict", result.predict_command)
             self.assertIn("val", result.val_command)
 

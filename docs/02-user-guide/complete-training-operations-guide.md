@@ -155,14 +155,13 @@ uv run sinan train group1 --dataset-version firstpass --name firstpass
 分组件训练：
 
 ```powershell
-uv run sinan train group1 --dataset-version firstpass --name g1_query --component query-parser
 uv run sinan train group1 --dataset-version firstpass --name g1_proposal --component proposal-detector
 uv run sinan train group1 --dataset-version firstpass --name g1_embed --component icon-embedder
 ```
 
 关键事实：
 
-- `group1` 默认基模型是 `yolo26n.pt`（proposal/query）。
+- `group1` 的 proposal detector 默认基模型是 `yolo26n.pt`。
 - `embedder` 由 `--embedder-model` 单独指定，未指定时走组件默认策略。
 
 ### 5.2 训练 `group2`
@@ -241,8 +240,12 @@ uv run sinan train group2 prelabel --exam-root D:\sinan-captcha-work\materials\b
 ### 7.3 `group1` 查询图目录预标注
 
 ```powershell
-uv run sinan train group1 prelabel-query-dir --input-dir D:\query-dir --train-name firstpass
+uv run sinan train group1 prelabel-query-dir --input-dir D:\query-dir
 ```
+
+关键事实：
+
+- 当前这条命令使用内置规则式 query splitter，不依赖单独检测模型。
 
 ### 7.4 `group1` 本地 VLM 预标注
 
