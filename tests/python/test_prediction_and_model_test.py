@@ -64,6 +64,90 @@ class PredictionCliTests(unittest.TestCase):
         self.assertIn(f"--project {expected_root / 'reports/group2'}", output)
         self.assertIn("--name predict_firstpass", output)
 
+    def test_group1_predict_cli_uses_query_detector_when_dataset_declares_it(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            root = Path(tmpdir)
+            dataset_config = root / "datasets" / "group1" / "v1" / "dataset.json"
+            dataset_config.parent.mkdir(parents=True)
+            dataset_config.write_text(
+                (
+                    "{\n"
+                    '  "task": "group1",\n'
+                    '  "format": "sinan.group1.instance_matching.v1",\n'
+                    '  "splits": {"train":"splits/train.jsonl","val":"splits/val.jsonl","test":"splits/test.jsonl"},\n'
+                    '  "query_detector": {"format":"yolo.detect.v1","dataset_yaml":"query-yolo/dataset.yaml"},\n'
+                    '  "proposal_detector": {"format":"yolo.detect.v1","dataset_yaml":"proposal-yolo/dataset.yaml"},\n'
+                    '  "embedding": {"format":"sinan.group1.embedding.v1","queries_dir":"embedding/queries","candidates_dir":"embedding/candidates","pairs_jsonl":"embedding/pairs.jsonl","triplets_jsonl":"embedding/triplets.jsonl"},\n'
+                    '  "eval": {"format":"sinan.group1.eval.v1","labels_jsonl":"eval/labels.jsonl"}\n'
+                    "}\n"
+                ),
+                encoding="utf-8",
+            )
+            buffer = io.StringIO()
+            with patch("predict.cli.default_train_root", return_value=root):
+                with redirect_stdout(buffer):
+                    code = predict_cli.main(
+                        [
+                            "group1",
+                            "--dataset-config",
+                            str(dataset_config),
+                            "--source",
+                            str(root / "datasets" / "group1" / "v1" / "splits" / "val.jsonl"),
+                            "--project",
+                            str(root / "reports" / "group1"),
+                            "--train-name",
+                            "v1",
+                            "--dry-run",
+                        ]
+                    )
+
+        self.assertEqual(code, 0)
+        output = buffer.getvalue()
+        self.assertIn(f"--query-model {root / 'runs' / 'group1' / 'v1' / 'query-detector' / 'weights' / 'best.pt'}", output)
+
+    def test_group1_modeltest_cli_uses_query_detector_when_dataset_declares_it(self) -> None:
+        from modeltest import cli as modeltest_cli
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            root = Path(tmpdir)
+            dataset_config = root / "datasets" / "group1" / "v1" / "dataset.json"
+            dataset_config.parent.mkdir(parents=True)
+            dataset_config.write_text(
+                (
+                    "{\n"
+                    '  "task": "group1",\n'
+                    '  "format": "sinan.group1.instance_matching.v1",\n'
+                    '  "splits": {"train":"splits/train.jsonl","val":"splits/val.jsonl","test":"splits/test.jsonl"},\n'
+                    '  "query_detector": {"format":"yolo.detect.v1","dataset_yaml":"query-yolo/dataset.yaml"},\n'
+                    '  "proposal_detector": {"format":"yolo.detect.v1","dataset_yaml":"proposal-yolo/dataset.yaml"},\n'
+                    '  "embedding": {"format":"sinan.group1.embedding.v1","queries_dir":"embedding/queries","candidates_dir":"embedding/candidates","pairs_jsonl":"embedding/pairs.jsonl","triplets_jsonl":"embedding/triplets.jsonl"},\n'
+                    '  "eval": {"format":"sinan.group1.eval.v1","labels_jsonl":"eval/labels.jsonl"}\n'
+                    "}\n"
+                ),
+                encoding="utf-8",
+            )
+            buffer = io.StringIO()
+            with patch("modeltest.cli.default_train_root", return_value=root):
+                with redirect_stdout(buffer):
+                    code = modeltest_cli.main(
+                        [
+                            "group1",
+                            "--dataset-config",
+                            str(dataset_config),
+                            "--source",
+                            str(root / "datasets" / "group1" / "v1" / "splits" / "val.jsonl"),
+                            "--project",
+                            str(root / "reports" / "group1"),
+                            "--train-name",
+                            "v1",
+                            "--dry-run",
+                        ]
+                    )
+
+        self.assertEqual(code, 0)
+        output = buffer.getvalue()
+        self.assertIn(f"--query-model {root / 'runs' / 'group1' / 'v1' / 'query-detector' / 'weights' / 'best.pt'}", output)
+
 
 class ModelTestServiceTests(unittest.TestCase):
     def test_group1_model_test_runs_predict_and_evaluate_and_writes_beginner_report(self) -> None:
@@ -82,6 +166,7 @@ class ModelTestServiceTests(unittest.TestCase):
                     '    "val": "splits/val.jsonl",\n'
                     '    "test": "splits/test.jsonl"\n'
                     "  },\n"
+                    '  "query_detector": {"format":"yolo.detect.v1","dataset_yaml":"query-yolo/dataset.yaml"},\n'
                     '  "proposal_detector": {"format":"yolo.detect.v1","dataset_yaml":"proposal-yolo/dataset.yaml"},\n'
                     '  "embedding": {"format":"sinan.group1.embedding.v1","queries_dir":"embedding/queries","candidates_dir":"embedding/candidates","pairs_jsonl":"embedding/pairs.jsonl","triplets_jsonl":"embedding/triplets.jsonl"},\n'
                     '  "eval": {"format":"sinan.group1.eval.v1","labels_jsonl":"eval/labels.jsonl"}\n'
@@ -100,10 +185,13 @@ class ModelTestServiceTests(unittest.TestCase):
                 ),
                 encoding="utf-8",
             )
+            query_model_path = root / "runs" / "group1" / "firstpass" / "query-detector" / "weights" / "best.pt"
             proposal_model_path = root / "runs" / "group1" / "firstpass" / "proposal-detector" / "weights" / "best.pt"
             embedder_model_path = root / "runs" / "group1" / "firstpass" / "icon-embedder" / "weights" / "best.pt"
+            query_model_path.parent.mkdir(parents=True)
             proposal_model_path.parent.mkdir(parents=True)
             embedder_model_path.parent.mkdir(parents=True)
+            query_model_path.write_bytes(b"pt")
             proposal_model_path.write_bytes(b"pt")
             embedder_model_path.write_bytes(b"pt")
 
@@ -138,6 +226,7 @@ class ModelTestServiceTests(unittest.TestCase):
                                 dataset_version="firstpass",
                                 train_name="firstpass",
                                 dataset_config=dataset_config,
+                                query_detector_model_path=query_model_path,
                                 model_path=proposal_model_path,
                                 embedder_model_path=embedder_model_path,
                                 source=source,
@@ -151,6 +240,7 @@ class ModelTestServiceTests(unittest.TestCase):
             self.assertEqual(result.task, "group1")
             self.assertEqual(result.source_image_count, 1)
             self.assertAlmostEqual(result.metrics["full_sequence_hit_rate"], 1.0)
+            self.assertEqual(run_predict.call_args.args[0].query_detector_model_path, query_model_path)
             summary_md = (report_dir / "summary.md").read_text(encoding="utf-8")
             self.assertIn("初学者结论", summary_md)
             self.assertIn("这轮双模型点击流水线已经比较稳", summary_md)

@@ -35,6 +35,7 @@ from train.base import (
     default_run_dir,
     preferred_checkpoint_path,
 )
+from train.group1.service import EMBEDDER_COMPONENT, PROPOSAL_COMPONENT, QUERY_COMPONENT
 
 DEFAULT_JUDGE_PROVIDER = "rules"
 DEFAULT_JUDGE_MODEL = "policy-v1"
@@ -49,6 +50,11 @@ STAGE_ALIASES = {
     "plan": "PLAN",
     "build-dataset": "BUILD_DATASET",
     "train": "TRAIN",
+    "train-query": "TRAIN_QUERY",
+    "query-gate": "QUERY_GATE",
+    "train-scene": "TRAIN_SCENE",
+    "scene-gate": "SCENE_GATE",
+    "train-embedder-base": "TRAIN_EMBEDDER_BASE",
     "test": "TEST",
     "evaluate": "EVALUATE",
     "summarize": "SUMMARIZE",
@@ -183,7 +189,7 @@ class AutoTrainController:
 
         study = self._load_or_create_study()
         trial_id = self._ensure_current_trial(study)
-        current_stage = normalize_stage_name(force_stage) if force_stage is not None else self._current_stage(study, trial_id)
+        current_stage = self._normalize_stage_name_for_task(force_stage) if force_stage is not None else self._current_stage(study, trial_id)
         executed: list[StageExecution] = []
 
         steps_run = 0
@@ -205,7 +211,7 @@ class AutoTrainController:
         )
 
     def run_stage(self, stage: str) -> StageExecution:
-        return self._run_stage(normalize_stage_name(stage))
+        return self._run_stage(self._normalize_stage_name_for_task(stage))
 
     def _run_stage(self, stage: str) -> StageExecution:
         study = self._load_or_create_study()
@@ -215,7 +221,19 @@ class AutoTrainController:
         if stage == "BUILD_DATASET":
             return self._stage_build_dataset(trial_id)
         if stage == "TRAIN":
+            if self.request.task == "group1":
+                return self._stage_train_query(trial_id)
             return self._stage_train(trial_id)
+        if stage == "TRAIN_QUERY":
+            return self._stage_train_query(trial_id)
+        if stage == "QUERY_GATE":
+            return self._stage_query_gate(trial_id)
+        if stage == "TRAIN_SCENE":
+            return self._stage_train_scene(trial_id)
+        if stage == "SCENE_GATE":
+            return self._stage_scene_gate(trial_id)
+        if stage == "TRAIN_EMBEDDER_BASE":
+            return self._stage_train_embedder_base(trial_id)
         if stage == "TEST":
             return self._stage_test(trial_id)
         if stage == "EVALUATE":
@@ -239,7 +257,7 @@ class AutoTrainController:
         return StageExecution(
             trial_id=trial_id,
             stage="PLAN",
-            next_stage=state_machine.next_stage("PLAN"),
+            next_stage=state_machine.next_stage("PLAN", task=self.request.task),
             detail=str(input_path),
         )
 
@@ -277,7 +295,7 @@ class AutoTrainController:
         return StageExecution(
             trial_id=trial_id,
             stage="BUILD_DATASET",
-            next_stage=state_machine.next_stage("BUILD_DATASET"),
+            next_stage=state_machine.next_stage("BUILD_DATASET", task=self.request.task),
             detail=str(dataset_path),
         )
 
@@ -302,7 +320,120 @@ class AutoTrainController:
         return StageExecution(
             trial_id=trial_id,
             stage="TRAIN",
-            next_stage=state_machine.next_stage("TRAIN"),
+            next_stage=state_machine.next_stage("TRAIN", task=self.request.task),
+            detail=result.command,
+        )
+
+    def _stage_train_query(self, trial_id: str) -> StageExecution:
+        return self._stage_train_group1_component(
+            trial_id=trial_id,
+            stage="TRAIN_QUERY",
+            component=QUERY_COMPONENT,
+            record_path=self.paths.query_train_file(trial_id),
+            write_legacy_train=False,
+        )
+
+    def _stage_query_gate(self, trial_id: str) -> StageExecution:
+        gate_path = self.paths.query_gate_file(trial_id)
+        train_record = storage.read_train_record(self.paths.query_train_file(trial_id))
+        component_summary = self._read_group1_component_summary(train_record, QUERY_COMPONENT)
+        gate = component_summary.get("gate", {})
+        gate_status = "missing"
+        if isinstance(gate, dict):
+            raw_status = gate.get("status")
+            if isinstance(raw_status, str) and raw_status.strip():
+                gate_status = raw_status.strip()
+        gate_payload = {
+            "trial_id": trial_id,
+            "component": QUERY_COMPONENT,
+            "status": gate_status,
+            "metrics": component_summary.get("metrics", {}),
+            "gate": gate,
+            "summary_path": str(Path(train_record.run_dir) / "summary.json"),
+        }
+        storage.write_json_payload(gate_path, gate_payload)
+        return StageExecution(
+            trial_id=trial_id,
+            stage="QUERY_GATE",
+            next_stage=state_machine.next_stage("QUERY_GATE", task=self.request.task),
+            detail=str(gate_path),
+        )
+
+    def _stage_train_scene(self, trial_id: str) -> StageExecution:
+        return self._stage_train_group1_component(
+            trial_id=trial_id,
+            stage="TRAIN_SCENE",
+            component=PROPOSAL_COMPONENT,
+            record_path=self.paths.scene_train_file(trial_id),
+            write_legacy_train=True,
+        )
+
+    def _stage_scene_gate(self, trial_id: str) -> StageExecution:
+        gate_path = self.paths.scene_gate_file(trial_id)
+        train_record = storage.read_train_record(self.paths.scene_train_file(trial_id))
+        component_summary = self._read_group1_component_summary(train_record, PROPOSAL_COMPONENT)
+        best_path = Path(str(component_summary.get("weights", {}).get("best", train_record.best_weights or "")))
+        last_path = Path(str(component_summary.get("weights", {}).get("last", train_record.last_weights or "")))
+        gate_payload = {
+            "trial_id": trial_id,
+            "component": PROPOSAL_COMPONENT,
+            "status": "passed" if best_path.exists() or last_path.exists() else "failed",
+            "checks": {
+                "best_exists": best_path.exists(),
+                "last_exists": last_path.exists(),
+            },
+            "summary_path": str(Path(train_record.run_dir) / "summary.json"),
+        }
+        storage.write_json_payload(gate_path, gate_payload)
+        return StageExecution(
+            trial_id=trial_id,
+            stage="SCENE_GATE",
+            next_stage=state_machine.next_stage("SCENE_GATE", task=self.request.task),
+            detail=str(gate_path),
+        )
+
+    def _stage_train_embedder_base(self, trial_id: str) -> StageExecution:
+        return self._stage_train_group1_component(
+            trial_id=trial_id,
+            stage="TRAIN_EMBEDDER_BASE",
+            component=EMBEDDER_COMPONENT,
+            record_path=self.paths.embedder_train_file(trial_id),
+            write_legacy_train=False,
+        )
+
+    def _stage_train_group1_component(
+        self,
+        *,
+        trial_id: str,
+        stage: str,
+        component: str,
+        record_path: Path,
+        write_legacy_train: bool,
+    ) -> StageExecution:
+        input_record = storage.read_trial_input_record(self.paths.input_file(trial_id))
+        result = self.dependencies.train_runner(
+            runners.train.TrainRunnerRequest(
+                task=self.request.task,
+                train_root=self.request.train_root,
+                dataset_version=input_record.dataset_version,
+                train_name=input_record.train_name,
+                train_mode=input_record.train_mode,
+                base_run=input_record.base_run,
+                model=_string_value(input_record.params, "model"),
+                epochs=_int_value(input_record.params, "epochs"),
+                batch=_int_value(input_record.params, "batch"),
+                imgsz=_int_value(input_record.params, "imgsz", default=self.request.effective_imgsz),
+                device=_string_value(input_record.params, "device", default=self.request.device) or self.request.device,
+                component=component,
+            )
+        )
+        storage.write_train_record(record_path, result.record)
+        if write_legacy_train:
+            storage.write_train_record(self.paths.train_file(trial_id), result.record)
+        return StageExecution(
+            trial_id=trial_id,
+            stage=stage,
+            next_stage=state_machine.next_stage(stage, task=self.request.task),
             detail=result.command,
         )
 
@@ -324,7 +455,7 @@ class AutoTrainController:
         return StageExecution(
             trial_id=trial_id,
             stage="TEST",
-            next_stage=state_machine.next_stage("TEST"),
+            next_stage=state_machine.next_stage("TEST", task=self.request.task),
             detail=result.predict_command,
         )
 
@@ -351,7 +482,7 @@ class AutoTrainController:
         return StageExecution(
             trial_id=trial_id,
             stage="EVALUATE",
-            next_stage=state_machine.next_stage("EVALUATE"),
+            next_stage=state_machine.next_stage("EVALUATE", task=self.request.task),
             detail=detail,
         )
 
@@ -388,7 +519,7 @@ class AutoTrainController:
         return StageExecution(
             trial_id=trial_id,
             stage="SUMMARIZE",
-            next_stage=state_machine.next_stage("SUMMARIZE"),
+            next_stage=state_machine.next_stage("SUMMARIZE", task=self.request.task),
             detail=str(self.paths.result_summary_file(trial_id)),
         )
 
@@ -400,7 +531,7 @@ class AutoTrainController:
         return StageExecution(
             trial_id=trial_id,
             stage="JUDGE",
-            next_stage=state_machine.next_stage("JUDGE"),
+            next_stage=state_machine.next_stage("JUDGE", task=self.request.task),
             detail=decision.decision,
         )
 
@@ -629,8 +760,8 @@ class AutoTrainController:
         trial_dir = self.paths.ensure_trial_dir(trial_id)
         if study.status == "running" and study.final_reason == "business_eval_rerun_pending":
             return "NEXT_ACTION"
-        stage = state_machine.infer_resume_stage(trial_dir, stop_file=self.paths.stop_file)
-        if stage in {"TRAIN", "TEST"}:
+        stage = state_machine.infer_resume_stage(trial_dir, task=self.request.task, stop_file=self.paths.stop_file)
+        if stage in {"TRAIN", "TRAIN_QUERY", "QUERY_GATE", "TRAIN_SCENE", "SCENE_GATE", "TRAIN_EMBEDDER_BASE", "TEST"}:
             input_path = self.paths.input_file(trial_id)
             if input_path.exists():
                 trial_input = storage.read_trial_input_record(input_path)
@@ -642,6 +773,12 @@ class AutoTrainController:
                 if not dataset_config.exists():
                     return "BUILD_DATASET"
         return stage
+
+    def _normalize_stage_name_for_task(self, stage: str) -> str:
+        normalized = normalize_stage_name(stage)
+        if self.request.task == "group1" and normalized == "TRAIN":
+            return "TRAIN_QUERY"
+        return normalized
 
     def _next_trial_id(self) -> str:
         trial_dirs = [candidate.name for candidate in self.paths.trials_root.glob("trial_*") if candidate.is_dir()]
@@ -817,6 +954,8 @@ class AutoTrainController:
 
     def _resolve_test_model_path(self, trial_id: str) -> Path | None:
         train_path = self.paths.train_file(trial_id)
+        if self.request.task == "group1" and self.paths.scene_train_file(trial_id).exists():
+            train_path = self.paths.scene_train_file(trial_id)
         if not train_path.exists():
             return None
         train_record = storage.read_train_record(train_path)
@@ -824,6 +963,41 @@ class AutoTrainController:
             Path(train_record.best_weights),
             Path(train_record.last_weights),
         )
+
+    def _read_group1_component_summary(self, train_record: contracts.TrainRecord, component: str) -> dict[str, object]:
+        summary_path = Path(train_record.run_dir) / "summary.json"
+        if not summary_path.exists():
+            raise runners.RunnerExecutionError(
+                stage="TRAIN",
+                reason="missing_artifact",
+                message=f"group1 组件训练缺少 summary.json：{summary_path}",
+                retryable=False,
+            )
+        payload = json.loads(summary_path.read_text(encoding="utf-8"))
+        if not isinstance(payload, dict):
+            raise runners.RunnerExecutionError(
+                stage="TRAIN",
+                reason="invalid_output",
+                message=f"group1 组件训练 summary.json 格式非法：{summary_path}",
+                retryable=False,
+            )
+        components = payload.get("components")
+        if not isinstance(components, dict):
+            raise runners.RunnerExecutionError(
+                stage="TRAIN",
+                reason="invalid_output",
+                message=f"group1 组件训练 summary.json 缺少 components：{summary_path}",
+                retryable=False,
+            )
+        component_summary = components.get(component)
+        if not isinstance(component_summary, dict):
+            raise runners.RunnerExecutionError(
+                stage="TRAIN",
+                reason="invalid_output",
+                message=f"group1 组件训练 summary.json 缺少 {component}：{summary_path}",
+                retryable=False,
+            )
+        return component_summary
 
     def _promote_current_trial_last_weights_if_selected(
         self,

@@ -73,6 +73,7 @@ class Group1TrainingJob:
 @dataclass(frozen=True)
 class Group1PredictionJob:
     dataset_config: Path
+    query_detector_model_path: Path | None
     proposal_model_path: Path
     embedder_model_path: Path | None
     source: Path
@@ -95,6 +96,7 @@ class Group1PredictionJob:
             "predict",
             "--dataset-config",
             str(self.dataset_config),
+            *(["--query-model", str(self.query_detector_model_path)] if self.query_detector_model_path is not None else []),
             "--proposal-model",
             str(self.proposal_model_path),
             *(["--embedder-model", str(self.embedder_model_path)] if self.embedder_model_path is not None else []),
@@ -176,6 +178,7 @@ def build_group1_prediction_job(
     project_dir: Path,
     run_name: str,
     *,
+    query_detector_model_path: Path | None = None,
     embedder_model_path: Path | None = None,
     conf: float = 0.25,
     imgsz: int = 640,
@@ -183,6 +186,7 @@ def build_group1_prediction_job(
 ) -> Group1PredictionJob:
     return Group1PredictionJob(
         dataset_config=dataset_config,
+        query_detector_model_path=query_detector_model_path,
         proposal_model_path=proposal_model_path,
         embedder_model_path=embedder_model_path,
         source=source,
@@ -222,6 +226,8 @@ def run_group1_prediction_job(job: Group1PredictionJob) -> Group1PredictionResul
     if not job.dataset_config.exists():
         raise RuntimeError(f"未找到 group1 数据集配置文件：{job.dataset_config}")
     dataset_config = load_group1_dataset_config(job.dataset_config)
+    if job.query_detector_model_path is not None and not job.query_detector_model_path.exists():
+        raise RuntimeError(f"未找到 group1 query detector 权重：{job.query_detector_model_path}")
     if not job.proposal_model_path.exists():
         raise RuntimeError(f"未找到 group1 proposal detector 权重：{job.proposal_model_path}")
     if dataset_config.is_instance_matching and job.embedder_model_path is None:

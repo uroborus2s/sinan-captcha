@@ -1,5 +1,36 @@
 # 变更摘要
 
+## 2026-04-13 接通 `group1 query detector` 到 `predict / modeltest` 预测前半段
+
+- 已更新：
+  - `packages/sinan-captcha/src/train/group1/service.py`
+  - `packages/sinan-captcha/src/train/group1/runner.py`
+  - `packages/sinan-captcha/src/predict/cli.py`
+  - `packages/sinan-captcha/src/modeltest/cli.py`
+  - `packages/sinan-captcha/src/modeltest/service.py`
+  - `packages/sinan-captcha/src/auto_train/runners/test.py`
+  - `packages/sinan-captcha/src/auto_train/business_eval.py`
+  - `tests/python/test_training_jobs.py`
+  - `tests/python/test_prediction_and_model_test.py`
+  - `tests/python/test_auto_train_runners.py`
+  - `tests/python/test_group1_embedder.py`
+  - `docs/04-project-development/05-development-process/group1-instance-matching-refactor-task-breakdown.md`
+  - `.factory/memory/current-state.md`
+  - `.factory/memory/change-summary.md`
+- 当前已完成的目标：
+  - `Group1PredictionJob` 已新增可选 `query detector` 权重参数，并会透传到 `train.group1.runner predict --query-model`
+  - `train.group1.runner predict` 在提供 `--query-model` 时，已改为先用 query detector 产出 `query_items`
+  - `predict group1` / `modeltest group1` 在 `dataset.json` 声明 `query_detector` 且配置文件存在时，会默认解析 `query-detector/weights/best.pt`
+  - `auto_train.runners.test` 与 `business_eval` 已开始在 `group1` 上透传 `query detector` 权重
+  - `modeltest` 中文报告已能区分 query detector 与 query splitter 两条链路口径
+- 已运行验证：
+  - `PYTHONPYCACHEPREFIX=/Users/uroborus/AiProject/sinan-captcha/work_home/.pycache python3 -m py_compile packages/sinan-captcha/src/train/group1/service.py packages/sinan-captcha/src/train/group1/runner.py packages/sinan-captcha/src/predict/cli.py packages/sinan-captcha/src/modeltest/cli.py packages/sinan-captcha/src/modeltest/service.py packages/sinan-captcha/src/auto_train/runners/test.py packages/sinan-captcha/src/auto_train/business_eval.py tests/python/test_training_jobs.py tests/python/test_prediction_and_model_test.py tests/python/test_auto_train_runners.py tests/python/test_group1_embedder.py`
+  - `uv run pytest tests/python/test_training_jobs.py tests/python/test_prediction_and_model_test.py tests/python/test_auto_train_runners.py tests/python/test_group1_embedder.py -q`
+  - `git diff --check`
+- 当前状态：
+  - `group1` 的 `predict / modeltest / auto_train modeltest/business_eval` 已具备 query detector 预测入口
+  - `solve.service` 与 `auto-train` 新阶段机仍未切完，仓库还保留规则 splitter fallback
+
 ## 2026-04-13 固化 generator preset 约定并实现 `query detector` 训练入口第一切片
 
 - 已更新：

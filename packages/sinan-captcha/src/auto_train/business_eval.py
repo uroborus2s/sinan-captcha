@@ -23,9 +23,11 @@ from train.base import default_dataset_config, preferred_checkpoint_path, prefer
 from train.group1.service import (
     EMBEDDER_COMPONENT,
     PROPOSAL_COMPONENT,
+    QUERY_COMPONENT,
     resolve_group1_component_best_weights,
     resolve_group1_component_last_weights,
 )
+from train.group1.dataset import load_group1_dataset_config
 
 ModelTestExecutor = Callable[[ModelTestRequest], ModelTestResult]
 
@@ -355,11 +357,16 @@ def _build_business_model_test_request(
 ) -> ModelTestRequest:
     dataset_config = default_dataset_config(train_root, task, dataset_version)
     if task == "group1":
+        group1_dataset_config = load_group1_dataset_config(dataset_config)
+        query_detector_model_path = None
+        if group1_dataset_config.query_component is not None:
+            query_detector_model_path = _preferred_group1_component_weights(train_root, train_name, QUERY_COMPONENT)
         return ModelTestRequest(
             task=task,
             dataset_version=dataset_version,
             train_name=train_name,
             dataset_config=dataset_config,
+            query_detector_model_path=query_detector_model_path,
             model_path=_preferred_group1_component_weights(train_root, train_name, PROPOSAL_COMPONENT),
             embedder_model_path=_preferred_group1_component_weights(train_root, train_name, EMBEDDER_COMPONENT),
             source=source,

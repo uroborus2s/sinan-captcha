@@ -115,7 +115,7 @@
 
 ### `TASK-G1-REF-014`
 
-- 当前 2026-04-13 已完成第一切片：
+- 当前 2026-04-13 已完成第二切片：
   - generator 已写出 `query-yolo/images|labels/{train,val,test}` 与 `query-yolo/dataset.yaml`
   - `dataset.json` 已新增 `query_detector` 组件合同，指向 `query-yolo/dataset.yaml`
   - Python `group1 dataset loader` 已能读取 `query_detector` 字段
@@ -129,15 +129,21 @@
       - `query_strict_hit_rate`
       - `query-detector/failcases.jsonl`
       - `query-detector gate`
+  - `predict group1` / `modeltest group1` 已新增 `query-model` 接线：
+    - 当 `dataset.json` 声明 `query_detector` 且可解析到权重时，会默认把 `query detector` best checkpoint 注入预测命令
+    - `train.group1.runner predict` 已支持 `--query-model`
+    - runner 在提供 `--query-model` 时会先用 query detector 产出 `query_items`，不再走规则 splitter
+    - `modeltest` 中文报告已能区分：
+      - `query detector + proposal detector + icon embedder + matcher`
+      - `query splitter + proposal detector + icon embedder + matcher`
+  - `auto_train` 的 `modeltest/business_eval` 组装层已开始透传 `query detector` 权重
   - 已通过：
     - `go test ./internal/app -count=1`
-    - `uv run pytest tests/python/test_training_jobs.py -q`
-    - `uv run pytest tests/python/test_auto_train_runners.py -q`
-    - `uv run pytest tests/python/test_group1_embedder.py -q`
+    - `uv run pytest tests/python/test_training_jobs.py tests/python/test_prediction_and_model_test.py tests/python/test_auto_train_runners.py tests/python/test_group1_embedder.py -q`
 - 剩余待补齐：
-  - `query detector` 推理接线
   - `auto-train` 对 query gate 的正式阶段消费
-  - `query detector` 对外预测入口（替换规则 splitter 前的独立链路）
+  - `solve.service` 主链路仍未切到 `query detector`
+  - 仓库内仍保留规则 splitter fallback，尚未完成彻底替换
 - 第一阶段验收要求：
   - 能消费 `query-yolo/dataset.yaml`
   - 能输出 `best.pt / last.pt / summary.json / failcases.jsonl`

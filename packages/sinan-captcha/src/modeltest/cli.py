@@ -16,8 +16,10 @@ from train.base import (
 from train.group1.service import (
     EMBEDDER_COMPONENT,
     PROPOSAL_COMPONENT,
+    QUERY_COMPONENT,
     resolve_group1_component_best_weights,
 )
+from train.group1.dataset import load_group1_dataset_config
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -34,6 +36,7 @@ def build_parser() -> argparse.ArgumentParser:
         help="optional; defaults to <repo>/work_home/datasets/group1/<dataset-version>/dataset.json",
     )
     group1_parser.add_argument("--dataset-version", default="v1")
+    group1_parser.add_argument("--query-model", type=Path, required=False)
     group1_parser.add_argument("--proposal-model", dest="proposal_model", type=Path, required=False)
     group1_parser.add_argument("--scene-model", dest="proposal_model", type=Path, required=False, help=argparse.SUPPRESS)
     group1_parser.add_argument("--embedder-model", type=Path, required=False)
@@ -114,6 +117,7 @@ def main(argv: list[str] | None = None) -> int:
     report_dir = args.report_dir or (project_dir / f"test_{args.train_name}")
 
     if task == "group1":
+        query_model = _default_group1_query_model(train_root, dataset_config, args.train_name, args.query_model)
         proposal_model = args.proposal_model or resolve_group1_component_best_weights(train_root, args.train_name, PROPOSAL_COMPONENT)
         embedder_model = args.embedder_model or resolve_group1_component_best_weights(train_root, args.train_name, EMBEDDER_COMPONENT)
         request = ModelTestRequest(
@@ -121,6 +125,7 @@ def main(argv: list[str] | None = None) -> int:
             dataset_version=args.dataset_version,
             train_name=args.train_name,
             dataset_config=dataset_config,
+            query_detector_model_path=query_model,
             model_path=proposal_model,
             embedder_model_path=embedder_model,
             source=source,
@@ -164,6 +169,22 @@ def main(argv: list[str] | None = None) -> int:
 
     print(result.render_console_report())
     return 0
+
+
+def _default_group1_query_model(
+    train_root: Path,
+    dataset_config_path: Path,
+    train_name: str,
+    requested_query_model: Path | None,
+) -> Path | None:
+    if requested_query_model is not None:
+        return requested_query_model
+    if not dataset_config_path.exists():
+        return None
+    dataset_config = load_group1_dataset_config(dataset_config_path)
+    if dataset_config.query_component is None:
+        return None
+    return resolve_group1_component_best_weights(train_root, train_name, QUERY_COMPONENT)
 
 
 if __name__ == "__main__":

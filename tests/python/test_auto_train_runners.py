@@ -205,27 +205,32 @@ class AutoTrainTestRunnerTests(unittest.TestCase):
             train_root = Path(tmpdir)
             dataset_config = train_root / "datasets" / "group1" / "firstpass" / "dataset.json"
             source = train_root / "datasets" / "group1" / "firstpass" / "splits" / "val.jsonl"
+            query_model_path = train_root / "runs" / "group1" / "trial_0001" / "query-detector" / "weights" / "best.pt"
             proposal_model_path = train_root / "runs" / "group1" / "trial_0001" / "proposal-detector" / "weights" / "best.pt"
             embedder_model_path = train_root / "runs" / "group1" / "trial_0001" / "icon-embedder" / "weights" / "best.pt"
-            for path in (dataset_config.parent, source.parent, proposal_model_path.parent, embedder_model_path.parent):
+            for path in (dataset_config.parent, source.parent, query_model_path.parent, proposal_model_path.parent, embedder_model_path.parent):
                 path.mkdir(parents=True, exist_ok=True)
-            dataset_config.write_text('{"task":"group1","format":"sinan.group1.instance_matching.v1","splits":{"train":"splits/train.jsonl","val":"splits/val.jsonl","test":"splits/test.jsonl"},"proposal_detector":{"format":"yolo.detect.v1","dataset_yaml":"proposal-yolo/dataset.yaml"},"embedding":{"format":"sinan.group1.embedding.v1","queries_dir":"embedding/queries","candidates_dir":"embedding/candidates","pairs_jsonl":"embedding/pairs.jsonl","triplets_jsonl":"embedding/triplets.jsonl"},"eval":{"format":"sinan.group1.eval.v1","labels_jsonl":"eval/labels.jsonl"}}', encoding="utf-8")
+            dataset_config.write_text('{"task":"group1","format":"sinan.group1.instance_matching.v1","splits":{"train":"splits/train.jsonl","val":"splits/val.jsonl","test":"splits/test.jsonl"},"query_detector":{"format":"yolo.detect.v1","dataset_yaml":"query-yolo/dataset.yaml"},"proposal_detector":{"format":"yolo.detect.v1","dataset_yaml":"proposal-yolo/dataset.yaml"},"embedding":{"format":"sinan.group1.embedding.v1","queries_dir":"embedding/queries","candidates_dir":"embedding/candidates","pairs_jsonl":"embedding/pairs.jsonl","triplets_jsonl":"embedding/triplets.jsonl"},"eval":{"format":"sinan.group1.eval.v1","labels_jsonl":"eval/labels.jsonl"}}', encoding="utf-8")
             source.write_text('{"sample_id":"g1_000001","query_image":"eval/query/val/g1_000001.png","scene_image":"eval/scene/val/g1_000001.png","query_items":[{"order":1,"asset_id":"asset_house","template_id":"tpl_house","variant_id":"var_outline","bbox":[8,8,28,28],"center":[18,18]}],"scene_targets":[{"order":1,"asset_id":"asset_house","template_id":"tpl_house","variant_id":"var_outline","bbox":[80,32,120,72],"center":[100,52]}],"distractors":[],"label_source":"gold","source_batch":"batch_0001"}\n', encoding="utf-8")
+            query_model_path.write_text("weights", encoding="utf-8")
             proposal_model_path.write_text("weights", encoding="utf-8")
             embedder_model_path.write_text("weights", encoding="utf-8")
 
+            observed_query_detector_path: Path | None = None
             observed_embedder_path: Path | None = None
             observed_has_legacy_query_path: bool | None = None
 
             def _fake_runner(_request):
-                nonlocal observed_embedder_path, observed_has_legacy_query_path
+                nonlocal observed_query_detector_path, observed_embedder_path, observed_has_legacy_query_path
+                observed_query_detector_path = _request.query_detector_model_path
                 observed_embedder_path = _request.embedder_model_path
-                observed_has_legacy_query_path = any(name.startswith("query_") for name in vars(_request))
+                observed_has_legacy_query_path = "query_model_path" in vars(_request)
                 return ModelTestResult(
                     task="group1",
                     dataset_version="firstpass",
                     train_name="trial_0001",
                     model_path=proposal_model_path,
+                    query_detector_model_path=query_model_path,
                     embedder_model_path=embedder_model_path,
                     dataset_config=dataset_config,
                     source=source,
@@ -261,6 +266,7 @@ class AutoTrainTestRunnerTests(unittest.TestCase):
             self.assertEqual(result.record.task, "group1")
             self.assertEqual(result.record.dataset_version, "firstpass")
             self.assertEqual(result.record.metrics["full_sequence_hit_rate"], 0.88)
+            self.assertEqual(observed_query_detector_path, query_model_path)
             self.assertEqual(observed_embedder_path, embedder_model_path)
             self.assertFalse(observed_has_legacy_query_path)
             self.assertIn("predict", result.predict_command)

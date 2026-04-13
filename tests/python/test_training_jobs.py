@@ -289,6 +289,23 @@ class TrainingJobTests(unittest.TestCase):
         self.assertIn("runs/group1/v2/icon-embedder/weights/best.pt", command)
         self.assertFalse(any(part.startswith("--query-") for part in command))
 
+    def test_group1_prediction_job_includes_query_detector_model_when_provided(self) -> None:
+        from train.group1.service import build_group1_prediction_job
+
+        job = build_group1_prediction_job(
+            dataset_config=Path("datasets/group1/v2/dataset.json"),
+            query_detector_model_path=Path("runs/group1/v2/query-detector/weights/best.pt"),
+            proposal_model_path=Path("runs/group1/v2/proposal-detector/weights/best.pt"),
+            embedder_model_path=Path("runs/group1/v2/icon-embedder/weights/best.pt"),
+            source=Path("datasets/group1/v2/splits/val.jsonl"),
+            project_dir=Path("reports/group1"),
+            run_name="predict_v2",
+        )
+
+        command = job.command()
+        self.assertIn("--query-model", command)
+        self.assertIn("runs/group1/v2/query-detector/weights/best.pt", command)
+
     def test_group1_cli_dry_run_prints_command(self) -> None:
         buffer = io.StringIO()
         with redirect_stdout(buffer):

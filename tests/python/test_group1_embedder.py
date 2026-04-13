@@ -2,7 +2,9 @@ from __future__ import annotations
 
 import json
 import struct
+import sys
 import tempfile
+import types
 import unittest
 import zlib
 from pathlib import Path
@@ -372,6 +374,116 @@ class Group1EmbedderTests(unittest.TestCase):
             self.assertIn("query-detector", summary["components"])
             self.assertEqual(summary["components"]["query-detector"]["gate"]["status"], "passed")
             self.assertTrue((root / "runs" / "group1" / "smoke" / "query-detector" / "failcases.jsonl").exists())
+
+    def test_runner_predict_uses_query_detector_when_query_model_is_provided(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            root = Path(tmpdir)
+            _write_minimal_dataset_config(root)
+            source = root / "source.jsonl"
+            source.write_text(
+                json.dumps(
+                    {
+                        "sample_id": "g1_000001",
+                        "query_image": "eval/query/val/g1_000001.png",
+                        "scene_image": "eval/scene/val/g1_000001.png",
+                        "query_items": [
+                            {"order": 1, "asset_id": "asset_a", "template_id": "tpl_a", "variant_id": "var_a", "bbox": [0, 0, 10, 10], "center": [5, 5]},
+                            {"order": 2, "asset_id": "asset_b", "template_id": "tpl_b", "variant_id": "var_b", "bbox": [20, 0, 30, 10], "center": [25, 5]},
+                            {"order": 3, "asset_id": "asset_c", "template_id": "tpl_c", "variant_id": "var_c", "bbox": [40, 0, 50, 10], "center": [45, 5]},
+                        ],
+                        "scene_targets": [
+                            {"order": 1, "asset_id": "asset_a", "template_id": "tpl_a", "variant_id": "var_a", "bbox": [80, 32, 120, 72], "center": [100, 52]},
+                            {"order": 2, "asset_id": "asset_b", "template_id": "tpl_b", "variant_id": "var_b", "bbox": [126, 32, 146, 52], "center": [136, 42]},
+                            {"order": 3, "asset_id": "asset_c", "template_id": "tpl_c", "variant_id": "var_c", "bbox": [20, 32, 40, 52], "center": [30, 42]},
+                        ],
+                        "distractors": [],
+                        "label_source": "gold",
+                        "source_batch": "batch_0001",
+                    },
+                    ensure_ascii=False,
+                )
+                + "\n",
+                encoding="utf-8",
+            )
+            _write_png(root / "eval" / "query" / "val" / "g1_000001.png", 64, 24, (255, 255, 255))
+            _write_png(root / "eval" / "scene" / "val" / "g1_000001.png", 160, 80, (255, 255, 255))
+
+            class _FakeTensor:
+                def __init__(self, values):
+                    self._values = values
+
+                def tolist(self):
+                    return self._values
+
+            class _FakeBoxes:
+                def __init__(self, xyxy, cls_ids, confs):
+                    self.xyxy = _FakeTensor(xyxy)
+                    self.cls = _FakeTensor(cls_ids)
+                    self.conf = _FakeTensor(confs)
+
+            class _FakeResult:
+                def __init__(self, xyxy, cls_ids, confs):
+                    self.boxes = _FakeBoxes(xyxy, cls_ids, confs)
+                    self.names = {0: "icon_object"}
+
+            class _FakeYOLO:
+                def __init__(self, model_path: str):
+                    self.model_path = model_path
+
+                def predict(self, *, source: str, imgsz: int, conf: float, device: str, verbose: bool):
+                    del source, imgsz, conf, device, verbose
+                    if "query-detector" in self.model_path:
+                        return [_FakeResult([[0, 0, 10, 10], [20, 0, 30, 10], [40, 0, 50, 10]], [0, 0, 0], [0.91, 0.89, 0.87])]
+                    return [_FakeResult([[80, 32, 120, 72]], [0], [0.95])]
+
+            fake_mapping = type(
+                "Mapping",
+                (),
+                {
+                    "status": "matched",
+                    "ordered_targets": [
+                        type("Target", (), {"order": 1, "bbox": [80, 32, 120, 72], "center": [100, 52], "score": 0.95})()
+                    ],
+                },
+            )()
+
+            with patch.dict(sys.modules, {"ultralytics": types.SimpleNamespace(YOLO=_FakeYOLO)}):
+                with patch("train.group1.runner.load_icon_embedder_runtime", return_value=object()):
+                    with patch("train.group1.runner.map_group1_instances", return_value=fake_mapping) as map_instances:
+                        with patch(
+                            "train.group1.runner.split_group1_query_image",
+                            side_effect=AssertionError("query splitter should not run when query detector is provided"),
+                        ):
+                            exit_code = group1_runner.main(
+                                [
+                                    "predict",
+                                    "--dataset-config",
+                                    str(root / "dataset.json"),
+                                    "--query-model",
+                                    str(root / "runs" / "group1" / "smoke" / "query-detector" / "weights" / "best.pt"),
+                                    "--proposal-model",
+                                    str(root / "runs" / "group1" / "smoke" / "proposal-detector" / "weights" / "best.pt"),
+                                    "--embedder-model",
+                                    str(root / "runs" / "group1" / "smoke" / "icon-embedder" / "weights" / "best.pt"),
+                                    "--source",
+                                    str(source),
+                                    "--project",
+                                    str(root / "reports" / "group1"),
+                                    "--name",
+                                    "predict_smoke",
+                                    "--imgsz",
+                                    "32",
+                                    "--device",
+                                    "cpu",
+                                ]
+                            )
+
+            self.assertEqual(exit_code, 0)
+            predicted_query_items = map_instances.call_args.args[0]
+            self.assertEqual(len(predicted_query_items), 3)
+            self.assertEqual(predicted_query_items[0]["order"], 1)
+            labels_path = root / "reports" / "group1" / "predict_smoke" / "labels.jsonl"
+            self.assertTrue(labels_path.exists())
 
 
 def _write_minimal_dataset_config(root: Path) -> None:

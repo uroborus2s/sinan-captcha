@@ -44,6 +44,7 @@ def build_parser() -> argparse.ArgumentParser:
 
     predict_parser = subparsers.add_parser("predict", help="run group1 pipeline prediction")
     predict_parser.add_argument("--dataset-config", type=Path, required=True)
+    predict_parser.add_argument("--query-model", dest="query_model", type=Path, required=False)
     predict_parser.add_argument("--proposal-model", dest="proposal_model", type=Path, required=True)
     predict_parser.add_argument("--embedder-model", type=Path, required=True)
     predict_parser.add_argument("--source", type=Path, required=True)
@@ -222,6 +223,7 @@ def _run_predict(args: argparse.Namespace) -> None:
     if args.embedder_model is None:
         raise RuntimeError("group1 预测必须显式传入 --embedder-model。")
 
+    query_model = YOLO(str(args.query_model)) if args.query_model is not None else None
     proposal_model = YOLO(str(args.proposal_model))
     embedding_provider = load_icon_embedder_runtime(args.embedder_model, device_name=args.device)
     output_dir = args.project / args.name
@@ -241,7 +243,16 @@ def _run_predict(args: argparse.Namespace) -> None:
         )[0]
         elapsed_ms = (time.perf_counter() - started) * 1000.0
 
-        predicted_query_items = split_group1_query_image(query_path)
+        if query_model is not None:
+            predicted_query_items = _predict_query_items_with_detector(
+                query_model,
+                query_path,
+                imgsz=args.imgsz,
+                conf=args.conf,
+                device=args.device,
+            )
+        else:
+            predicted_query_items = split_group1_query_image(query_path)
         predicted_scene_targets = _serialize_detections(proposal_result, ordered=False)
         mapping = map_group1_instances(
             predicted_query_items,
@@ -266,6 +277,7 @@ def _run_predict(args: argparse.Namespace) -> None:
                 "task": "group1",
                 "dataset_config": str(args.dataset_config),
                 "source": str(args.source),
+                "query_model": str(args.query_model) if args.query_model is not None else None,
                 "proposal_model": str(args.proposal_model),
                 "embedder_model": str(args.embedder_model) if args.embedder_model is not None else None,
                 "sample_count": len(predictions),
@@ -360,6 +372,24 @@ def _serialize_detections(result: Any, *, ordered: bool) -> list[dict[str, Any]]
     return detections
 
 
+def _predict_query_items_with_detector(
+    model: Any,
+    query_path: Path,
+    *,
+    imgsz: int,
+    conf: float,
+    device: str,
+) -> list[dict[str, Any]]:
+    result = model.predict(
+        source=str(query_path),
+        imgsz=imgsz,
+        conf=conf,
+        device=device,
+        verbose=False,
+    )[0]
+    return _serialize_detections(result, ordered=True)
+
+
 def _build_prediction_row(
     row: dict[str, Any],
     predicted_query_items: list[dict[str, Any]],
@@ -405,14 +435,13 @@ def _evaluate_query_detector_component(
     model = YOLO(str(model_path))
 
     def _predict_query_items(query_path: Path) -> list[dict[str, Any]]:
-        result = model.predict(
-            source=str(query_path),
+        return _predict_query_items_with_detector(
+            model,
+            query_path,
             imgsz=imgsz,
             conf=conf,
             device=device,
-            verbose=False,
-        )[0]
-        return _serialize_detections(result, ordered=True)
+        )
 
     return _evaluate_query_detector_rows(
         rows,

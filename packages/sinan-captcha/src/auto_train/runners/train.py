@@ -22,9 +22,11 @@ from train.base import (
 from train.group1.dataset import load_group1_dataset_config
 from train.group1.service import Group1TrainingJob, build_group1_training_job, execute_group1_training_job
 from train.group1.service import (
+    ALL_COMPONENTS,
     EMBEDDER_COMPONENT,
     PROPOSAL_COMPONENT,
     QUERY_COMPONENT,
+    normalize_group1_component,
     resolve_group1_component_best_weights,
     resolve_group1_component_last_weights,
 )
@@ -51,6 +53,7 @@ class TrainRunnerRequest:
     batch: int | None = None
     imgsz: int = 640
     device: str = "0"
+    component: str | None = None
 
 
 @dataclass(frozen=True)
@@ -68,7 +71,8 @@ def run_training_request(
 
     dataset_config = default_dataset_config(request.train_root, request.task, request.dataset_version)
     project_dir = default_project_dir(request.train_root, request.task)
-    model = _resolve_model(request)
+    group1_component = _resolve_group1_component(request) if request.task == "group1" else None
+    model = _resolve_model(request, component=group1_component)
     command_text = ""
 
     if request.train_mode != "resume":
@@ -82,30 +86,18 @@ def run_training_request(
                 if request.train_mode == "resume"
                 else resolve_group1_component_best_weights
             )
-            if group1_dataset is not None and group1_dataset.query_component is not None:
+            for component_name, label in _required_group1_components(
+                dataset=group1_dataset,
+                component=group1_component,
+            ):
                 require_existing_path(
                     component_resolver(
                         request.train_root,
                         request.train_name if request.train_mode == "resume" else request.base_run or "",
-                        QUERY_COMPONENT,
+                        component_name,
                     ),
                     stage="TRAIN",
-                    label="group1 query detector 检查点",
-                )
-            require_existing_path(
-                component_resolver(request.train_root, request.train_name if request.train_mode == "resume" else request.base_run or "", PROPOSAL_COMPONENT),
-                stage="TRAIN",
-                label="group1 proposal detector 检查点",
-            )
-            if group1_dataset is not None and group1_dataset.is_instance_matching:
-                require_existing_path(
-                    component_resolver(
-                        request.train_root,
-                        request.train_name if request.train_mode == "resume" else request.base_run or "",
-                        EMBEDDER_COMPONENT,
-                    ),
-                    stage="TRAIN",
-                    label="group1 icon embedder 检查点",
+                    label=label,
                 )
         else:
             require_existing_path(Path(model), stage="TRAIN", label="训练检查点")
@@ -115,6 +107,7 @@ def run_training_request(
         dataset_config=dataset_config,
         project_dir=project_dir,
         model=model,
+        component=group1_component,
     )
     command_text = job.command_string()
 
@@ -160,11 +153,14 @@ def run_training_request(
         "imgsz": job.imgsz,
         "device": job.device,
     }
+    if group1_component is not None:
+        params["component"] = group1_component
     best_weights = default_best_weights(request.train_root, request.task, request.train_name)
     last_weights = default_last_weights(request.train_root, request.task, request.train_name)
     if request.task == "group1":
-        best_weights = resolve_group1_component_best_weights(request.train_root, request.train_name, PROPOSAL_COMPONENT)
-        last_weights = resolve_group1_component_last_weights(request.train_root, request.train_name, PROPOSAL_COMPONENT)
+        output_component = _group1_output_component(group1_component)
+        best_weights = resolve_group1_component_best_weights(request.train_root, request.train_name, output_component)
+        last_weights = resolve_group1_component_last_weights(request.train_root, request.train_name, output_component)
         if group1_dataset is not None and group1_dataset.query_component is not None:
             params["query_model_best"] = str(
                 resolve_group1_component_best_weights(request.train_root, request.train_name, QUERY_COMPONENT)
@@ -193,7 +189,7 @@ def run_training_request(
     )
 
 
-def _resolve_model(request: TrainRunnerRequest) -> str:
+def _resolve_model(request: TrainRunnerRequest, *, component: str | None = None) -> str | None:
     if request.train_mode not in contracts.ALLOWED_TRAIN_MODES:
         raise RunnerExecutionError(
             stage="TRAIN",
@@ -204,7 +200,13 @@ def _resolve_model(request: TrainRunnerRequest) -> str:
 
     if request.train_mode == "resume":
         if request.task == "group1":
-            return str(resolve_group1_component_last_weights(request.train_root, request.train_name, PROPOSAL_COMPONENT))
+            return str(
+                resolve_group1_component_last_weights(
+                    request.train_root,
+                    request.train_name,
+                    _group1_output_component(component),
+                )
+            )
         return request.model or str(default_last_weights(request.train_root, request.task, request.train_name))
 
     if request.train_mode == "from_run":
@@ -223,11 +225,19 @@ def _resolve_model(request: TrainRunnerRequest) -> str:
                 retryable=False,
             )
         if request.task == "group1":
-            return str(_preferred_group1_component_weights(request.train_root, request.base_run, PROPOSAL_COMPONENT))
+            return str(
+                _preferred_group1_component_weights(
+                    request.train_root,
+                    request.base_run,
+                    _group1_output_component(component),
+                )
+            )
         return str(preferred_run_checkpoint(request.train_root, request.task, request.base_run))
 
     if request.model is not None:
         return request.model
+    if request.task == "group1" and component == EMBEDDER_COMPONENT:
+        return None
     try:
         return _FRESH_DEFAULT_MODELS[request.task]
     except KeyError as exc:
@@ -244,10 +254,12 @@ def _build_training_job(
     *,
     dataset_config: Path,
     project_dir: Path,
-    model: str,
+    model: str | None,
+    component: str | None = None,
 ) -> object:
     if request.task == "group1":
         group1_dataset = load_group1_dataset_config(dataset_config)
+        normalized_component = component or ALL_COMPONENTS
         query_model = None
         proposal_model = None
         embedder_model = None
@@ -266,11 +278,12 @@ def _build_training_job(
         return build_group1_training_job(
             dataset_config=dataset_config,
             project_dir=project_dir,
-            model=model,
+            model=model or _FRESH_DEFAULT_MODELS["group1"],
             query_model=query_model,
             proposal_model=proposal_model,
             embedder_model=embedder_model,
             run_name=request.train_name,
+            component=normalized_component,
             epochs=request.epochs,
             batch=request.batch,
             imgsz=request.imgsz,
@@ -301,3 +314,27 @@ def _preferred_group1_component_weights(train_root: Path, run_name: str, compone
     best = resolve_group1_component_best_weights(train_root, run_name, component)
     last = resolve_group1_component_last_weights(train_root, run_name, component)
     return preferred_checkpoint_path(best, last)
+
+
+def _resolve_group1_component(request: TrainRunnerRequest) -> str:
+    if request.component is None:
+        return ALL_COMPONENTS
+    return normalize_group1_component(request.component)
+
+
+def _group1_output_component(component: str | None) -> str:
+    if component in {None, ALL_COMPONENTS, PROPOSAL_COMPONENT}:
+        return PROPOSAL_COMPONENT
+    return component
+
+
+def _required_group1_components(*, dataset: object, component: str | None) -> list[tuple[str, str]]:
+    normalized = component or ALL_COMPONENTS
+    results: list[tuple[str, str]] = []
+    if normalized in {ALL_COMPONENTS, QUERY_COMPONENT} and getattr(dataset, "query_component", None) is not None:
+        results.append((QUERY_COMPONENT, "group1 query detector 检查点"))
+    if normalized in {ALL_COMPONENTS, PROPOSAL_COMPONENT}:
+        results.append((PROPOSAL_COMPONENT, "group1 proposal detector 检查点"))
+    if normalized in {ALL_COMPONENTS, EMBEDDER_COMPONENT} and getattr(dataset, "is_instance_matching", False):
+        results.append((EMBEDDER_COMPONENT, "group1 icon embedder 检查点"))
+    return results

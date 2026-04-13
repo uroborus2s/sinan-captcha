@@ -134,6 +134,21 @@ class StudyPaths:
     def train_file(self, trial_id: str) -> Path:
         return self.trial_dir(trial_id) / "train.json"
 
+    def query_train_file(self, trial_id: str) -> Path:
+        return self.trial_dir(trial_id) / "query_train.json"
+
+    def query_gate_file(self, trial_id: str) -> Path:
+        return self.trial_dir(trial_id) / "query_gate.json"
+
+    def scene_train_file(self, trial_id: str) -> Path:
+        return self.trial_dir(trial_id) / "scene_train.json"
+
+    def scene_gate_file(self, trial_id: str) -> Path:
+        return self.trial_dir(trial_id) / "scene_gate.json"
+
+    def embedder_train_file(self, trial_id: str) -> Path:
+        return self.trial_dir(trial_id) / "embedder_train.json"
+
     def test_file(self, trial_id: str) -> Path:
         return self.trial_dir(trial_id) / "test.json"
 

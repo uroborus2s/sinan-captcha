@@ -39,7 +39,15 @@
       - 会在 `val` 上自动产出 `query_item_recall / query_exact_count_rate / query_strict_hit_rate`
       - 会写 `query-detector/failcases.jsonl`
       - 会在训练 summary 中写 `gate.status / thresholds / failed_checks`
-    - `query detector` 的独立预测入口、主推理接线与 `auto-train` 新阶段机仍未实现，仓库尚未进入完整 `TRAIN_QUERY -> QUERY_GATE` 阶段
+    - `query detector` 的预测接线第二切片已完成：
+      - `predict group1` 会在 `dataset.json` 声明 `query_detector` 时默认解析 `query-detector/weights/best.pt`
+      - `train.group1.runner predict` 已支持 `--query-model`
+      - `modeltest group1` / `auto_train.runners.test` / `business_eval` 已开始透传 `query detector` 权重
+      - `modeltest` 中文报告已能区分 query detector 与 query splitter 两条口径
+    - 当前仍未完成：
+      - `solve.service` 主链路接到 `query detector`
+      - `auto-train` 新阶段机 `TRAIN_QUERY -> QUERY_GATE -> ...`
+      - 彻底移除规则 splitter fallback
 
 - 2026-04-13 当前 generator preset 约定已开始向新工程口径收口：
   - 当前已新增正式 `v1` preset：

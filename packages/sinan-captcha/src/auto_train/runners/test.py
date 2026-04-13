@@ -19,6 +19,7 @@ from train.group1.dataset import load_group1_dataset_config
 from train.group1.service import (
     EMBEDDER_COMPONENT,
     PROPOSAL_COMPONENT,
+    QUERY_COMPONENT,
     resolve_group1_component_best_weights,
 )
 
@@ -91,6 +92,13 @@ def _build_model_test_request(request: TestRunnerRequest) -> ModelTestRequest:
     if task == "group1":
         group1_dataset_config = load_group1_dataset_config(dataset_config)
         model_path = request.model_path or resolve_group1_component_best_weights(request.train_root, request.train_name, PROPOSAL_COMPONENT)
+        query_detector_model_path = None
+        if group1_dataset_config.query_component is not None:
+            query_detector_model_path = resolve_group1_component_best_weights(
+                request.train_root,
+                request.train_name,
+                QUERY_COMPONENT,
+            )
         embedder_model_path = None
         if group1_dataset_config.is_instance_matching:
             embedder_model_path = (
@@ -99,6 +107,7 @@ def _build_model_test_request(request: TestRunnerRequest) -> ModelTestRequest:
             )
     else:
         model_path = request.model_path or default_best_weights(request.train_root, task, request.train_name)
+        query_detector_model_path = None
         embedder_model_path = None
     source = request.source or default_predict_source(request.train_root, task, request.dataset_version)
     project_dir = request.project_dir or default_report_dir(request.train_root, task)
@@ -111,6 +120,7 @@ def _build_model_test_request(request: TestRunnerRequest) -> ModelTestRequest:
         train_name=request.train_name,
         dataset_config=dataset_config,
         model_path=model_path,
+        query_detector_model_path=query_detector_model_path,
         embedder_model_path=embedder_model_path,
         source=source,
         project_dir=project_dir,
