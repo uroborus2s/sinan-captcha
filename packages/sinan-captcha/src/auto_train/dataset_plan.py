@@ -62,7 +62,11 @@ def _generator_preset(*, summary: contracts.ResultSummaryRecord, dataset_action:
     if dataset_action != "new_version":
         return base_preset
     if base_preset == "smoke":
-        return "firstpass"
+        return "v1"
+    if base_preset == "firstpass":
+        if summary.trend in {"plateau", "declining"} or summary.failure_patterns:
+            return "hard"
+        return "v1"
     if summary.trend in {"plateau", "declining"} or summary.failure_patterns:
         return "hard"
     return base_preset
@@ -70,7 +74,7 @@ def _generator_preset(*, summary: contracts.ResultSummaryRecord, dataset_action:
 
 def _infer_base_preset(dataset_version: str) -> str:
     base = _RETUNE_SUFFIX_PATTERN.sub("", dataset_version.strip())
-    if base in {"smoke", "firstpass", "hard"}:
+    if base in {"smoke", "firstpass", "v1", "hard"}:
         return base
     return "firstpass"
 
@@ -105,12 +109,14 @@ def _generator_overrides(
 
 def _sample_count(*, task: str, preset: str, summary: contracts.ResultSummaryRecord) -> int:
     base_counts = {
-        ("group1", "smoke"): 80,
+        ("group1", "smoke"): 200,
         ("group1", "firstpass"): 240,
-        ("group1", "hard"): 320,
-        ("group2", "smoke"): 80,
+        ("group1", "v1"): 10000,
+        ("group1", "hard"): 12000,
+        ("group2", "smoke"): 200,
         ("group2", "firstpass"): 220,
-        ("group2", "hard"): 280,
+        ("group2", "v1"): 10000,
+        ("group2", "hard"): 12000,
     }
     base = base_counts.get((task, preset), 240)
     signal_weight = len(summary.weak_classes) + len(summary.failure_patterns)
@@ -120,14 +126,14 @@ def _sample_count(*, task: str, preset: str, summary: contracts.ResultSummaryRec
 def _group1_sampling(preset: str) -> dict[str, contracts.JsonValue]:
     if preset == "hard":
         return {
-            "target_count_min": 2,
-            "target_count_max": 4,
+            "target_count_min": 3,
+            "target_count_max": 3,
             "distractor_count_min": 5,
             "distractor_count_max": 8,
         }
     return {
-        "target_count_min": 2,
-        "target_count_max": 4,
+        "target_count_min": 3,
+        "target_count_max": 3,
         "distractor_count_min": 3,
         "distractor_count_max": 6,
     }

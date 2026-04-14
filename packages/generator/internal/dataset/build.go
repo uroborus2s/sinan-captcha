@@ -524,6 +524,38 @@ type group1EvalConfig struct {
 	LabelsJSONL string `json:"labels_jsonl"`
 }
 
+type group1InstanceObjectRecord struct {
+	Order       int     `json:"order,omitempty"`
+	AssetID     string  `json:"asset_id,omitempty"`
+	TemplateID  string  `json:"template_id,omitempty"`
+	VariantID   string  `json:"variant_id,omitempty"`
+	BBox        [4]int  `json:"bbox"`
+	Center      [2]int  `json:"center"`
+	RotationDeg float64 `json:"rotation_deg"`
+	Alpha       float64 `json:"alpha"`
+	Scale       float64 `json:"scale"`
+}
+
+type group1InstanceSampleRecord struct {
+	SampleID        string                       `json:"sample_id"`
+	CaptchaType     string                       `json:"captcha_type"`
+	Mode            string                       `json:"mode"`
+	Backend         string                       `json:"backend"`
+	MaterialSet     string                       `json:"material_set,omitempty"`
+	QueryImage      string                       `json:"query_image"`
+	SceneImage      string                       `json:"scene_image"`
+	QueryItems      []group1InstanceObjectRecord `json:"query_items"`
+	SceneTargets    []group1InstanceObjectRecord `json:"scene_targets"`
+	Distractors     []group1InstanceObjectRecord `json:"distractors"`
+	BackgroundID    string                       `json:"background_id"`
+	StyleID         string                       `json:"style_id"`
+	SourceSignature string                       `json:"source_signature,omitempty"`
+	LabelSource     string                       `json:"label_source"`
+	TruthChecks     *export.TruthChecks          `json:"truth_checks,omitempty"`
+	SourceBatch     string                       `json:"source_batch"`
+	Seed            int64                        `json:"seed"`
+}
+
 func writeGroup1DatasetConfig(path string) error {
 	content, err := json.MarshalIndent(
 		group1DatasetConfig{
@@ -587,7 +619,7 @@ func writeGroup2DatasetConfig(path string) error {
 
 func writeGroup1SplitJSONL(datasetDir string, splitRows map[string][]export.SampleRecord) error {
 	for _, split := range []string{"train", "val", "test"} {
-		if err := writeJSONL(filepath.Join(datasetDir, "splits", split+".jsonl"), splitRows[split]); err != nil {
+		if err := writeJSONL(filepath.Join(datasetDir, "splits", split+".jsonl"), toGroup1InstanceRows(splitRows[split])); err != nil {
 			return err
 		}
 	}
@@ -604,7 +636,7 @@ func writeGroup2SplitJSONL(datasetDir string, splitRows map[string][]export.Samp
 }
 
 func writeGroup1EvalJSONL(datasetDir string, rows []export.SampleRecord) error {
-	return writeJSONL(filepath.Join(datasetDir, "eval", "labels.jsonl"), rows)
+	return writeJSONL(filepath.Join(datasetDir, "eval", "labels.jsonl"), toGroup1InstanceRows(rows))
 }
 
 func writeGroup1EmbeddingJSONL(datasetDir string, pairs []group1EmbeddingPairRecord, triplets []group1EmbeddingTripletRecord) error {
@@ -733,6 +765,50 @@ func findMatchingTargetCrop(queryObject export.ObjectRecord, targetCrops []group
 		}
 	}
 	return group1EmbeddingCrop{}, false
+}
+
+func toGroup1InstanceRows(rows []export.SampleRecord) []group1InstanceSampleRecord {
+	projected := make([]group1InstanceSampleRecord, 0, len(rows))
+	for _, row := range rows {
+		projected = append(projected, group1InstanceSampleRecord{
+			SampleID:        row.SampleID,
+			CaptchaType:     row.CaptchaType,
+			Mode:            row.Mode,
+			Backend:         row.Backend,
+			MaterialSet:     row.MaterialSet,
+			QueryImage:      row.QueryImage,
+			SceneImage:      row.SceneImage,
+			QueryItems:      toGroup1InstanceObjects(row.QueryTargets),
+			SceneTargets:    toGroup1InstanceObjects(row.SceneTargets),
+			Distractors:     toGroup1InstanceObjects(row.Distractors),
+			BackgroundID:    row.BackgroundID,
+			StyleID:         row.StyleID,
+			SourceSignature: row.SourceSignature,
+			LabelSource:     row.LabelSource,
+			TruthChecks:     row.TruthChecks,
+			SourceBatch:     row.SourceBatch,
+			Seed:            row.Seed,
+		})
+	}
+	return projected
+}
+
+func toGroup1InstanceObjects(objects []export.ObjectRecord) []group1InstanceObjectRecord {
+	projected := make([]group1InstanceObjectRecord, 0, len(objects))
+	for _, object := range objects {
+		projected = append(projected, group1InstanceObjectRecord{
+			Order:       object.Order,
+			AssetID:     object.AssetID,
+			TemplateID:  object.TemplateID,
+			VariantID:   object.VariantID,
+			BBox:        object.BBox,
+			Center:      object.Center,
+			RotationDeg: object.RotationDeg,
+			Alpha:       object.Alpha,
+			Scale:       object.Scale,
+		})
+	}
+	return projected
 }
 
 func writeJSONL[T any](path string, rows []T) error {

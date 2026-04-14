@@ -9,6 +9,7 @@ import subprocess
 import time
 from typing import Any, Callable
 
+from auto_train import embedder_review_protocol, opencode_assets, opencode_runtime
 from common.jsonl import write_jsonl
 from inference.query_splitter import split_group1_query_image
 from inference.service import map_group1_instances
@@ -41,6 +42,19 @@ def build_parser() -> argparse.ArgumentParser:
     train_parser.add_argument("--imgsz", type=int, default=640)
     train_parser.add_argument("--device", default="0")
     train_parser.add_argument("--resume", action="store_true")
+    train_parser.add_argument("--review-provider", default=None)
+    train_parser.add_argument("--review-model", default=None)
+    train_parser.add_argument("--review-project-root", type=Path, default=None)
+    train_parser.add_argument("--review-study-name", default=None)
+    train_parser.add_argument("--review-task", default=None)
+    train_parser.add_argument("--review-trial-id", default=None)
+    train_parser.add_argument("--review-stage", default=None)
+    train_parser.add_argument("--review-attach-url", default=None)
+    train_parser.add_argument("--review-binary", default=opencode_runtime.DEFAULT_OPENCODE_BINARY)
+    train_parser.add_argument("--review-timeout-seconds", type=float, default=opencode_runtime.DEFAULT_TIMEOUT_SECONDS)
+    train_parser.add_argument("--review-min-epochs", type=int, default=embedder_review_protocol.DEFAULT_EMBEDDER_REVIEW_MIN_EPOCHS)
+    train_parser.add_argument("--review-window", type=int, default=embedder_review_protocol.DEFAULT_EMBEDDER_REVIEW_WINDOW)
+    train_parser.add_argument("--review-rebuild-count", type=int, default=0)
 
     predict_parser = subparsers.add_parser("predict", help="run group1 pipeline prediction")
     predict_parser.add_argument("--dataset-config", type=Path, required=True)
@@ -51,6 +65,8 @@ def build_parser() -> argparse.ArgumentParser:
     predict_parser.add_argument("--project", type=Path, required=True)
     predict_parser.add_argument("--name", required=True)
     predict_parser.add_argument("--conf", type=float, default=0.25)
+    predict_parser.add_argument("--similarity-threshold", type=float, default=None)
+    predict_parser.add_argument("--ambiguity-margin", type=float, default=None)
     predict_parser.add_argument("--imgsz", type=int, default=640)
     predict_parser.add_argument("--device", default="0")
     return parser
@@ -177,10 +193,32 @@ def _run_train(args: argparse.Namespace) -> None:
             "failcases": str(query_failcases_path),
         }
 
+    if component in {ALL_COMPONENTS, PROPOSAL_COMPONENT}:
+        proposal_component_dir = run_dir / PROPOSAL_COMPONENT
+        proposal_component_dir.mkdir(parents=True, exist_ok=True)
+        proposal_metrics, proposal_gate, proposal_failcases = _evaluate_proposal_detector_component(
+            dataset_config=dataset_config,
+            model_path=preferred_checkpoint_path(
+                proposal_component_dir / "weights" / "best.pt",
+                proposal_component_dir / "weights" / "last.pt",
+            ),
+            imgsz=args.imgsz,
+            device=args.device,
+        )
+        proposal_failcases_path = proposal_component_dir / "failcases.jsonl"
+        write_jsonl(proposal_failcases_path, proposal_failcases)
+        component_summaries[PROPOSAL_COMPONENT] = {
+            **component_summaries[PROPOSAL_COMPONENT],
+            "metrics": proposal_metrics,
+            "gate": proposal_gate,
+            "failcases": str(proposal_failcases_path),
+        }
+
     if should_train_embedder and dataset_config.is_instance_matching and dataset_config.embedding is not None:
         embedder_model_path = Path(args.embedder_model) if args.embedder_model is not None else None
         if args.resume and embedder_model_path is None:
             embedder_model_path = run_dir / EMBEDDER_COMPONENT / "weights" / "last.pt"
+        review_callback = _build_embedder_review_callback(args=args, run_dir=run_dir)
         embedder_result = train_icon_embedder(
             dataset_config=dataset_config,
             run_dir=run_dir,
@@ -190,11 +228,21 @@ def _run_train(args: argparse.Namespace) -> None:
             image_size=args.imgsz,
             device_name=args.device,
             resume=args.resume,
+            review_callback=review_callback,
+            review_stage=args.review_stage or "TRAIN_EMBEDDER_BASE",
+            review_study_name=args.review_study_name or "standalone",
+            review_task=args.review_task or "group1",
+            review_trial_id=args.review_trial_id or args.name,
+            review_train_name=args.name,
+            review_min_epochs=args.review_min_epochs,
+            review_window=args.review_window,
+            review_rebuild_count=args.review_rebuild_count,
         )
         component_summaries[EMBEDDER_COMPONENT] = {
             **component_summaries[EMBEDDER_COMPONENT],
             "metrics": embedder_result.metrics,
             "summary": str(embedder_result.summary_path),
+            "review": embedder_result.review,
         }
 
     summary = {
@@ -205,6 +253,28 @@ def _run_train(args: argparse.Namespace) -> None:
         "components": component_summaries,
     }
     (run_dir / "summary.json").write_text(json.dumps(summary, ensure_ascii=False, indent=2), encoding="utf-8")
+
+
+def _build_embedder_review_callback(
+    *,
+    args: argparse.Namespace,
+    run_dir: Path,
+) -> Callable[[embedder_review_protocol.EmbedderReviewContext], embedder_review_protocol.EmbedderReviewRecord] | None:
+    if args.review_provider != "opencode":
+        return None
+    if args.review_model is None or args.review_project_root is None:
+        return None
+    opencode_assets.copy_opencode_assets(args.review_project_root)
+    runtime = opencode_runtime.OpenCodeRuntimeAdapter(
+        config=opencode_runtime.OpenCodeRuntimeConfig(
+            project_root=args.review_project_root,
+            binary=args.review_binary,
+            attach_url=args.review_attach_url,
+            model=args.review_model,
+            timeout_seconds=args.review_timeout_seconds,
+        )
+    )
+    return embedder_review_protocol.build_opencode_embedder_reviewer(runtime=runtime, run_dir=run_dir)
 
 
 def _run_predict(args: argparse.Namespace) -> None:
@@ -260,6 +330,8 @@ def _run_predict(args: argparse.Namespace) -> None:
             query_image_path=query_path,
             scene_image_path=scene_path,
             embedding_provider=embedding_provider,
+            similarity_threshold=args.similarity_threshold if args.similarity_threshold is not None else 0.9,
+            ambiguity_margin=args.ambiguity_margin if args.ambiguity_margin is not None else 0.015,
         )
         predictions.append(
             _build_prediction_row(
@@ -280,6 +352,8 @@ def _run_predict(args: argparse.Namespace) -> None:
                 "query_model": str(args.query_model) if args.query_model is not None else None,
                 "proposal_model": str(args.proposal_model),
                 "embedder_model": str(args.embedder_model) if args.embedder_model is not None else None,
+                "similarity_threshold": args.similarity_threshold,
+                "ambiguity_margin": args.ambiguity_margin,
                 "sample_count": len(predictions),
                 "labels_path": str(output_dir / "labels.jsonl"),
             },
@@ -515,6 +589,119 @@ def _evaluate_query_detector_rows(
     return metrics, gate, failcases
 
 
+def _evaluate_proposal_detector_component(
+    *,
+    dataset_config: Any,
+    model_path: Path,
+    imgsz: int,
+    device: str,
+    conf: float = 0.25,
+    iou_threshold: float = 0.5,
+) -> tuple[dict[str, float | int | None], dict[str, Any], list[dict[str, Any]]]:
+    try:
+        from ultralytics import YOLO
+    except Exception as exc:  # pragma: no cover - import error depends on host env
+        raise RuntimeError(
+            "当前环境缺少 `ultralytics`，无法执行 group1 proposal-detector 评估。"
+            "请先完成训练环境安装后再重试。"
+        ) from exc
+
+    if not model_path.exists():
+        raise RuntimeError(f"未找到 group1 proposal-detector 权重：{model_path}")
+
+    rows = load_group1_rows(dataset_config, None, split="val")
+    model = YOLO(str(model_path))
+
+    def _predict_scene_objects(scene_path: Path) -> list[dict[str, Any]]:
+        result = model.predict(
+            source=str(scene_path),
+            imgsz=imgsz,
+            conf=conf,
+            device=device,
+            verbose=False,
+        )[0]
+        return _serialize_detections(result, ordered=False)
+
+    return _evaluate_proposal_detector_rows(
+        rows,
+        dataset_root=dataset_config.root,
+        predict_scene_objects=_predict_scene_objects,
+        iou_threshold=iou_threshold,
+    )
+
+
+def _evaluate_proposal_detector_rows(
+    rows: list[dict[str, Any]],
+    *,
+    dataset_root: Path,
+    predict_scene_objects: Callable[[Path], list[dict[str, Any]]],
+    iou_threshold: float = 0.5,
+) -> tuple[dict[str, float | int | None], dict[str, Any], list[dict[str, Any]]]:
+    total_gold = 0
+    total_predicted = 0
+    total_matched = 0
+    full_recall_hits = 0
+    strict_hit_hits = 0
+    false_positive_count = 0
+    matched_ious: list[float] = []
+    failcases: list[dict[str, Any]] = []
+
+    for row in rows:
+        scene_path = resolve_group1_path(dataset_root, Path(str(row["scene_image"])))
+        gold_objects = _gold_scene_objects(row)
+        predicted_objects = predict_scene_objects(scene_path)
+        matches = _match_query_items(gold_objects, predicted_objects, iou_threshold=iou_threshold)
+        matched_count = len(matches)
+        unmatched_predicted_count = max(0, len(predicted_objects) - matched_count)
+        full_recall = matched_count == len(gold_objects)
+        strict_hit = full_recall and unmatched_predicted_count == 0
+
+        total_gold += len(gold_objects)
+        total_predicted += len(predicted_objects)
+        total_matched += matched_count
+        false_positive_count += unmatched_predicted_count
+        full_recall_hits += 1 if full_recall else 0
+        strict_hit_hits += 1 if strict_hit else 0
+        matched_ious.extend(match["iou"] for match in matches)
+
+        if not strict_hit:
+            failcases.append(
+                {
+                    "sample_id": row["sample_id"],
+                    "scene_image": str(scene_path),
+                    "expected_count": len(gold_objects),
+                    "predicted_count": len(predicted_objects),
+                    "matched_count": matched_count,
+                    "false_positive_count": unmatched_predicted_count,
+                    "reason": _proposal_failcase_reason(
+                        expected_count=len(gold_objects),
+                        predicted_count=len(predicted_objects),
+                        matched_count=matched_count,
+                        false_positive_count=unmatched_predicted_count,
+                    ),
+                    "gold_objects": gold_objects,
+                    "predicted_objects": predicted_objects,
+                    "matches": matches,
+                }
+            )
+
+    sample_count = len(rows)
+    metrics: dict[str, float | int | None] = {
+        "proposal_sample_count": sample_count,
+        "proposal_object_count": total_gold,
+        "proposal_predicted_object_count": total_predicted,
+        "proposal_object_recall": None if total_gold == 0 else total_matched / total_gold,
+        "proposal_full_recall_rate": None if sample_count == 0 else full_recall_hits / sample_count,
+        "proposal_strict_hit_rate": None if sample_count == 0 else strict_hit_hits / sample_count,
+        "proposal_false_positive_count": false_positive_count,
+        "proposal_false_positive_per_sample": None if sample_count == 0 else false_positive_count / sample_count,
+        "proposal_false_positive_rate": None if total_predicted == 0 else false_positive_count / total_predicted,
+        "proposal_mean_iou": None if not matched_ious else sum(matched_ious) / len(matched_ious),
+    }
+    gate = _build_proposal_detector_gate(metrics)
+    return metrics, gate, failcases
+
+
 def _build_query_detector_gate(metrics: dict[str, float | int | None]) -> dict[str, Any]:
     thresholds = {
         "query_item_recall": 0.995,
@@ -533,6 +720,34 @@ def _build_query_detector_gate(metrics: dict[str, float | int | None]) -> dict[s
     }
 
 
+def _build_proposal_detector_gate(metrics: dict[str, float | int | None]) -> dict[str, Any]:
+    min_thresholds = {
+        "proposal_object_recall": 0.995,
+        "proposal_full_recall_rate": 0.99,
+        "proposal_mean_iou": 0.75,
+    }
+    max_thresholds = {
+        "proposal_false_positive_per_sample": 0.25,
+    }
+    failed_checks: list[str] = []
+    for key, threshold in min_thresholds.items():
+        value = metrics.get(key)
+        if value is None or not isinstance(value, (int, float)) or float(value) < threshold:
+            failed_checks.append(key)
+    for key, threshold in max_thresholds.items():
+        value = metrics.get(key)
+        if value is None or not isinstance(value, (int, float)) or float(value) > threshold:
+            failed_checks.append(key)
+    return {
+        "status": "passed" if not failed_checks else "failed",
+        "thresholds": {
+            "min": min_thresholds,
+            "max": max_thresholds,
+        },
+        "failed_checks": failed_checks,
+    }
+
+
 def _query_failcase_reason(*, expected_count: int, predicted_count: int, matched_count: int) -> str:
     if predicted_count != expected_count and matched_count == expected_count:
         return "count_mismatch"
@@ -541,6 +756,42 @@ def _query_failcase_reason(*, expected_count: int, predicted_count: int, matched
     if predicted_count != expected_count and matched_count < expected_count:
         return "count_and_recall"
     return "strict_gate_failed"
+
+
+def _proposal_failcase_reason(
+    *,
+    expected_count: int,
+    predicted_count: int,
+    matched_count: int,
+    false_positive_count: int,
+) -> str:
+    has_missing = matched_count < expected_count
+    has_false_positive = false_positive_count > 0
+    if has_missing and has_false_positive:
+        return "missing_and_false_positive"
+    if has_missing:
+        return "missing_objects"
+    if has_false_positive:
+        return "false_positives"
+    if predicted_count != expected_count:
+        return "count_mismatch"
+    return "strict_gate_failed"
+
+
+def _gold_scene_objects(row: dict[str, Any]) -> list[dict[str, Any]]:
+    objects: list[dict[str, Any]] = []
+    for source_key in ("scene_targets", "distractors"):
+        raw_items = row.get(source_key, [])
+        if not isinstance(raw_items, list):
+            continue
+        for item in raw_items:
+            if not isinstance(item, dict):
+                continue
+            payload = dict(item)
+            if "order" not in payload:
+                payload["order"] = len(objects) + 1
+            objects.append(payload)
+    return objects
 
 
 def _match_query_items(

@@ -5,7 +5,7 @@ from __future__ import annotations
 import json
 from dataclasses import dataclass
 
-from auto_train import contracts, json_extract, policies
+from auto_train import contracts, judge_protocol, policies
 
 
 @dataclass(frozen=True)
@@ -25,34 +25,16 @@ def parse_or_fallback_decision(
     """Parse one judge response into a persisted decision, with deterministic fallback."""
 
     try:
-        payload = json_extract.extract_json_object_from_opencode_output(
-            raw_output,
-            required_keys={"decision", "reason", "confidence", "next_action", "evidence"},
+        parsed = judge_protocol.parse_structured_payload(
+            raw_output=raw_output,
+            allowed_decisions=contracts.ALLOWED_DECISIONS,
         )
-    except ValueError:
+    except judge_protocol.StructuredJudgePayloadError as exc:
         return fallback_decision(
             trial_id=trial_id,
             agent=agent,
             summary=summary,
-            reason_code="invalid_json",
-        )
-
-    if not isinstance(payload, dict):
-        return fallback_decision(
-            trial_id=trial_id,
-            agent=agent,
-            summary=summary,
-            reason_code="invalid_payload",
-        )
-
-    try:
-        parsed = contracts.JudgeDecisionPayload.from_dict(payload)
-    except ValueError:
-        return fallback_decision(
-            trial_id=trial_id,
-            agent=agent,
-            summary=summary,
-            reason_code="invalid_payload",
+            reason_code=exc.reason_code,
         )
 
     return DecisionParseOutcome(

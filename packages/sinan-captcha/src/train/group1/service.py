@@ -14,6 +14,37 @@ ALL_COMPONENTS = "all"
 QUERY_COMPONENT = "query-detector"
 PROPOSAL_COMPONENT = "proposal-detector"
 EMBEDDER_COMPONENT = "icon-embedder"
+DEFAULT_ICON_EMBEDDER_IMGSZ = 96
+DEFAULT_ICON_EMBEDDER_BATCH = 32
+
+
+@dataclass(frozen=True)
+class EmbedderReviewConfig:
+    provider: str | None = None
+    model: str | None = None
+    project_root: Path | None = None
+    study_name: str | None = None
+    task: str | None = None
+    trial_id: str | None = None
+    stage: str | None = None
+    attach_url: str | None = None
+    binary: str | None = None
+    timeout_seconds: float | None = None
+    min_epochs: int | None = None
+    window: int | None = None
+    rebuild_count: int = 0
+
+    @property
+    def enabled(self) -> bool:
+        return bool(
+            self.provider
+            and self.model
+            and self.project_root is not None
+            and self.study_name
+            and self.task
+            and self.trial_id
+            and self.stage
+        )
 
 
 @dataclass(frozen=True)
@@ -30,6 +61,7 @@ class Group1TrainingJob:
     imgsz: int = 640
     device: str = "0"
     resume: bool = False
+    embedder_review: EmbedderReviewConfig | None = None
 
     def command(self) -> list[str]:
         command = [
@@ -64,6 +96,25 @@ class Group1TrainingJob:
             command.extend(["--embedder-model", self.embedder_model])
         if self.resume:
             command.append("--resume")
+        if self.embedder_review is not None and self.embedder_review.enabled:
+            command.extend(["--review-provider", str(self.embedder_review.provider)])
+            command.extend(["--review-model", str(self.embedder_review.model)])
+            command.extend(["--review-project-root", str(self.embedder_review.project_root)])
+            command.extend(["--review-study-name", str(self.embedder_review.study_name)])
+            command.extend(["--review-task", str(self.embedder_review.task)])
+            command.extend(["--review-trial-id", str(self.embedder_review.trial_id)])
+            command.extend(["--review-stage", str(self.embedder_review.stage)])
+            command.extend(["--review-rebuild-count", str(self.embedder_review.rebuild_count)])
+            if self.embedder_review.attach_url is not None:
+                command.extend(["--review-attach-url", self.embedder_review.attach_url])
+            if self.embedder_review.binary is not None:
+                command.extend(["--review-binary", self.embedder_review.binary])
+            if self.embedder_review.timeout_seconds is not None:
+                command.extend(["--review-timeout-seconds", str(self.embedder_review.timeout_seconds)])
+            if self.embedder_review.min_epochs is not None:
+                command.extend(["--review-min-epochs", str(self.embedder_review.min_epochs)])
+            if self.embedder_review.window is not None:
+                command.extend(["--review-window", str(self.embedder_review.window)])
         return command
 
     def command_string(self) -> str:
@@ -82,6 +133,8 @@ class Group1PredictionJob:
     conf: float = 0.25
     imgsz: int = 640
     device: str = "0"
+    similarity_threshold: float | None = None
+    ambiguity_margin: float | None = None
 
     def output_dir(self) -> Path:
         return self.project_dir / self.run_name
@@ -108,6 +161,8 @@ class Group1PredictionJob:
             self.run_name,
             "--conf",
             f"{self.conf:g}",
+            *(["--similarity-threshold", f"{self.similarity_threshold:g}"] if self.similarity_threshold is not None else []),
+            *(["--ambiguity-margin", f"{self.ambiguity_margin:g}"] if self.ambiguity_margin is not None else []),
             "--imgsz",
             str(self.imgsz),
             "--device",
@@ -141,11 +196,14 @@ def build_group1_training_job(
     imgsz: int = 640,
     device: str = "0",
     resume: bool = False,
+    embedder_review: EmbedderReviewConfig | None = None,
 ) -> Group1TrainingJob:
     normalized_component = normalize_group1_component(component)
     resolved_query_model = query_model or model
     resolved_proposal_model = proposal_model or model
     resolved_embedder_model = embedder_model
+    resolved_imgsz = imgsz
+    resolved_batch = 16 if batch is None else batch
     if normalized_component == QUERY_COMPONENT:
         resolved_proposal_model = None
         resolved_embedder_model = None
@@ -155,6 +213,10 @@ def build_group1_training_job(
     elif normalized_component == EMBEDDER_COMPONENT:
         resolved_query_model = None
         resolved_proposal_model = None
+        if imgsz == 640:
+            resolved_imgsz = DEFAULT_ICON_EMBEDDER_IMGSZ
+        if batch is None:
+            resolved_batch = DEFAULT_ICON_EMBEDDER_BATCH
     return Group1TrainingJob(
         dataset_config=dataset_config,
         project_dir=project_dir,
@@ -162,12 +224,13 @@ def build_group1_training_job(
         proposal_model=resolved_proposal_model,
         embedder_model=resolved_embedder_model,
         epochs=120 if epochs is None else epochs,
-        batch=16 if batch is None else batch,
+        batch=resolved_batch,
         run_name=run_name,
         component=normalized_component,
-        imgsz=imgsz,
+        imgsz=resolved_imgsz,
         device=device,
         resume=resume,
+        embedder_review=embedder_review if normalized_component == EMBEDDER_COMPONENT else None,
     )
 
 
@@ -183,6 +246,8 @@ def build_group1_prediction_job(
     conf: float = 0.25,
     imgsz: int = 640,
     device: str = "0",
+    similarity_threshold: float | None = None,
+    ambiguity_margin: float | None = None,
 ) -> Group1PredictionJob:
     return Group1PredictionJob(
         dataset_config=dataset_config,
@@ -195,6 +260,8 @@ def build_group1_prediction_job(
         conf=conf,
         imgsz=imgsz,
         device=device,
+        similarity_threshold=similarity_threshold,
+        ambiguity_margin=ambiguity_margin,
     )
 
 

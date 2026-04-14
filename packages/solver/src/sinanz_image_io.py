@@ -139,7 +139,7 @@ def _fetch_remote_image_bytes(url: str, *, field: str) -> bytes:
         raise SolverInputError(f"`{field}` URL 非法：{url}")
 
     opener = build_opener(_LimitedRedirectHandler(max_redirects=REMOTE_MAX_REDIRECTS))
-    request = Request(url, headers={"User-Agent": "sinanz/0.1"})
+    request = Request(url, headers={"User-Agent": "sinanz/0.0.1.dev0"})
     try:
         with opener.open(request, timeout=REMOTE_TIMEOUT_SECONDS) as response:
             raw_length = response.headers.get("Content-Length")

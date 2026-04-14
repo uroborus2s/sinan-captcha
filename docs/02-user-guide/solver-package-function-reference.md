@@ -1,6 +1,7 @@
 # 使用者：Solver 包函数参考（`sinanz`）
 
 本页给出 `sinanz` 的公开函数、类型与异常定义。
+当前对外发布的 `0.0.1.dev0` 预发布版本只承诺滑块能力。
 
 ## 1. 模块导出（`__all__`）
 
@@ -8,10 +9,7 @@
 from sinanz import (
     BBox,
     CaptchaSolver,
-    ClickCaptchaDebugInfo,
     ImageInput,
-    OrderedClickTarget,
-    OrderedClickTargetsResult,
     SliderGapCenterResult,
     SliderGapDebugInfo,
     SolverAssetError,
@@ -19,7 +17,6 @@ from sinanz import (
     SolverInputError,
     SolverRuntimeError,
     sn_match_slider,
-    sn_match_targets,
 )
 ```
 
@@ -39,20 +36,7 @@ def sn_match_slider(
     ...
 ```
 
-## 2.2 点选函数
-
-```python
-def sn_match_targets(
-    query_icons_image: ImageInput,
-    background_image: ImageInput,
-    *,
-    device: str = "auto",
-    return_debug: bool = False,
-) -> OrderedClickTargetsResult:
-    ...
-```
-
-## 2.3 面向对象封装
+## 2.2 面向对象封装
 
 ```python
 class CaptchaSolver:
@@ -66,14 +50,6 @@ class CaptchaSolver:
         puzzle_piece_start_bbox: BBox | None = None,
         return_debug: bool = False,
     ) -> SliderGapCenterResult: ...
-
-    def sn_match_targets(
-        self,
-        query_icons_image: ImageInput,
-        background_image: ImageInput,
-        *,
-        return_debug: bool = False,
-    ) -> OrderedClickTargetsResult: ...
 ```
 
 ## 3. 输入类型定义
@@ -119,39 +95,11 @@ class SliderGapCenterResult:
 - `puzzle_piece_offset`: 仅在传入 `puzzle_piece_start_bbox` 时可用。
 - `debug`: `return_debug=True` 时包含运行时注记。
 
-## 4.2 `OrderedClickTargetsResult`
-
-```python
-@dataclass(frozen=True, slots=True)
-class OrderedClickTargetsResult:
-    ordered_target_centers: list[Point]
-    ordered_targets: list[OrderedClickTarget]
-    missing_query_orders: list[int] = field(default_factory=list)
-    ambiguous_query_orders: list[int] = field(default_factory=list)
-    debug: ClickCaptchaDebugInfo | None = None
-```
-
-## 4.3 `OrderedClickTarget`
-
-```python
-@dataclass(frozen=True, slots=True)
-class OrderedClickTarget:
-    query_order: int
-    center: Point
-    class_id: int
-    class_name: str
-    score: float
-```
-
-## 4.4 调试结构
+## 4.2 调试结构
 
 ```python
 @dataclass(frozen=True, slots=True)
 class SliderGapDebugInfo:
-    notes: list[str] = field(default_factory=list)
-
-@dataclass(frozen=True, slots=True)
-class ClickCaptchaDebugInfo:
     notes: list[str] = field(default_factory=list)
 ```
 
@@ -188,17 +136,13 @@ class SolverRuntimeError(SolverError): ...
 若传入 `asset_root`，将优先从该目录读取模型：
 
 - `slider_gap_locator.onnx`
-- `click_proposal_detector.onnx`
-- `click_icon_embedder.onnx`
-
-query splitter 为运行时内置规则，不从 `asset_root` 读取单独模型。
 
 未传入 `asset_root` 时，默认读取包内 `resources/models`。
 
 ## 8. 调用示例（含 debug）
 
 ```python
-from sinanz import sn_match_slider, sn_match_targets
+from sinanz import sn_match_slider
 
 slider = sn_match_slider(
     background_image=r"D:\cases\master.png",
@@ -207,13 +151,6 @@ slider = sn_match_slider(
     return_debug=True,
 )
 print(slider.target_center, slider.debug.notes if slider.debug else [])
-
-targets = sn_match_targets(
-    query_icons_image=r"D:\cases\query.png",
-    background_image=r"D:\cases\scene.png",
-    return_debug=True,
-)
-print(targets.ordered_target_centers, targets.missing_query_orders, targets.ambiguous_query_orders)
 ```
 
 如果你还没看安装与接入流程，请先读：

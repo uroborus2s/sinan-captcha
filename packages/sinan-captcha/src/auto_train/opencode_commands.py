@@ -48,6 +48,15 @@ def command_registry() -> "OrderedDict[str, OpenCodeCommandSpec]":
         output_artifact="decision.json",
         skill_name="training-judge",
     )
+    registry["review-embedder"] = OpenCodeCommandSpec(
+        name="review-embedder",
+        description="Review group1 icon-embedder progress and return embedder_review.json",
+        message_arguments=("study_name", "task", "trial_id", "stage", "epoch"),
+        required_files=("embedder_review_context.json",),
+        optional_files=("embedder_review_history.jsonl",),
+        output_artifact="embedder_review.json",
+        skill_name="embedder-judge",
+    )
     registry["plan-dataset"] = OpenCodeCommandSpec(
         name="plan-dataset",
         description="Plan the next dataset action and return dataset_plan.json",

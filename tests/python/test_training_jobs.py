@@ -19,7 +19,7 @@ from train.base import (
 from train.group1 import cli as group1_cli
 from train.group1.dataset import load_group1_dataset_config
 from train.group1.runner import _build_prediction_row
-from train.group1.service import build_group1_training_job
+from train.group1.service import EmbedderReviewConfig, build_group1_training_job
 from train.group2 import cli as group2_cli
 from train.group2.service import build_group2_prediction_job, build_group2_training_job, run_group2_prediction_job
 
@@ -271,6 +271,53 @@ class TrainingJobTests(unittest.TestCase):
         self.assertIn("64", command)
         self.assertNotIn("--proposal-model", command)
         self.assertFalse(any(part.startswith("--query-") for part in command))
+
+    def test_group1_embedder_component_uses_retrieval_friendly_defaults(self) -> None:
+        job = build_group1_training_job(
+            Path("datasets/group1/v2/dataset.json"),
+            Path("runs/group1"),
+            run_name="instance_v2",
+            component="icon-embedder",
+        )
+
+        command = job.command()
+        self.assertIn("--batch", command)
+        self.assertIn("32", command)
+        self.assertIn("--imgsz", command)
+        self.assertIn("96", command)
+        self.assertNotIn("--proposal-model", command)
+        self.assertFalse(any(part.startswith("--query-") for part in command))
+
+    def test_group1_embedder_component_passes_embedder_review_runtime_flags(self) -> None:
+        job = build_group1_training_job(
+            Path("datasets/group1/v2/dataset.json"),
+            Path("runs/group1"),
+            run_name="instance_v2",
+            component="icon-embedder",
+            embedder_review=EmbedderReviewConfig(
+                provider="opencode",
+                model="local/qwen",
+                project_root=Path("C:/sinan-captcha-work"),
+                study_name="study_group1_v1",
+                task="group1",
+                trial_id="trial_0001",
+                stage="TRAIN_EMBEDDER_BASE",
+                attach_url="http://127.0.0.1:4096",
+                binary="opencode",
+                timeout_seconds=120.0,
+                min_epochs=8,
+                window=3,
+                rebuild_count=0,
+            ),
+        )
+
+        command = job.command()
+        self.assertIn("--review-provider", command)
+        self.assertIn("opencode", command)
+        self.assertIn("--review-model", command)
+        self.assertIn("local/qwen", command)
+        self.assertIn("--review-stage", command)
+        self.assertIn("TRAIN_EMBEDDER_BASE", command)
 
     def test_group1_prediction_job_includes_icon_embedder_model(self) -> None:
         from train.group1.service import build_group1_prediction_job

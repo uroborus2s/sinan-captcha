@@ -1707,7 +1707,7 @@ wheels = [
 
 [[package]]
 name = "sinan-captcha"
-version = "0.1.55"
+version = "0.1.69"
 source = { editable = "packages/sinan-captcha" }
 
 [package.optional-dependencies]
@@ -1782,7 +1782,7 @@ train = [
 
 [[package]]
 name = "sinanz"
-version = "0.1.0"
+version = "0.0.1.dev0"
 source = { editable = "packages/solver" }
 dependencies = [
     { name = "numpy" },

@@ -17,6 +17,92 @@
 
 ## 当前事实
 
+- 2026-04-14 当前 `sinanz` 首个 PyPI 预发布口径已收口为 slider-only：
+  - `packages/solver/pyproject.toml` 当前发布版本已规范化为 `0.0.1.dev0`
+  - 当前公开 API 只保留：
+    - `sn_match_slider(...)`
+    - `CaptchaSolver.sn_match_slider(...)`
+  - wheel 打包清单当前已移除：
+    - `sinanz_group1_runtime`
+    - `sinanz_group1_service`
+    - `sinanz_query_splitter`
+  - `README`、使用指南与函数参考当前都已明确：这个预发布版本暂时只承诺 `group2` 滑块求解
+  - 当前已验证：
+    - `uv run pytest -q`（`packages/solver/`）
+    - `uv run repo build solver`
+
+- 2026-04-14 当前 `group1 embedder` 已开始向“统一本地 judge 协议”收口：
+  - 当前 `trial` 级 `judge-trial` 与 `icon-embedder` 中途 review 已共用同一套结构化 JSON 协议：
+    - `decision`
+    - `reason`
+    - `confidence`
+    - `next_action`
+    - `evidence`
+  - 当前已新增本地命令：
+    - `.opencode/commands/review-embedder.md`
+    - `.opencode/skills/embedder-judge/SKILL.md`
+  - 当前 `TRAIN_EMBEDDER_BASE` 在接入 `opencode` judge 时，会按 review 窗口调用本地 judge；若 judge 认为 exact recall 已平台期，会提前结束 base 并进入 `EMBEDDER_GATE -> BUILD_EMBEDDER_HARDSET`
+  - 当前 `TRAIN_EMBEDDER_HARD` 若被本地 judge 判定为 `REBUILD_HARDSET`，controller 会在单轮 trial 内最多回退一次到 `BUILD_EMBEDDER_HARDSET`
+  - 当前 `icon-embedder/summary.json` 已新增：
+    - `review_settings`
+    - `review`
+    - `review_history`
+    - `training_stop`
+  - 当前 `TrainRecord.params` 已会回写：
+    - `review_decision`
+    - `review_reason`
+    - `review_confidence`
+    - `review_trigger_epoch`
+  - 当前已验证：
+    - `uv run pytest tests/python/test_auto_train_decision_protocol.py tests/python/test_auto_train_embedder_review_protocol.py tests/python/test_group1_embedder.py tests/python/test_training_jobs.py tests/python/test_auto_train_controller.py -q`
+    - `uv run pytest tests/python/test_auto_train_runners.py tests/python/test_auto_train_state_machine.py tests/python/test_auto_train_opencode_runtime.py -q`
+
+- 2026-04-14 当前 `group1 icon-embedder` 训练口径已完成一次针对检索任务的正式刷新：
+  - 当前 `IconEmbedder` 已从旧版 3 层小 CNN 升级为轻量残差 backbone
+  - 当前默认 embedding 维度已从 `64` 提升到 `128`
+  - 当前训练损失已从单独 `triplet loss` 改为：
+    - `triplet loss`
+    - `identity-aware in-batch contrastive loss`
+  - 当前训练默认值已收口为：
+    - `imgsz = 96`
+    - `batch = 32`（仅 `--component icon-embedder` 默认口径）
+    - `learning_rate = 3e-4`
+    - `early_stop.min_epochs = 12`
+    - `early_stop.patience = 10`
+    - `early_stop.min_delta = 0.001`
+  - 当前 `icon-embedder/summary.json` 已新增训练配置回写：
+    - `architecture_version = 2`
+    - `embedding_dim`
+    - `learning_rate`
+    - `loss.triplet_weight`
+    - `loss.contrastive_weight`
+    - `loss.contrastive_temperature`
+  - 当前 checkpoint 若与新架构不兼容，会报出显式错误，提示重新 fresh 训练 `icon-embedder`
+  - 当前已验证：
+    - `uv run pytest tests/python/test_group1_embedder.py tests/python/test_training_jobs.py tests/python/test_auto_train_runners.py tests/python/test_auto_train_controller.py -q`
+
+- 2026-04-14 当前 `group1 embedder` 已补 hard negative mining 与检索诊断指标：
+  - `BUILD_EMBEDDER_HARDSET` 当前会优先挖掘更难的负样本：
+    - `same_template_variant`
+    - `same_template_other`
+    - `scene_target`
+    - `distractor`
+    - `false_positive`
+  - 当前 hard negative 排序会结合：
+    - 当前 base embedder 的 embedding 相似度
+    - detector score
+  - 输出的 `pairs.jsonl / triplets.jsonl` 当前会额外写：
+    - `negative_bucket`
+    - `negative_similarity`
+  - `icon-embedder` 验证指标当前已新增：
+    - `embedding_identity_recall_at_1/@3`
+    - `embedding_positive_rank_mean`
+    - `embedding_positive_rank_median`
+    - `embedding_top1_error_*_rate`
+    - `embedding_same_template_top1_error_rate`
+  - 当前已验证：
+    - `uv run pytest tests/python/test_group1_embedder.py tests/python/test_auto_train_group1_pipeline.py tests/python/test_auto_train_controller.py tests/python/test_auto_train_runners.py tests/python/test_auto_train_state_machine.py -q`
+
 - 2026-04-13 当前 `group1` 生成器重构已完成 `query-yolo/` 第一切片：
   - generator 现已为 `group1` 额外导出：
     - `query-yolo/images/{train,val,test}`
@@ -44,9 +130,54 @@
       - `train.group1.runner predict` 已支持 `--query-model`
       - `modeltest group1` / `auto_train.runners.test` / `business_eval` 已开始透传 `query detector` 权重
       - `modeltest` 中文报告已能区分 query detector 与 query splitter 两条口径
-    - 当前仍未完成：
+    - `auto-train` 新阶段机第一切片已完成：
+      - `group1` 当前已切到：
+        - `TRAIN_QUERY`
+        - `QUERY_GATE`
+        - `TRAIN_SCENE`
+        - `SCENE_GATE`
+        - `TRAIN_EMBEDDER_BASE`
+        - `BUILD_EMBEDDER_HARDSET`
+        - `TRAIN_EMBEDDER_HARD`
+        - `CALIBRATE_MATCHER`
+        - `OFFLINE_EVAL`
+        - `BUSINESS_EVAL`
+        - `SUMMARIZE`
+        - `JUDGE`
+        - `NEXT_ACTION`
+      - `TRAIN` legacy 阶段别名在 `group1` 上现会自动映射到 `TRAIN_QUERY`
+      - `auto-train` 当前已能真正从 `query detector` 开始起训，不再把 `group1` 整轮训练压成单一 `TRAIN`
+      - `auto-train --dataset-version v1` 当前已会正确解析到 `v1` preset，不再错误回退到 `firstpass`
+      - `dataset_plan` 当前已把 `smoke -> v1` 收口为新默认升级路径
+      - `query_train.json / query_gate.json / scene_train.json / scene_gate.json / embedder_train.json` 已纳入 study 工件
+      - 后半段正式阶段机现已新增 study 工件：
+        - `embedder_hardset.json`
+        - `embedder_hard_train.json`
+        - `matcher_config.json`
+        - `offline_eval.json`
+        - `business_stage.json`
+      - `NEXT_ACTION` 当前会优先复用 `BUSINESS_EVAL` 阶段产出的 `business_eval.json`，不再重复执行商业测试
+      - `judge_trial` 当前已把 `offline_eval.json / business_eval.json` 纳入 opencode 附件
+    - 当前已完成的生产级补齐：
+      - `BUILD_EMBEDDER_HARDSET` 现已优先执行真实 detector-aware hardset 构建：
+        - 用 `query detector + scene detector` 预测框重建 crop
+        - 生成 `embedder_hardset/queries|candidates|pairs.jsonl|triplets.jsonl`
+        - 生成派生 `dataset.json` 供 `TRAIN_EMBEDDER_HARD` 单独消费
+      - `TRAIN_EMBEDDER_HARD` 现已改为消费 hardset 派生数据集，不再只名义上存在阶段名
+      - `CALIBRATE_MATCHER` 现已优先执行真实 grid search 校准：
+        - 基于 `val` split 构造 matcher cases
+        - 选择最优 `similarity_threshold / ambiguity_margin`
+        - 写入 `matcher_config.json`
+      - `OFFLINE_EVAL / BUSINESS_EVAL` 现已透传 `matcher_config.json` 中的阈值，不再固定写死默认值
+      - `predict group1` / `modeltest group1` / business eval 现已支持：
+        - `--similarity-threshold`
+        - `--ambiguity-margin`
+      - controller 当前对训练机与测试环境统一采用“真实路径优先、安全回退兜底”：
+        - 权重齐全时执行真实 hardset / calibration
+        - 假 runner 或缺 checkpoint 时回退到 base triplets + 静态 matcher 默认值
+        - 不会阻断 controller 主流程
+    - 当前剩余非阻塞项：
       - `solve.service` 主链路接到 `query detector`
-      - `auto-train` 新阶段机 `TRAIN_QUERY -> QUERY_GATE -> ...`
       - 彻底移除规则 splitter fallback
 
 - 2026-04-13 当前 generator preset 约定已开始向新工程口径收口：
@@ -2172,6 +2303,33 @@
 - 变更：已新增 `core/auto_train/optuna_runtime.py`，并把 controller `RETUNE` 路径切到真实 suggestion + `optuna.sqlite3` 持久化
 - 缺陷：暂无新增缺陷；仍缺少 Windows + NVIDIA 实机长流程验证
 
+- 任务：修复 2026-04-13 Windows 训练机 `group1 query-detector` 训练后评估失败，并保证已完成训练不被重跑
+- 变更：
+  - Python `dataset.validation` 已兼容历史 group1 JSONL 中的 `class/class_id`，读取时统一归一化为 `class_guess` 并从返回对象中移除旧字段
+  - `auto_train.controller` 已支持在 `TRAIN_QUERY / TRAIN_SCENE / TRAIN_EMBEDDER_BASE` 记录缺失但组件 `best.pt/last.pt` 已存在时恢复训练记录，不再重复调用训练 runner
+  - `TRAIN_QUERY` 恢复路径会基于已有 query detector 权重重跑评估并补写 `summary.json` / `failcases.jsonl`，用于继续进入 `QUERY_GATE`
+  - `proposal-detector` 已补正式验证集 gate：训练后会在 `val` scene 图上预测，和 `scene_targets + distractors` 真值框做 IoU 匹配，输出 `metrics/gate/failcases`
+  - `SCENE_GATE` 已改为读取 `proposal-detector` 的 gate 结果，不再用 `best.pt/last.pt` 是否存在直接判定 passed
+  - 对历史已训练 proposal 权重，若 summary 缺少 proposal gate，`SCENE_GATE` 会先用现有 `best.pt/last.pt` 补跑评估并回写 summary/failcases，而不是立即要求重训
+  - `proposal-detector` 默认 gate 阈值：`proposal_object_recall >= 0.995`、`proposal_full_recall_rate >= 0.99`、`proposal_mean_iou >= 0.75`、`proposal_false_positive_per_sample <= 0.25`
+  - Go 生成器导出的 group1 `splits/*.jsonl` 与 `eval/labels.jsonl` 已投影为实例合同，不再输出旧 `class/class_id`；原始批次 `labels.jsonl` 仍保留内部 class 信息供 truth check 使用
+  - `TRAIN_EMBEDDER_BASE / TRAIN_EMBEDDER_HARD` 已不再沿用 detector 的 `imgsz=640`；当前默认小图标训练尺寸已进一步刷新为 `96`
+  - `train_icon_embedder(...)` 已补训练开始日志、epoch 日志和批次 heartbeat，训练机上不再出现“黑屏无输出、无法判断是否在跑”的状态
+  - `train_icon_embedder(...)` 在每个 epoch 结束后还会输出验证阶段心跳：`validation-triplet-loss`、`retrieval-query-embeddings`、`retrieval-candidate-embeddings`
+  - `icon-embedder` 验证阶段已改为批量 embedding 推理，终端不再只停在最后一个训练 step 后完全静默
+  - `icon-embedder` 默认已补自动早停：基于验证集 `embedding_recall_at_1` 的最小增益和 patience 提前结束训练，同时持续保留 `best.pt`
+  - 自动训练恢复已区分 `icon-embedder` “部分 checkpoint” 与“完整组件”：只有完整 `icon-embedder/summary.json` 存在时才按已完成恢复；若只有 `last.pt/best.pt`，会强制走 `resume` 续训，避免中断两轮后被误判为完成
+- 实测：
+  - `uv run pytest tests/python/test_group1_instance_contracts.py tests/python/test_auto_train_controller.py -q`
+  - `uv run pytest tests/python/test_auto_train_runners.py tests/python/test_group1_embedder.py -q`
+  - `uv run pytest tests/python/test_auto_train_dataset_plan.py tests/python/test_auto_train_group1_pipeline.py tests/python/test_auto_train_controller.py tests/python/test_auto_train_runners.py tests/python/test_auto_train_state_machine.py tests/python/test_training_jobs.py tests/python/test_prediction_and_model_test.py tests/python/test_auto_train_business_eval.py tests/python/test_auto_train_cli.py tests/python/test_group1_instance_contracts.py -q`
+  - `GOCACHE=/tmp/sinan-captcha-go-build go test ./internal/app ./internal/export ./internal/dataset`
+  - `PYTHONPYCACHEPREFIX=/tmp/sinan-captcha-pycache python3 -m py_compile ...`
+  - `git diff --check`
+- 运维结论：
+  - 本次 Windows 日志中的 YOLO 训练阶段已经成功产出权重，不应删除 `runs/group1/trial_0001/query-detector/weights`
+  - 训练机升级到包含本修复的包后，用同一个 `study-name`、同一个 `train-root` 重跑 auto-train，会从缺失的 `query_train.json` 边界恢复，而不是重训 query detector
+
 ## 下一步建议
 
 - 2026-04-10：`solver` 已重新收口为纯 Python wheel，当前运行链路为 Python 预处理 -> Python `onnxruntime` -> 业务结果封装。
@@ -2217,4 +2375,54 @@
     - `./.venv/bin/python -m unittest discover -s tests/python -p 'test_solver_asset_export_group2.py'`
     - `./.venv/bin/python -m unittest discover -s tests/python -p 'test_solver_asset_contract.py'`
     - `./.venv/bin/python -m unittest discover -s tests/python -p 'test_project_metadata.py'`
+    - `git diff --check`
+- 2026-04-13 `group1 auto-train` 当前已完成一轮控制流收口：
+  - 新增正式 `EMBEDDER_GATE`，位置在 `TRAIN_EMBEDDER_BASE -> EMBEDDER_GATE -> BUILD_EMBEDDER_HARDSET`
+  - `icon-embedder` gate 当前正式阈值已落地为：
+    - `embedding_recall_at_1 >= 0.97`
+    - `embedding_recall_at_3 >= 0.995`
+  - `group1` 下一轮 trial 当前不再默认整条流水线重训，而是写入 `params.group1_component_plan`
+    - 已过 gate 的组件：`reuse`
+    - 未过 gate 的组件：`train`
+  - `group1` 当前已改为：
+    - 离线 `REGENERATE_DATA` 不再直接触发新数据版本
+    - 只有商业测试失败时，才会走 `new_version + from_run`
+    - 商业失败后的 `base_run` 当前优先取 leaderboard 最佳 trial，而不是刚失败的 trial
+  - 中断恢复当前已覆盖：
+    - `proposal-detector` 有 `last.pt` 时优先 `resume`
+    - `icon-embedder` 有 `last.pt` 且未完成时优先 `resume`
+    - `query/scene/embedder` gate 当前都走带指纹的恢复校验，不再只看文件存在
+  - 当前已验证：
+    - `uv run pytest tests/python/test_auto_train_state_machine.py tests/python/test_auto_train_controller.py -q`
+    - `uv run pytest tests/python/test_auto_train_runners.py tests/python/test_training_jobs.py -q`
+    - `uv run pytest tests/python/test_auto_train_business_eval.py -q`
+    - `PYTHONPYCACHEPREFIX=/Users/uroborus/AiProject/sinan-captcha/work_home/.pycache python3 -m py_compile packages/sinan-captcha/src/auto_train/controller.py packages/sinan-captcha/src/auto_train/recovery.py packages/sinan-captcha/src/auto_train/state_machine.py packages/sinan-captcha/src/auto_train/layout.py tests/python/test_auto_train_controller.py tests/python/test_auto_train_state_machine.py`
+    - `git diff --check`
+- 2026-04-14 `group1 icon-embedder` 恢复链路新增 `resume-time preflight review`：
+  - `train/group1/embedder.py` 当前会在每个已完成 epoch 后把 `icon-embedder/summary.json` 落盘为 partial summary，并显式写入 `finalized=false`
+  - 只有训练正常收尾时才会把 summary 改为 `finalized=true`；旧格式 summary 仍保持向后兼容
+  - `AutoTrainController` 当前在 `TRAIN_EMBEDDER_BASE` 恢复前会先检查当前 run 的 partial summary：
+    - 若最新已完成 epoch 命中 embedder review 窗口，则先执行一次 preflight review
+    - 若 review 结论为 `STOP_AND_ADVANCE`，则直接把当前 run finalize 并恢复为已完成组件，不再额外多跑到下一个 review 窗口
+    - 若已有同 epoch review 记录，则直接复用，不重复调用本地 judge
+  - 当前作用范围先收口在 `TRAIN_EMBEDDER_BASE`；`TRAIN_EMBEDDER_HARD` 仍沿用训练中 review
+  - `TRAIN_EMBEDDER_BASE` 当前新增更激进的切换 guardrail：
+    - 当 `epoch >= 20`
+    - 且 `embedding_recall_at_1 <= 0.10`
+    - 且 `embedding_positive_rank_mean >= 20`
+    - 且 `embedding_identity_recall_at_1 >= embedding_recall_at_1 + 0.25`
+    - 则即使本地 judge 仍返回 `CONTINUE`，协议层也会强制改写为 `STOP_AND_ADVANCE`，直接切到 hardset 路径
+  - 上述 guardrail 当前也会作用于 `resume-time preflight review` 的 `source=existing_review` 分支，不再因为复用旧 review 记录而绕过新规则
+  - `BUILD_EMBEDDER_HARDSET` 当前已补 heartbeat 日志，终端会输出：
+    - `hardset_build_start`
+    - `hardset_build_split_start`
+    - `hardset_build_progress`
+    - `hardset_build_split_done`
+    - `hardset_build_done`
+    用于区分“静默构建 harder samples”与真实卡死
+  - 当前已验证：
+    - `uv run pytest tests/python/test_group1_embedder.py -q`
+    - `uv run pytest tests/python/test_auto_train_controller.py -q`
+    - `uv run pytest tests/python/test_auto_train_embedder_review_protocol.py tests/python/test_training_jobs.py tests/python/test_auto_train_runners.py tests/python/test_auto_train_state_machine.py -q`
+    - `PYTHONPYCACHEPREFIX=/Users/uroborus/AiProject/sinan-captcha/work_home/.pycache python3 -m py_compile packages/sinan-captcha/src/train/group1/embedder.py packages/sinan-captcha/src/auto_train/controller.py tests/python/test_group1_embedder.py tests/python/test_auto_train_controller.py`
     - `git diff --check`

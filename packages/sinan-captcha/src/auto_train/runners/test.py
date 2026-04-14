@@ -43,6 +43,8 @@ class TestRunnerRequest:
     conf: float = 0.25
     device: str = "0"
     imgsz: int = 640
+    similarity_threshold: float | None = None
+    ambiguity_margin: float | None = None
 
 
 @dataclass(frozen=True)
@@ -130,4 +132,6 @@ def _build_model_test_request(request: TestRunnerRequest) -> ModelTestRequest:
         conf=request.conf,
         device=request.device,
         imgsz=request.imgsz,
+        similarity_threshold=request.similarity_threshold,
+        ambiguity_margin=request.ambiguity_margin,
     )

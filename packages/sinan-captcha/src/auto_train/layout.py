@@ -149,6 +149,27 @@ class StudyPaths:
     def embedder_train_file(self, trial_id: str) -> Path:
         return self.trial_dir(trial_id) / "embedder_train.json"
 
+    def embedder_gate_file(self, trial_id: str) -> Path:
+        return self.trial_dir(trial_id) / "embedder_gate.json"
+
+    def embedder_hardset_file(self, trial_id: str) -> Path:
+        return self.trial_dir(trial_id) / "embedder_hardset.json"
+
+    def embedder_hard_train_file(self, trial_id: str) -> Path:
+        return self.trial_dir(trial_id) / "embedder_hard_train.json"
+
+    def embedder_backup_root(self, trial_id: str) -> Path:
+        return self.trial_dir(trial_id) / "embedder_backups"
+
+    def matcher_config_file(self, trial_id: str) -> Path:
+        return self.trial_dir(trial_id) / "matcher_config.json"
+
+    def offline_eval_file(self, trial_id: str) -> Path:
+        return self.trial_dir(trial_id) / "offline_eval.json"
+
+    def business_stage_file(self, trial_id: str) -> Path:
+        return self.trial_dir(trial_id) / "business_stage.json"
+
     def test_file(self, trial_id: str) -> Path:
         return self.trial_dir(trial_id) / "test.json"
 

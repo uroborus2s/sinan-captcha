@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+import json
 from pathlib import Path
 import subprocess
 from typing import Callable
@@ -24,6 +25,7 @@ from train.group1.service import Group1TrainingJob, build_group1_training_job, e
 from train.group1.service import (
     ALL_COMPONENTS,
     EMBEDDER_COMPONENT,
+    EmbedderReviewConfig,
     PROPOSAL_COMPONENT,
     QUERY_COMPONENT,
     normalize_group1_component,
@@ -54,6 +56,20 @@ class TrainRunnerRequest:
     imgsz: int = 640
     device: str = "0"
     component: str | None = None
+    dataset_config_override: Path | None = None
+    review_provider: str | None = None
+    review_model: str | None = None
+    review_project_root: Path | None = None
+    review_study_name: str | None = None
+    review_task: str | None = None
+    review_trial_id: str | None = None
+    review_stage: str | None = None
+    review_attach_url: str | None = None
+    review_binary: str | None = None
+    review_timeout_seconds: float | None = None
+    review_min_epochs: int | None = None
+    review_window: int | None = None
+    review_rebuild_count: int = 0
 
 
 @dataclass(frozen=True)
@@ -69,7 +85,7 @@ def run_training_request(
 ) -> TrainRunnerResult:
     """Build and execute one training job without leaking CLI details into the controller."""
 
-    dataset_config = default_dataset_config(request.train_root, request.task, request.dataset_version)
+    dataset_config = request.dataset_config_override or default_dataset_config(request.train_root, request.task, request.dataset_version)
     project_dir = default_project_dir(request.train_root, request.task)
     group1_component = _resolve_group1_component(request) if request.task == "group1" else None
     model = _resolve_model(request, component=group1_component)
@@ -175,6 +191,13 @@ def run_training_request(
             params["embedder_model_last"] = str(
                 resolve_group1_component_last_weights(request.train_root, request.train_name, EMBEDDER_COMPONENT)
             )
+        if group1_component == EMBEDDER_COMPONENT:
+            review = _load_group1_embedder_review(request.train_root, request.train_name)
+            if review is not None:
+                params["review_decision"] = str(review.get("decision", ""))
+                params["review_reason"] = str(review.get("reason", ""))
+                params["review_confidence"] = float(review.get("confidence", 0.0) or 0.0)
+                params["review_trigger_epoch"] = int(review.get("epoch", 0) or 0)
     return TrainRunnerResult(
         record=contracts.TrainRecord(
             task=request.task,
@@ -263,6 +286,8 @@ def _build_training_job(
         query_model = None
         proposal_model = None
         embedder_model = None
+        if normalized_component == EMBEDDER_COMPONENT and model is not None:
+            embedder_model = model
         if request.train_mode == "resume":
             if group1_dataset.query_component is not None:
                 query_model = str(resolve_group1_component_last_weights(request.train_root, request.train_name, QUERY_COMPONENT))
@@ -289,6 +314,25 @@ def _build_training_job(
             imgsz=request.imgsz,
             device=request.device,
             resume=request.train_mode == "resume",
+            embedder_review=(
+                EmbedderReviewConfig(
+                    provider=request.review_provider,
+                    model=request.review_model,
+                    project_root=request.review_project_root,
+                    study_name=request.review_study_name,
+                    task=request.review_task,
+                    trial_id=request.review_trial_id,
+                    stage=request.review_stage,
+                    attach_url=request.review_attach_url,
+                    binary=request.review_binary,
+                    timeout_seconds=request.review_timeout_seconds,
+                    min_epochs=request.review_min_epochs,
+                    window=request.review_window,
+                    rebuild_count=request.review_rebuild_count,
+                )
+                if normalized_component == EMBEDDER_COMPONENT and request.review_provider is not None
+                else None
+            ),
         )
     if request.task == "group2":
         return build_group2_training_job(
@@ -338,3 +382,23 @@ def _required_group1_components(*, dataset: object, component: str | None) -> li
     if normalized in {ALL_COMPONENTS, EMBEDDER_COMPONENT} and getattr(dataset, "is_instance_matching", False):
         results.append((EMBEDDER_COMPONENT, "group1 icon embedder 检查点"))
     return results
+
+
+def _load_group1_embedder_review(train_root: Path, train_name: str) -> dict[str, contracts.JsonValue] | None:
+    summary_path = default_run_dir(train_root, "group1", train_name) / "summary.json"
+    if not summary_path.exists():
+        return None
+    try:
+        payload = json.loads(summary_path.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError):
+        return None
+    if not isinstance(payload, dict):
+        return None
+    components = payload.get("components")
+    if not isinstance(components, dict):
+        return None
+    embedder = components.get(EMBEDDER_COMPONENT)
+    if not isinstance(embedder, dict):
+        return None
+    review = embedder.get("review")
+    return review if isinstance(review, dict) else None

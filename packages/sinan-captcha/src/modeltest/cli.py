@@ -62,6 +62,8 @@ def build_parser() -> argparse.ArgumentParser:
         help="optional; defaults to <repo>/work_home/reports/group1/test_<train-name>",
     )
     group1_parser.add_argument("--conf", type=float, default=0.25)
+    group1_parser.add_argument("--similarity-threshold", type=float, default=None)
+    group1_parser.add_argument("--ambiguity-margin", type=float, default=None)
     group1_parser.add_argument("--device", default="0")
     group1_parser.add_argument("--imgsz", type=int, default=640)
     group1_parser.add_argument("--dry-run", action="store_true")
@@ -136,6 +138,8 @@ def main(argv: list[str] | None = None) -> int:
             conf=args.conf,
             device=args.device,
             imgsz=args.imgsz,
+            similarity_threshold=args.similarity_threshold,
+            ambiguity_margin=args.ambiguity_margin,
         )
     else:
         model_path = args.model or default_best_weights(train_root, task, args.train_name)

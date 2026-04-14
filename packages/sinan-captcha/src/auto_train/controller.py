@@ -3,20 +3,23 @@
 from __future__ import annotations
 
 import json
-from dataclasses import dataclass, replace
-from datetime import datetime, timezone
 import os
-from pathlib import Path
 import re
 import shutil
+from dataclasses import dataclass, replace
+from datetime import datetime, timezone
+from pathlib import Path
 
 from auto_train import (
     business_eval,
     contracts,
     dataset_plan,
     decision_protocol,
+    embedder_review_protocol,
+    group1_pipeline,
     json_extract,
     layout,
+    opencode_assets,
     opencode_runtime,
     optimize,
     optuna_runtime,
@@ -28,17 +31,40 @@ from auto_train import (
     study_status,
     summary,
 )
+from common.jsonl import write_jsonl
 from group2_semantics import GROUP2_LOCALIZATION_ALERT_CENTER_ERROR_PX
+from solve.bundle import (
+    GROUP1_MATCHER_AMBIGUITY_MARGIN,
+    GROUP1_MATCHER_SIMILARITY_THRESHOLD,
+    MATCHER_STRATEGY,
+)
 from train.base import (
     default_dataset_config,
     default_report_dir,
     default_run_dir,
     preferred_checkpoint_path,
 )
-from train.group1.service import EMBEDDER_COMPONENT, PROPOSAL_COMPONENT, QUERY_COMPONENT
+from train.group1.dataset import load_group1_dataset_config
+from train.group1.service import (
+    DEFAULT_ICON_EMBEDDER_IMGSZ,
+    EMBEDDER_COMPONENT,
+    PROPOSAL_COMPONENT,
+    QUERY_COMPONENT,
+    resolve_group1_component_best_weights,
+    resolve_group1_component_last_weights,
+)
 
 DEFAULT_JUDGE_PROVIDER = "rules"
 DEFAULT_JUDGE_MODEL = "policy-v1"
+GROUP1_GATE_ARTIFACT_VERSION = 2
+GROUP1_EMBEDDER_GATE_RECALL_AT_1_MIN = 0.97
+GROUP1_EMBEDDER_GATE_RECALL_AT_3_MIN = 0.995
+GROUP1_EMBEDDER_GATE_SCENE_RECALL_AT_1_MIN = 0.97
+GROUP1_EMBEDDER_GATE_SCENE_RECALL_AT_3_MIN = 0.995
+GROUP1_COMPONENT_PLAN_PARAM = "group1_component_plan"
+GROUP1_COMPONENT_PLAN_TRAIN = "train"
+GROUP1_COMPONENT_PLAN_REUSE = "reuse"
+GROUP1_EMBEDDER_HARDSET_REBUILD_COUNT_PARAM = "embedder_hardset_rebuild_count"
 
 
 def default_generator_executable() -> str:
@@ -55,6 +81,12 @@ STAGE_ALIASES = {
     "train-scene": "TRAIN_SCENE",
     "scene-gate": "SCENE_GATE",
     "train-embedder-base": "TRAIN_EMBEDDER_BASE",
+    "embedder-gate": "EMBEDDER_GATE",
+    "build-embedder-hardset": "BUILD_EMBEDDER_HARDSET",
+    "train-embedder-hard": "TRAIN_EMBEDDER_HARD",
+    "calibrate-matcher": "CALIBRATE_MATCHER",
+    "offline-eval": "OFFLINE_EVAL",
+    "business-eval": "BUSINESS_EVAL",
     "test": "TEST",
     "evaluate": "EVALUATE",
     "summarize": "SUMMARIZE",
@@ -66,6 +98,44 @@ STAGE_ALIASES = {
 
 def _utc_now() -> datetime:
     return datetime.now(timezone.utc)
+
+
+def _console_timestamp() -> str:
+    return datetime.now().astimezone().isoformat(timespec="seconds")
+
+
+def _evaluate_query_detector_for_recovery(
+    *,
+    dataset_config_path: Path,
+    model_path: Path,
+    imgsz: int,
+    device: str,
+) -> tuple[dict[str, float | int | None], dict[str, object], list[dict[str, object]]]:
+    from train.group1.runner import _evaluate_query_detector_component
+
+    return _evaluate_query_detector_component(
+        dataset_config=load_group1_dataset_config(dataset_config_path),
+        model_path=model_path,
+        imgsz=imgsz,
+        device=device,
+    )
+
+
+def _evaluate_proposal_detector_for_recovery(
+    *,
+    dataset_config_path: Path,
+    model_path: Path,
+    imgsz: int,
+    device: str,
+) -> tuple[dict[str, float | int | None], dict[str, object], list[dict[str, object]]]:
+    from train.group1.runner import _evaluate_proposal_detector_component
+
+    return _evaluate_proposal_detector_component(
+        dataset_config=load_group1_dataset_config(dataset_config_path),
+        model_path=model_path,
+        imgsz=imgsz,
+        device=device,
+    )
 
 
 @dataclass(frozen=True)
@@ -164,6 +234,8 @@ class ControllerDependencies:
     opencode_runtime: object | None = None
     optuna_runtime: object | None = None
     now_provider: object = _utc_now
+    query_detector_evaluator: object = _evaluate_query_detector_for_recovery
+    proposal_detector_evaluator: object = _evaluate_proposal_detector_for_recovery
     console_writer: object = print
 
 
@@ -183,6 +255,101 @@ class AutoTrainController:
         )
         self.paths.ensure_layout()
 
+    def _write_console(self, message: str) -> None:
+        writer = self.dependencies.console_writer
+        if writer is not None:
+            writer(f"{_console_timestamp()} {message}")
+
+    def _backup_timestamp_parts(self) -> tuple[str, str]:
+        current = self.dependencies.now_provider()
+        if current.tzinfo is None:
+            current = current.replace(tzinfo=timezone.utc)
+        current_utc = current.astimezone(timezone.utc)
+        return current_utc.strftime("%Y%m%dT%H%M%S%fZ"), current_utc.isoformat(timespec="seconds")
+
+    def _reserve_backup_dir(self, root: Path, *, prefix: str) -> Path:
+        root.mkdir(parents=True, exist_ok=True)
+        candidate = root / prefix
+        suffix = 1
+        while candidate.exists():
+            candidate = root / f"{prefix}_{suffix:02d}"
+            suffix += 1
+        candidate.mkdir(parents=True, exist_ok=False)
+        return candidate
+
+    def _backup_embedder_base_artifacts_for_hard_stage(
+        self,
+        *,
+        trial_id: str,
+        embedder_record: contracts.TrainRecord,
+    ) -> Path | None:
+        source_files: dict[str, Path] = {}
+        best_path = _optional_path(embedder_record.best_weights)
+        last_path = _optional_path(embedder_record.last_weights)
+        if best_path is not None and best_path.exists():
+            source_files["best_weights"] = best_path
+        if last_path is not None and last_path.exists():
+            source_files["last_weights"] = last_path
+
+        train_record_path = self.paths.embedder_train_file(trial_id)
+        if train_record_path.exists():
+            source_files["train_record"] = train_record_path
+
+        run_dir_text = embedder_record.run_dir.strip()
+        if run_dir_text:
+            summary_path = Path(run_dir_text) / EMBEDDER_COMPONENT / "summary.json"
+            if summary_path.exists():
+                source_files["summary"] = summary_path
+
+        if not source_files:
+            self._write_console(
+                "embedder_checkpoint_backup "
+                f"trial={trial_id} "
+                "stage=TRAIN_EMBEDDER_HARD "
+                "status=skipped "
+                "reason=no_base_artifacts"
+            )
+            return None
+
+        stamp, backup_created_at = self._backup_timestamp_parts()
+        backup_dir = self._reserve_backup_dir(
+            self.paths.embedder_backup_root(trial_id),
+            prefix=f"pre_hard_{stamp}",
+        )
+        file_names = {
+            "best_weights": "best.pt",
+            "last_weights": "last.pt",
+            "train_record": "embedder_train.json",
+            "summary": "summary.json",
+        }
+        copied_files: dict[str, str] = {}
+        source_map: dict[str, str] = {}
+        for key, source_path in source_files.items():
+            destination = backup_dir / file_names[key]
+            shutil.copy2(source_path, destination)
+            copied_files[key] = str(destination)
+            source_map[key] = str(source_path)
+        storage.write_json_payload(
+            backup_dir / "metadata.json",
+            {
+                "trial_id": trial_id,
+                "stage": "TRAIN_EMBEDDER_HARD",
+                "created_at": backup_created_at,
+                "source_files": source_map,
+                "copied_files": copied_files,
+            },
+        )
+        copied_labels = ",".join(sorted(copied_files))
+        self._write_console(
+            "embedder_checkpoint_backup "
+            f"trial={trial_id} "
+            "stage=TRAIN_EMBEDDER_HARD "
+            "status=ready "
+            f"backup_dir={backup_dir} "
+            f"copied={copied_labels}"
+        )
+        return backup_dir
+
     def run(self, *, max_steps: int = 1, force_stage: str | None = None) -> AutoTrainRunResult:
         if max_steps < 0:
             raise ValueError("max_steps must not be negative")
@@ -190,6 +357,13 @@ class AutoTrainController:
         study = self._load_or_create_study()
         trial_id = self._ensure_current_trial(study)
         current_stage = self._normalize_stage_name_for_task(force_stage) if force_stage is not None else self._current_stage(study, trial_id)
+        self._write_console(
+            "controller_run "
+            f"study={self.request.study_name} "
+            f"task={self.request.task} "
+            f"trial={trial_id} "
+            f"current_stage={current_stage}"
+        )
         executed: list[StageExecution] = []
 
         steps_run = 0
@@ -216,6 +390,13 @@ class AutoTrainController:
     def _run_stage(self, stage: str) -> StageExecution:
         study = self._load_or_create_study()
         trial_id = self._ensure_current_trial(study)
+        self._write_console(
+            "controller_stage_start "
+            f"study={self.request.study_name} "
+            f"task={self.request.task} "
+            f"trial={trial_id} "
+            f"stage={stage}"
+        )
         if stage == "PLAN":
             return self._stage_plan(trial_id)
         if stage == "BUILD_DATASET":
@@ -234,6 +415,18 @@ class AutoTrainController:
             return self._stage_scene_gate(trial_id)
         if stage == "TRAIN_EMBEDDER_BASE":
             return self._stage_train_embedder_base(trial_id)
+        if stage == "EMBEDDER_GATE":
+            return self._stage_embedder_gate(trial_id)
+        if stage == "BUILD_EMBEDDER_HARDSET":
+            return self._stage_build_embedder_hardset(trial_id)
+        if stage == "TRAIN_EMBEDDER_HARD":
+            return self._stage_train_embedder_hard(trial_id)
+        if stage == "CALIBRATE_MATCHER":
+            return self._stage_calibrate_matcher(trial_id)
+        if stage == "OFFLINE_EVAL":
+            return self._stage_offline_eval(trial_id)
+        if stage == "BUSINESS_EVAL":
+            return self._stage_business_eval(trial_id)
         if stage == "TEST":
             return self._stage_test(trial_id)
         if stage == "EVALUATE":
@@ -337,21 +530,64 @@ class AutoTrainController:
         gate_path = self.paths.query_gate_file(trial_id)
         train_record = storage.read_train_record(self.paths.query_train_file(trial_id))
         component_summary = self._read_group1_component_summary(train_record, QUERY_COMPONENT)
+        best_path = _optional_path(component_summary.get("weights", {}).get("best", train_record.best_weights or ""))
+        last_path = _optional_path(component_summary.get("weights", {}).get("last", train_record.last_weights or ""))
         gate = component_summary.get("gate", {})
-        gate_status = "missing"
-        if isinstance(gate, dict):
-            raw_status = gate.get("status")
-            if isinstance(raw_status, str) and raw_status.strip():
-                gate_status = raw_status.strip()
-        gate_payload = {
-            "trial_id": trial_id,
-            "component": QUERY_COMPONENT,
-            "status": gate_status,
-            "metrics": component_summary.get("metrics", {}),
-            "gate": gate,
-            "summary_path": str(Path(train_record.run_dir) / "summary.json"),
-        }
+        gate_status = _gate_status(gate)
+        dataset_config_path, imgsz, device = self._resolve_group1_component_runtime_context(
+            trial_id=trial_id,
+            train_record=train_record,
+        )
+        recomputed = False
+        if gate_status == "missing":
+            model_path = _preferred_existing_checkpoint(best_path, last_path)
+            if model_path is not None:
+                metrics, gate, failcases = self.dependencies.query_detector_evaluator(
+                    dataset_config_path=dataset_config_path,
+                    model_path=model_path,
+                    imgsz=imgsz,
+                    device=device,
+                )
+                failcases_path = Path(train_record.run_dir) / QUERY_COMPONENT / "failcases.jsonl"
+                write_jsonl(failcases_path, failcases)
+                component_summary = {
+                    **component_summary,
+                    "metrics": metrics,
+                    "gate": gate,
+                    "failcases": str(failcases_path),
+                }
+                self._patch_group1_component_summary(
+                    train_record=train_record,
+                    component=QUERY_COMPONENT,
+                    component_summary=component_summary,
+                    dataset_config_path=dataset_config_path,
+                )
+                gate_status = _gate_status(gate)
+                recomputed = True
+        gate_payload = self._build_group1_gate_payload(
+            trial_id=trial_id,
+            component=QUERY_COMPONENT,
+            train_record=train_record,
+            dataset_config_path=dataset_config_path,
+            imgsz=imgsz,
+            device=device,
+            best_path=best_path,
+            last_path=last_path,
+            component_summary=component_summary,
+            gate=gate,
+            gate_status=gate_status,
+        )
         storage.write_json_payload(gate_path, gate_payload)
+        self._write_console(
+            "group1_gate "
+            f"trial={trial_id} "
+            f"stage=QUERY_GATE "
+            f"component={QUERY_COMPONENT} "
+            f"action={'recompute_missing_gate' if recomputed else 'reuse_summary'} "
+            f"status={gate_status} "
+            f"dataset_config={dataset_config_path} "
+            f"checkpoint={_checkpoint_text(_preferred_existing_checkpoint(best_path, last_path))}"
+        )
         return StageExecution(
             trial_id=trial_id,
             stage="QUERY_GATE",
@@ -372,19 +608,63 @@ class AutoTrainController:
         gate_path = self.paths.scene_gate_file(trial_id)
         train_record = storage.read_train_record(self.paths.scene_train_file(trial_id))
         component_summary = self._read_group1_component_summary(train_record, PROPOSAL_COMPONENT)
-        best_path = Path(str(component_summary.get("weights", {}).get("best", train_record.best_weights or "")))
-        last_path = Path(str(component_summary.get("weights", {}).get("last", train_record.last_weights or "")))
-        gate_payload = {
-            "trial_id": trial_id,
-            "component": PROPOSAL_COMPONENT,
-            "status": "passed" if best_path.exists() or last_path.exists() else "failed",
-            "checks": {
-                "best_exists": best_path.exists(),
-                "last_exists": last_path.exists(),
-            },
-            "summary_path": str(Path(train_record.run_dir) / "summary.json"),
-        }
+        best_path = _optional_path(component_summary.get("weights", {}).get("best", train_record.best_weights or ""))
+        last_path = _optional_path(component_summary.get("weights", {}).get("last", train_record.last_weights or ""))
+        gate = component_summary.get("gate", {})
+        gate_status = _gate_status(gate)
+        dataset_config_path, imgsz, device = self._resolve_group1_component_runtime_context(
+            trial_id=trial_id,
+            train_record=train_record,
+        )
+        recomputed = False
+        model_path = _preferred_existing_checkpoint(best_path, last_path)
+        if gate_status == "missing" and model_path is not None:
+            metrics, gate, failcases = self.dependencies.proposal_detector_evaluator(
+                dataset_config_path=dataset_config_path,
+                model_path=model_path,
+                imgsz=imgsz,
+                device=device,
+            )
+            failcases_path = Path(train_record.run_dir) / PROPOSAL_COMPONENT / "failcases.jsonl"
+            write_jsonl(failcases_path, failcases)
+            component_summary = {
+                **component_summary,
+                "metrics": metrics,
+                "gate": gate,
+                "failcases": str(failcases_path),
+            }
+            self._patch_group1_component_summary(
+                train_record=train_record,
+                component=PROPOSAL_COMPONENT,
+                component_summary=component_summary,
+                dataset_config_path=dataset_config_path,
+            )
+            gate_status = _gate_status(gate)
+            recomputed = True
+        gate_payload = self._build_group1_gate_payload(
+            trial_id=trial_id,
+            component=PROPOSAL_COMPONENT,
+            train_record=train_record,
+            dataset_config_path=dataset_config_path,
+            imgsz=imgsz,
+            device=device,
+            best_path=best_path,
+            last_path=last_path,
+            component_summary=component_summary,
+            gate=gate,
+            gate_status=gate_status,
+        )
         storage.write_json_payload(gate_path, gate_payload)
+        self._write_console(
+            "group1_gate "
+            f"trial={trial_id} "
+            f"stage=SCENE_GATE "
+            f"component={PROPOSAL_COMPONENT} "
+            f"action={'recompute_missing_gate' if recomputed else 'reuse_summary'} "
+            f"status={gate_status} "
+            f"dataset_config={dataset_config_path} "
+            f"checkpoint={_checkpoint_text(model_path)}"
+        )
         return StageExecution(
             trial_id=trial_id,
             stage="SCENE_GATE",
@@ -399,6 +679,369 @@ class AutoTrainController:
             component=EMBEDDER_COMPONENT,
             record_path=self.paths.embedder_train_file(trial_id),
             write_legacy_train=False,
+            imgsz_override=DEFAULT_ICON_EMBEDDER_IMGSZ,
+        )
+
+    def _stage_embedder_gate(self, trial_id: str) -> StageExecution:
+        gate_path = self.paths.embedder_gate_file(trial_id)
+        train_record = storage.read_train_record(self.paths.embedder_train_file(trial_id))
+        component_summary = self._read_group1_component_summary(train_record, EMBEDDER_COMPONENT)
+        best_path = _optional_path(component_summary.get("weights", {}).get("best", train_record.best_weights or ""))
+        last_path = _optional_path(component_summary.get("weights", {}).get("last", train_record.last_weights or ""))
+        dataset_config_path, imgsz, device = self._resolve_group1_component_runtime_context(
+            trial_id=trial_id,
+            train_record=train_record,
+        )
+        metrics = component_summary.get("metrics")
+        if not isinstance(metrics, dict) or not metrics:
+            metrics = self._load_group1_embedder_metrics(train_record)
+            component_summary = {
+                **component_summary,
+                "metrics": metrics,
+            }
+        gate = self._build_group1_embedder_gate(metrics)
+        gate_status = _gate_status(gate)
+        component_summary = {
+            **component_summary,
+            "gate": gate,
+        }
+        self._patch_group1_component_summary(
+            train_record=train_record,
+            component=EMBEDDER_COMPONENT,
+            component_summary=component_summary,
+            dataset_config_path=dataset_config_path,
+        )
+        gate_payload = self._build_group1_gate_payload(
+            trial_id=trial_id,
+            component=EMBEDDER_COMPONENT,
+            train_record=train_record,
+            dataset_config_path=dataset_config_path,
+            imgsz=imgsz,
+            device=device,
+            best_path=best_path,
+            last_path=last_path,
+            component_summary=component_summary,
+            gate=gate,
+            gate_status=gate_status,
+        )
+        storage.write_json_payload(gate_path, gate_payload)
+        self._write_console(
+            "group1_gate "
+            f"trial={trial_id} "
+            f"stage=EMBEDDER_GATE "
+            f"component={EMBEDDER_COMPONENT} "
+            "action=evaluate_summary "
+            f"status={gate_status} "
+            f"dataset_config={dataset_config_path} "
+            f"checkpoint={_checkpoint_text(_preferred_existing_checkpoint(best_path, last_path))}"
+        )
+        next_stage = (
+            state_machine.next_stage("EMBEDDER_GATE", task=self.request.task)
+            if self._group1_component_action(
+                storage.read_trial_input_record(self.paths.input_file(trial_id)),
+                component=EMBEDDER_COMPONENT,
+            )
+            == GROUP1_COMPONENT_PLAN_TRAIN
+            else "CALIBRATE_MATCHER"
+        )
+        return StageExecution(
+            trial_id=trial_id,
+            stage="EMBEDDER_GATE",
+            next_stage=next_stage,
+            detail=str(gate_path),
+        )
+
+    def _stage_build_embedder_hardset(self, trial_id: str) -> StageExecution:
+        input_record = storage.read_trial_input_record(self.paths.input_file(trial_id))
+        if self._group1_component_action(input_record, component=EMBEDDER_COMPONENT) == GROUP1_COMPONENT_PLAN_REUSE:
+            return StageExecution(
+                trial_id=trial_id,
+                stage="BUILD_EMBEDDER_HARDSET",
+                next_stage="CALIBRATE_MATCHER",
+                detail="skip_embedder_hardset_reuse",
+            )
+        dataset_config = load_group1_dataset_config(
+            default_dataset_config(self.request.train_root, self.request.task, input_record.dataset_version)
+        )
+        query_record = storage.read_train_record(self.paths.query_train_file(trial_id))
+        scene_record = storage.read_train_record(self.paths.scene_train_file(trial_id))
+        embedder_record = storage.read_train_record(self.paths.embedder_train_file(trial_id))
+        hardset_root = self.paths.trial_dir(trial_id) / "embedder_hardset"
+        query_model_path = preferred_checkpoint_path(Path(query_record.best_weights), Path(query_record.last_weights))
+        scene_model_path = preferred_checkpoint_path(Path(scene_record.best_weights), Path(scene_record.last_weights))
+        embedder_model_path = preferred_checkpoint_path(Path(embedder_record.best_weights), Path(embedder_record.last_weights))
+        notes: list[str] = []
+        if query_model_path.exists() and scene_model_path.exists():
+            try:
+                result = group1_pipeline.build_detector_aware_hardset(
+                    dataset_config=dataset_config,
+                    output_root=hardset_root,
+                    query_model_path=query_model_path,
+                    proposal_model_path=scene_model_path,
+                    embedder_model_path=embedder_model_path if embedder_model_path.exists() else None,
+                    imgsz=_int_value(input_record.params, "imgsz", default=self.request.effective_imgsz),
+                    device=_string_value(input_record.params, "device", default=self.request.device) or self.request.device,
+                    progress_callback=self._write_console,
+                )
+                strategy = "detector_aware_hardset_v1"
+                dataset_config_path = result.dataset_config_path
+                result_payload = result.to_dict()
+            except RuntimeError as exc:
+                strategy = "fallback_base_triplets_v1"
+                dataset_config_path = dataset_config.path
+                result_payload = {
+                    "output_root": str(hardset_root),
+                    "dataset_config_path": str(dataset_config.path),
+                    "pair_count": 0,
+                    "triplet_count": 0,
+                    "anchor_fallback_count": 0,
+                    "positive_fallback_count": 0,
+                    "false_positive_negative_count": 0,
+                    "split_stats": {},
+                }
+                notes.append(f"hardset_builder_fallback={exc}")
+        else:
+            strategy = "fallback_base_triplets_v1"
+            dataset_config_path = dataset_config.path
+            result_payload = {
+                "output_root": str(hardset_root),
+                "dataset_config_path": str(dataset_config.path),
+                "pair_count": 0,
+                "triplet_count": 0,
+                "anchor_fallback_count": 0,
+                "positive_fallback_count": 0,
+                "false_positive_negative_count": 0,
+                "split_stats": {},
+            }
+            notes.append("hardset_builder_fallback=missing_detector_checkpoints")
+        payload = {
+            "trial_id": trial_id,
+            "dataset_version": input_record.dataset_version,
+            "status": "ready",
+            "strategy": strategy,
+            "dataset_config_path": str(dataset_config_path),
+            "source_triplets_jsonl": None if dataset_config.embedding is None else str(dataset_config.embedding.triplets_jsonl),
+            "query_detector_weights": {
+                "best": query_record.best_weights,
+                "last": query_record.last_weights,
+            },
+            "scene_detector_weights": {
+                "best": scene_record.best_weights,
+                "last": scene_record.last_weights,
+            },
+            "embedder_base_weights": {
+                "best": embedder_record.best_weights,
+                "last": embedder_record.last_weights,
+            },
+            "notes": notes,
+            **result_payload,
+        }
+        storage.write_json_payload(self.paths.embedder_hardset_file(trial_id), payload)
+        return StageExecution(
+            trial_id=trial_id,
+            stage="BUILD_EMBEDDER_HARDSET",
+            next_stage=state_machine.next_stage("BUILD_EMBEDDER_HARDSET", task=self.request.task),
+            detail=str(self.paths.embedder_hardset_file(trial_id)),
+        )
+
+    def _stage_train_embedder_hard(self, trial_id: str) -> StageExecution:
+        input_record = storage.read_trial_input_record(self.paths.input_file(trial_id))
+        if self._group1_component_action(input_record, component=EMBEDDER_COMPONENT) == GROUP1_COMPONENT_PLAN_REUSE:
+            return StageExecution(
+                trial_id=trial_id,
+                stage="TRAIN_EMBEDDER_HARD",
+                next_stage="CALIBRATE_MATCHER",
+                detail="skip_embedder_hard_train_reuse",
+            )
+        hardset_payload = self._read_json_payload(self.paths.embedder_hardset_file(trial_id))
+        embedder_record = storage.read_train_record(self.paths.embedder_train_file(trial_id))
+        self._backup_embedder_base_artifacts_for_hard_stage(
+            trial_id=trial_id,
+            embedder_record=embedder_record,
+        )
+        embedder_checkpoint = preferred_checkpoint_path(
+            Path(embedder_record.best_weights),
+            Path(embedder_record.last_weights),
+        )
+        execution = self._stage_train_group1_component(
+            trial_id=trial_id,
+            stage="TRAIN_EMBEDDER_HARD",
+            component=EMBEDDER_COMPONENT,
+            record_path=self.paths.embedder_hard_train_file(trial_id),
+            write_legacy_train=False,
+            train_mode_override="fresh",
+            dataset_config_override=Path(str(hardset_payload["dataset_config_path"])),
+            model_override=str(embedder_checkpoint) if embedder_checkpoint.exists() else None,
+            imgsz_override=DEFAULT_ICON_EMBEDDER_IMGSZ,
+        )
+        train_record = storage.read_train_record(self.paths.embedder_hard_train_file(trial_id))
+        review_decision = _string_value(train_record.params, "review_decision")
+        if review_decision == embedder_review_protocol.EMBEDDER_REVIEW_DECISION_REBUILD_HARDSET:
+            rebuild_count = self._increment_embedder_hardset_rebuild_count(trial_id)
+            if rebuild_count <= embedder_review_protocol.MAX_EMBEDDER_HARDSET_REBUILDS_PER_TRIAL:
+                self._write_console(
+                    "embedder_review_action "
+                    f"trial={trial_id} "
+                    "stage=TRAIN_EMBEDDER_HARD "
+                    "decision=REBUILD_HARDSET "
+                    f"rebuild_count={rebuild_count}"
+                )
+                return StageExecution(
+                    trial_id=execution.trial_id,
+                    stage=execution.stage,
+                    next_stage="BUILD_EMBEDDER_HARDSET",
+                    detail=f"{execution.detail} review_decision=REBUILD_HARDSET",
+                )
+            self._write_console(
+                "embedder_review_action "
+                f"trial={trial_id} "
+                "stage=TRAIN_EMBEDDER_HARD "
+                "decision=REBUILD_HARDSET_IGNORED "
+                f"rebuild_count={rebuild_count}"
+            )
+        return execution
+
+    def _stage_calibrate_matcher(self, trial_id: str) -> StageExecution:
+        input_record = storage.read_trial_input_record(self.paths.input_file(trial_id))
+        dataset_config = load_group1_dataset_config(
+            default_dataset_config(self.request.train_root, self.request.task, input_record.dataset_version)
+        )
+        query_record = storage.read_train_record(self.paths.query_train_file(trial_id))
+        scene_record = storage.read_train_record(self.paths.scene_train_file(trial_id))
+        embedder_path = (
+            self.paths.embedder_hard_train_file(trial_id)
+            if self.paths.embedder_hard_train_file(trial_id).exists()
+            else self.paths.embedder_train_file(trial_id)
+        )
+        embedder_record = storage.read_train_record(embedder_path)
+        query_model_path = preferred_checkpoint_path(Path(query_record.best_weights), Path(query_record.last_weights))
+        scene_model_path = preferred_checkpoint_path(Path(scene_record.best_weights), Path(scene_record.last_weights))
+        embedder_model_path = preferred_checkpoint_path(Path(embedder_record.best_weights), Path(embedder_record.last_weights))
+        calibration_mode = "grid_search_v1"
+        sample_count = 0
+        best_metrics: dict[str, float | None] = {}
+        candidate_metrics: list[dict[str, object]] = []
+        if query_model_path.exists() and scene_model_path.exists() and embedder_model_path.exists():
+            try:
+                result = group1_pipeline.calibrate_matcher(
+                    dataset_config=dataset_config,
+                    query_model_path=query_model_path,
+                    proposal_model_path=scene_model_path,
+                    embedder_model_path=embedder_model_path,
+                    imgsz=_int_value(input_record.params, "imgsz", default=self.request.effective_imgsz),
+                    device=_string_value(input_record.params, "device", default=self.request.device) or self.request.device,
+                    point_tolerance_px=self.request.point_tolerance_px,
+                )
+                similarity_threshold = result.selected_similarity_threshold
+                ambiguity_margin = result.selected_ambiguity_margin
+                sample_count = result.sample_count
+                best_metrics = result.best_metrics
+                candidate_metrics = result.candidate_metrics
+            except RuntimeError as exc:
+                calibration_mode = "fallback_static_defaults_v1"
+                similarity_threshold = GROUP1_MATCHER_SIMILARITY_THRESHOLD
+                ambiguity_margin = GROUP1_MATCHER_AMBIGUITY_MARGIN
+                best_metrics = {}
+                candidate_metrics = [{"warning": f"matcher_calibration_fallback={exc}"}]
+        else:
+            calibration_mode = "fallback_static_defaults_v1"
+            similarity_threshold = GROUP1_MATCHER_SIMILARITY_THRESHOLD
+            ambiguity_margin = GROUP1_MATCHER_AMBIGUITY_MARGIN
+            candidate_metrics = [{"warning": "matcher_calibration_fallback=missing_component_checkpoints"}]
+        payload = {
+            "trial_id": trial_id,
+            "status": "ready",
+            "strategy": MATCHER_STRATEGY,
+            "similarity_threshold": similarity_threshold,
+            "ambiguity_margin": ambiguity_margin,
+            "query_detector_weights": {
+                "best": query_record.best_weights,
+                "last": query_record.last_weights,
+            },
+            "scene_detector_weights": {
+                "best": scene_record.best_weights,
+                "last": scene_record.last_weights,
+            },
+            "embedder_weights": {
+                "best": embedder_record.best_weights,
+                "last": embedder_record.last_weights,
+            },
+            "calibration_mode": calibration_mode,
+            "sample_count": sample_count,
+            "best_metrics": best_metrics,
+            "candidate_metrics": candidate_metrics,
+        }
+        storage.write_json_payload(self.paths.matcher_config_file(trial_id), payload)
+        return StageExecution(
+            trial_id=trial_id,
+            stage="CALIBRATE_MATCHER",
+            next_stage=state_machine.next_stage("CALIBRATE_MATCHER", task=self.request.task),
+            detail=str(self.paths.matcher_config_file(trial_id)),
+        )
+
+    def _stage_offline_eval(self, trial_id: str) -> StageExecution:
+        test_execution = self._stage_test(trial_id)
+        evaluate_execution = self._stage_evaluate(trial_id)
+        payload = {
+            "trial_id": trial_id,
+            "status": "ready",
+            "test_record": str(self.paths.test_file(trial_id)),
+            "evaluate_record": str(self.paths.evaluate_file(trial_id)),
+            "test_detail": test_execution.detail,
+            "evaluate_detail": evaluate_execution.detail,
+        }
+        storage.write_json_payload(self.paths.offline_eval_file(trial_id), payload)
+        return StageExecution(
+            trial_id=trial_id,
+            stage="OFFLINE_EVAL",
+            next_stage=state_machine.next_stage("OFFLINE_EVAL", task=self.request.task),
+            detail=str(self.paths.offline_eval_file(trial_id)),
+        )
+
+    def _stage_business_eval(self, trial_id: str) -> StageExecution:
+        study = self._load_or_create_study()
+        marker_path = self.paths.business_stage_file(trial_id)
+        if study.business_eval is None:
+            storage.write_json_payload(
+                marker_path,
+                {
+                    "trial_id": trial_id,
+                    "status": "skipped",
+                    "reason": "business_eval_disabled",
+                },
+            )
+            return StageExecution(
+                trial_id=trial_id,
+                stage="BUSINESS_EVAL",
+                next_stage=state_machine.next_stage("BUSINESS_EVAL", task=self.request.task),
+                detail=str(marker_path),
+            )
+
+        input_record = storage.read_trial_input_record(self.paths.input_file(trial_id))
+        config = study.business_eval
+        request = self._build_business_eval_request(
+            trial_id=trial_id,
+            dataset_version=input_record.dataset_version,
+            train_name=input_record.train_name,
+            config=config,
+        )
+        record = self._execute_business_eval_request(request=request)
+        self._write_business_eval_artifacts(trial_id=trial_id, record=record)
+        storage.write_json_payload(
+            marker_path,
+            {
+                "trial_id": trial_id,
+                "status": "ready",
+                "business_eval_file": str(self.paths.business_eval_file(trial_id)),
+                "commercial_ready": record.commercial_ready,
+                "success_rate": record.success_rate,
+            },
+        )
+        return StageExecution(
+            trial_id=trial_id,
+            stage="BUSINESS_EVAL",
+            next_stage=state_machine.next_stage("BUSINESS_EVAL", task=self.request.task),
+            detail=str(marker_path),
         )
 
     def _stage_train_group1_component(
@@ -409,22 +1052,159 @@ class AutoTrainController:
         component: str,
         record_path: Path,
         write_legacy_train: bool,
+        train_mode_override: str | None = None,
+        dataset_config_override: Path | None = None,
+        model_override: str | None = None,
+        imgsz_override: int | None = None,
     ) -> StageExecution:
         input_record = storage.read_trial_input_record(self.paths.input_file(trial_id))
+        requested_train_mode = input_record.train_mode
+        preflight_recovered_record = self._maybe_preflight_group1_embedder_resume_review(
+            trial_id=trial_id,
+            stage=stage,
+            component=component,
+            record_path=record_path,
+            input_record=input_record,
+            dataset_config_override=dataset_config_override,
+            model_override=model_override,
+        )
+        if preflight_recovered_record is not None:
+            storage.write_train_record(record_path, preflight_recovered_record)
+            if write_legacy_train:
+                storage.write_train_record(self.paths.train_file(trial_id), preflight_recovered_record)
+            self._write_console(
+                "stage_train_component "
+                f"trial={trial_id} "
+                f"stage={stage} "
+                f"component={component} "
+                "effective_train_mode=skip "
+                "reason=preflight_review_advanced_existing_component "
+                f"checkpoint={_checkpoint_text(_preferred_existing_checkpoint(_optional_path(preflight_recovered_record.best_weights), _optional_path(preflight_recovered_record.last_weights)))}"
+            )
+            return StageExecution(
+                trial_id=trial_id,
+                stage=stage,
+                next_stage=state_machine.next_stage(stage, task=self.request.task),
+                detail=f"recovered_existing_group1_component:{component}",
+            )
+        recovered_record = self._recover_existing_group1_component_record(
+            trial_id=trial_id,
+            stage=stage,
+            component=component,
+            record_path=record_path,
+            input_record=input_record,
+            dataset_config_override=dataset_config_override,
+            model_override=model_override,
+        )
+        if recovered_record is not None:
+            storage.write_train_record(record_path, recovered_record)
+            if write_legacy_train:
+                storage.write_train_record(self.paths.train_file(trial_id), recovered_record)
+            self._write_console(
+                "stage_train_component "
+                f"trial={trial_id} "
+                f"stage={stage} "
+                f"component={component} "
+                "effective_train_mode=skip "
+                "reason=recovered_existing_component "
+                f"checkpoint={_checkpoint_text(_preferred_existing_checkpoint(_optional_path(recovered_record.best_weights), _optional_path(recovered_record.last_weights)))}"
+            )
+            return StageExecution(
+                trial_id=trial_id,
+                stage=stage,
+                next_stage=state_machine.next_stage(stage, task=self.request.task),
+                detail=f"recovered_existing_group1_component:{component}",
+            )
+
+        effective_train_mode = train_mode_override or requested_train_mode
+        train_mode_reason = (
+            f"stage_override_{effective_train_mode}"
+            if train_mode_override is not None
+            else f"requested_{effective_train_mode}"
+        )
+        checkpoint_for_log: Path | None = _optional_path(model_override)
+        if stage == "TRAIN_SCENE":
+            effective_train_mode, train_mode_reason, checkpoint_for_log = self._resolve_group1_scene_train_mode(
+                input_record=input_record,
+                requested_train_mode=effective_train_mode,
+            )
+        elif stage == "TRAIN_EMBEDDER_BASE":
+            effective_train_mode, train_mode_reason, checkpoint_for_log = self._resolve_group1_embedder_base_train_mode(
+                input_record=input_record,
+                requested_train_mode=effective_train_mode,
+            )
+        elif effective_train_mode == "resume":
+            checkpoint_for_log = resolve_group1_component_last_weights(
+                self.request.train_root,
+                input_record.train_name,
+                component,
+            )
+        elif effective_train_mode == "from_run" and input_record.base_run is not None:
+            checkpoint_for_log = resolve_group1_component_best_weights(
+                self.request.train_root,
+                input_record.base_run,
+                component,
+            )
+
+        dataset_config_for_log = dataset_config_override or default_dataset_config(
+            self.request.train_root,
+            self.request.task,
+            input_record.dataset_version,
+        )
+        imgsz = imgsz_override or _int_value(input_record.params, "imgsz", default=self.request.effective_imgsz)
+        device = _string_value(input_record.params, "device", default=self.request.device) or self.request.device
+        self._write_console(
+            "stage_train_component "
+            f"trial={trial_id} "
+            f"stage={stage} "
+            f"component={component} "
+            f"requested_train_mode={requested_train_mode} "
+            f"effective_train_mode={effective_train_mode} "
+            f"reason={train_mode_reason} "
+            f"dataset_config={dataset_config_for_log} "
+            f"imgsz={imgsz} "
+            f"device={device} "
+            f"checkpoint={_checkpoint_text(checkpoint_for_log)}"
+        )
+
+        review_kwargs: dict[str, object] = {}
+        if component == EMBEDDER_COMPONENT and self.request.judge_provider == "opencode":
+            review_kwargs = {
+                "review_provider": self.request.judge_provider,
+                "review_model": self.request.judge_model,
+                "review_project_root": self.request.train_root,
+                "review_study_name": self.request.study_name,
+                "review_task": self.request.task,
+                "review_trial_id": trial_id,
+                "review_stage": stage,
+                "review_attach_url": self.request.opencode_attach_url,
+                "review_binary": self.request.opencode_binary,
+                "review_timeout_seconds": self.request.opencode_timeout_seconds,
+                "review_min_epochs": embedder_review_protocol.DEFAULT_EMBEDDER_REVIEW_MIN_EPOCHS,
+                "review_window": embedder_review_protocol.DEFAULT_EMBEDDER_REVIEW_WINDOW,
+                "review_rebuild_count": _int_value(
+                    input_record.params,
+                    GROUP1_EMBEDDER_HARDSET_REBUILD_COUNT_PARAM,
+                    default=0,
+                ),
+            }
+
         result = self.dependencies.train_runner(
             runners.train.TrainRunnerRequest(
                 task=self.request.task,
                 train_root=self.request.train_root,
                 dataset_version=input_record.dataset_version,
                 train_name=input_record.train_name,
-                train_mode=input_record.train_mode,
+                train_mode=effective_train_mode,
                 base_run=input_record.base_run,
-                model=_string_value(input_record.params, "model"),
+                model=model_override or _string_value(input_record.params, "model"),
                 epochs=_int_value(input_record.params, "epochs"),
                 batch=_int_value(input_record.params, "batch"),
-                imgsz=_int_value(input_record.params, "imgsz", default=self.request.effective_imgsz),
-                device=_string_value(input_record.params, "device", default=self.request.device) or self.request.device,
+                imgsz=imgsz,
+                device=device,
                 component=component,
+                dataset_config_override=dataset_config_override,
+                **review_kwargs,
             )
         )
         storage.write_train_record(record_path, result.record)
@@ -437,9 +1217,733 @@ class AutoTrainController:
             detail=result.command,
         )
 
+    def _recover_existing_group1_component_record(
+        self,
+        *,
+        trial_id: str,
+        stage: str,
+        component: str,
+        record_path: Path,
+        input_record: contracts.TrialInputRecord,
+        dataset_config_override: Path | None,
+        model_override: str | None,
+    ) -> contracts.TrainRecord | None:
+        if record_path.exists() or stage == "TRAIN_EMBEDDER_HARD":
+            return None
+        source_train_name = input_record.train_name
+        best_path = resolve_group1_component_best_weights(self.request.train_root, source_train_name, component)
+        last_path = resolve_group1_component_last_weights(self.request.train_root, source_train_name, component)
+        source_reason = "current_run"
+        if not self._group1_component_can_recover_from_run(source_train_name, component=component):
+            should_reuse_base_run = (
+                self._group1_component_action(input_record, component=component) == GROUP1_COMPONENT_PLAN_REUSE
+                and input_record.base_run is not None
+            )
+            if not should_reuse_base_run:
+                return None
+            source_train_name = input_record.base_run
+            best_path = resolve_group1_component_best_weights(self.request.train_root, source_train_name, component)
+            last_path = resolve_group1_component_last_weights(self.request.train_root, source_train_name, component)
+            if not self._group1_component_can_recover_from_run(source_train_name, component=component):
+                return None
+            source_reason = "base_run"
+
+        dataset_config_path = dataset_config_override or default_dataset_config(
+            self.request.train_root,
+            self.request.task,
+            input_record.dataset_version,
+        )
+        params: dict[str, contracts.JsonValue] = {
+            "dataset_version": input_record.dataset_version,
+            "dataset_config": str(dataset_config_path),
+            "train_mode": input_record.train_mode,
+            "model": model_override or _string_value(input_record.params, "model"),
+            "epochs": _int_value(input_record.params, "epochs"),
+            "batch": _int_value(input_record.params, "batch"),
+            "imgsz": _int_value(input_record.params, "imgsz", default=self.request.effective_imgsz),
+            "device": _string_value(input_record.params, "device", default=self.request.device) or self.request.device,
+            "component": component,
+            "recovered_existing_weights": True,
+            "recovery_source": source_reason,
+        }
+        resumed_from = source_train_name if source_train_name != input_record.train_name else (
+            input_record.base_run
+            if input_record.train_mode == "from_run"
+            else input_record.train_name
+            if input_record.train_mode == "resume"
+            else None
+        )
+        record = contracts.TrainRecord(
+            task=self.request.task,
+            train_name=input_record.train_name,
+            run_dir=str(default_run_dir(self.request.train_root, self.request.task, input_record.train_name)),
+            params=params,
+            best_weights=str(best_path),
+            last_weights=str(last_path),
+            resumed_from=resumed_from,
+        )
+        self._write_recovered_group1_component_summary(
+            trial_id=trial_id,
+            component=component,
+            record=record,
+            dataset_config_path=dataset_config_path,
+            model_path=preferred_checkpoint_path(best_path, last_path),
+            imgsz=int(params["imgsz"]),
+            device=str(params["device"]),
+            source_train_name=source_train_name,
+        )
+        return record
+
+    def _resolve_group1_embedder_base_train_mode(
+        self,
+        *,
+        input_record: contracts.TrialInputRecord,
+        requested_train_mode: str,
+    ) -> tuple[str, str, Path | None]:
+        last_path = resolve_group1_component_last_weights(
+            self.request.train_root,
+            input_record.train_name,
+            EMBEDDER_COMPONENT,
+        )
+        if last_path.exists() and not self._is_group1_embedder_component_complete(input_record.train_name):
+            return "resume", "resume_incomplete_current_run", last_path
+        if requested_train_mode == "resume":
+            return requested_train_mode, "requested_resume", last_path if last_path.exists() else None
+        if requested_train_mode == "from_run" and input_record.base_run is not None:
+            return (
+                requested_train_mode,
+                "requested_from_run",
+                resolve_group1_component_best_weights(
+                    self.request.train_root,
+                    input_record.base_run,
+                    EMBEDDER_COMPONENT,
+                ),
+            )
+        return requested_train_mode, f"requested_{requested_train_mode}", None
+
+    def _maybe_preflight_group1_embedder_resume_review(
+        self,
+        *,
+        trial_id: str,
+        stage: str,
+        component: str,
+        record_path: Path,
+        input_record: contracts.TrialInputRecord,
+        dataset_config_override: Path | None,
+        model_override: str | None,
+    ) -> contracts.TrainRecord | None:
+        if (
+            stage != "TRAIN_EMBEDDER_BASE"
+            or component != EMBEDDER_COMPONENT
+            or record_path.exists()
+            or self.request.judge_provider != "opencode"
+        ):
+            return None
+        effective_train_mode, train_mode_reason, checkpoint_path = self._resolve_group1_embedder_base_train_mode(
+            input_record=input_record,
+            requested_train_mode=input_record.train_mode,
+        )
+        if effective_train_mode != "resume" or train_mode_reason != "resume_incomplete_current_run" or checkpoint_path is None:
+            return None
+        summary_path = (
+            default_run_dir(self.request.train_root, self.request.task, input_record.train_name)
+            / EMBEDDER_COMPONENT
+            / "summary.json"
+        )
+        if not summary_path.exists():
+            return None
+        try:
+            payload = self._read_json_payload(summary_path)
+        except (OSError, RuntimeError, json.JSONDecodeError):
+            return None
+        if payload.get("component") != EMBEDDER_COMPONENT or payload.get("finalized") is True:
+            return None
+        history = payload.get("history")
+        if not isinstance(history, list) or not history:
+            return None
+        latest_epoch = _embedder_summary_epoch(history[-1])
+        if latest_epoch is None:
+            return None
+        review_settings = payload.get("review_settings")
+        review_min_epochs = (
+            _int_value(review_settings, "min_epochs", default=embedder_review_protocol.DEFAULT_EMBEDDER_REVIEW_MIN_EPOCHS)
+            if isinstance(review_settings, dict)
+            else embedder_review_protocol.DEFAULT_EMBEDDER_REVIEW_MIN_EPOCHS
+        )
+        review_window = (
+            _int_value(review_settings, "window", default=embedder_review_protocol.DEFAULT_EMBEDDER_REVIEW_WINDOW)
+            if isinstance(review_settings, dict)
+            else embedder_review_protocol.DEFAULT_EMBEDDER_REVIEW_WINDOW
+        )
+        if not embedder_review_protocol.should_run_embedder_review(
+            epoch=latest_epoch,
+            min_epochs=review_min_epochs,
+            window=review_window,
+        ):
+            return None
+        review_context = self._build_group1_embedder_preflight_review_context(
+            trial_id=trial_id,
+            input_record=input_record,
+            payload=payload,
+            latest_epoch=latest_epoch,
+            review_window=review_window,
+            review_history=[],
+        )
+        review_history = payload.get("review_history")
+        normalized_review_history = review_history if isinstance(review_history, list) else []
+        review_record_payload = _embedder_review_for_epoch(normalized_review_history, latest_epoch)
+        if review_record_payload is None:
+            review_record = self._run_group1_embedder_preflight_review(
+                trial_id=trial_id,
+                summary_path=summary_path,
+                context=self._build_group1_embedder_preflight_review_context(
+                    trial_id=trial_id,
+                    input_record=input_record,
+                    payload=payload,
+                    latest_epoch=latest_epoch,
+                    review_window=review_window,
+                    review_history=normalized_review_history,
+                ),
+            )
+            review_record_payload = review_record.to_dict()
+            normalized_review_history.append(review_record_payload)
+            payload["review"] = review_record_payload
+            payload["review_history"] = normalized_review_history
+            storage.write_json_payload(summary_path, payload)
+            self._write_console(
+                "embedder_preflight_review "
+                f"trial={trial_id} "
+                f"stage={stage} "
+                f"epoch={latest_epoch} "
+                f"decision={review_record.decision} "
+                f"reason={review_record.reason} "
+                "source=new_review"
+            )
+        else:
+            existing_record = _embedder_review_record_from_payload(
+                review_record_payload,
+                default_stage=stage,
+                default_epoch=latest_epoch,
+            )
+            normalized_record = embedder_review_protocol.apply_review_guardrails(
+                context=self._build_group1_embedder_preflight_review_context(
+                    trial_id=trial_id,
+                    input_record=input_record,
+                    payload=payload,
+                    latest_epoch=latest_epoch,
+                    review_window=review_window,
+                    review_history=normalized_review_history,
+                ),
+                record=existing_record,
+            )
+            review_record_payload = normalized_record.to_dict()
+            payload["review"] = review_record_payload
+            payload["review_history"] = _replace_embedder_review_for_epoch(
+                normalized_review_history,
+                latest_epoch,
+                review_record_payload,
+            )
+            normalized_review_history = payload["review_history"]
+            storage.write_json_payload(summary_path, payload)
+            self._write_console(
+                "embedder_preflight_review "
+                f"trial={trial_id} "
+                f"stage={stage} "
+                f"epoch={latest_epoch} "
+                f"decision={review_record_payload.get('decision')} "
+                f"reason={review_record_payload.get('reason')} "
+                "source=existing_review"
+            )
+        if review_record_payload.get("decision") != embedder_review_protocol.EMBEDDER_REVIEW_DECISION_STOP_AND_ADVANCE:
+            return None
+        payload["finalized"] = True
+        payload["training_stop"] = {
+            "reason": "preflight_review:STOP_AND_ADVANCE",
+            "stopped_epoch": latest_epoch,
+        }
+        payload["review"] = review_record_payload
+        payload["review_history"] = normalized_review_history
+        storage.write_json_payload(summary_path, payload)
+        return self._recover_existing_group1_component_record(
+            trial_id=trial_id,
+            stage=stage,
+            component=component,
+            record_path=record_path,
+            input_record=input_record,
+            dataset_config_override=dataset_config_override,
+            model_override=model_override,
+        )
+
+    def _run_group1_embedder_preflight_review(
+        self,
+        *,
+        trial_id: str,
+        summary_path: Path,
+        context: embedder_review_protocol.EmbedderReviewContext,
+    ) -> embedder_review_protocol.EmbedderReviewRecord:
+        runtime = self._opencode_runtime()
+        reviewer = embedder_review_protocol.build_opencode_embedder_reviewer(
+            runtime=runtime,
+            run_dir=summary_path.parent.parent,
+        )
+        return reviewer(context)
+
+    def _build_group1_embedder_preflight_review_context(
+        self,
+        *,
+        trial_id: str,
+        input_record: contracts.TrialInputRecord,
+        payload: dict[str, object],
+        latest_epoch: int,
+        review_window: int,
+        review_history: list[dict[str, object]],
+    ) -> embedder_review_protocol.EmbedderReviewContext:
+        metrics = payload.get("metrics")
+        if not isinstance(metrics, dict):
+            metrics = {}
+        history = payload.get("history")
+        if not isinstance(history, list):
+            history = []
+        rebuild_count = _int_value(
+            input_record.params,
+            GROUP1_EMBEDDER_HARDSET_REBUILD_COUNT_PARAM,
+            default=0,
+        )
+        best_epoch, best_score = _best_embedder_epoch_from_history(history)
+        return embedder_review_protocol.EmbedderReviewContext(
+            study_name=self.request.study_name,
+            task=self.request.task,
+            trial_id=trial_id,
+            train_name=input_record.train_name,
+            stage="TRAIN_EMBEDDER_BASE",
+            epoch=latest_epoch,
+            review_window=review_window,
+            rebuild_count=rebuild_count,
+            dataset_config=str(
+                payload.get("dataset_config")
+                or default_dataset_config(
+                    self.request.train_root,
+                    self.request.task,
+                    input_record.dataset_version,
+                )
+            ),
+            image_size=_summary_int(payload.get("image_size"), DEFAULT_ICON_EMBEDDER_IMGSZ),
+            batch_size=_int_value(input_record.params, "batch", default=32) or 32,
+            best_epoch=best_epoch,
+            best_embedding_recall_at_1=best_score,
+            current_metrics=_json_object(metrics),
+            recent_history=_recent_embedder_history(history, review_window),
+            review_history=[_json_object(item) for item in review_history if isinstance(item, dict)],
+        )
+
+    def _resolve_group1_scene_train_mode(
+        self,
+        *,
+        input_record: contracts.TrialInputRecord,
+        requested_train_mode: str,
+    ) -> tuple[str, str, Path | None]:
+        last_path = resolve_group1_component_last_weights(
+            self.request.train_root,
+            input_record.train_name,
+            PROPOSAL_COMPONENT,
+        )
+        if last_path.exists() and not self._is_group1_detector_component_complete(
+            input_record.train_name,
+            component=PROPOSAL_COMPONENT,
+        ):
+            return "resume", "resume_incomplete_current_run", last_path
+        if requested_train_mode == "resume":
+            return requested_train_mode, "requested_resume", last_path if last_path.exists() else None
+        if requested_train_mode == "from_run" and input_record.base_run is not None:
+            return (
+                requested_train_mode,
+                "requested_from_run",
+                resolve_group1_component_best_weights(
+                    self.request.train_root,
+                    input_record.base_run,
+                    PROPOSAL_COMPONENT,
+                ),
+            )
+        return requested_train_mode, f"requested_{requested_train_mode}", None
+
+    def _is_group1_embedder_component_complete(self, train_name: str) -> bool:
+        summary_path = default_run_dir(self.request.train_root, self.request.task, train_name) / EMBEDDER_COMPONENT / "summary.json"
+        if not summary_path.exists():
+            return False
+        try:
+            payload = json.loads(summary_path.read_text(encoding="utf-8"))
+        except (OSError, json.JSONDecodeError):
+            return False
+        if not isinstance(payload, dict):
+            return False
+        if payload.get("finalized") is False:
+            return False
+        return (
+            payload.get("component") == EMBEDDER_COMPONENT
+            and isinstance(payload.get("metrics"), dict)
+            and isinstance(payload.get("history"), list)
+        )
+
+    def _is_group1_detector_component_complete(self, train_name: str, *, component: str) -> bool:
+        summary_path = default_run_dir(self.request.train_root, self.request.task, train_name) / "summary.json"
+        if not summary_path.exists():
+            return False
+        try:
+            payload = json.loads(summary_path.read_text(encoding="utf-8"))
+        except (OSError, json.JSONDecodeError):
+            return False
+        if not isinstance(payload, dict):
+            return False
+        components = payload.get("components")
+        if not isinstance(components, dict):
+            return False
+        component_payload = components.get(component)
+        if not isinstance(component_payload, dict):
+            return False
+        gate = component_payload.get("gate")
+        metrics = component_payload.get("metrics")
+        return isinstance(gate, dict) and isinstance(metrics, dict)
+
+    def _group1_component_can_recover_from_run(self, train_name: str, *, component: str) -> bool:
+        best_path = resolve_group1_component_best_weights(self.request.train_root, train_name, component)
+        last_path = resolve_group1_component_last_weights(self.request.train_root, train_name, component)
+        if not best_path.exists() and not last_path.exists():
+            return False
+        if component == QUERY_COMPONENT:
+            return True
+        if component == PROPOSAL_COMPONENT:
+            return self._is_group1_detector_component_complete(train_name, component=component)
+        if component == EMBEDDER_COMPONENT:
+            return self._is_group1_embedder_component_complete(train_name)
+        return False
+
+    def _group1_component_action(
+        self,
+        input_record: contracts.TrialInputRecord,
+        *,
+        component: str,
+    ) -> str:
+        plan = input_record.params.get(GROUP1_COMPONENT_PLAN_PARAM)
+        if not isinstance(plan, dict):
+            return GROUP1_COMPONENT_PLAN_TRAIN
+        raw_action = plan.get(component)
+        if raw_action in {GROUP1_COMPONENT_PLAN_TRAIN, GROUP1_COMPONENT_PLAN_REUSE}:
+            return str(raw_action)
+        return GROUP1_COMPONENT_PLAN_TRAIN
+
+    def _increment_embedder_hardset_rebuild_count(self, trial_id: str) -> int:
+        input_path = self.paths.input_file(trial_id)
+        input_record = storage.read_trial_input_record(input_path)
+        current_count = _int_value(
+            input_record.params,
+            GROUP1_EMBEDDER_HARDSET_REBUILD_COUNT_PARAM,
+            default=0,
+        )
+        next_count = current_count + 1
+        updated_params = dict(input_record.params)
+        updated_params[GROUP1_EMBEDDER_HARDSET_REBUILD_COUNT_PARAM] = next_count
+        storage.write_trial_input_record(
+            input_path,
+            contracts.TrialInputRecord(
+                trial_id=input_record.trial_id,
+                task=input_record.task,
+                dataset_version=input_record.dataset_version,
+                train_name=input_record.train_name,
+                train_mode=input_record.train_mode,
+                base_run=input_record.base_run,
+                params=updated_params,
+                dataset_preset=input_record.dataset_preset,
+                dataset_override=input_record.dataset_override,
+            ),
+        )
+        return next_count
+
+    def _group1_component_plan_for_next_trial(
+        self,
+        *,
+        trial_id: str,
+        regenerate_all: bool,
+    ) -> dict[str, str]:
+        if regenerate_all:
+            return {
+                QUERY_COMPONENT: GROUP1_COMPONENT_PLAN_TRAIN,
+                PROPOSAL_COMPONENT: GROUP1_COMPONENT_PLAN_TRAIN,
+                EMBEDDER_COMPONENT: GROUP1_COMPONENT_PLAN_TRAIN,
+            }
+        return {
+            QUERY_COMPONENT: self._group1_gate_status_for_retry(self.paths.query_gate_file(trial_id)),
+            PROPOSAL_COMPONENT: self._group1_gate_status_for_retry(self.paths.scene_gate_file(trial_id)),
+            EMBEDDER_COMPONENT: self._group1_gate_status_for_retry(self.paths.embedder_gate_file(trial_id)),
+        }
+
+    def _group1_gate_status_for_retry(self, path: Path) -> str:
+        try:
+            payload = self._read_json_payload(path)
+        except (OSError, RuntimeError, json.JSONDecodeError):
+            return GROUP1_COMPONENT_PLAN_TRAIN
+        status = payload.get("status")
+        if isinstance(status, str) and status.strip() == "passed":
+            return GROUP1_COMPONENT_PLAN_REUSE
+        return GROUP1_COMPONENT_PLAN_TRAIN
+
+    def _load_group1_embedder_summary(
+        self,
+        *,
+        train_name: str,
+        default_weights: dict[str, object],
+    ) -> dict[str, object]:
+        summary_path = default_run_dir(self.request.train_root, self.request.task, train_name) / EMBEDDER_COMPONENT / "summary.json"
+        if not summary_path.exists():
+            return {
+                "component": EMBEDDER_COMPONENT,
+                "weights": default_weights,
+                "metrics": {},
+                "history": [],
+            }
+        try:
+            payload = self._read_json_payload(summary_path)
+        except (OSError, RuntimeError, json.JSONDecodeError):
+            return {
+                "component": EMBEDDER_COMPONENT,
+                "weights": default_weights,
+                "metrics": {},
+                "history": [],
+            }
+        if "weights" not in payload:
+            payload["weights"] = default_weights
+        return payload
+
+    def _load_group1_embedder_metrics(self, train_record: contracts.TrainRecord) -> dict[str, object]:
+        summary = self._load_group1_embedder_summary(
+            train_name=train_record.resumed_from or train_record.train_name,
+            default_weights={
+                "best": train_record.best_weights,
+                "last": train_record.last_weights,
+            },
+        )
+        metrics = summary.get("metrics")
+        return metrics if isinstance(metrics, dict) else {}
+
+    def _build_group1_embedder_gate(self, metrics: dict[str, object]) -> dict[str, object]:
+        scene_recall_at_1_raw = metrics.get("embedding_scene_recall_at_1")
+        scene_recall_at_3_raw = metrics.get("embedding_scene_recall_at_3")
+        has_scene_metrics = all(
+            isinstance(value, (int, float))
+            for value in (scene_recall_at_1_raw, scene_recall_at_3_raw)
+        )
+        if has_scene_metrics:
+            recall_at_1 = _float_like(scene_recall_at_1_raw, 0.0)
+            recall_at_3 = _float_like(scene_recall_at_3_raw, 0.0)
+            recall_at_1_field = "embedding_scene_recall_at_1"
+            recall_at_3_field = "embedding_scene_recall_at_3"
+            recall_at_1_threshold = GROUP1_EMBEDDER_GATE_SCENE_RECALL_AT_1_MIN
+            recall_at_3_threshold = GROUP1_EMBEDDER_GATE_SCENE_RECALL_AT_3_MIN
+        else:
+            recall_at_1 = _float_like(metrics.get("embedding_recall_at_1"), 0.0)
+            recall_at_3 = _float_like(metrics.get("embedding_recall_at_3"), 0.0)
+            recall_at_1_field = "embedding_recall_at_1"
+            recall_at_3_field = "embedding_recall_at_3"
+            recall_at_1_threshold = GROUP1_EMBEDDER_GATE_RECALL_AT_1_MIN
+            recall_at_3_threshold = GROUP1_EMBEDDER_GATE_RECALL_AT_3_MIN
+        failed_checks: list[str] = []
+        if recall_at_1 < recall_at_1_threshold:
+            failed_checks.append(recall_at_1_field)
+        if recall_at_3 < recall_at_3_threshold:
+            failed_checks.append(recall_at_3_field)
+        return {
+            "status": "passed" if not failed_checks else "failed",
+            "failed_checks": failed_checks,
+            "thresholds": {
+                f"{recall_at_1_field}_min": recall_at_1_threshold,
+                f"{recall_at_3_field}_min": recall_at_3_threshold,
+            },
+            "observed": {
+                recall_at_1_field: recall_at_1,
+                recall_at_3_field: recall_at_3,
+                "embedding_recall_at_1": _float_like(metrics.get("embedding_recall_at_1"), 0.0),
+                "embedding_recall_at_3": _float_like(metrics.get("embedding_recall_at_3"), 0.0),
+                "embedding_scene_recall_at_1": _float_like(scene_recall_at_1_raw, 0.0) if has_scene_metrics else None,
+                "embedding_scene_recall_at_3": _float_like(scene_recall_at_3_raw, 0.0) if has_scene_metrics else None,
+            },
+        }
+
+    def _write_recovered_group1_component_summary(
+        self,
+        *,
+        trial_id: str,
+        component: str,
+        record: contracts.TrainRecord,
+        dataset_config_path: Path,
+        model_path: Path,
+        imgsz: int,
+        device: str,
+        source_train_name: str,
+    ) -> None:
+        run_dir = Path(record.run_dir)
+        summary_path = run_dir / "summary.json"
+        if summary_path.exists():
+            try:
+                payload = self._read_json_payload(summary_path)
+            except (OSError, json.JSONDecodeError, RuntimeError):
+                payload = {}
+        else:
+            payload = {}
+        components = payload.get("components")
+        if not isinstance(components, dict):
+            components = {}
+        payload.update(
+            {
+                "task": "group1",
+                "dataset_config": str(dataset_config_path),
+                "run_dir": str(run_dir),
+                "requested_component": component,
+                "components": components,
+            }
+        )
+        component_summary: dict[str, object] = {
+            "role": _group1_component_role(component),
+            "weights": {
+                "best": record.best_weights,
+                "last": record.last_weights,
+            },
+            "recovered_existing_weights": True,
+        }
+        if component in {QUERY_COMPONENT, PROPOSAL_COMPONENT}:
+            evaluator = (
+                self.dependencies.query_detector_evaluator
+                if component == QUERY_COMPONENT
+                else self.dependencies.proposal_detector_evaluator
+            )
+            metrics, gate, failcases = evaluator(
+                dataset_config_path=dataset_config_path,
+                model_path=model_path,
+                imgsz=imgsz,
+                device=device,
+            )
+            failcases_path = run_dir / component / "failcases.jsonl"
+            write_jsonl(failcases_path, failcases)
+            component_summary.update(
+                {
+                    "metrics": metrics,
+                    "gate": gate,
+                    "failcases": str(failcases_path),
+                }
+            )
+        elif component == EMBEDDER_COMPONENT:
+            embedder_summary = self._load_group1_embedder_summary(
+                train_name=source_train_name,
+                default_weights={
+                    "best": record.best_weights,
+                    "last": record.last_weights,
+                },
+            )
+            component_summary.update(
+                {
+                    "metrics": embedder_summary.get("metrics", {}),
+                    "summary": str(
+                        default_run_dir(self.request.train_root, self.request.task, source_train_name)
+                        / EMBEDDER_COMPONENT
+                        / "summary.json"
+                    ),
+                    "review": embedder_summary.get("review"),
+                }
+            )
+        components[component] = component_summary
+        storage.write_json_payload(summary_path, payload)
+
+    def _patch_group1_component_summary(
+        self,
+        *,
+        train_record: contracts.TrainRecord,
+        component: str,
+        component_summary: dict[str, object],
+        dataset_config_path: Path,
+    ) -> None:
+        run_dir = Path(train_record.run_dir)
+        summary_path = run_dir / "summary.json"
+        if summary_path.exists():
+            try:
+                payload = self._read_json_payload(summary_path)
+            except (OSError, json.JSONDecodeError, RuntimeError):
+                payload = {}
+        else:
+            payload = {}
+        components = payload.get("components")
+        if not isinstance(components, dict):
+            components = {}
+        components[component] = component_summary
+        payload.update(
+            {
+                "task": "group1",
+                "dataset_config": str(dataset_config_path),
+                "run_dir": str(run_dir),
+                "components": components,
+            }
+        )
+        storage.write_json_payload(summary_path, payload)
+
+    def _resolve_group1_component_runtime_context(
+        self,
+        *,
+        trial_id: str,
+        train_record: contracts.TrainRecord,
+    ) -> tuple[Path, int, str]:
+        input_record = storage.read_trial_input_record(self.paths.input_file(trial_id))
+        fallback_dataset_config = default_dataset_config(
+            self.request.train_root,
+            self.request.task,
+            input_record.dataset_version,
+        )
+        dataset_config_path = Path(
+            _string_value(train_record.params, "dataset_config", default=str(fallback_dataset_config))
+            or str(fallback_dataset_config)
+        )
+        fallback_imgsz = _int_value(input_record.params, "imgsz", default=self.request.effective_imgsz)
+        fallback_device = _string_value(input_record.params, "device", default=self.request.device) or self.request.device
+        imgsz = _int_value(train_record.params, "imgsz", default=fallback_imgsz) or fallback_imgsz or self.request.effective_imgsz
+        device = _string_value(train_record.params, "device", default=fallback_device) or fallback_device
+        return dataset_config_path, imgsz, device
+
+    def _build_group1_gate_payload(
+        self,
+        *,
+        trial_id: str,
+        component: str,
+        train_record: contracts.TrainRecord,
+        dataset_config_path: Path,
+        imgsz: int,
+        device: str,
+        best_path: Path | None,
+        last_path: Path | None,
+        component_summary: dict[str, object],
+        gate: object,
+        gate_status: str,
+    ) -> dict[str, object]:
+        return {
+            "trial_id": trial_id,
+            "component": component,
+            "gate_version": GROUP1_GATE_ARTIFACT_VERSION,
+            "status": gate_status,
+            "dataset_config": str(dataset_config_path),
+            "weights": {
+                "best": train_record.best_weights if best_path is None else str(best_path),
+                "last": train_record.last_weights if last_path is None else str(last_path),
+            },
+            "imgsz": imgsz,
+            "device": device,
+            "metrics": component_summary.get("metrics", {}),
+            "gate": gate if isinstance(gate, dict) else {},
+            "checks": {
+                "best_exists": bool(best_path and best_path.exists()),
+                "last_exists": bool(last_path and last_path.exists()),
+            },
+            "summary_path": str(Path(train_record.run_dir) / "summary.json"),
+        }
+
     def _stage_test(self, trial_id: str) -> StageExecution:
         input_record = storage.read_trial_input_record(self.paths.input_file(trial_id))
         model_path = self._resolve_test_model_path(trial_id)
+        matcher_settings = self._load_group1_matcher_settings(trial_id)
         result = self.dependencies.test_runner(
             runners.test.TestRunnerRequest(
                 task=self.request.task,
@@ -449,13 +1953,16 @@ class AutoTrainController:
                 model_path=model_path,
                 imgsz=_int_value(input_record.params, "imgsz", default=self.request.effective_imgsz),
                 device=_string_value(input_record.params, "device", default=self.request.device) or self.request.device,
+                similarity_threshold=matcher_settings["similarity_threshold"],
+                ambiguity_margin=matcher_settings["ambiguity_margin"],
             )
         )
         storage.write_test_record(self.paths.test_file(trial_id), result.record)
+        next_stage = "EVALUATE" if self.request.task == "group1" else state_machine.next_stage("TEST", task=self.request.task)
         return StageExecution(
             trial_id=trial_id,
             stage="TEST",
-            next_stage=state_machine.next_stage("TEST", task=self.request.task),
+            next_stage=next_stage,
             detail=result.predict_command,
         )
 
@@ -479,10 +1986,11 @@ class AutoTrainController:
                 ),
             )
             detail = "evaluation_skipped"
+        next_stage = "SUMMARIZE" if self.request.task == "group1" else state_machine.next_stage("EVALUATE", task=self.request.task)
         return StageExecution(
             trial_id=trial_id,
             stage="EVALUATE",
-            next_stage=state_machine.next_stage("EVALUATE", task=self.request.task),
+            next_stage=next_stage,
             detail=detail,
         )
 
@@ -540,7 +2048,7 @@ class AutoTrainController:
         decision = storage.read_decision_record(self.paths.decision_file(trial_id))
         study = self._load_or_create_study()
 
-        business_record = self._run_business_eval_if_needed(
+        business_record = self._load_or_run_business_eval_if_needed(
             trial_id=trial_id,
             summary_record=summary_record,
             decision=decision,
@@ -761,7 +2269,20 @@ class AutoTrainController:
         if study.status == "running" and study.final_reason == "business_eval_rerun_pending":
             return "NEXT_ACTION"
         stage = state_machine.infer_resume_stage(trial_dir, task=self.request.task, stop_file=self.paths.stop_file)
-        if stage in {"TRAIN", "TRAIN_QUERY", "QUERY_GATE", "TRAIN_SCENE", "SCENE_GATE", "TRAIN_EMBEDDER_BASE", "TEST"}:
+        if stage in {
+            "TRAIN",
+            "TRAIN_QUERY",
+            "QUERY_GATE",
+            "TRAIN_SCENE",
+            "SCENE_GATE",
+            "TRAIN_EMBEDDER_BASE",
+            "EMBEDDER_GATE",
+            "BUILD_EMBEDDER_HARDSET",
+            "TRAIN_EMBEDDER_HARD",
+            "CALIBRATE_MATCHER",
+            "OFFLINE_EVAL",
+            "TEST",
+        }:
             input_path = self.paths.input_file(trial_id)
             if input_path.exists():
                 trial_input = storage.read_trial_input_record(input_path)
@@ -827,6 +2348,7 @@ class AutoTrainController:
         next_params = dict(previous_input.params)
         for internal_key in optuna_runtime.INTERNAL_PARAM_KEYS:
             next_params.pop(internal_key, None)
+        next_params.pop(GROUP1_EMBEDDER_HARDSET_REBUILD_COUNT_PARAM, None)
         if decision.decision == "RETUNE":
             plan = optimize.build_optimization_plan(
                 summary=summary_record,
@@ -864,6 +2386,14 @@ class AutoTrainController:
             train_name = next_trial_id
             base_run = _string_action(decision.next_action, "base_run", previous_input.train_name)
             next_params.pop("model", None)
+
+        if self.request.task == "group1":
+            regenerate_all_components = dataset_action == "new_version"
+            component_plan = self._group1_component_plan_for_next_trial(
+                trial_id=summary_record.trial_id,
+                regenerate_all=regenerate_all_components,
+            )
+            next_params[GROUP1_COMPONENT_PLAN_PARAM] = component_plan
 
         return contracts.TrialInputRecord(
             trial_id=next_trial_id,
@@ -964,39 +2494,87 @@ class AutoTrainController:
             Path(train_record.last_weights),
         )
 
+    def _load_group1_matcher_settings(self, trial_id: str) -> dict[str, float | None]:
+        if self.request.task != "group1":
+            return {
+                "similarity_threshold": None,
+                "ambiguity_margin": None,
+            }
+        path = self.paths.matcher_config_file(trial_id)
+        if not path.exists():
+            return {
+                "similarity_threshold": GROUP1_MATCHER_SIMILARITY_THRESHOLD,
+                "ambiguity_margin": GROUP1_MATCHER_AMBIGUITY_MARGIN,
+            }
+        payload = self._read_json_payload(path)
+        return {
+            "similarity_threshold": _float_like(payload.get("similarity_threshold"), GROUP1_MATCHER_SIMILARITY_THRESHOLD),
+            "ambiguity_margin": _float_like(payload.get("ambiguity_margin"), GROUP1_MATCHER_AMBIGUITY_MARGIN),
+        }
+
+    def _read_json_payload(self, path: Path) -> dict[str, object]:
+        payload = json.loads(path.read_text(encoding="utf-8"))
+        if not isinstance(payload, dict):
+            raise RuntimeError(f"JSON 工件格式非法：{path}")
+        return payload
+
     def _read_group1_component_summary(self, train_record: contracts.TrainRecord, component: str) -> dict[str, object]:
         summary_path = Path(train_record.run_dir) / "summary.json"
         if not summary_path.exists():
-            raise runners.RunnerExecutionError(
-                stage="TRAIN",
-                reason="missing_artifact",
-                message=f"group1 组件训练缺少 summary.json：{summary_path}",
-                retryable=False,
-            )
+            return {
+                "weights": {
+                    "best": train_record.best_weights,
+                    "last": train_record.last_weights,
+                },
+                "metrics": {},
+                "gate": {
+                    "status": "missing",
+                    "failed_checks": ["summary_missing"],
+                },
+                "summary_path": str(summary_path),
+            }
         payload = json.loads(summary_path.read_text(encoding="utf-8"))
         if not isinstance(payload, dict):
-            raise runners.RunnerExecutionError(
-                stage="TRAIN",
-                reason="invalid_output",
-                message=f"group1 组件训练 summary.json 格式非法：{summary_path}",
-                retryable=False,
-            )
+            return {
+                "weights": {
+                    "best": train_record.best_weights,
+                    "last": train_record.last_weights,
+                },
+                "metrics": {},
+                "gate": {
+                    "status": "missing",
+                    "failed_checks": ["summary_invalid"],
+                },
+                "summary_path": str(summary_path),
+            }
         components = payload.get("components")
         if not isinstance(components, dict):
-            raise runners.RunnerExecutionError(
-                stage="TRAIN",
-                reason="invalid_output",
-                message=f"group1 组件训练 summary.json 缺少 components：{summary_path}",
-                retryable=False,
-            )
+            return {
+                "weights": {
+                    "best": train_record.best_weights,
+                    "last": train_record.last_weights,
+                },
+                "metrics": {},
+                "gate": {
+                    "status": "missing",
+                    "failed_checks": ["components_missing"],
+                },
+                "summary_path": str(summary_path),
+            }
         component_summary = components.get(component)
         if not isinstance(component_summary, dict):
-            raise runners.RunnerExecutionError(
-                stage="TRAIN",
-                reason="invalid_output",
-                message=f"group1 组件训练 summary.json 缺少 {component}：{summary_path}",
-                retryable=False,
-            )
+            return {
+                "weights": {
+                    "best": train_record.best_weights,
+                    "last": train_record.last_weights,
+                },
+                "metrics": {},
+                "gate": {
+                    "status": "missing",
+                    "failed_checks": [f"{component}_missing"],
+                },
+                "summary_path": str(summary_path),
+            }
         return component_summary
 
     def _promote_current_trial_last_weights_if_selected(
@@ -1263,6 +2841,32 @@ class AutoTrainController:
         business_record: contracts.BusinessEvalRecord | None,
         leaderboard: contracts.LeaderboardRecord,
     ) -> contracts.DecisionRecord:
+        if self.request.task == "group1":
+            if business_record is not None and not business_record.commercial_ready:
+                return self._regenerate_decision_for_business_goal(
+                    summary_record=summary_record,
+                    decision=decision,
+                    business_record=business_record,
+                    leaderboard=leaderboard,
+                )
+            if decision.decision == "REGENERATE_DATA":
+                return contracts.DecisionRecord(
+                    trial_id=decision.trial_id,
+                    decision="RETUNE",
+                    confidence=decision.confidence,
+                    reason="group1_regenerate_deferred_until_business_gate",
+                    next_action={
+                        "dataset_action": "reuse",
+                        "train_action": "from_run",
+                        "base_run": summary_record.train_name,
+                    },
+                    evidence=[
+                        *decision.evidence,
+                        f"offline_regenerate_deferred={summary_record.train_name}",
+                    ],
+                    agent=decision.agent,
+                )
+            return decision
         if (
             self._business_eval_enabled(study)
             and not (business_record is not None and business_record.commercial_ready)
@@ -1293,12 +2897,55 @@ class AutoTrainController:
         if config is None or decision.decision != "PROMOTE_BRANCH":
             return None
 
-        request = runners.business_eval.BusinessEvalRunnerRequest(
+        request = self._build_business_eval_request(
+            trial_id=trial_id,
+            dataset_version=summary_record.dataset_version,
+            train_name=summary_record.train_name,
+            config=config,
+        )
+        return self._execute_business_eval_request(request=request)
+
+    def _load_or_run_business_eval_if_needed(
+        self,
+        *,
+        trial_id: str,
+        summary_record: contracts.ResultSummaryRecord,
+        decision: contracts.DecisionRecord,
+        study: contracts.StudyRecord,
+    ) -> contracts.BusinessEvalRecord | None:
+        existing = self._safe_read_business_eval_record(trial_id)
+        if existing is not None:
+            return existing
+        marker_path = self.paths.business_stage_file(trial_id)
+        if marker_path.exists():
+            try:
+                payload = json.loads(marker_path.read_text(encoding="utf-8"))
+            except (OSError, json.JSONDecodeError):
+                payload = None
+            if isinstance(payload, dict) and payload.get("status") == "skipped":
+                return None
+        return self._run_business_eval_if_needed(
+            trial_id=trial_id,
+            summary_record=summary_record,
+            decision=decision,
+            study=study,
+        )
+
+    def _build_business_eval_request(
+        self,
+        *,
+        trial_id: str,
+        dataset_version: str,
+        train_name: str,
+        config: contracts.BusinessEvalConfig,
+    ) -> runners.business_eval.BusinessEvalRunnerRequest:
+        matcher_settings = self._load_group1_matcher_settings(trial_id)
+        return runners.business_eval.BusinessEvalRunnerRequest(
             trial_id=trial_id,
             task=self.request.task,
             train_root=self.request.train_root,
-            dataset_version=summary_record.dataset_version,
-            train_name=summary_record.train_name,
+            dataset_version=dataset_version,
+            train_name=train_name,
             cases_root=Path(config.cases_root),
             report_dir=self.paths.business_eval_root(trial_id),
             device=self.request.device,
@@ -1308,29 +2955,37 @@ class AutoTrainController:
             sample_size=config.sample_size,
             point_tolerance_px=config.point_tolerance_px,
             iou_threshold=config.iou_threshold,
+            similarity_threshold=matcher_settings["similarity_threshold"],
+            ambiguity_margin=matcher_settings["ambiguity_margin"],
         )
+
+    def _execute_business_eval_request(
+        self,
+        *,
+        request: runners.business_eval.BusinessEvalRunnerRequest,
+    ) -> contracts.BusinessEvalRecord:
         try:
             result = self.dependencies.business_eval_runner(request)
         except runners.RunnerExecutionError as exc:
             return contracts.BusinessEvalRecord(
-                trial_id=trial_id,
-                task=self.request.task,
-                train_name=summary_record.train_name,
-                cases_root=config.cases_root,
+                trial_id=request.trial_id,
+                task=request.task,
+                train_name=request.train_name,
+                cases_root=str(request.cases_root),
                 available_cases=0,
                 total_cases=0,
                 passed_cases=0,
                 success_rate=0.0,
-                success_threshold=config.success_threshold,
-                min_cases=config.min_cases,
-                sample_size=config.sample_size,
+                success_threshold=request.success_threshold,
+                min_cases=request.min_cases,
+                sample_size=request.sample_size,
                 commercial_ready=False,
-                point_tolerance_px=config.point_tolerance_px,
-                iou_threshold=config.iou_threshold,
-                sampled_source=str(self.paths.business_eval_root(trial_id) / "_sampled_source" / "labels.jsonl"),
-                report_dir=str(self.paths.business_eval_root(trial_id)),
-                prediction_dir=str(self.paths.business_eval_root(trial_id) / "modeltest"),
-                evaluation_report_dir=str(self.paths.business_eval_root(trial_id) / "evaluation"),
+                point_tolerance_px=request.point_tolerance_px,
+                iou_threshold=request.iou_threshold,
+                sampled_source=str(request.report_dir / "_sampled_source" / "labels.jsonl"),
+                report_dir=str(request.report_dir),
+                prediction_dir=str(request.report_dir / "modeltest"),
+                evaluation_report_dir=str(request.report_dir / "evaluation"),
                 case_results=[],
                 evidence=[f"runner_error={exc.reason}", str(exc)],
             )
@@ -1595,7 +3250,16 @@ class AutoTrainController:
             )
             runtime = self._opencode_runtime()
             files = [self.paths.study_file, self.paths.result_summary_file(trial_id)]
-            files.extend(path for path in (self.paths.leaderboard_file, self.paths.decisions_file) if path.exists())
+            files.extend(
+                path
+                for path in (
+                    self.paths.leaderboard_file,
+                    self.paths.decisions_file,
+                    self.paths.offline_eval_file(trial_id),
+                    self.paths.business_eval_file(trial_id),
+                )
+                if path.exists()
+            )
             try:
                 result = runtime.judge_trial(
                     study_name=self.request.study_name,
@@ -1636,6 +3300,7 @@ class AutoTrainController:
     def _opencode_runtime(self) -> opencode_runtime.OpenCodeRuntimeAdapter:
         if self.dependencies.opencode_runtime is not None:
             return self.dependencies.opencode_runtime
+        opencode_assets.copy_opencode_assets(self.request.train_root)
         return opencode_runtime.OpenCodeRuntimeAdapter(
             config=opencode_runtime.OpenCodeRuntimeConfig(
                 project_root=self.request.train_root,
@@ -2009,6 +3674,32 @@ def _string_value(payload: dict[str, contracts.JsonValue], key: str, default: st
     return value if isinstance(value, str) else default
 
 
+def _optional_path(value: object) -> Path | None:
+    if isinstance(value, str) and value.strip():
+        return Path(value)
+    return None
+
+
+def _preferred_existing_checkpoint(best_path: Path | None, last_path: Path | None) -> Path | None:
+    if best_path is not None and best_path.exists():
+        return best_path
+    if last_path is not None and last_path.exists():
+        return last_path
+    return None
+
+
+def _checkpoint_text(path: Path | None) -> str:
+    return str(path) if path is not None else "none"
+
+
+def _gate_status(gate: object) -> str:
+    if isinstance(gate, dict):
+        raw_status = gate.get("status")
+        if isinstance(raw_status, str) and raw_status.strip():
+            return raw_status.strip()
+    return "missing"
+
+
 def _string_action(payload: dict[str, contracts.JsonValue], key: str, default: str) -> str:
     value = payload.get(key)
     if isinstance(value, str) and value.strip():
@@ -2027,13 +3718,142 @@ def _int_value(payload: dict[str, contracts.JsonValue], key: str, default: int |
     return default
 
 
+def _float_like(value: object, default: float) -> float:
+    if isinstance(value, bool):
+        return default
+    if isinstance(value, (int, float)):
+        return float(value)
+    return default
+
+
+def _string_like(value: object) -> str | None:
+    if isinstance(value, str) and value.strip():
+        return value
+    return None
+
+
+def _summary_int(value: object, default: int) -> int:
+    if isinstance(value, bool):
+        return default
+    if isinstance(value, int):
+        return value
+    if isinstance(value, float):
+        return int(value)
+    return default
+
+
+def _embedder_summary_epoch(value: object) -> int | None:
+    if not isinstance(value, dict):
+        return None
+    epoch = value.get("epoch")
+    if isinstance(epoch, bool):
+        return None
+    if isinstance(epoch, int):
+        return epoch
+    if isinstance(epoch, float):
+        return int(epoch)
+    return None
+
+
+def _embedder_review_for_epoch(review_history: list[object], epoch: int) -> dict[str, object] | None:
+    for item in reversed(review_history):
+        if not isinstance(item, dict):
+            continue
+        if _embedder_summary_epoch(item) == epoch:
+            return item
+    return None
+
+
+def _replace_embedder_review_for_epoch(
+    review_history: list[object],
+    epoch: int,
+    replacement: dict[str, object],
+) -> list[dict[str, object]]:
+    updated: list[dict[str, object]] = []
+    replaced = False
+    for item in review_history:
+        if not isinstance(item, dict):
+            continue
+        if _embedder_summary_epoch(item) == epoch:
+            updated.append(replacement)
+            replaced = True
+        else:
+            updated.append(item)
+    if not replaced:
+        updated.append(replacement)
+    return updated
+
+
+def _embedder_review_record_from_payload(
+    payload: dict[str, object],
+    *,
+    default_stage: str,
+    default_epoch: int,
+) -> embedder_review_protocol.EmbedderReviewRecord:
+    agent_payload = payload.get("agent")
+    if isinstance(agent_payload, dict):
+        agent = contracts.AgentRef.from_dict(_json_object(agent_payload))
+    else:
+        agent = contracts.AgentRef(provider="opencode", name="review-embedder", model=None)
+    next_action = payload.get("next_action")
+    evidence = payload.get("evidence")
+    return embedder_review_protocol.EmbedderReviewRecord(
+        stage=str(payload.get("stage") or default_stage),
+        epoch=_summary_int(payload.get("epoch"), default_epoch),
+        decision=str(payload.get("decision") or embedder_review_protocol.EMBEDDER_REVIEW_DECISION_CONTINUE),
+        confidence=_float_like(payload.get("confidence"), 0.0),
+        reason=str(payload.get("reason") or "existing_review"),
+        next_action=_json_object(next_action) if isinstance(next_action, dict) else {},
+        evidence=[str(item) for item in evidence] if isinstance(evidence, list) else [],
+        agent=agent,
+        used_fallback=bool(payload.get("used_fallback", False)),
+        fallback_reason=_string_like(payload.get("fallback_reason")),
+    )
+
+
+def _json_object(payload: dict[str, object]) -> dict[str, contracts.JsonValue]:
+    return {str(key): value for key, value in payload.items()}
+
+
+def _recent_embedder_history(history: list[object], window: int) -> list[dict[str, contracts.JsonValue]]:
+    recent: list[dict[str, contracts.JsonValue]] = []
+    for item in history[-max(1, window) :]:
+        if isinstance(item, dict):
+            recent.append(_json_object(item))
+    return recent
+
+
+def _best_embedder_epoch_from_history(history: list[object]) -> tuple[int | None, float | None]:
+    best_epoch: int | None = None
+    best_score: float | None = None
+    for item in history:
+        if not isinstance(item, dict):
+            continue
+        epoch = _embedder_summary_epoch(item)
+        if epoch is None:
+            continue
+        score = _float_like(item.get("embedding_recall_at_1"), default=-1.0)
+        if best_score is None or score > best_score:
+            best_epoch = epoch
+            best_score = score
+    return best_epoch, best_score
+
+
 def _infer_dataset_preset(dataset_version: str) -> str:
     version = dataset_version.strip()
     if "_r" in version:
         version = version.split("_r", 1)[0]
-    if version in {"smoke", "firstpass", "hard"}:
+    if version in {"smoke", "firstpass", "v1", "hard"}:
         return version
     return "firstpass"
+
+
+def _group1_component_role(component: str) -> str:
+    return {
+        QUERY_COMPONENT: "query_detector",
+        PROPOSAL_COMPONENT: "proposal_detector",
+        EMBEDDER_COMPONENT: "icon_embedder",
+    }.get(component, component)
 
 
 def _summary_metric(summary_record: contracts.ResultSummaryRecord, key: str) -> float | None:
@@ -2062,6 +3882,7 @@ def _difficulty_score_for_trial(*, dataset_version: str, dataset_preset: str | N
     preset_weight = {
         "smoke": 0.85,
         "firstpass": 1.0,
+        "v1": 1.0,
         "hard": 1.12,
     }.get(preset, 1.0)
     retune_depth = len(re.findall(r"_r\d+", dataset_version))

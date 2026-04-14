@@ -25,6 +25,8 @@ class BusinessEvalRunnerRequest:
     sample_size: int = 50
     point_tolerance_px: int = 5
     iou_threshold: float = 0.5
+    similarity_threshold: float | None = None
+    ambiguity_margin: float | None = None
 
 
 @dataclass(frozen=True)
@@ -51,6 +53,8 @@ def run_business_eval_request(request: BusinessEvalRunnerRequest) -> BusinessEva
             sample_size=request.sample_size,
             point_tolerance_px=request.point_tolerance_px,
             iou_threshold=request.iou_threshold,
+            similarity_threshold=request.similarity_threshold,
+            ambiguity_margin=request.ambiguity_margin,
         )
     except RuntimeError as exc:
         raise classify_runtime_error("BUSINESS_EVAL", str(exc)) from exc

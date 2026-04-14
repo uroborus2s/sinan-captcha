@@ -98,6 +98,8 @@ class ModelTestRequest:
     imgsz: int = 640
     query_detector_model_path: Path | None = None
     embedder_model_path: Path | None = None
+    similarity_threshold: float | None = None
+    ambiguity_margin: float | None = None
 
 
 @dataclass(frozen=True)
@@ -122,6 +124,8 @@ class ModelTestResult:
     val_command: str
     query_detector_model_path: Path | None = None
     embedder_model_path: Path | None = None
+    similarity_threshold: float | None = None
+    ambiguity_margin: float | None = None
 
     def to_dict(self) -> dict[str, object]:
         payload = asdict(self)
@@ -129,6 +133,8 @@ class ModelTestResult:
             "model_path",
             "query_detector_model_path",
             "embedder_model_path",
+            "similarity_threshold",
+            "ambiguity_margin",
             "dataset_config",
             "source",
             "project_dir",
@@ -161,6 +167,8 @@ class ModelTestResult:
                 f"- 主权重文件：{self.model_path}",
                 *([f"- Query Detector 权重：{self.query_detector_model_path}"] if self.query_detector_model_path is not None else []),
                 *([f"- Icon Embedder 权重：{self.embedder_model_path}"] if self.embedder_model_path is not None else []),
+                *([f"- Matcher Similarity Threshold：{self.similarity_threshold:g}"] if self.similarity_threshold is not None else []),
+                *([f"- Matcher Ambiguity Margin：{self.ambiguity_margin:g}"] if self.ambiguity_margin is not None else []),
                 f"- 本次预测样本数：{self.source_image_count}",
                 f"- 预测输出目录：{self.predict_output_dir}",
                 f"- 验证输出目录：{self.val_output_dir}",
@@ -212,6 +220,8 @@ def build_model_test_jobs(
             conf=request.conf,
             imgsz=request.imgsz,
             device=request.device,
+            similarity_threshold=request.similarity_threshold,
+            ambiguity_margin=request.ambiguity_margin,
         )
         gold_dir = request.report_dir / "_gold"
         evaluate_command = _build_group1_evaluate_command(
@@ -342,6 +352,8 @@ def _run_group1_model_test(request: ModelTestRequest) -> ModelTestResult:
         conf=request.conf,
         imgsz=request.imgsz,
         device=request.device,
+        similarity_threshold=request.similarity_threshold,
+        ambiguity_margin=request.ambiguity_margin,
     )
     prediction_result = run_group1_prediction_job(prediction_job)
 
@@ -371,6 +383,8 @@ def _run_group1_model_test(request: ModelTestRequest) -> ModelTestResult:
         model_path=request.model_path,
         query_detector_model_path=request.query_detector_model_path,
         embedder_model_path=request.embedder_model_path,
+        similarity_threshold=request.similarity_threshold,
+        ambiguity_margin=request.ambiguity_margin,
         dataset_config=request.dataset_config,
         source=request.source,
         project_dir=request.project_dir,

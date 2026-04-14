@@ -137,11 +137,19 @@
       - `query detector + proposal detector + icon embedder + matcher`
       - `query splitter + proposal detector + icon embedder + matcher`
   - `auto_train` 的 `modeltest/business_eval` 组装层已开始透传 `query detector` 权重
+  - `auto-train` 新阶段机第一切片已完成：
+    - `group1` 当前已从旧 `TRAIN` 拆成：
+      - `TRAIN_QUERY`
+      - `QUERY_GATE`
+      - `TRAIN_SCENE`
+      - `SCENE_GATE`
+      - `TRAIN_EMBEDDER_BASE`
+    - `TRAIN` legacy 别名会自动映射到 `TRAIN_QUERY`
+    - `auto-train run/stage group1` 当前已能从 `query detector` 开始起训
   - 已通过：
     - `go test ./internal/app -count=1`
     - `uv run pytest tests/python/test_training_jobs.py tests/python/test_prediction_and_model_test.py tests/python/test_auto_train_runners.py tests/python/test_group1_embedder.py -q`
 - 剩余待补齐：
-  - `auto-train` 对 query gate 的正式阶段消费
   - `solve.service` 主链路仍未切到 `query detector`
   - 仓库内仍保留规则 splitter fallback，尚未完成彻底替换
 - 第一阶段验收要求：
@@ -311,9 +319,64 @@
     - gold 有完整 identity 时按 identity 判
     - gold 只有 legacy `class/class_id` 时按 class 判
     - reviewed 稀疏答案时按 `order + center` 判
+- 当前 2026-04-13 已完成第一轮分阶段 controller 切片：
+  - `state_machine / recovery / controller / train runner` 已支持 `group1` 专属阶段序列：
+    - `TRAIN_QUERY`
+    - `QUERY_GATE`
+    - `TRAIN_SCENE`
+    - `SCENE_GATE`
+    - `TRAIN_EMBEDDER_BASE`
+    - `BUILD_EMBEDDER_HARDSET`
+    - `TRAIN_EMBEDDER_HARD`
+    - `CALIBRATE_MATCHER`
+    - `OFFLINE_EVAL`
+    - `BUSINESS_EVAL`
+    - `SUMMARIZE`
+    - `JUDGE`
+    - `NEXT_ACTION`
+  - `auto-train` study 工件已新增：
+    - `query_train.json`
+    - `query_gate.json`
+    - `scene_train.json`
+    - `scene_gate.json`
+    - `embedder_train.json`
+    - `embedder_hardset.json`
+    - `embedder_hard_train.json`
+    - `matcher_config.json`
+    - `offline_eval.json`
+    - `business_stage.json`
+  - `run/stage group1` 当前已经能从 `query detector` 开始真正起训
+  - `BUSINESS_EVAL` 当前已前移为正式阶段，`NEXT_ACTION` 会优先复用 `business_eval.json`
+  - `judge_trial(opencode)` 当前已纳入：
+    - `offline_eval.json`
+    - `business_eval.json`
+  - 当前 2026-04-13 已完成后半段生产级收口：
+    - 新增 `auto_train/group1_pipeline.py`
+    - `BUILD_EMBEDDER_HARDSET` 已优先构造真实 detector-aware hardset：
+      - 生成 `embedder_hardset/queries|candidates|pairs.jsonl|triplets.jsonl`
+      - 生成 hardset 派生 `dataset.json`
+    - `TRAIN_EMBEDDER_HARD` 已改为消费 hardset 派生 `dataset.json`
+    - `CALIBRATE_MATCHER` 已优先执行真实 grid search 校准，产出：
+      - `similarity_threshold`
+      - `ambiguity_margin`
+      - `best_metrics`
+      - `candidate_metrics`
+    - `TEST / OFFLINE_EVAL / BUSINESS_EVAL` 已透传 matcher 校准阈值
+    - `predict group1` / `modeltest group1` 已支持：
+      - `--similarity-threshold`
+      - `--ambiguity-margin`
+    - controller 当前在缺少 checkpoint 或测试假 runner 场景下，会安全回退到：
+      - base triplets hardset
+      - 静态默认 matcher 阈值
+      - 不阻断 study 主流程
+  - 当前 2026-04-13 已补齐 Windows 训练机断点恢复与旧数据兼容：
+    - group1 旧 JSONL 中的 `class/class_id` 会在 Python 校验层归一化为 `class_guess`，不再阻断已生成数据集评估
+    - `TRAIN_QUERY / TRAIN_SCENE / TRAIN_EMBEDDER_BASE` 在训练记录缺失但组件权重已存在时，会补写训练记录并跳过重复训练
+    - `TRAIN_QUERY` 恢复路径会用已有 query detector 权重重跑评估并补写 `summary.json` / `failcases.jsonl`
+    - 生成器新导出的 group1 `splits/*.jsonl` 与 `eval/labels.jsonl` 已不再输出旧 `class/class_id`
 - 当前仍待补齐：
   - 面向 controller/judge 的细粒度失败归因落盘
-  - `query detector`、`scene detector`、`embedder`、`matcher` 的阶段 gate 编排
+  - `query detector`、`scene detector`、`embedder`、`matcher` 的真实晋级 gate 收口
 
 ### `TASK-G1-REF-015`
 

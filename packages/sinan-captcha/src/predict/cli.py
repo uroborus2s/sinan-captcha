@@ -58,6 +58,8 @@ def build_parser() -> argparse.ArgumentParser:
     )
     group1_parser.add_argument("--name", default=None)
     group1_parser.add_argument("--conf", type=float, default=0.25)
+    group1_parser.add_argument("--similarity-threshold", type=float, default=None)
+    group1_parser.add_argument("--ambiguity-margin", type=float, default=None)
     group1_parser.add_argument("--device", default="0")
     group1_parser.add_argument("--imgsz", type=int, default=640)
     group1_parser.add_argument("--dry-run", action="store_true")
@@ -118,6 +120,8 @@ def main(argv: list[str] | None = None) -> int:
             conf=args.conf,
             imgsz=args.imgsz,
             device=args.device,
+            similarity_threshold=args.similarity_threshold,
+            ambiguity_margin=args.ambiguity_margin,
         )
         if args.dry_run:
             print(job.command_string())

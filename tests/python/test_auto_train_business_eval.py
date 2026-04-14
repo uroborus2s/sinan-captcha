@@ -907,7 +907,7 @@ class BusinessEvalControllerTests(unittest.TestCase):
             self.assertTrue(ctrl.paths.commercial_report_file.exists())
             self.assertIn("达到商用门", ctrl.paths.commercial_report_file.read_text(encoding="utf-8"))
 
-    def test_non_promoted_trial_regenerates_data_when_business_goal_is_enabled(self) -> None:
+    def test_non_promoted_trial_keeps_reuse_strategy_when_business_goal_is_enabled(self) -> None:
         with tempfile.TemporaryDirectory() as tmpdir:
             root = Path(tmpdir)
             train_root = root / "train-root"
@@ -1005,11 +1005,11 @@ class BusinessEvalControllerTests(unittest.TestCase):
 
             self.assertEqual(execution.next_stage, "PLAN")
             next_input = storage.read_trial_input_record(ctrl.paths.input_file("trial_0002"))
-            self.assertEqual(next_input.dataset_version, "study_001_trial_0002")
+            self.assertEqual(next_input.dataset_version, "firstpass")
             self.assertEqual(next_input.base_run, "trial_0001")
-            self.assertIsNotNone(next_input.dataset_override)
+            self.assertIsNone(next_input.dataset_override)
             study_status = storage.read_study_status_record(ctrl.paths.study_status_file)
-            self.assertEqual(study_status.latest_decision, "REGENERATE_DATA")
+            self.assertEqual(study_status.latest_decision, "RETUNE")
 
 
 if __name__ == "__main__":

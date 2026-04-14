@@ -32,6 +32,12 @@ def validate_group1_row(row: dict[str, Any]) -> dict[str, Any]:
         raise DatasetValidationError("group1 scene_targets must be a list")
     if not isinstance(distractors, list):
         raise DatasetValidationError("group1 distractors must be a list")
+    query_items = [_normalize_group1_legacy_object(item) for item in query_items]
+    scene_targets = [_normalize_group1_legacy_object(item) for item in scene_targets]
+    distractors = [_normalize_group1_legacy_object(item) for item in distractors]
+    normalized["query_items"] = query_items
+    normalized["scene_targets"] = scene_targets
+    normalized["distractors"] = distractors
     if normalized["label_source"] == "gold":
         if not query_items:
             raise DatasetValidationError("group1 gold query_items must be a non-empty list")
@@ -172,12 +178,21 @@ def _validate_group1_object(
 
     if has_any_identity and not has_all_identity:
         raise DatasetValidationError("group1 object must provide a complete asset_id/template_id/variant_id identity")
-    if "class" in obj or "class_id" in obj:
-        raise DatasetValidationError("group1 object no longer accepts class/class_id; use class_guess only")
     if not has_all_identity and not allow_order_bbox_only:
         raise DatasetValidationError("group1 object must provide asset identity")
     if "class_guess" in obj and (not isinstance(obj["class_guess"], str) or not str(obj["class_guess"]).strip()):
         raise DatasetValidationError("class_guess must be a non-empty string when provided")
+
+
+def _normalize_group1_legacy_object(obj: Any) -> Any:
+    if not isinstance(obj, dict):
+        return obj
+    normalized = dict(obj)
+    legacy_class = normalized.pop("class", None)
+    normalized.pop("class_id", None)
+    if "class_guess" not in normalized and isinstance(legacy_class, str) and legacy_class.strip():
+        normalized["class_guess"] = legacy_class.strip()
+    return normalized
 
 
 def _validate_object(obj: dict[str, Any], *, require_order: bool) -> None:

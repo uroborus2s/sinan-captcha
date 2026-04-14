@@ -4,10 +4,9 @@
 
 ## 1. 你将使用的公开入口
 
-`sinanz` 当前公开业务入口固定为两类：
+`sinanz` 当前对外发布的 `0.0.1.dev0` 预发布版本只开放滑块能力：
 
 - 滑块：`sn_match_slider(...)`
-- 点选：`sn_match_targets(...)`
 
 可选面向对象封装：
 
@@ -30,7 +29,7 @@ uv pip install sinanz
 安装后做导入检查：
 
 ```bash
-python -c "from sinanz import sn_match_slider, sn_match_targets, CaptchaSolver; print('ok')"
+python -c "from sinanz import sn_match_slider, CaptchaSolver; print('ok')"
 ```
 
 注意：请在“刚刚安装 `sinanz` 的同一 Python 环境”里执行这条检查，不要切换到其他环境再验证。
@@ -86,23 +85,7 @@ result = sn_match_slider(
 print(result.target_bbox)
 ```
 
-### 3.4 点选验证码：网络图片 URL 输入
-
-```python
-from sinanz import sn_match_targets
-
-result = sn_match_targets(
-    query_icons_image="https://example.com/query.png",
-    background_image="https://example.com/scene.png",
-    device="auto",
-)
-
-print(result.ordered_target_centers)
-print(result.missing_query_orders)
-print(result.ambiguous_query_orders)
-```
-
-### 3.5 输入边界
+### 3.4 输入边界
 
 - `ImageInput` 支持：本地路径、`bytes`、base64 字符串、`data:` URI、`http/https` URL。
 - 图片格式支持范围以 Pillow 可解码格式为准，常见格式包括 JPEG、PNG、WebP、BMP、GIF、TIFF。
@@ -130,11 +113,6 @@ slider = solver.sn_match_slider(
     background_image=r"D:\cases\master.png",
     puzzle_piece_image=r"D:\cases\tile.png",
 )
-
-clicks = solver.sn_match_targets(
-    query_icons_image=r"D:\cases\query.png",
-    background_image=r"D:\cases\scene.png",
-)
 ```
 
 ## 5. `asset_root` 什么时候需要传
@@ -144,12 +122,6 @@ clicks = solver.sn_match_targets(
 当前模型文件名约定：
 
 - `slider_gap_locator.onnx`
-- `click_proposal_detector.onnx`
-- `click_icon_embedder.onnx`
-
-说明：
-
-- query splitter 已内置在运行时中，不再单独对应模型文件。
 
 如果 `asset_root` 缺文件，会抛 `SolverAssetError`。
 

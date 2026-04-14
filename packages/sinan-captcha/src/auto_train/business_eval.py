@@ -89,6 +89,8 @@ def run_reviewed_business_eval(
     sample_size: int,
     point_tolerance_px: int,
     iou_threshold: float,
+    similarity_threshold: float | None = None,
+    ambiguity_margin: float | None = None,
     modeltest_runner: ModelTestExecutor | None = None,
 ) -> contracts.BusinessEvalRecord:
     all_rows = load_reviewed_exam_rows(task, cases_root)
@@ -119,6 +121,8 @@ def run_reviewed_business_eval(
         report_dir=report_dir,
         device=device,
         imgsz=imgsz,
+        similarity_threshold=similarity_threshold,
+        ambiguity_margin=ambiguity_margin,
     )
     model_result = (modeltest_runner or run_model_test)(model_request)
 
@@ -354,6 +358,8 @@ def _build_business_model_test_request(
     report_dir: Path,
     device: str,
     imgsz: int,
+    similarity_threshold: float | None = None,
+    ambiguity_margin: float | None = None,
 ) -> ModelTestRequest:
     dataset_config = default_dataset_config(train_root, task, dataset_version)
     if task == "group1":
@@ -376,6 +382,8 @@ def _build_business_model_test_request(
             val_name=f"val_{train_name}_business_exam",
             device=device,
             imgsz=imgsz,
+            similarity_threshold=similarity_threshold,
+            ambiguity_margin=ambiguity_margin,
         )
     return ModelTestRequest(
         task=task,
@@ -390,6 +398,8 @@ def _build_business_model_test_request(
         val_name=f"val_{train_name}_business_exam",
         device=device,
         imgsz=imgsz,
+        similarity_threshold=similarity_threshold,
+        ambiguity_margin=ambiguity_margin,
     )
 
 

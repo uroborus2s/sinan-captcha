@@ -162,7 +162,15 @@ uv run sinan train group1 --dataset-version firstpass --name g1_embed --componen
 关键事实：
 
 - `group1` 的 proposal detector 默认基模型是 `yolo26n.pt`。
+- `proposal detector` 训练完成后会在验证集 scene 图上回放检测，和 `scene_targets + distractors` 真值框做 IoU 匹配；当前 pass 不再只是“有权重文件”，而是要求候选框召回率、整图召回率、平均 IoU 和误检数量达标。
+- 如果历史 run 已经有 `proposal-detector/weights/best.pt` 或 `last.pt`，但旧 summary 没有 proposal gate，新版本会先用已有权重补跑 scene gate；只有 gate 失败时才需要重新训练 scene detector。
 - `embedder` 由 `--embedder-model` 单独指定，未指定时走组件默认策略。
+- `icon-embedder` 不应复用 detector 的大尺寸输入；当前默认会收口到小图标训练尺寸 `96`，并把默认 batch 提到 `32`，同时在训练过程中输出 epoch/batch 进度日志。
+- `icon-embedder` 当前使用轻量残差 backbone、`128` 维 embedding 和 `triplet loss + identity-aware in-batch contrastive loss` 联合训练，目标更贴近真实检索排序。
+- `icon-embedder` 在每个 epoch 结束后还会继续输出验证阶段日志：`validation-triplet-loss`、`retrieval-query-embeddings`、`retrieval-candidate-embeddings`。最后一个训练 step 打完后屏幕安静几秒到几分钟，通常是在做验证而不是挂死。
+- `icon-embedder` 默认会根据验证集 `embedding_recall_at_1` 自动早停，避免无意义跑满 120 轮；最优权重仍持续写入 `runs/group1/<name>/icon-embedder/weights/best.pt`。
+- 当 `auto-train` 使用 `--judge-provider opencode` 时，`icon-embedder` 当前还会触发本地 `review-embedder` 审查；如果 base 训练已经平台期，本地 judge 会直接建议提前收尾并切到 harder samples，而不是继续空跑多轮。
+- 自动训练中断恢复时，如果 `icon-embedder/weights/last.pt` 已存在但 `icon-embedder/summary.json` 不完整，会按断点续训；只有完整 summary 存在时才会把已有权重视为组件已完成。
 
 ### 5.2 训练 `group2`
 
@@ -264,11 +272,12 @@ uv run sinan train group1 prelabel-vlm `
 
 ```powershell
 uv run sinan auto-train run group1 `
-  --study-name study_group1_firstpass `
+  --study-name study_group1_v1 `
   --train-root D:\sinan-captcha-work `
   --generator-workspace D:\sinan-captcha-generator\workspace `
+  --dataset-version v1 `
   --judge-provider rules `
-  --max-steps 8 `
+  --max-steps 12 `
   --max-hours 2 `
   --max-new-datasets 1
 ```
@@ -288,10 +297,11 @@ uv run sinan auto-train run group1 `
   --study-name study_group1_llm `
   --train-root D:\sinan-captcha-work `
   --generator-workspace D:\sinan-captcha-generator\workspace `
+  --dataset-version v1 `
   --judge-provider opencode `
   --judge-model gemma4 `
   --opencode-attach-url http://127.0.0.1:4096 `
-  --max-steps 8
+  --max-steps 12
 ```
 
 ## 9. 组装并验证本地 solver bundle

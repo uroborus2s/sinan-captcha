@@ -187,6 +187,58 @@ class Group1InstanceContractsTests(unittest.TestCase):
         self.assertEqual(normalized["query_items"][0]["class_guess"], "icon_lock")
         self.assertEqual(normalized["scene_targets"][0]["asset_id"], "pred_asset_01")
 
+    def test_validate_group1_row_normalizes_legacy_class_fields_to_class_guess(self) -> None:
+        row = {
+            "sample_id": "g1_legacy_0001",
+            "query_image": "query/g1_legacy_0001.png",
+            "scene_image": "scene/g1_legacy_0001.png",
+            "query_items": [
+                {
+                    "order": 1,
+                    "asset_id": "asset_lock",
+                    "template_id": "tpl_lock",
+                    "variant_id": "var_lock",
+                    "class": "icon_lock",
+                    "class_id": 7,
+                    "bbox": [8, 8, 28, 28],
+                    "center": [18, 18],
+                }
+            ],
+            "scene_targets": [
+                {
+                    "order": 1,
+                    "asset_id": "asset_lock",
+                    "template_id": "tpl_lock",
+                    "variant_id": "var_lock",
+                    "class": "icon_lock",
+                    "class_id": 7,
+                    "bbox": [80, 32, 120, 72],
+                    "center": [100, 52],
+                }
+            ],
+            "distractors": [
+                {
+                    "asset_id": "asset_star",
+                    "template_id": "tpl_star",
+                    "variant_id": "var_star",
+                    "class": "icon_star",
+                    "class_id": 9,
+                    "bbox": [130, 40, 160, 70],
+                    "center": [145, 55],
+                }
+            ],
+            "label_source": "gold",
+            "source_batch": "batch_legacy",
+        }
+
+        normalized = validate_group1_row(row)
+
+        self.assertEqual(normalized["query_items"][0]["class_guess"], "icon_lock")
+        self.assertEqual(normalized["scene_targets"][0]["class_guess"], "icon_lock")
+        self.assertEqual(normalized["distractors"][0]["class_guess"], "icon_star")
+        self.assertNotIn("class", normalized["query_items"][0])
+        self.assertNotIn("class_id", normalized["scene_targets"][0])
+
 
 if __name__ == "__main__":
     unittest.main()

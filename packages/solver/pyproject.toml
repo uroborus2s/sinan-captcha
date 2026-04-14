@@ -4,8 +4,8 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "sinanz"
-version = "0.1.0"
-description = "Standalone Python solver package for click and slider captchas."
+version = "0.0.1.dev0"
+description = "Standalone Python slider captcha solver package."
 readme = "README.md"
 requires-python = ">=3.12"
 dependencies = [
@@ -19,12 +19,9 @@ package-dir = {"" = "src"}
 py-modules = [
   "sinanz",
   "sinanz_errors",
-  "sinanz_group1_runtime",
-  "sinanz_group1_service",
   "sinanz_group2_runtime",
   "sinanz_group2_service",
   "sinanz_image_io",
-  "sinanz_query_splitter",
   "sinanz_resources",
   "sinanz_types",
 ]
@@ -61,7 +58,7 @@ strict = true
 warn_unused_configs = true
 
 [tool.sinanz]
-public_api = ["sn_match_slider", "sn_match_targets"]
+public_api = ["sn_match_slider"]
 runtime_target = "python-onnxruntime"
 
 [dependency-groups]

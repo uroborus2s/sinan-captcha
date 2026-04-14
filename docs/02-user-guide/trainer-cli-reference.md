@@ -612,7 +612,7 @@ uv run sinan train group1 \
 | `--dataset-version` | `v1` | 训练数据版本。 |
 | `--name` | `v1` | 本次训练 run 名。 |
 | `--component` | `all` | 训练范围。 |
-| `--imgsz` | `640` | 输入尺寸。 |
+| `--imgsz` | `640` | 输入尺寸。`proposal-detector` 默认按 640 口径；`icon-embedder` 若未单独覆盖，会自动收口到小图标尺寸 96。 |
 | `--device` | `0` | 训练设备。 |
 | `--model` | `yolo26n.pt`（回退） | 共享基础模型。 |
 | `--resume` | `false` | 从同名 run 的 last 权重续训。 |
@@ -622,6 +622,16 @@ uv run sinan train group1 \
 
 - `--resume` 与 `--from-run` 不能同时传。
 - 传 `--from-run` 时不要再传 `--model/--proposal-model/--embedder-model`。
+- `proposal-detector` 训练后会在 `val` split 上评估 scene 候选框质量：`proposal_object_recall >= 0.995`、`proposal_full_recall_rate >= 0.99`、`proposal_mean_iou >= 0.75`、`proposal_false_positive_per_sample <= 0.25` 才会 pass。
+- 自动训练进入 `scene-gate` 时，如果已有 proposal 权重但 summary 缺少 gate，会先补跑 proposal 评估；不会因为升级了 gate 逻辑就直接要求从头重训 scene detector。
+- `icon-embedder` 不应继续沿用 detector 的大尺寸输入；若你只训练 `--component icon-embedder`，默认会自动切到 `96`，并把默认 batch 提到 `32`。
+- `icon-embedder` 当前已从旧版小 CNN 升级为更强的轻量残差 backbone，默认输出 `128` 维 embedding，并采用 `triplet loss + identity-aware in-batch contrastive loss` 联合训练，更贴近检索排序目标。
+- `icon-embedder` 当前验证指标除 `embedding_recall_at_1/@3` 外，还会输出 identity 级诊断指标与 top1 错误分桶，便于区分“完全没学会”和“学会 identity 但 exact crop 没排第一”。
+- `BUILD_EMBEDDER_HARDSET` 当前会优先用 base embedder 对 detector 候选做 hard negative mining：同模板易混淆负样本优先，其次再按 embedding 相似度和 detector 分数排序。
+- `icon-embedder` 当前会在每个 epoch 内输出训练 batch 心跳，并在 epoch 结束后继续输出 `validation-triplet-loss`、`retrieval-query-embeddings`、`retrieval-candidate-embeddings` 进度；最后一个 `step x/y` 后短暂无新 epoch 行，通常表示正在做验证而不是卡死。
+- `icon-embedder` 默认带自动早停：验证集 `embedding_recall_at_1` 在最少训练轮数后连续多轮未达到最小增益时，会提前结束并保留 `best.pt`。
+- 当 `auto-train --judge-provider opencode` 启用本地 judge 后，`TRAIN_EMBEDDER_BASE` 当前还会按 review 窗口触发 `review-embedder` 判断；若 judge 认为 exact 检索已平台期，会提前收尾并自动推进到 `BUILD_EMBEDDER_HARDSET`，不再只能死等固定 patience。
+- 自动训练恢复时，`icon-embedder` 只有在组件 summary 完整时才会被视为已完成；如果只有 `last.pt/best.pt` 但没有完整 `icon-embedder/summary.json`，会走 `resume` 续训。
 
 #### 最小示例
 
@@ -1303,6 +1313,24 @@ uv run sinan auto-train stage <stage> {group1|group2} --study-name <name> --trai
 
 `<stage>` 可传：
 
+`group1` 推荐使用的新阶段名：
+
+- `plan`
+- `build-dataset`
+- `train-query`
+- `query-gate`
+- `train-scene`
+- `scene-gate`
+- `train-embedder-base`
+- `test`
+- `evaluate`
+- `summarize`
+- `judge`
+- `next-action`
+- `stop`
+
+兼容别名：
+
 - `plan`
 - `build-dataset`
 - `train`
@@ -1360,7 +1388,7 @@ uv run sinan auto-train stage <stage> {group1|group2} --study-name <name> --trai
 ### 12.5 最小示例
 
 ```bash
-uv run sinan auto-train run group1 --study-name study_001 --train-root D:\sinan-captcha-work --generator-workspace D:\sinan-generator\workspace --max-trials 5
+uv run sinan auto-train run group1 --study-name study_001 --train-root D:\sinan-captcha-work --generator-workspace D:\sinan-generator\workspace --dataset-version v1 --max-trials 5
 ```
 
 ## 13. Solver 命令（`solve`）

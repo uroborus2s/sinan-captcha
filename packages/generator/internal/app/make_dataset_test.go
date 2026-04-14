@@ -767,6 +767,11 @@ func assertGroup1SplitCarriesInstanceIdentity(t *testing.T, path string) {
 			t.Fatalf("expected query item to contain %s, got %v", field, first)
 		}
 	}
+	for _, field := range []string{"class", "class_id"} {
+		if _, exists := first[field]; exists {
+			t.Fatalf("expected query item to omit legacy %s, got %v", field, first)
+		}
+	}
 }
 
 func assertGroup1RawBatchCarriesInstanceIdentity(t *testing.T, path string) {
