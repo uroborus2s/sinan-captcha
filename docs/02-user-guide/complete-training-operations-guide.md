@@ -312,6 +312,22 @@ uv run sinan auto-train run group1 `
   - 哪些组件继续 `train`
   - 哪些组件直接 `reuse`
   - 每个组件单独的 `model / epochs / batch / imgsz` 覆盖
+- `group1` 当前商业测试标准是：
+  - 默认从 reviewed 试卷池稳定抽样 `50` 题
+  - 默认要求 `success_rate >= 0.90`
+  - 单题必须同时满足：目标数量一致、点击顺序正确、每个点击点都落在对应标准图标方框内
+  - 当前 `group1` 商业门不看 IoU，只看最终点选结果
+- 商业测试当前会额外保存以下可排查工件：
+  - `modeltest/predict_*/labels.jsonl`：模型完整输出
+  - `evaluation/failures.jsonl`：评估失败明细
+  - `case_results.jsonl`：逐题完整判卷明细
+  - `failed_cases.jsonl`：失败题明细
+  - `case_summary.csv`：业务可读汇总表
+- `group1` 商业测试报告当前会明确区分：
+  - 图标没找出来
+  - 点击顺序不对
+  - 疑似找错图标
+  - 点击点落在图标框外
 - 只有当下一步仍然明确是 `REGENERATE_DATA` 时，控制器才会继续走 `plan-dataset -> dataset_plan.json`。如果当前只是先在同一数据集上做定向重训，本轮不会生成新的数据计划。
 - 训练机上排查自主训练方向时，优先看：
   - `studies/<task>/<study-name>/trials/<trial-id>/result_summary.json`

@@ -17,6 +17,26 @@
 
 ## 当前事实
 
+- 2026-04-15 当前 `group1` reviewed 商业测试的判卷可观测性已补齐：
+  - 当前默认标准已明确为：
+    - 从 reviewed 试卷池稳定抽样 `50` 题
+    - 要求 `success_rate >= 0.90`
+    - 单题必须同时满足目标数量一致、点击顺序正确、每个点击点都落在对应标准图标方框内
+    - 当前 `group1` 商业门不以 IoU 作为主判
+  - 当前商业测试已额外落盘：
+    - `modeltest/predict_*/labels.jsonl`
+    - `evaluation/failures.jsonl`
+    - `case_results.jsonl`
+    - `failed_cases.jsonl`
+    - `case_summary.csv`
+  - 当前 `group1` 商业测试报告已能直接区分：
+    - 图标没找出来
+    - 点击顺序不对
+    - 疑似找错图标
+    - 点击点落在图标框外
+  - 当前已验证：
+    - `uv run pytest tests/python/test_auto_train_business_eval.py tests/python/test_training_jobs.py tests/python/test_auto_train_controller.py -q`
+
 - 2026-04-15 当前 `auto-train` 已新增“错误数据分析 -> 定向调参”闭环：
   - 当前 `SUMMARIZE` 后会额外生成 `trial_analysis.json`
   - 当前 `RETUNE` 在 `judge_provider = opencode` 时会新增本地命令：

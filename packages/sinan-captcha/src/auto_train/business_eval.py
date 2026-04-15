@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import csv
 from dataclasses import replace
 import json
 import math
@@ -147,6 +148,7 @@ def run_reviewed_business_eval(
     )
     if task == "group2":
         case_results = _attach_group2_failure_artifacts(case_results=case_results, report_dir=report_dir)
+    saved_artifacts = _write_case_result_artifacts(case_results=case_results, report_dir=report_dir)
     passed_cases = sum(1 for item in case_results if item.success)
     total_cases = len(case_results)
     success_rate = 0.0 if total_cases == 0 else passed_cases / float(total_cases)
@@ -162,7 +164,10 @@ def run_reviewed_business_eval(
         f"iou_threshold={iou_threshold:.4f}",
         f"evaluation_failure_count={evaluation.failure_count}",
         f"commercial_ready={str(commercial_ready).lower()}",
+        f"prediction_labels_jsonl={model_result.predict_output_dir / 'labels.jsonl'}",
+        f"evaluation_failures_jsonl={evaluation.report_dir / 'failures.jsonl'}",
     ]
+    evidence.extend(f"{key}={value}" for key, value in saved_artifacts.items())
     return contracts.BusinessEvalRecord(
         trial_id=trial_id,
         task=task,
@@ -214,8 +219,17 @@ def build_case_results(
 
 def markdown_from_business_eval(record: contracts.BusinessEvalRecord) -> str:
     verdict = "通过" if record.commercial_ready else "未通过"
+    group1_eval_rule = "- 点击判定：group1 当前不按 px 容差判分，只看点击点是否落在正确图标框内。"
     lines = [
         f"# {record.trial_id} Business Exam",
+        "",
+        "## 当前判卷参数说明",
+        "",
+        f"- 题目来源：{record.cases_root}",
+        f"- reviewed 试卷池总量：{record.available_cases} 组",
+        f"- 本轮抽样题量：{record.sample_size} 组，实际完成判卷 {record.total_cases} 组",
+        f"- 商业通过率门槛：{record.success_threshold:.0%}",
+        *([f"- 点击中心容差：{record.point_tolerance_px}px", f"- IoU 阈值：{record.iou_threshold:.2f}"] if record.task == "group2" else [group1_eval_rule, "- group1 商业门当前不看 IoU，只看最终点击结果。"]),
         "",
         f"- task: {record.task}",
         f"- train_name: {record.train_name}",
@@ -240,6 +254,10 @@ def markdown_from_business_eval(record: contracts.BusinessEvalRecord) -> str:
         "## 判卷规则",
         "",
         _business_rule_cn(record),
+        "",
+        "## 可直接查看的文件",
+        "",
+        *_business_artifact_lines(record),
         "",
         "## 样本结果",
         "",
@@ -270,6 +288,11 @@ def log_from_business_eval(record: contracts.BusinessEvalRecord) -> str:
         f"prediction_dir={record.prediction_dir}",
         f"evaluation_report_dir={record.evaluation_report_dir}",
         f"commercial_ready={str(record.commercial_ready).lower()}",
+        f"prediction_labels_jsonl={Path(record.prediction_dir) / 'labels.jsonl'}",
+        f"evaluation_failures_jsonl={Path(record.evaluation_report_dir) / 'failures.jsonl'}",
+        f"case_results_jsonl={Path(record.report_dir) / 'case_results.jsonl'}",
+        f"failed_cases_jsonl={Path(record.report_dir) / 'failed_cases.jsonl'}",
+        f"case_summary_csv={Path(record.report_dir) / 'case_summary.csv'}",
         "",
     ]
     for item in record.case_results:
@@ -479,33 +502,82 @@ def _build_group1_case_results(
             for target in predicted_targets
             if isinstance(target.get("order"), int)
         )
-        order_ok = len(gold_targets) == len(predicted_targets) and predicted_orders == expected_orders
+        missing_orders = [order for order in expected_orders if order not in predicted_by_order]
+        extra_orders = [order for order in predicted_orders if order not in set(expected_orders)]
+        ambiguous_orders = _normalize_int_list(prediction.get("ambiguous_orders"))
+        order_ok = not missing_orders and not extra_orders
         sequence_ok = order_ok
+        identity_mismatch_orders: list[int] = []
+        click_outside_target_orders: list[int] = []
+        matched_orders: list[int] = []
         center_errors: list[float] = []
+        per_order_results: list[dict[str, Any]] = []
         for gold_target in gold_targets:
-            predicted_target = predicted_by_order.get(int(gold_target["order"]))
+            order = int(gold_target["order"])
+            predicted_target = predicted_by_order.get(order)
             if predicted_target is None:
-                order_ok = False
                 sequence_ok = False
+                per_order_results.append(
+                    {
+                        "order": order,
+                        "status": "missing_order",
+                        "reason_cn": "该顺序未输出点击目标。",
+                        "gold_center": gold_target.get("center"),
+                        "predicted_center": None,
+                    }
+                )
                 continue
-            if not _group1_targets_match_contract(gold_target, predicted_target):
+            identity_ok = _group1_targets_match_contract(gold_target, predicted_target)
+            if not identity_ok:
                 sequence_ok = False
-                continue
+                identity_mismatch_orders.append(order)
             center_error = _distance(gold_target["center"], predicted_target["center"])
             center_errors.append(center_error)
-            if center_error <= point_tolerance_px:
+            point_in_target_bbox = _point_in_bbox(predicted_target.get("center"), gold_target.get("bbox"))
+            if identity_ok and point_in_target_bbox:
                 matched_target_count += 1
+                matched_orders.append(order)
             else:
                 sequence_ok = False
+                if identity_ok:
+                    click_outside_target_orders.append(order)
+            per_order_results.append(
+                {
+                    "order": order,
+                    "status": (
+                        "matched"
+                        if identity_ok and point_in_target_bbox
+                        else ("identity_mismatch" if not identity_ok else "click_outside_target")
+                    ),
+                    "reason_cn": (
+                        "已找到正确图标，且点击点落在标准图标框内。"
+                        if identity_ok and point_in_target_bbox
+                        else (
+                            "该顺序输出了目标，但图标实例与标准答案不一致。"
+                            if not identity_ok
+                            else "该顺序输出了目标，但点击点落在标准图标框外。"
+                        )
+                    ),
+                    "gold_bbox": gold_target.get("bbox"),
+                    "gold_center": gold_target.get("center"),
+                    "predicted_center": predicted_target.get("center"),
+                    "center_error_px": round(center_error, 4),
+                    "point_in_target_bbox": point_in_target_bbox,
+                }
+            )
         success = sequence_ok and matched_target_count == len(gold_targets)
         reason_code = "pass" if success else ("order_mismatch" if not order_ok else "sequence_mismatch")
         reason_cn = (
-            "点击序列与中心点误差均达标。"
+            "点击序列与点击落点均达标。"
             if success
             else (
-                "输出目标顺序与标准答案不一致。"
-                if reason_code == "order_mismatch"
-                else "输出目标数量、实例匹配或点击中心未全部达标。"
+                _group1_failure_reason_cn(
+                    missing_orders=missing_orders,
+                    extra_orders=extra_orders,
+                    ambiguous_orders=ambiguous_orders,
+                    identity_mismatch_orders=identity_mismatch_orders,
+                    click_outside_target_orders=click_outside_target_orders,
+                )
             )
         )
         results.append(
@@ -523,10 +595,25 @@ def _build_group1_case_results(
                     "point_tolerance_px": point_tolerance_px,
                     "mean_center_error_px": _rounded_or_none(_mean(center_errors), 4),
                     "order_ok": order_ok,
+                    "sequence_ok": sequence_ok,
+                    "expected_orders": expected_orders,
+                    "predicted_orders": predicted_orders,
+                    "missing_orders": missing_orders,
+                    "extra_orders": extra_orders,
+                    "ambiguous_orders": ambiguous_orders,
+                    "identity_mismatch_orders": identity_mismatch_orders,
+                    "click_outside_target_orders": click_outside_target_orders,
+                    "center_out_of_tolerance_orders": click_outside_target_orders,
+                    "matched_orders": matched_orders,
+                    "predicted_status": _string_or_none(prediction.get("status")),
+                    "per_order_results": per_order_results,
                 },
                 prediction={
                     "scene_targets": predicted_targets,
                     "inference_ms": prediction.get("inference_ms"),
+                    "status": prediction.get("status"),
+                    "missing_orders": _normalize_int_list(prediction.get("missing_orders")),
+                    "ambiguous_orders": ambiguous_orders,
                 },
                 reference={"scene_targets": gold_targets},
                 evidence=[f"status={prediction.get('status', 'unknown')}"],
@@ -642,7 +729,7 @@ def _group2_input_images(row: dict[str, Any]) -> dict[str, Any]:
 def _business_rule_cn(record: contracts.BusinessEvalRecord) -> str:
     if record.task == "group1":
         return (
-            f"group1 单题必须整题序列正确，且所有点击目标中心点误差不超过 {record.point_tolerance_px}px。"
+            "group1 单题必须同时满足：目标数量一致、点击顺序正确，且所有点击点都落在各自标准图标方框内。"
         )
     return (
         f"group2 单题必须同时满足 X 方向偏差不超过 {record.point_tolerance_px}px、"
@@ -774,13 +861,101 @@ def _offline_promotion_conclusion_cn(
 
 
 def _business_test_conclusion_cn(record: contracts.BusinessEvalRecord) -> str:
+    group1_note = (
+        "- group1 商业门当前不看 IoU，也不按 px 容差判定；只看最终点击点是否落在正确图标框内。\n"
+        if record.task == "group1"
+        else ""
+    )
     return (
         f"- 本轮试卷池共有 {record.available_cases} 组 reviewed 试题。\n"
         f"- 本轮计划抽取 {record.sample_size} 组进行商业测试，实际完成判卷 {record.total_cases} 组。\n"
         f"- 其中通过 {record.passed_cases} 组，通过率为 {record.success_rate:.2%}。\n"
         f"- 当前商用门要求 success_rate >= {record.success_threshold:.0%}。\n"
+        f"{group1_note}"
         f"- {_business_rule_cn(record)}"
     )
+
+
+def _business_artifact_lines(record: contracts.BusinessEvalRecord) -> list[str]:
+    return [
+        f"- 抽样题目清单：{record.sampled_source}",
+        f"- 模型预测结果：{Path(record.prediction_dir) / 'labels.jsonl'}",
+        f"- 评估失败明细：{Path(record.evaluation_report_dir) / 'failures.jsonl'}",
+        f"- 完整判卷明细：{Path(record.report_dir) / 'case_results.jsonl'}",
+        f"- 失败样本明细：{Path(record.report_dir) / 'failed_cases.jsonl'}",
+        f"- 可读汇总表：{Path(record.report_dir) / 'case_summary.csv'}",
+    ]
+
+
+def _write_case_result_artifacts(
+    *,
+    case_results: list[contracts.BusinessEvalCaseRecord],
+    report_dir: Path,
+) -> dict[str, str]:
+    report_dir.mkdir(parents=True, exist_ok=True)
+    case_results_jsonl = report_dir / "case_results.jsonl"
+    failed_cases_jsonl = report_dir / "failed_cases.jsonl"
+    case_summary_csv = report_dir / "case_summary.csv"
+    write_jsonl(case_results_jsonl, [item.to_dict() for item in case_results])
+    write_jsonl(failed_cases_jsonl, [item.to_dict() for item in case_results if not item.success])
+    _write_case_summary_csv(case_summary_csv, case_results=case_results)
+    return {
+        "case_results_jsonl": str(case_results_jsonl),
+        "failed_cases_jsonl": str(failed_cases_jsonl),
+        "case_summary_csv": str(case_summary_csv),
+    }
+
+
+def _write_case_summary_csv(
+    path: Path,
+    *,
+    case_results: list[contracts.BusinessEvalCaseRecord],
+) -> None:
+    with path.open("w", encoding="utf-8", newline="") as handle:
+        writer = csv.DictWriter(
+            handle,
+            fieldnames=[
+                "case_id",
+                "sample_id",
+                "status",
+                "reason_code",
+                "reason_cn",
+                "target_count",
+                "predicted_target_count",
+                "matched_target_count",
+                "order_ok",
+                "missing_orders",
+                "extra_orders",
+                "ambiguous_orders",
+                "identity_mismatch_orders",
+                "click_outside_target_orders",
+                "center_out_of_tolerance_orders",
+                "predicted_status",
+            ],
+        )
+        writer.writeheader()
+        for item in case_results:
+            metrics = item.metrics
+            writer.writerow(
+                {
+                    "case_id": item.case_id,
+                    "sample_id": item.sample_id,
+                    "status": "PASS" if item.success else "FAIL",
+                    "reason_code": item.reason_code,
+                    "reason_cn": item.reason_cn,
+                    "target_count": metrics.get("target_count"),
+                    "predicted_target_count": metrics.get("predicted_target_count"),
+                    "matched_target_count": metrics.get("matched_target_count"),
+                    "order_ok": metrics.get("order_ok"),
+                    "missing_orders": _orders_csv(metrics.get("missing_orders")),
+                    "extra_orders": _orders_csv(metrics.get("extra_orders")),
+                    "ambiguous_orders": _orders_csv(metrics.get("ambiguous_orders")),
+                    "identity_mismatch_orders": _orders_csv(metrics.get("identity_mismatch_orders")),
+                    "click_outside_target_orders": _orders_csv(metrics.get("click_outside_target_orders")),
+                    "center_out_of_tolerance_orders": _orders_csv(metrics.get("center_out_of_tolerance_orders")),
+                    "predicted_status": metrics.get("predicted_status"),
+                }
+            )
 
 
 def _attach_group2_failure_artifacts(
@@ -849,7 +1024,14 @@ def _case_prediction_lines(item: contracts.BusinessEvalCaseRecord) -> list[str]:
         ]
     scene_targets = item.prediction.get("scene_targets")
     if isinstance(scene_targets, list):
-        return [f"- 模型预测目标序列：{json.dumps(scene_targets, ensure_ascii=False)}"]
+        lines = [f"- 模型预测目标序列：{json.dumps(scene_targets, ensure_ascii=False)}"]
+        if item.prediction.get("status") is not None:
+            lines.append(f"- 模型原始状态：{item.prediction.get('status')}")
+        if item.prediction.get("missing_orders") is not None:
+            lines.append(f"- 模型原始缺失顺序：{_orders_cn(item.prediction.get('missing_orders'))}")
+        if item.prediction.get("ambiguous_orders") is not None:
+            lines.append(f"- 模型原始歧义顺序：{_orders_cn(item.prediction.get('ambiguous_orders'))}")
+        return lines
     return [f"- 模型输出：{_render_mapping(item.prediction)}"]
 
 
@@ -866,6 +1048,29 @@ def _case_artifact_lines(item: contracts.BusinessEvalCaseRecord) -> list[str]:
 def _case_metric_lines(item: contracts.BusinessEvalCaseRecord) -> list[str]:
     if item.reference is None or item.prediction is None:
         return [f"- 指标明细：{_render_mapping(item.metrics)}"]
+    if "scene_targets" in item.reference and "scene_targets" in item.prediction:
+        metrics = item.metrics
+        lines = [
+            f"- 图标数量：标准 {metrics.get('target_count')} 个，模型输出 {metrics.get('predicted_target_count')} 个，完全命中的顺序 {metrics.get('matched_target_count')} 个",
+            f"- 图标顺序是否正确：{'是' if metrics.get('order_ok') else '否'}",
+            f"- 缺失顺序：{_orders_cn(metrics.get('missing_orders'))}",
+            f"- 多余顺序：{_orders_cn(metrics.get('extra_orders'))}",
+            f"- 模型标记歧义的顺序：{_orders_cn(metrics.get('ambiguous_orders'))}",
+            f"- 疑似找错图标的顺序：{_orders_cn(metrics.get('identity_mismatch_orders'))}",
+            f"- 点击点落在图标框外的顺序：{_orders_cn(metrics.get('click_outside_target_orders'))}",
+            f"- 中心点误差均值：{metrics.get('mean_center_error_px')}px，仅作参考展示",
+            f"- 模型原始状态：{metrics.get('predicted_status') or 'unknown'}",
+        ]
+        per_order_results = metrics.get("per_order_results")
+        if isinstance(per_order_results, list):
+            for order_result in per_order_results:
+                if not isinstance(order_result, dict):
+                    continue
+                lines.append(
+                    f"- 顺序 {order_result.get('order')}："
+                    f"{_group1_order_result_cn(order_result, point_tolerance_px=metrics.get('point_tolerance_px'))}"
+                )
+        return lines
     if "target_gap" in item.reference and "target_gap" in item.prediction:
         metrics = item.metrics
         failed_checks = metrics.get("failed_checks")
@@ -885,6 +1090,18 @@ def _case_metric_lines(item: contracts.BusinessEvalCaseRecord) -> list[str]:
 def _case_summary_cn(item: contracts.BusinessEvalCaseRecord) -> str | None:
     if item.reference is None or item.prediction is None:
         return None
+    if "scene_targets" in item.reference and "scene_targets" in item.prediction:
+        metrics = item.metrics
+        return (
+            f"该题标准共 {metrics.get('target_count')} 个点击目标，模型输出 {metrics.get('predicted_target_count')} 个；"
+            f"顺序{'正确' if metrics.get('order_ok') else '不正确'}，"
+            f"缺失顺序 {_orders_cn(metrics.get('missing_orders'))}，"
+            f"多余顺序 {_orders_cn(metrics.get('extra_orders'))}，"
+            f"歧义顺序 {_orders_cn(metrics.get('ambiguous_orders'))}，"
+            f"错图顺序 {_orders_cn(metrics.get('identity_mismatch_orders'))}，"
+            f"点击点落框外顺序 {_orders_cn(metrics.get('click_outside_target_orders'))}，"
+            f"最终判定为{'通过' if item.success else '未通过'}。"
+        )
     if "target_gap" in item.reference and "target_gap" in item.prediction:
         metrics = item.metrics
         return (
@@ -896,6 +1113,89 @@ def _case_summary_cn(item: contracts.BusinessEvalCaseRecord) -> str | None:
             f"IoU 为 {metrics.get('iou')}，"
             f"最终判定为{'通过' if item.success else '未通过'}。"
         )
+    return None
+
+
+def _group1_failure_reason_cn(
+    *,
+    missing_orders: list[int],
+    extra_orders: list[int],
+    ambiguous_orders: list[int],
+    identity_mismatch_orders: list[int],
+    click_outside_target_orders: list[int],
+) -> str:
+    if missing_orders or extra_orders:
+        return "模型输出的图标数量或点击顺序与标准答案不一致。"
+    if identity_mismatch_orders:
+        return "点击顺序已对齐，但部分顺序对应的图标实例不正确。"
+    if click_outside_target_orders:
+        return "点击顺序已对齐，但部分图标的点击点落在标准图标框外。"
+    if ambiguous_orders:
+        return "模型给出了结果，但部分顺序仍处于歧义匹配状态。"
+    return "输出目标数量、实例匹配或点击落点未全部达标。"
+
+
+def _group1_order_result_cn(payload: dict[str, Any], *, point_tolerance_px: Any) -> str:
+    status = payload.get("status")
+    if status == "matched":
+        return (
+            f"已找到正确图标，点击点落在目标框内；"
+            f"中心误差 {payload.get('center_error_px', 0.0)}px，仅作参考。"
+        )
+    if status == "missing_order":
+        return "未输出该顺序目标。"
+    if status == "identity_mismatch":
+        return "输出了该顺序目标，但图标实例与标准答案不一致。"
+    if status == "click_outside_target":
+        return f"输出了该顺序目标，但点击点落在标准图标框外；中心误差 {payload.get('center_error_px')}px，仅作参考。"
+    reason = payload.get("reason_cn")
+    if isinstance(reason, str) and reason.strip():
+        return reason
+    return _render_mapping(payload)
+
+
+def _point_in_bbox(point: Any, bbox: Any) -> bool:
+    if (
+        not isinstance(point, list)
+        or len(point) != 2
+        or not isinstance(bbox, list)
+        or len(bbox) != 4
+    ):
+        return False
+    px = float(point[0])
+    py = float(point[1])
+    x1 = float(bbox[0])
+    y1 = float(bbox[1])
+    x2 = float(bbox[2])
+    y2 = float(bbox[3])
+    return x1 <= px <= x2 and y1 <= py <= y2
+
+
+def _orders_cn(value: Any) -> str:
+    orders = _normalize_int_list(value)
+    if not orders:
+        return "无"
+    return ", ".join(str(item) for item in orders)
+
+
+def _orders_csv(value: Any) -> str:
+    orders = _normalize_int_list(value)
+    return "" if not orders else ",".join(str(item) for item in orders)
+
+
+def _normalize_int_list(value: Any) -> list[int]:
+    if not isinstance(value, list):
+        return []
+    normalized: list[int] = []
+    for item in value:
+        if isinstance(item, int) and not isinstance(item, bool):
+            normalized.append(item)
+    return sorted(set(normalized))
+
+
+def _string_or_none(value: Any) -> str | None:
+    if isinstance(value, str) and value.strip():
+        return value
     return None
 
 

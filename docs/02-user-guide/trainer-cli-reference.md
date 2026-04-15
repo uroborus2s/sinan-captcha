@@ -1392,6 +1392,12 @@ uv run sinan auto-train stage <stage> {group1|group2} --study-name <name> --trai
 - `trial_analysis.json`：在 `SUMMARIZE` 后由控制器本地生成，包含当前训练参数、评估失败样本摘要，以及 `group1` 三个组件 `query-detector`、`proposal-detector`、`icon-embedder` 的 gate / failcases / review / 当前参数诊断。
 - `retune_plan.json`：当 `decision = RETUNE` 时生成。`group1` 会额外给出每个组件是 `train` 还是 `reuse`，并可单独覆盖 `model`、`epochs`、`batch`、`imgsz`。
 - `dataset_plan.json`：只有当下一步仍然是 `REGENERATE_DATA` 时才会生成；如果 `group1` 的离线判断先降级为同数据集重训，则本轮不会落这个文件。
+- `business_eval.json / summary.md / business_eval.log`：reviewed 试卷商业测试总记录。当前 `group1` 默认按 `50` 题抽样、`90%` 通过率门槛判定是否达标；单题必须同时满足目标数量一致、点击顺序正确、每个点击点都落在对应标准图标方框内，当前不以 IoU 作为 `group1` 商业门主判条件。
+- `business_eval/<trial>/modeltest/predict_*/labels.jsonl`：商业测试时模型完整输出结果，可直接回看每题模型点到了哪里。
+- `business_eval/<trial>/evaluation/failures.jsonl`：评估层失败样本明细。
+- `business_eval/<trial>/case_results.jsonl`：逐题完整判卷明细，已写入 `missing_orders / extra_orders / ambiguous_orders / identity_mismatch_orders / click_outside_target_orders`。
+- `business_eval/<trial>/failed_cases.jsonl`：仅失败题，适合快速筛查“全错”原因。
+- `business_eval/<trial>/case_summary.csv`：给业务侧直接看的一张汇总表，能区分图标没找出来、顺序不对、疑似找错图标、点击点落在图标框外。
 
 ### 12.5 最小示例
 

@@ -133,6 +133,8 @@ class TrainingJobTests(unittest.TestCase):
         self.assertEqual(scene_target["template_id"], "tpl_house")
         self.assertEqual(scene_target["variant_id"], "var_outline")
         self.assertEqual(prediction["query_items"][0]["class_guess"], "icon_house")
+        self.assertEqual(prediction["missing_orders"], [])
+        self.assertEqual(prediction["ambiguous_orders"], [])
         self.assertNotIn("class_id", scene_target)
         self.assertNotIn("class", scene_target)
 

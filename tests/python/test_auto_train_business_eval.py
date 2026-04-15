@@ -413,7 +413,7 @@ class BusinessEvalExamTests(unittest.TestCase):
                     sample_id="case_0001",
                     success=True,
                     reason_code="pass",
-                    reason_cn="点击序列与中心点误差均达标。",
+                    reason_cn="点击序列与点击落点均达标。",
                     input_images={"query_image": "/tmp/query/case_0001.jpg", "scene_image": "/tmp/scene/case_0001.jpg"},
                     metrics={"target_count": 2, "predicted_target_count": 2, "matched_target_count": 2, "order_ok": True},
                     prediction={"scene_targets": [{"order": 1, "center": [20, 20]}, {"order": 2, "center": [60, 20]}]},
@@ -479,6 +479,123 @@ class BusinessEvalExamTests(unittest.TestCase):
         self.assertEqual(len(cases), 1)
         self.assertTrue(cases[0].success)
         self.assertEqual(cases[0].reason_code, "pass")
+        self.assertEqual(cases[0].metrics["missing_orders"], [])
+        self.assertEqual(cases[0].metrics["extra_orders"], [])
+        self.assertEqual(cases[0].metrics["click_outside_target_orders"], [])
+        self.assertEqual(cases[0].prediction["status"], "matched")
+
+    def test_build_group1_case_results_allows_click_inside_target_bbox_even_when_center_error_is_large(self) -> None:
+        gold_rows = [
+            {
+                "sample_id": "case_0102",
+                "query_image": "/tmp/query/case_0102.png",
+                "scene_image": "/tmp/scene/case_0102.png",
+                "query_items": [
+                    {"order": 1, "bbox": [5, 6, 23, 24], "center": [14, 15]},
+                    {"order": 2, "bbox": [29, 6, 47, 24], "center": [38, 15]},
+                ],
+                "scene_targets": [
+                    {"order": 1, "bbox": [10, 20, 30, 40], "center": [20, 30]},
+                    {"order": 2, "bbox": [50, 60, 74, 86], "center": [62, 73]},
+                ],
+                "distractors": [],
+                "label_source": "reviewed",
+                "source_batch": "reviewed-v2",
+            }
+        ]
+        prediction_rows = [
+            {
+                "sample_id": "case_0102",
+                "query_image": "/tmp/query/case_0102.png",
+                "scene_image": "/tmp/scene/case_0102.png",
+                "query_items": [],
+                "scene_targets": [
+                    {"order": 1, "bbox": [10, 20, 30, 40], "center": [20, 30]},
+                    {"order": 2, "bbox": [50, 60, 74, 86], "center": [70, 80]},
+                ],
+                "distractors": [],
+                "label_source": "pred",
+                "source_batch": "predict",
+                "status": "ambiguous_match",
+                "missing_orders": [],
+                "ambiguous_orders": [2],
+                "inference_ms": 11.2,
+            }
+        ]
+
+        cases = business_eval.build_case_results(
+            task="group1",
+            gold_rows=gold_rows,
+            prediction_rows=prediction_rows,
+            point_tolerance_px=5,
+            iou_threshold=0.5,
+        )
+
+        self.assertEqual(len(cases), 1)
+        self.assertTrue(cases[0].success)
+        self.assertEqual(cases[0].reason_code, "pass")
+        self.assertEqual(cases[0].metrics["missing_orders"], [])
+        self.assertEqual(cases[0].metrics["extra_orders"], [])
+        self.assertEqual(cases[0].metrics["ambiguous_orders"], [2])
+        self.assertEqual(cases[0].metrics["click_outside_target_orders"], [])
+        self.assertEqual(cases[0].metrics["predicted_status"], "ambiguous_match")
+        self.assertEqual(cases[0].prediction["ambiguous_orders"], [2])
+        self.assertEqual(cases[0].metrics["matched_target_count"], 2)
+        self.assertEqual(cases[0].reason_cn, "点击序列与点击落点均达标。")
+
+    def test_build_group1_case_results_records_click_outside_target_breakdown(self) -> None:
+        gold_rows = [
+            {
+                "sample_id": "case_0103",
+                "query_image": "/tmp/query/case_0103.png",
+                "scene_image": "/tmp/scene/case_0103.png",
+                "query_items": [
+                    {"order": 1, "bbox": [5, 6, 23, 24], "center": [14, 15]},
+                    {"order": 2, "bbox": [29, 6, 47, 24], "center": [38, 15]},
+                ],
+                "scene_targets": [
+                    {"order": 1, "bbox": [10, 20, 30, 40], "center": [20, 30]},
+                    {"order": 2, "bbox": [50, 60, 74, 86], "center": [62, 73]},
+                ],
+                "distractors": [],
+                "label_source": "reviewed",
+                "source_batch": "reviewed-v2",
+            }
+        ]
+        prediction_rows = [
+            {
+                "sample_id": "case_0103",
+                "query_image": "/tmp/query/case_0103.png",
+                "scene_image": "/tmp/scene/case_0103.png",
+                "query_items": [],
+                "scene_targets": [
+                    {"order": 1, "bbox": [10, 20, 30, 40], "center": [20, 30]},
+                    {"order": 2, "bbox": [50, 60, 74, 86], "center": [80, 92]},
+                ],
+                "distractors": [],
+                "label_source": "pred",
+                "source_batch": "predict",
+                "status": "ambiguous_match",
+                "missing_orders": [],
+                "ambiguous_orders": [2],
+                "inference_ms": 11.2,
+            }
+        ]
+
+        cases = business_eval.build_case_results(
+            task="group1",
+            gold_rows=gold_rows,
+            prediction_rows=prediction_rows,
+            point_tolerance_px=5,
+            iou_threshold=0.5,
+        )
+
+        self.assertEqual(len(cases), 1)
+        self.assertFalse(cases[0].success)
+        self.assertEqual(cases[0].reason_code, "sequence_mismatch")
+        self.assertEqual(cases[0].metrics["click_outside_target_orders"], [2])
+        self.assertEqual(cases[0].metrics["predicted_status"], "ambiguous_match")
+        self.assertIn("点击点落在标准图标框外", cases[0].reason_cn)
 
     def test_business_eval_markdown_lists_group2_case_deviation_and_failed_checks(self) -> None:
         record = contracts.BusinessEvalRecord(
@@ -595,6 +712,202 @@ class BusinessEvalExamTests(unittest.TestCase):
         self.assertIn("summary_cn=", rendered)
         self.assertIn("标准答案中心点为 [27, 27]", rendered)
         self.assertIn("模型预测中心点为 [24, 32]", rendered)
+
+    def test_business_eval_markdown_lists_group1_human_readable_breakdown_and_saved_artifacts(self) -> None:
+        record = contracts.BusinessEvalRecord(
+            trial_id="trial_0011",
+            task="group1",
+            train_name="trial_0011",
+            cases_root="/tmp/business-cases",
+            available_cases=50,
+            total_cases=50,
+            passed_cases=42,
+            success_rate=42 / 50,
+            success_threshold=0.90,
+            min_cases=50,
+            sample_size=50,
+            commercial_ready=False,
+            point_tolerance_px=5,
+            iou_threshold=0.5,
+            sampled_source="/tmp/business-eval/_sampled_source/labels.jsonl",
+            report_dir="/tmp/business-eval",
+            prediction_dir="/tmp/business-eval/modeltest/predict",
+            evaluation_report_dir="/tmp/business-eval/evaluation",
+            case_results=[
+                contracts.BusinessEvalCaseRecord(
+                    case_id="case_0011",
+                    sample_id="case_0011",
+                    success=False,
+                    reason_code="sequence_mismatch",
+                    reason_cn="点击顺序已对齐，但部分图标的点击点落在标准图标框外。",
+                    input_images={"query_image": "/tmp/query/case_0011.png", "scene_image": "/tmp/scene/case_0011.png"},
+                    metrics={
+                        "target_count": 2,
+                        "predicted_target_count": 2,
+                        "matched_target_count": 1,
+                        "point_tolerance_px": 5,
+                        "mean_center_error_px": 4.4721,
+                        "order_ok": True,
+                        "sequence_ok": False,
+                        "expected_orders": [1, 2],
+                        "predicted_orders": [1, 2],
+                        "missing_orders": [],
+                        "extra_orders": [],
+                        "ambiguous_orders": [2],
+                        "identity_mismatch_orders": [],
+                        "click_outside_target_orders": [2],
+                        "predicted_status": "ambiguous_match",
+                        "per_order_results": [
+                            {"order": 1, "status": "matched", "center_error_px": 0.0, "point_in_target_bbox": True},
+                            {"order": 2, "status": "click_outside_target", "center_error_px": 8.9443, "point_in_target_bbox": False},
+                        ],
+                    },
+                    prediction={
+                        "scene_targets": [{"order": 1, "center": [20, 30]}, {"order": 2, "center": [70, 80]}],
+                        "status": "ambiguous_match",
+                        "ambiguous_orders": [2],
+                    },
+                    reference={"scene_targets": [{"order": 1, "center": [20, 30]}, {"order": 2, "center": [62, 73]}]},
+                    evidence=[],
+                )
+            ],
+            evidence=[
+                "case_results_jsonl=/tmp/business-eval/case_results.jsonl",
+                "failed_cases_jsonl=/tmp/business-eval/failed_cases.jsonl",
+                "case_summary_csv=/tmp/business-eval/case_summary.csv",
+            ],
+        )
+
+        rendered = business_eval.markdown_from_business_eval(record)
+
+        self.assertIn("当前判卷参数说明", rendered)
+        self.assertIn("group1 商业门当前不看 IoU", rendered)
+        self.assertIn("图标顺序是否正确：是", rendered)
+        self.assertIn("模型标记歧义的顺序：2", rendered)
+        self.assertIn("点击点落在图标框外的顺序：2", rendered)
+        self.assertIn("顺序 2：", rendered)
+        self.assertIn("完整判卷明细：/tmp/business-eval/case_results.jsonl", rendered)
+        self.assertIn("失败样本明细：/tmp/business-eval/failed_cases.jsonl", rendered)
+        self.assertIn("可读汇总表：/tmp/business-eval/case_summary.csv", rendered)
+
+    def test_run_reviewed_business_eval_group1_writes_case_result_artifacts(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            root = Path(tmpdir)
+            cases_root = root / "business-exams" / "group1" / "reviewed"
+            report_dir = root / "reports" / "business-eval"
+            query_dir = cases_root / "query"
+            scene_dir = cases_root / "scene"
+            for path in (query_dir, scene_dir):
+                path.mkdir(parents=True, exist_ok=True)
+            _write_png(query_dir / "case_0201.png", 8, 8, (255, 0, 0))
+            _write_png(scene_dir / "case_0201.png", 8, 8, (0, 255, 0))
+            write_jsonl(
+                cases_root / "labels.jsonl",
+                [
+                    {
+                        "sample_id": "case_0201",
+                        "query_image": "query/case_0201.png",
+                        "scene_image": "scene/case_0201.png",
+                        "query_items": [{"order": 1, "bbox": [1, 1, 3, 3], "center": [2, 2]}],
+                        "scene_targets": [{"order": 1, "bbox": [10, 20, 30, 40], "center": [20, 30]}],
+                        "distractors": [],
+                        "label_source": "reviewed",
+                        "source_batch": "reviewed-v3",
+                    }
+                ],
+            )
+
+            fake_request = type(
+                "FakeRequest",
+                (),
+                {
+                    "task": "group1",
+                    "dataset_version": "v1",
+                    "train_name": "trial_0201",
+                    "dataset_config": root / "unused-dataset.json",
+                    "query_detector_model_path": None,
+                    "model_path": root / "proposal.pt",
+                    "embedder_model_path": root / "embedder.pt",
+                    "source": report_dir / "_sampled_source" / "labels.jsonl",
+                    "project_dir": report_dir / "modeltest",
+                    "report_dir": report_dir / "modeltest-report",
+                    "predict_name": "predict_trial_0201_business_exam",
+                    "val_name": "val_trial_0201_business_exam",
+                    "device": "cpu",
+                    "imgsz": 640,
+                    "similarity_threshold": None,
+                    "ambiguity_margin": None,
+                },
+            )()
+
+            def _fake_modeltest(_request):
+                predict_dir = report_dir / "modeltest" / fake_request.predict_name
+                predict_dir.mkdir(parents=True, exist_ok=True)
+                write_jsonl(
+                    predict_dir / "labels.jsonl",
+                    [
+                        {
+                            "sample_id": "case_0201",
+                            "query_image": str(query_dir / "case_0201.png"),
+                            "scene_image": str(scene_dir / "case_0201.png"),
+                            "query_items": [{"order": 1, "bbox": [1, 1, 3, 3], "center": [2, 2]}],
+                            "scene_targets": [
+                                {
+                                    "order": 1,
+                                    "asset_id": "pred_asset_01",
+                                    "template_id": "pred_tpl_01",
+                                    "variant_id": "pred_var_01",
+                                    "bbox": [10, 20, 30, 40],
+                                    "center": [20, 30],
+                                }
+                            ],
+                            "distractors": [],
+                            "label_source": "pred",
+                            "source_batch": "predict",
+                            "status": "matched",
+                            "missing_orders": [],
+                            "ambiguous_orders": [],
+                            "inference_ms": 6.4,
+                        }
+                    ],
+                )
+                return type(
+                    "Result",
+                    (),
+                    {
+                        "predict_output_dir": predict_dir,
+                    },
+                )()
+
+            with patch("auto_train.business_eval._build_business_model_test_request", return_value=fake_request):
+                record = business_eval.run_reviewed_business_eval(
+                    trial_id="trial_0201",
+                    task="group1",
+                    train_root=root / "train-root",
+                    dataset_version="v1",
+                    train_name="trial_0201",
+                    cases_root=cases_root,
+                    report_dir=report_dir,
+                    device="cpu",
+                    imgsz=640,
+                    success_threshold=0.90,
+                    min_cases=1,
+                    sample_size=1,
+                    point_tolerance_px=5,
+                    iou_threshold=0.5,
+                    modeltest_runner=_fake_modeltest,
+                )
+
+            case_results_jsonl = report_dir / "case_results.jsonl"
+            failed_cases_jsonl = report_dir / "failed_cases.jsonl"
+            case_summary_csv = report_dir / "case_summary.csv"
+            self.assertTrue(case_results_jsonl.exists())
+            self.assertTrue(failed_cases_jsonl.exists())
+            self.assertTrue(case_summary_csv.exists())
+            self.assertIn(f"case_results_jsonl={case_results_jsonl}", record.evidence)
+            self.assertIn(f"failed_cases_jsonl={failed_cases_jsonl}", record.evidence)
+            self.assertIn(f"case_summary_csv={case_summary_csv}", record.evidence)
+            self.assertEqual(len(business_eval.load_reviewed_exam_rows("group1", case_results_jsonl.parent / "_sampled_source")), 1)
 
 
 class BusinessEvalControllerTests(unittest.TestCase):

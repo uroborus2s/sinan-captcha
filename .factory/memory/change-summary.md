@@ -1,5 +1,43 @@
 # 变更摘要
 
+## 2026-04-15 补齐 `group1` 商业测试错误明细落盘与可读报告
+
+- 已更新：
+  - `packages/sinan-captcha/src/auto_train/business_eval.py`
+  - `packages/sinan-captcha/src/train/group1/runner.py`
+  - `tests/python/test_auto_train_business_eval.py`
+  - `tests/python/test_training_jobs.py`
+  - `docs/02-user-guide/trainer-cli-reference.md`
+  - `docs/02-user-guide/complete-training-operations-guide.md`
+  - `.factory/memory/current-state.md`
+  - `.factory/memory/change-summary.md`
+- 当前已完成的目标：
+  - `group1` 商业测试当前已把判卷标准显式写进 markdown 报告：
+    - 默认稳定抽样 `50` 题
+    - 默认通过率门槛 `0.90`
+    - 单题要求目标数量一致、点击顺序正确、点击点落在对应标准图标方框内
+    - 当前不以 IoU 作为 `group1` 商业门主判条件
+  - 商业测试当前会额外保存：
+    - `modeltest/predict_*/labels.jsonl`
+    - `evaluation/failures.jsonl`
+    - `case_results.jsonl`
+    - `failed_cases.jsonl`
+    - `case_summary.csv`
+  - `group1` 单题判卷当前已细化为可读错误归因：
+    - 图标没找出来
+    - 点击顺序不对
+    - 疑似找错图标
+    - 点击点落在图标框外
+    - 模型原始歧义状态
+- 2026-04-16 当前 `group1` 商业测试主判已进一步放宽：
+  - 不再以 `point_tolerance_px = 5` 的中心点误差作为主判
+  - 改为“预测点击点落在对应标准图标 bbox 内即视为命中”
+  - `center_error_px` 仍保留在 `case_results.jsonl / failed_cases.jsonl / case_summary.csv / markdown` 中，但只作为参考显示，不再决定 pass/fail
+  - `group1` 商业测试 markdown/log 当前已能输出逐顺序说明，便于直接看出到底是哪一个 order 出错、错在什么类型
+- 已运行验证：
+  - `uv run pytest tests/python/test_auto_train_business_eval.py tests/python/test_training_jobs.py -q`
+  - `uv run pytest tests/python/test_auto_train_controller.py -q`
+
 ## 2026-04-15 为 `auto-train` 增加错误数据分析与定向调参闭环
 
 - 已更新：

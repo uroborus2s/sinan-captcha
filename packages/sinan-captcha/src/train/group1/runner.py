@@ -501,6 +501,8 @@ def _build_prediction_row(
         "label_source": "pred",
         "source_batch": row.get("source_batch", "prediction"),
         "status": mapping.status,
+        "missing_orders": mapping.missing_orders,
+        "ambiguous_orders": mapping.ambiguous_orders,
         "inference_ms": round(elapsed_ms, 4),
     }
 
