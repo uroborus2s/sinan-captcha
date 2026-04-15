@@ -179,8 +179,14 @@ class StudyPaths:
     def result_summary_file(self, trial_id: str) -> Path:
         return self.trial_dir(trial_id) / "result_summary.json"
 
+    def trial_analysis_file(self, trial_id: str) -> Path:
+        return self.trial_dir(trial_id) / "trial_analysis.json"
+
     def decision_file(self, trial_id: str) -> Path:
         return self.trial_dir(trial_id) / "decision.json"
+
+    def retune_plan_file(self, trial_id: str) -> Path:
+        return self.trial_dir(trial_id) / "retune_plan.json"
 
     def business_eval_file(self, trial_id: str) -> Path:
         return self.trial_dir(trial_id) / "business_eval.json"

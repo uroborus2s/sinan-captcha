@@ -11,6 +11,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 
 from auto_train import (
+    analysis,
     business_eval,
     contracts,
     dataset_plan,
@@ -24,6 +25,7 @@ from auto_train import (
     optimize,
     optuna_runtime,
     policies,
+    retune_plan,
     runners,
     state_machine,
     stop_rules,
@@ -42,6 +44,7 @@ from train.base import (
     default_dataset_config,
     default_report_dir,
     default_run_dir,
+    is_resumable_yolo_checkpoint,
     preferred_checkpoint_path,
 )
 from train.group1.dataset import load_group1_dataset_config
@@ -62,6 +65,7 @@ GROUP1_EMBEDDER_GATE_RECALL_AT_3_MIN = 0.995
 GROUP1_EMBEDDER_GATE_SCENE_RECALL_AT_1_MIN = 0.97
 GROUP1_EMBEDDER_GATE_SCENE_RECALL_AT_3_MIN = 0.995
 GROUP1_COMPONENT_PLAN_PARAM = "group1_component_plan"
+GROUP1_COMPONENT_PARAMS_PARAM = "group1_component_params"
 GROUP1_COMPONENT_PLAN_TRAIN = "train"
 GROUP1_COMPONENT_PLAN_REUSE = "reuse"
 GROUP1_EMBEDDER_HARDSET_REBUILD_COUNT_PARAM = "embedder_hardset_rebuild_count"
@@ -1151,8 +1155,9 @@ class AutoTrainController:
             self.request.task,
             input_record.dataset_version,
         )
-        imgsz = imgsz_override or _int_value(input_record.params, "imgsz", default=self.request.effective_imgsz)
-        device = _string_value(input_record.params, "device", default=self.request.device) or self.request.device
+        component_params = self._group1_component_params(input_record, component=component)
+        imgsz = imgsz_override or _int_value(component_params, "imgsz", default=_int_value(input_record.params, "imgsz", default=self.request.effective_imgsz))
+        device = _string_value(component_params, "device", default=_string_value(input_record.params, "device", default=self.request.device)) or self.request.device
         self._write_console(
             "stage_train_component "
             f"trial={trial_id} "
@@ -1197,9 +1202,9 @@ class AutoTrainController:
                 train_name=input_record.train_name,
                 train_mode=effective_train_mode,
                 base_run=input_record.base_run,
-                model=model_override or _string_value(input_record.params, "model"),
-                epochs=_int_value(input_record.params, "epochs"),
-                batch=_int_value(input_record.params, "batch"),
+                model=model_override or _string_value(component_params, "model", default=_string_value(input_record.params, "model")),
+                epochs=_int_value(component_params, "epochs", default=_int_value(input_record.params, "epochs")),
+                batch=_int_value(component_params, "batch", default=_int_value(input_record.params, "batch")),
                 imgsz=imgsz,
                 device=device,
                 component=component,
@@ -1551,7 +1556,18 @@ class AutoTrainController:
             input_record.train_name,
             component=PROPOSAL_COMPONENT,
         ):
-            return "resume", "resume_incomplete_current_run", last_path
+            if is_resumable_yolo_checkpoint(last_path):
+                return "resume", "resume_incomplete_current_run", last_path
+            if requested_train_mode == "from_run" and input_record.base_run is not None:
+                return (
+                    requested_train_mode,
+                    "requested_from_run_non_resumable_current_run",
+                    resolve_group1_component_best_weights(
+                        self.request.train_root,
+                        input_record.base_run,
+                        PROPOSAL_COMPONENT,
+                    ),
+                )
         if requested_train_mode == "resume":
             return requested_train_mode, "requested_resume", last_path if last_path.exists() else None
         if requested_train_mode == "from_run" and input_record.base_run is not None:
@@ -1612,7 +1628,7 @@ class AutoTrainController:
         if component == QUERY_COMPONENT:
             return True
         if component == PROPOSAL_COMPONENT:
-            return self._is_group1_detector_component_complete(train_name, component=component)
+            return best_path.exists() or self._is_group1_detector_component_complete(train_name, component=component)
         if component == EMBEDDER_COMPONENT:
             return self._is_group1_embedder_component_complete(train_name)
         return False
@@ -1630,6 +1646,20 @@ class AutoTrainController:
         if raw_action in {GROUP1_COMPONENT_PLAN_TRAIN, GROUP1_COMPONENT_PLAN_REUSE}:
             return str(raw_action)
         return GROUP1_COMPONENT_PLAN_TRAIN
+
+    def _group1_component_params(
+        self,
+        input_record: contracts.TrialInputRecord,
+        *,
+        component: str,
+    ) -> dict[str, contracts.JsonValue]:
+        payload = input_record.params.get(GROUP1_COMPONENT_PARAMS_PARAM)
+        if not isinstance(payload, dict):
+            return {}
+        component_payload = payload.get(component)
+        if not isinstance(component_payload, dict):
+            return {}
+        return component_payload
 
     def _increment_embedder_hardset_rebuild_count(self, trial_id: str) -> int:
         input_path = self.paths.input_file(trial_id)
@@ -1933,6 +1963,8 @@ class AutoTrainController:
             "device": device,
             "metrics": component_summary.get("metrics", {}),
             "gate": gate if isinstance(gate, dict) else {},
+            "error_file": component_summary.get("failcases"),
+            "review": component_summary.get("review"),
             "checks": {
                 "best_exists": bool(best_path and best_path.exists()),
                 "last_exists": bool(last_path and last_path.exists()),
@@ -2023,6 +2055,15 @@ class AutoTrainController:
         else:
             record = fallback_record
         storage.write_result_summary_record(self.paths.result_summary_file(trial_id), record)
+        trial_analysis_record = analysis.build_trial_analysis(
+            analysis.TrialAnalysisRequest(
+                paths=self.paths,
+                trial_id=trial_id,
+                trial_input=trial_input,
+                summary_record=record,
+            )
+        )
+        storage.write_trial_analysis_record(self.paths.trial_analysis_file(trial_id), trial_analysis_record)
         self._write_trial_summary(record, None)
         return StageExecution(
             trial_id=trial_id,
@@ -2090,8 +2131,15 @@ class AutoTrainController:
             decision=effective_decision,
             leaderboard=leaderboard,
         )
+        retune_plan_record = self._retune_plan_record(
+            summary_record=summary_record,
+            decision=effective_decision,
+            leaderboard=leaderboard,
+        )
         if plan_record is not None:
             storage.write_dataset_plan_record(self.paths.dataset_plan_file(trial_id), plan_record)
+        if retune_plan_record is not None:
+            storage.write_retune_plan_record(self.paths.retune_plan_file(trial_id), retune_plan_record)
         storage.append_decision_history(self.paths.decisions_file, effective_decision)
 
         if effective_decision.decision == "ABANDON_BRANCH":
@@ -2179,7 +2227,7 @@ class AutoTrainController:
                 detail=stop_decision.reason,
             )
 
-        next_trial = self._prepare_next_trial(summary_record, effective_decision, plan_record)
+        next_trial = self._prepare_next_trial(summary_record, effective_decision, plan_record, retune_plan_record)
         storage.write_trial_input_record(self.paths.input_file(next_trial.trial_id), next_trial)
         storage.append_trial_history(self.paths.trial_history_file, next_trial)
         updated = self._with_study_updates(
@@ -2331,6 +2379,7 @@ class AutoTrainController:
         summary_record: contracts.ResultSummaryRecord,
         decision: contracts.DecisionRecord,
         plan_record: contracts.DatasetPlanRecord | None = None,
+        retune_plan_record: contracts.RetunePlanRecord | None = None,
     ) -> contracts.TrialInputRecord:
         previous_input = storage.read_trial_input_record(self.paths.input_file(summary_record.trial_id))
         next_trial_id = self._next_trial_id()
@@ -2349,28 +2398,32 @@ class AutoTrainController:
         for internal_key in optuna_runtime.INTERNAL_PARAM_KEYS:
             next_params.pop(internal_key, None)
         next_params.pop(GROUP1_EMBEDDER_HARDSET_REBUILD_COUNT_PARAM, None)
+        next_params.pop(GROUP1_COMPONENT_PARAMS_PARAM, None)
         if decision.decision == "RETUNE":
-            plan = optimize.build_optimization_plan(
-                summary=summary_record,
-                decision=decision,
-                optuna_available=self._optuna_available(),
-            )
-            if plan.use_optuna:
-                try:
-                    suggestion = self._optuna_runtime().suggest_next_parameters(
-                        plan=plan,
-                        completed_input=previous_input,
-                        summary=summary_record,
-                        next_trial_id=next_trial_id,
-                    )
-                except optuna_runtime.OptunaRuntimeError:
-                    next_params.update(plan.fallback_parameters)
-                else:
-                    next_params.update(suggestion.params)
-                    next_params[optuna_runtime.OPTUNA_TRIAL_NUMBER_KEY] = suggestion.trial_number
-                    next_params[optuna_runtime.OPTUNA_ENGINE_KEY] = "optuna"
+            if retune_plan_record is not None:
+                next_params.update(retune_plan_record.parameter_updates)
             else:
-                next_params.update(plan.fallback_parameters)
+                plan = optimize.build_optimization_plan(
+                    summary=summary_record,
+                    decision=decision,
+                    optuna_available=self._optuna_available(),
+                )
+                if plan.use_optuna:
+                    try:
+                        suggestion = self._optuna_runtime().suggest_next_parameters(
+                            plan=plan,
+                            completed_input=previous_input,
+                            summary=summary_record,
+                            next_trial_id=next_trial_id,
+                        )
+                    except optuna_runtime.OptunaRuntimeError:
+                        next_params.update(plan.fallback_parameters)
+                    else:
+                        next_params.update(suggestion.params)
+                        next_params[optuna_runtime.OPTUNA_TRIAL_NUMBER_KEY] = suggestion.trial_number
+                        next_params[optuna_runtime.OPTUNA_ENGINE_KEY] = "optuna"
+                else:
+                    next_params.update(plan.fallback_parameters)
 
         if train_action == "resume":
             train_mode = "resume"
@@ -2393,7 +2446,11 @@ class AutoTrainController:
                 trial_id=summary_record.trial_id,
                 regenerate_all=regenerate_all_components,
             )
+            if not regenerate_all_components and retune_plan_record is not None and retune_plan_record.component_actions is not None:
+                component_plan.update(retune_plan_record.component_actions)
             next_params[GROUP1_COMPONENT_PLAN_PARAM] = component_plan
+            if retune_plan_record is not None and retune_plan_record.component_parameter_updates is not None:
+                next_params[GROUP1_COMPONENT_PARAMS_PARAM] = retune_plan_record.component_parameter_updates
 
         return contracts.TrialInputRecord(
             trial_id=next_trial_id,
@@ -3237,6 +3294,69 @@ class AutoTrainController:
                 [f"dataset_plan_fallback=invalid_payload", str(exc)],
             )
 
+    def _retune_plan_record(
+        self,
+        *,
+        summary_record: contracts.ResultSummaryRecord,
+        decision: contracts.DecisionRecord,
+        leaderboard: contracts.LeaderboardRecord,
+    ) -> contracts.RetunePlanRecord | None:
+        if decision.decision != "RETUNE":
+            return None
+        if not self.paths.trial_analysis_file(summary_record.trial_id).exists():
+            return None
+        analysis_record = storage.read_trial_analysis_record(self.paths.trial_analysis_file(summary_record.trial_id))
+        fallback_record = retune_plan.build_retune_plan(
+            summary=summary_record,
+            analysis=analysis_record,
+            decision=decision,
+        )
+        if self.request.judge_provider != "opencode":
+            return None
+
+        runtime = self._opencode_runtime()
+        if not hasattr(runtime, "plan_retune"):
+            return _retune_plan_with_extra_evidence(
+                fallback_record,
+                ["retune_plan_fallback=runtime_missing", "runtime_missing_plan_retune"],
+            )
+        files = [
+            self.paths.result_summary_file(summary_record.trial_id),
+            self.paths.trial_analysis_file(summary_record.trial_id),
+        ]
+        files.extend(path for path in (self.paths.leaderboard_file, self.paths.best_trial_file) if path.exists())
+        try:
+            result = runtime.plan_retune(
+                study_name=self.request.study_name,
+                task=self.request.task,
+                trial_id=summary_record.trial_id,
+                files=files,
+            )
+        except opencode_runtime.OpenCodeRuntimeError as exc:
+            return _retune_plan_with_extra_evidence(
+                fallback_record,
+                [f"retune_plan_fallback=runtime_error", str(exc)],
+            )
+
+        try:
+            payload = json_extract.extract_json_object_from_opencode_output(
+                result.stdout,
+                required_keys={
+                    "study_name",
+                    "task",
+                    "trial_id",
+                    "parameter_updates",
+                    "rationale_cn",
+                    "evidence",
+                },
+            )
+            return contracts.RetunePlanRecord.from_dict(payload)
+        except ValueError as exc:
+            return _retune_plan_with_extra_evidence(
+                fallback_record,
+                [f"retune_plan_fallback=invalid_payload", str(exc)],
+            )
+
     def _judge_trial(
         self,
         trial_id: str,
@@ -3255,6 +3375,7 @@ class AutoTrainController:
                 for path in (
                     self.paths.leaderboard_file,
                     self.paths.decisions_file,
+                    self.paths.trial_analysis_file(trial_id),
                     self.paths.offline_eval_file(trial_id),
                     self.paths.business_eval_file(trial_id),
                 )
@@ -3484,6 +3605,22 @@ def _dataset_plan_with_extra_evidence(
     )
 
 
+def _retune_plan_with_extra_evidence(
+    record: contracts.RetunePlanRecord,
+    extra_evidence: list[str],
+) -> contracts.RetunePlanRecord:
+    return contracts.RetunePlanRecord(
+        study_name=record.study_name,
+        task=record.task,
+        trial_id=record.trial_id,
+        parameter_updates=record.parameter_updates,
+        component_actions=record.component_actions,
+        component_parameter_updates=record.component_parameter_updates,
+        rationale_cn=record.rationale_cn,
+        evidence=[*record.evidence, *[item for item in extra_evidence if item.strip()]],
+    )
+
+
 def _hydrate_result_summary_payload(
     payload: dict[str, contracts.JsonValue],
     *,
@@ -3579,7 +3716,7 @@ def _as_optional_mapping(value: object) -> dict[str, contracts.JsonValue] | None
 
 
 def _trace_trial_id(trace: opencode_runtime.OpenCodeTraceRecord) -> str | None:
-    if trace.command_name in {"judge-trial", "result-read", "plan-dataset"} and len(trace.arguments) >= 3:
+    if trace.command_name in {"judge-trial", "result-read", "plan-dataset", "plan-retune"} and len(trace.arguments) >= 3:
         return trace.arguments[2]
     return None
 

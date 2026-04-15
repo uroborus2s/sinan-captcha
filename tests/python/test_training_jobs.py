@@ -1,4 +1,5 @@
 import io
+import importlib
 import json
 import struct
 import unittest
@@ -12,13 +13,14 @@ from common.paths import default_work_root
 from common.jsonl import read_jsonl
 from inference.service import ClickPoint, Group1ClickTarget, Group1MappingResult
 from train.base import (
+    is_resumable_yolo_checkpoint,
     preferred_checkpoint_path,
     preferred_run_checkpoint,
     prepare_dataset_yaml_for_ultralytics,
 )
 from train.group1 import cli as group1_cli
 from train.group1.dataset import load_group1_dataset_config
-from train.group1.runner import _build_prediction_row
+from train.group1.runner import _build_prediction_row, _build_train_command
 from train.group1.service import EmbedderReviewConfig, build_group1_training_job
 from train.group2 import cli as group2_cli
 from train.group2.service import build_group2_prediction_job, build_group2_training_job, run_group2_prediction_job
@@ -52,6 +54,33 @@ def _write_png(path: Path, width: int, height: int, color: tuple[int, int, int])
 
 
 class TrainingJobTests(unittest.TestCase):
+    def test_is_resumable_yolo_checkpoint_rejects_plain_text_file(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            checkpoint_path = Path(tmpdir) / "weights" / "last.pt"
+            checkpoint_path.parent.mkdir(parents=True, exist_ok=True)
+            checkpoint_path.write_text("not-a-checkpoint", encoding="utf-8")
+
+            self.assertFalse(is_resumable_yolo_checkpoint(checkpoint_path))
+
+    def test_is_resumable_yolo_checkpoint_accepts_checkpoint_with_epoch_and_optimizer(self) -> None:
+        torch = importlib.import_module("torch")
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            checkpoint_path = Path(tmpdir) / "weights" / "last.pt"
+            checkpoint_path.parent.mkdir(parents=True, exist_ok=True)
+            torch.save(
+                {
+                    "epoch": 11,
+                    "optimizer": {
+                        "state": {},
+                        "param_groups": [],
+                    },
+                },
+                checkpoint_path,
+            )
+
+            self.assertTrue(is_resumable_yolo_checkpoint(checkpoint_path))
+
     def test_group1_instance_matching_prediction_row_copies_query_identity(self) -> None:
         row = {
             "sample_id": "g1_000001",
@@ -318,6 +347,21 @@ class TrainingJobTests(unittest.TestCase):
         self.assertIn("local/qwen", command)
         self.assertIn("--review-stage", command)
         self.assertIn("TRAIN_EMBEDDER_BASE", command)
+
+    def test_group1_detector_train_command_sets_exist_ok_to_prevent_renamed_output_dirs(self) -> None:
+        command = _build_train_command(
+            dataset_yaml=Path("datasets/group1/v1/proposal-yolo/dataset.yaml"),
+            project_dir=Path("runs/group1/trial_0002"),
+            run_name="proposal-detector",
+            model="yolo26n.pt",
+            epochs=120,
+            batch=16,
+            imgsz=640,
+            device="0",
+            resume=False,
+        )
+
+        self.assertIn("exist_ok=True", command)
 
     def test_group1_prediction_job_includes_icon_embedder_model(self) -> None:
         from train.group1.service import build_group1_prediction_job

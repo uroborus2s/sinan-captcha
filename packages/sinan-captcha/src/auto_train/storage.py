@@ -90,6 +90,22 @@ def read_result_summary_record(path: Path) -> contracts.ResultSummaryRecord:
     return contracts.ResultSummaryRecord.from_dict(_read_json(path))
 
 
+def write_trial_analysis_record(path: Path, record: contracts.TrialAnalysisRecord) -> None:
+    _write_json(path, record.to_dict())
+
+
+def read_trial_analysis_record(path: Path) -> contracts.TrialAnalysisRecord:
+    return contracts.TrialAnalysisRecord.from_dict(_read_json(path))
+
+
+def write_retune_plan_record(path: Path, record: contracts.RetunePlanRecord) -> None:
+    _write_json(path, record.to_dict())
+
+
+def read_retune_plan_record(path: Path) -> contracts.RetunePlanRecord:
+    return contracts.RetunePlanRecord.from_dict(_read_json(path))
+
+
 def write_business_eval_record(path: Path, record: contracts.BusinessEvalRecord) -> None:
     _write_json(path, record.to_dict())
 

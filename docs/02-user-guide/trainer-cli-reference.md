@@ -1277,6 +1277,7 @@ uv run sinan auto-train run {group1|group2} --study-name <name> --train-root <di
 
 - 输出包含 `final_stage`、`study_status`。
 - 对应 `studies/<task>/<study-name>/` 下生成完整 trial 记录。
+- 当 `--judge-provider opencode` 且下一步动作是 `RETUNE` 时，会额外写出 `trial_analysis.json` 与 `retune_plan.json`，用于记录错误样本分析和下一轮调参建议。
 
 #### 常见误用
 
@@ -1384,6 +1385,13 @@ uv run sinan auto-train stage <stage> {group1|group2} --study-name <name> --trai
 | 参数 | 默认值 | 说明 |
 | --- | --- | --- |
 | `--max-steps` | 空 | 单次运行最大阶段步数；空值由 `goal_only_stop` 推导。 |
+
+#### `opencode` 路线关键工件
+
+- `result_summary.json`：压缩当前 trial 的测试、评估与趋势摘要。
+- `trial_analysis.json`：在 `SUMMARIZE` 后由控制器本地生成，包含当前训练参数、评估失败样本摘要，以及 `group1` 三个组件 `query-detector`、`proposal-detector`、`icon-embedder` 的 gate / failcases / review / 当前参数诊断。
+- `retune_plan.json`：当 `decision = RETUNE` 时生成。`group1` 会额外给出每个组件是 `train` 还是 `reuse`，并可单独覆盖 `model`、`epochs`、`batch`、`imgsz`。
+- `dataset_plan.json`：只有当下一步仍然是 `REGENERATE_DATA` 时才会生成；如果 `group1` 的离线判断先降级为同数据集重训，则本轮不会落这个文件。
 
 ### 12.5 最小示例
 

@@ -1,6 +1,7 @@
 """Contracts and helpers for autonomous training studies."""
 
 __all__ = [
+    "analysis",
     "business_eval",
     "cli",
     "contracts",
@@ -16,6 +17,7 @@ __all__ = [
     "optuna_runtime",
     "policies",
     "recovery",
+    "retune_plan",
     "runners",
     "state_machine",
     "stop_rules",

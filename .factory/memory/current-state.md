@@ -17,6 +17,32 @@
 
 ## 当前事实
 
+- 2026-04-15 当前 `auto-train` 已新增“错误数据分析 -> 定向调参”闭环：
+  - 当前 `SUMMARIZE` 后会额外生成 `trial_analysis.json`
+  - 当前 `RETUNE` 在 `judge_provider = opencode` 时会新增本地命令：
+    - `.opencode/commands/plan-retune.md`
+    - `.opencode/skills/retune-planner/SKILL.md`
+  - 当前 `group1` 会把以下三个组件的错误证据与当前参数一并交给大模型：
+    - `query-detector`
+    - `proposal-detector`
+    - `icon-embedder`
+  - 当前 `plan-retune` / 本地 fallback 会综合：
+    - `evaluate/failures.jsonl`
+    - 组件 gate / failcases / review
+    - 当前训练参数
+    - 当前 trial 趋势与失败模式
+  - 当前下一轮 `input.json` 已支持写入：
+    - `params.group1_component_plan`
+    - `params.group1_component_params`
+  - 当前 `group1` 三个组件已可按组件级策略分别决定：
+    - 继续重训
+    - 直接复用
+    - 单独覆盖 `model / epochs / batch / imgsz`
+  - 当前 `retune_plan` fallback 已保留全局保守参数兜底，避免在证据不足时把下一轮训练参数降成空值
+  - 当前已验证：
+    - `uv run pytest tests/python/test_auto_train_analysis.py tests/python/test_auto_train_contracts.py tests/python/test_auto_train_opencode_skills.py tests/python/test_auto_train_opencode_commands.py tests/python/test_auto_train_opencode_runtime.py tests/python/test_auto_train_controller.py -q`
+    - `uv run pytest tests/python/test_training_jobs.py tests/python/test_auto_train_runners.py tests/python/test_auto_train_group1_pipeline.py tests/python/test_auto_train_state_machine.py -q`
+
 - 2026-04-14 当前 `sinanz` 首个 PyPI 预发布口径已收口为 slider-only：
   - `packages/solver/pyproject.toml` 当前发布版本已规范化为 `0.0.1.dev0`
   - 当前公开 API 只保留：

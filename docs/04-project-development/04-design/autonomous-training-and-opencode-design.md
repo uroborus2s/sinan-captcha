@@ -138,6 +138,13 @@ flowchart LR
 - 阶段之间只通过 `study.json`、`trial/*.json`、`leaderboard.json` 等工件接力，不继承聊天上下文。
 - 当前 `SUMMARIZE` 已支持切到真实 `opencode run --command result-read ...`，并通过 `--attach` 连接 headless server。
 - 当前 `JUDGE` 已支持切到真实 `opencode run --command judge-trial ...`。
+- 当前 `RETUNE` 在 `judge_provider = opencode` 时，已支持切到真实 `opencode run --command plan-retune ...`。
+- 控制器会先本地落 `trial_analysis.json`，再把错误样本摘要、当前参数和 `group1` 组件诊断交给 `plan-retune`，输出 `retune_plan.json`。
+- 当前 `group1` 的 `retune_plan.json` 已支持：
+  - `query-detector`
+  - `proposal-detector`
+  - `icon-embedder`
+  三个组件逐个决定 `train/reuse`，并单独覆盖 `model`、`epochs`、`batch`、`imgsz`。
 - 当前 `REGENERATE_DATA` 分流已支持切到真实 `opencode run --command plan-dataset ...`。
 - 当前 `REGENERATE_DATA` 产出的 `dataset_plan.json` 已会进入下一轮 `BUILD_DATASET`：
   - 控制器会把 `generator_preset` 写入下一轮 `input.json`
@@ -145,8 +152,8 @@ flowchart LR
   - `sinan-generator make-dataset` 会通过 `--preset` 和 `--override-file` 消费这些数据控制参数
 - 当前 study 级归档摘要已支持切到真实 `opencode run --command study-status ...`。
 - 当前 `JUDGE` 在 `opencode` 运行失败、超时或返回非法 JSON 时，会稳定回退到 rules + policy fallback。
-- 当前 `SUMMARIZE` / `plan-dataset` / `study-status` 在 `opencode` 运行失败、超时或返回非法 JSON 时，也会稳定回退到本地确定性实现。
-- 当前 `RETUNE` 已支持切到真实 `Optuna` runtime：
+- 当前 `SUMMARIZE` / `plan-retune` / `plan-dataset` / `study-status` 在 `opencode` 运行失败、超时或返回非法 JSON 时，也会稳定回退到本地确定性实现。
+- 当前 `RETUNE` 在非 `opencode` 路线仍可切到真实 `Optuna` runtime：
   - 先把当前完成 trial 注册到 `optuna.sqlite3`
   - 再为下一轮生成建议参数并写回 `input.json`
   - 若 `Optuna` 缺失或 runtime 失败，则稳定回退到 deterministic fallback 参数
@@ -156,7 +163,7 @@ flowchart LR
 1. `opencode serve --port 4096`
 2. `uv run sinan auto-train run group1 --study-name study_001 --train-root <train-root> --generator-workspace <workspace> --judge-provider opencode --judge-model gemma4 --opencode-attach-url http://127.0.0.1:4096`
 
-这意味着 V1 现在已经具备“Python 控制器 -> OpenCode CLI/server -> `result_summary.json` / `decision.json` / `dataset_plan.json` / `study_status.json` -> 控制器继续下一阶段”的真实调用链。
+这意味着 V1 现在已经具备“Python 控制器 -> OpenCode CLI/server -> `result_summary.json` / `trial_analysis.json` / `decision.json` / `retune_plan.json` / `dataset_plan.json` / `study_status.json` -> 控制器继续下一阶段”的真实调用链。
 
 ## 5. Study 与 Trial 目录契约
 
@@ -180,6 +187,8 @@ studies/
           train.json
           test.json
           evaluate.json
+          trial_analysis.json
+          retune_plan.json
           dataset_plan.json
           generator_override.json
           decision.json
@@ -232,11 +241,13 @@ studies/
   commands/
     result-read.md
     judge-trial.md
+    plan-retune.md
     plan-dataset.md
     study-status.md
   skills/
     result-reader/SKILL.md
     training-judge/SKILL.md
+    retune-planner/SKILL.md
     dataset-planner/SKILL.md
     study-archivist/SKILL.md
 ```
@@ -249,6 +260,9 @@ studies/
 - `judge-trial`
   - 输入：当前 trial 摘要 + 最近 N 轮摘要
   - 输出：`decision.json`
+- `plan-retune`
+  - 输入：`result_summary.json` + `trial_analysis.json`
+  - 输出：下一轮调参策略 JSON，包含全局参数调整，以及 `group1` 组件级 `train/reuse` 与参数覆盖
 - `plan-dataset`
   - 输入：弱类统计、失败样本模式
   - 输出：下一轮数据策略 JSON，包含 `dataset_action`、`generator_preset` 和最小 `generator_overrides`
@@ -262,6 +276,8 @@ studies/
   - 只做结果压缩，不做下一步决策
 - `training-judge`
   - 只做动作判断，不直接跑命令
+- `retune-planner`
+  - 只做下一轮训练策略规划，不直接跑命令
 - `dataset-planner`
   - 只做数据策略建议与 generator 数据控制建议
 - `study-archivist`
@@ -436,18 +452,19 @@ Harness 目标动作仅限：
 
 ## 10. Optuna 位置
 
-`Optuna` 在这套设计里不是 judge，而是参数搜索器。
+`Optuna` 在这套设计里不是 judge，而是非 `opencode` `RETUNE` 路线的参数搜索器。
 
 顺序固定为：
 
 1. Judge 决定方向
-2. `Optuna` 在允许空间里选参数
-3. 控制器执行下一轮 trial
+2. 若 `judge_provider = opencode` 且动作是 `RETUNE`：`plan-retune` 读取 `trial_analysis.json` 产出 `retune_plan.json`
+3. 若不是 `opencode` `RETUNE`：`Optuna` 在允许空间里选参数
+4. 控制器执行下一轮 trial
 
 也就是说：
 
 - AI 负责“要不要调参”
-- `Optuna` 负责“怎么调”
+- `retune-planner` 或 `Optuna` 负责“怎么调”
 
 ### 10.1 允许搜索的固定参数空间
 
@@ -466,7 +483,7 @@ Harness 目标动作仅限：
 
 硬规则：
 
-- `Optuna` 只在 `decision = RETUNE` 时介入。
+- `Optuna` 只在 `decision = RETUNE` 且当前不是 `opencode retune-planner` 路线时介入。
 - `REGENERATE_DATA`、`PROMOTE_BRANCH`、`ABANDON_BRANCH`、`RESUME` 均不得进入参数搜索。
 - `Optuna` 不得引入 CLI 当前未支持的训练参数。
 
@@ -499,6 +516,9 @@ Harness 目标动作仅限：
 - 先按 `group1/group2` policy 计算动作边界
 - 若动作不是 `RETUNE`：
   - 直接执行规则动作
+- 若动作是 `RETUNE` 且当前走 `opencode`：
+  - 先尝试 `plan-retune`
+  - 若命令失败或输出非法，则回退到基于 `trial_analysis.json` 的 deterministic retune plan
 - 若动作仍是 `RETUNE` 但 `Optuna` 不可用或 runtime 失败：
   - 使用固定 deterministic fallback 参数继续下一轮
   - `group1` 与 `group2` 分别使用各自默认 fallback 参数模板

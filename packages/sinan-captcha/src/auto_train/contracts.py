@@ -15,6 +15,9 @@ ALLOWED_SUMMARY_TRENDS = {"baseline", "improving", "declining", "plateau"}
 ALLOWED_BUDGET_PRESSURE = {"low", "medium", "high"}
 ALLOWED_BUSINESS_GATE_STATUS = {"passed", "failed", "error"}
 ALLOWED_DATASET_ACTIONS = {"reuse", "new_version", "freeze"}
+ALLOWED_GROUP1_COMPONENTS = {"query-detector", "proposal-detector", "icon-embedder"}
+ALLOWED_GROUP1_COMPONENT_ACTIONS = {"train", "reuse"}
+ALLOWED_RETUNE_PARAM_FIELDS = {"model", "epochs", "batch", "imgsz"}
 ALLOWED_GENERATOR_OVERRIDE_TOP_LEVEL = {"project", "sampling", "effects"}
 ALLOWED_GENERATOR_OVERRIDE_PROJECT_FIELDS = {"sample_count"}
 ALLOWED_GENERATOR_OVERRIDE_SAMPLING_FIELDS = {
@@ -1099,6 +1102,143 @@ class DatasetPlanRecord:
         )
 
 
+@dataclass(frozen=True)
+class TrialAnalysisRecord:
+    study_name: str
+    task: str
+    trial_id: str
+    dataset_version: str
+    train_name: str
+    current_params: dict[str, JsonValue]
+    evaluation_failures: dict[str, JsonValue] | None
+    component_diagnostics: dict[str, JsonValue]
+    evidence: list[str]
+
+    def __post_init__(self) -> None:
+        _require_non_empty(self.study_name, "study_name")
+        _require_in(self.task, "task", ALLOWED_TASKS)
+        _require_non_empty(self.trial_id, "trial_id")
+        _require_non_empty(self.dataset_version, "dataset_version")
+        _require_non_empty(self.train_name, "train_name")
+        if not isinstance(self.current_params, dict):
+            raise ValueError("current_params must be an object")
+        if self.evaluation_failures is not None and not isinstance(self.evaluation_failures, dict):
+            raise ValueError("evaluation_failures must be an object or null")
+        if not isinstance(self.component_diagnostics, dict):
+            raise ValueError("component_diagnostics must be an object")
+        if any(not isinstance(item, str) or not item.strip() for item in self.evidence):
+            raise ValueError("evidence entries must be non-empty strings")
+
+    def to_dict(self) -> dict[str, JsonValue]:
+        return {
+            "study_name": self.study_name,
+            "task": self.task,
+            "trial_id": self.trial_id,
+            "dataset_version": self.dataset_version,
+            "train_name": self.train_name,
+            "current_params": self.current_params,
+            "evaluation_failures": self.evaluation_failures,
+            "component_diagnostics": self.component_diagnostics,
+            "evidence": self.evidence,
+        }
+
+    @classmethod
+    def from_dict(cls, payload: dict[str, JsonValue]) -> "TrialAnalysisRecord":
+        return cls(
+            study_name=_string(payload, "study_name"),
+            task=_string(payload, "task"),
+            trial_id=_string(payload, "trial_id"),
+            dataset_version=_string(payload, "dataset_version"),
+            train_name=_string(payload, "train_name"),
+            current_params=_mapping(payload, "current_params"),
+            evaluation_failures=_optional_mapping(payload, "evaluation_failures"),
+            component_diagnostics=_mapping(payload, "component_diagnostics"),
+            evidence=_string_list(payload, "evidence"),
+        )
+
+
+@dataclass(frozen=True)
+class RetunePlanRecord:
+    study_name: str
+    task: str
+    trial_id: str
+    parameter_updates: dict[str, JsonValue]
+    component_actions: dict[str, str] | None
+    component_parameter_updates: dict[str, dict[str, JsonValue]] | None
+    rationale_cn: str
+    evidence: list[str]
+
+    def __post_init__(self) -> None:
+        _require_non_empty(self.study_name, "study_name")
+        _require_in(self.task, "task", ALLOWED_TASKS)
+        _require_non_empty(self.trial_id, "trial_id")
+        _validate_retune_params(self.parameter_updates, "parameter_updates")
+        if self.component_actions is not None:
+            if not isinstance(self.component_actions, dict):
+                raise ValueError("component_actions must be an object or null")
+            _validate_component_actions(self.component_actions, "component_actions")
+        if self.component_parameter_updates is not None:
+            if not isinstance(self.component_parameter_updates, dict):
+                raise ValueError("component_parameter_updates must be an object or null")
+            for component, updates in self.component_parameter_updates.items():
+                if component not in ALLOWED_GROUP1_COMPONENTS:
+                    allowed = ", ".join(sorted(ALLOWED_GROUP1_COMPONENTS))
+                    raise ValueError(f"component_parameter_updates keys must be one of: {allowed}")
+                if not isinstance(updates, dict):
+                    raise ValueError("component_parameter_updates values must be objects")
+                _validate_retune_params(updates, f"component_parameter_updates.{component}")
+        _require_non_empty(self.rationale_cn, "rationale_cn")
+        if any(not isinstance(item, str) or not item.strip() for item in self.evidence):
+            raise ValueError("evidence entries must be non-empty strings")
+
+    def to_dict(self) -> dict[str, JsonValue]:
+        return {
+            "study_name": self.study_name,
+            "task": self.task,
+            "trial_id": self.trial_id,
+            "parameter_updates": self.parameter_updates,
+            "component_actions": self.component_actions,
+            "component_parameter_updates": self.component_parameter_updates,
+            "rationale_cn": self.rationale_cn,
+            "evidence": self.evidence,
+        }
+
+    @classmethod
+    def from_dict(cls, payload: dict[str, JsonValue]) -> "RetunePlanRecord":
+        component_parameter_updates = payload.get("component_parameter_updates")
+        if component_parameter_updates is not None and not isinstance(component_parameter_updates, dict):
+            raise ValueError("component_parameter_updates must be an object or null")
+        normalized_component_updates: dict[str, dict[str, JsonValue]] | None = None
+        if isinstance(component_parameter_updates, dict):
+            normalized_component_updates = {}
+            for component, updates in component_parameter_updates.items():
+                if not isinstance(component, str):
+                    raise ValueError("component_parameter_updates keys must be strings")
+                if not isinstance(updates, dict):
+                    raise ValueError("component_parameter_updates values must be objects")
+                normalized_component_updates[component] = updates
+        raw_component_actions = payload.get("component_actions")
+        if raw_component_actions is not None and not isinstance(raw_component_actions, dict):
+            raise ValueError("component_actions must be an object or null")
+        normalized_component_actions: dict[str, str] | None = None
+        if isinstance(raw_component_actions, dict):
+            normalized_component_actions = {}
+            for component, action in raw_component_actions.items():
+                if not isinstance(component, str) or not isinstance(action, str):
+                    raise ValueError("component_actions must be a mapping of strings")
+                normalized_component_actions[component] = action
+        return cls(
+            study_name=_string(payload, "study_name"),
+            task=_string(payload, "task"),
+            trial_id=_string(payload, "trial_id"),
+            parameter_updates=_mapping(payload, "parameter_updates"),
+            component_actions=normalized_component_actions,
+            component_parameter_updates=normalized_component_updates,
+            rationale_cn=_string(payload, "rationale_cn"),
+            evidence=_string_list(payload, "evidence"),
+        )
+
+
 def _string(payload: dict[str, JsonValue], field_name: str) -> str:
     value = payload.get(field_name)
     if not isinstance(value, str):
@@ -1269,6 +1409,33 @@ def _validate_generator_overrides(payload: dict[str, JsonValue], field_name: str
     effects = payload.get("effects")
     if effects is not None:
         _validate_effects_mapping(_coerce_mapping(effects, f"{field_name}.effects"), f"{field_name}.effects")
+
+
+def _validate_component_actions(payload: dict[str, str], field_name: str) -> None:
+    if not payload:
+        raise ValueError(f"{field_name} must not be empty")
+    for component, action in payload.items():
+        if component not in ALLOWED_GROUP1_COMPONENTS:
+            allowed = ", ".join(sorted(ALLOWED_GROUP1_COMPONENTS))
+            raise ValueError(f"{field_name} keys must be one of: {allowed}")
+        if action not in ALLOWED_GROUP1_COMPONENT_ACTIONS:
+            allowed_actions = ", ".join(sorted(ALLOWED_GROUP1_COMPONENT_ACTIONS))
+            raise ValueError(f"{field_name} values must be one of: {allowed_actions}")
+
+
+def _validate_retune_params(payload: dict[str, JsonValue], field_name: str) -> None:
+    if not isinstance(payload, dict):
+        raise ValueError(f"{field_name} must be an object")
+    for key, value in payload.items():
+        if key not in ALLOWED_RETUNE_PARAM_FIELDS:
+            allowed = ", ".join(sorted(ALLOWED_RETUNE_PARAM_FIELDS))
+            raise ValueError(f"{field_name} keys must be one of: {allowed}")
+        if key == "model":
+            if not isinstance(value, str) or not value.strip():
+                raise ValueError(f"{field_name}.model must be a non-empty string")
+            continue
+        if not isinstance(value, int) or isinstance(value, bool) or value <= 0:
+            raise ValueError(f"{field_name}.{key} must be a positive integer")
 
 
 def _validate_effects_mapping(payload: dict[str, JsonValue], field_name: str) -> None:

@@ -8,16 +8,25 @@ from auto_train import opencode_commands
 
 
 class AutoTrainOpenCodeCommandsTests(unittest.TestCase):
-    def test_command_registry_is_fixed_to_four_commands(self) -> None:
+    def test_command_registry_is_fixed_to_six_commands(self) -> None:
         registry = opencode_commands.command_registry()
 
         self.assertEqual(
             tuple(registry.keys()),
-            ("result-read", "judge-trial", "plan-dataset", "study-status"),
+            (
+                "result-read",
+                "judge-trial",
+                "review-embedder",
+                "plan-dataset",
+                "plan-retune",
+                "study-status",
+            ),
         )
         self.assertEqual(registry["result-read"].output_artifact, "result_summary.json")
         self.assertEqual(registry["judge-trial"].output_artifact, "decision.json")
+        self.assertEqual(registry["review-embedder"].output_artifact, "embedder_review.json")
         self.assertEqual(registry["plan-dataset"].output_artifact, "dataset_plan.json")
+        self.assertEqual(registry["plan-retune"].output_artifact, "retune_plan.json")
         self.assertEqual(registry["study-status"].output_artifact, "study_status.json")
 
     def test_headless_invocation_inlines_files_into_prompt(self) -> None:

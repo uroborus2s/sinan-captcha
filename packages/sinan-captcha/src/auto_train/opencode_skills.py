@@ -40,7 +40,7 @@ def skill_registry() -> "OrderedDict[str, OpenCodeSkillSpec]":
     registry["embedder-judge"] = OpenCodeSkillSpec(
         name="embedder-judge",
         description=(
-            "Use when a command or agent needs to review group1 icon-embedder training progress "
+            "Use when a command or agent needs to review group1 icon-embedder progress "
             "and return embedder_review.json using the stage-scoped action set only."
         ),
         primary_output="embedder_review.json",
@@ -53,6 +53,14 @@ def skill_registry() -> "OrderedDict[str, OpenCodeSkillSpec]":
             "without choosing training hyperparameters."
         ),
         primary_output="dataset_plan.json",
+    )
+    registry["retune-planner"] = OpenCodeSkillSpec(
+        name="retune-planner",
+        description=(
+            "Use when a command or agent needs to turn current parameters, component errors, "
+            "and failure evidence into retune_plan.json."
+        ),
+        primary_output="retune_plan.json",
     )
     registry["study-archivist"] = OpenCodeSkillSpec(
         name="study-archivist",

@@ -13,7 +13,11 @@ from auto_train import embedder_review_protocol, opencode_assets, opencode_runti
 from common.jsonl import write_jsonl
 from inference.query_splitter import split_group1_query_image
 from inference.service import map_group1_instances
-from train.base import preferred_checkpoint_path, prepare_dataset_yaml_for_ultralytics
+from train.base import (
+    preferred_checkpoint_path,
+    prepare_dataset_yaml_for_ultralytics,
+    yolo_resume_checkpoint_issue,
+)
 from train.group1.dataset import load_group1_dataset_config, load_group1_rows, resolve_group1_path
 from train.group1.embedder import load_icon_embedder_runtime, train_icon_embedder
 from train.group1.service import (
@@ -168,6 +172,21 @@ def _run_train(args: argparse.Namespace) -> None:
                     "last": str(run_dir / EMBEDDER_COMPONENT / "weights" / "last.pt"),
                 },
             }
+
+    if args.resume:
+        for component_name, model in (
+            (QUERY_COMPONENT, commands.get(QUERY_COMPONENT) and query_model if component in {ALL_COMPONENTS, QUERY_COMPONENT} else None),
+            (PROPOSAL_COMPONENT, commands.get(PROPOSAL_COMPONENT) and proposal_model if component in {ALL_COMPONENTS, PROPOSAL_COMPONENT} else None),
+        ):
+            if model is None:
+                continue
+            checkpoint_path = Path(model)
+            issue = yolo_resume_checkpoint_issue(checkpoint_path)
+            if issue is not None:
+                raise RuntimeError(
+                    f"group1 {component_name} resume 检查点不可续训：{checkpoint_path} "
+                    f"(reason={issue})。请改用 --from-run / fresh，或提供包含 epoch 和 optimizer 的 last.pt。"
+                )
 
     for command in commands.values():
         subprocess.run(command, check=True)
@@ -403,6 +422,7 @@ def _build_train_command(
         f"device={device}",
         f"project={project_dir}",
         f"name={run_name}",
+        "exist_ok=True",
     ]
 
 

@@ -304,6 +304,20 @@ uv run sinan auto-train run group1 `
   --max-steps 12
 ```
 
+关键事实：
+
+- `opencode` 路线当前不只是做 `judge-trial`。当 trial 进入 `RETUNE` 时，控制器会先本地生成 `trial_analysis.json`，再调用 `plan-retune`，让大模型基于错误样本和当前参数决定下一轮怎么训。
+- `group1` 的 `trial_analysis.json` 当前会把 `query-detector`、`proposal-detector`、`icon-embedder` 三个组件的 gate 结果、错误样本统计、review 结果和当前参数一起交给大模型，避免下一轮无方向乱调。
+- `group1` 的 `retune_plan.json` 可以同时给出：
+  - 哪些组件继续 `train`
+  - 哪些组件直接 `reuse`
+  - 每个组件单独的 `model / epochs / batch / imgsz` 覆盖
+- 只有当下一步仍然明确是 `REGENERATE_DATA` 时，控制器才会继续走 `plan-dataset -> dataset_plan.json`。如果当前只是先在同一数据集上做定向重训，本轮不会生成新的数据计划。
+- 训练机上排查自主训练方向时，优先看：
+  - `studies/<task>/<study-name>/trials/<trial-id>/result_summary.json`
+  - `studies/<task>/<study-name>/trials/<trial-id>/trial_analysis.json`
+  - `studies/<task>/<study-name>/trials/<trial-id>/retune_plan.json`
+
 ## 9. 组装并验证本地 solver bundle
 
 用已训练 run 构建 bundle：

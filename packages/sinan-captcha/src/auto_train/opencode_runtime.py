@@ -295,6 +295,20 @@ class OpenCodeRuntimeAdapter:
             files=files,
         )
 
+    def plan_retune(
+        self,
+        *,
+        study_name: str,
+        task: str,
+        trial_id: str,
+        files: list[Path],
+    ) -> OpenCodeInvocationResult:
+        return self.run_command(
+            "plan-retune",
+            arguments=[study_name, task, trial_id],
+            files=files,
+        )
+
     def run_command(
         self,
         name: str,

@@ -115,6 +115,32 @@ def preferred_run_checkpoint(train_root: Path, task: str, run_name: str) -> Path
     )
 
 
+def yolo_resume_checkpoint_issue(checkpoint_path: Path) -> str | None:
+    if not checkpoint_path.exists():
+        return "missing_file"
+    if checkpoint_path.suffix != ".pt":
+        return "unsupported_suffix"
+    try:
+        torch = importlib.import_module("torch")
+    except Exception:
+        return "torch_unavailable"
+    try:
+        checkpoint = torch.load(checkpoint_path, map_location="cpu", weights_only=False)
+    except Exception:
+        return "load_failed"
+    if not isinstance(checkpoint, dict):
+        return "invalid_payload"
+    if not isinstance(checkpoint.get("epoch"), int):
+        return "missing_epoch"
+    if checkpoint.get("optimizer") is None:
+        return "missing_optimizer"
+    return None
+
+
+def is_resumable_yolo_checkpoint(checkpoint_path: Path) -> bool:
+    return yolo_resume_checkpoint_issue(checkpoint_path) is None
+
+
 def default_predict_source(train_root: Path, task: str, dataset_version: str) -> Path:
     if task in {"group1", "group2"}:
         return train_root / "datasets" / task / dataset_version / "splits" / "val.jsonl"

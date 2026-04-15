@@ -264,6 +264,50 @@ class AutoTrainOpenCodeRuntimeTests(unittest.TestCase):
             self.assertEqual(command[-2], "--")
             self.assertIn("Plan dataset for study_001 group1 trial_0004 and return only JSON.", command[-1])
 
+    def test_plan_retune_builds_expected_arguments(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            root = Path(tmpdir)
+            command_dir = root / ".opencode" / "commands"
+            skill_dir = root / ".opencode" / "skills" / "retune-planner"
+            command_dir.mkdir(parents=True, exist_ok=True)
+            skill_dir.mkdir(parents=True, exist_ok=True)
+            (command_dir / "plan-retune.md").write_text(
+                "---\ndescription: Plan the next retune action and return retune_plan.json\nagent: build\n---\n\n"
+                "Plan retune for $1 $2 $3 and return only JSON.",
+                encoding="utf-8",
+            )
+            (skill_dir / "SKILL.md").write_text("Use retune planner skill.", encoding="utf-8")
+            captured: dict[str, object] = {}
+            summary_file = root / "result_summary.json"
+            analysis_file = root / "trial_analysis.json"
+            summary_file.write_text("{}", encoding="utf-8")
+            analysis_file.write_text("{}", encoding="utf-8")
+
+            def fake_runner(command: list[str], *, cwd: Path, timeout_seconds: float) -> opencode_runtime.OpenCodeInvocationResult:
+                captured["command"] = command
+                return opencode_runtime.OpenCodeInvocationResult(
+                    stdout='{"study_name":"study_001"}',
+                    stderr="",
+                    command=tuple(command),
+                    returncode=0,
+                )
+
+            runtime = opencode_runtime.OpenCodeRuntimeAdapter(
+                config=opencode_runtime.OpenCodeRuntimeConfig(project_root=root),
+                runner=fake_runner,
+            )
+            runtime.plan_retune(
+                study_name="study_001",
+                task="group1",
+                trial_id="trial_0004",
+                files=[summary_file, analysis_file],
+            )
+
+            command = captured["command"]
+            self.assertEqual(command[0:6], ["opencode", "run", "--format", "json", "--agent", "build"])
+            self.assertEqual(command[-2], "--")
+            self.assertIn("Plan retune for study_001 group1 trial_0004 and return only JSON.", command[-1])
+
     def test_runtime_raises_when_opencode_process_fails(self) -> None:
         with tempfile.TemporaryDirectory() as tmpdir:
             root = Path(tmpdir)

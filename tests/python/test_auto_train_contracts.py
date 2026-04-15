@@ -167,6 +167,67 @@ class AutoTrainContractsTests(unittest.TestCase):
             self.assertEqual(storage.read_dataset_plan_record(root / "dataset_plan.json"), dataset_plan_record)
             self.assertEqual(storage.read_study_status_record(root / "study_status.json"), study_status_record)
 
+    def test_trial_analysis_and_retune_plan_round_trip(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            root = Path(tmpdir)
+            trial_analysis_record = contracts.TrialAnalysisRecord(
+                study_name="study_001",
+                task="group1",
+                trial_id="trial_0004",
+                dataset_version="v1",
+                train_name="trial_0004",
+                current_params={"model": "yolo26n.pt", "epochs": 120, "batch": 16, "imgsz": 640},
+                evaluation_failures={
+                    "failure_file": "D:/reports/group1/eval_trial_0004/failures.jsonl",
+                    "reason_counts": {"order_mismatch": 2, "sequence_mismatch": 1},
+                    "examples": [{"sample_id": "case_001", "reason": "order_mismatch"}],
+                },
+                component_diagnostics={
+                    "query-detector": {
+                        "status": "failed",
+                        "current_params": {"model": "yolo26n.pt", "epochs": 120, "batch": 16, "imgsz": 640},
+                        "error_reason_counts": {"count_mismatch": 2},
+                    },
+                    "proposal-detector": {
+                        "status": "failed",
+                        "current_params": {"model": "yolo26s.pt", "epochs": 140, "batch": 8, "imgsz": 640},
+                        "error_reason_counts": {"precision_fp": 1},
+                    },
+                    "icon-embedder": {
+                        "status": "failed",
+                        "current_params": {"epochs": 160, "batch": 32, "imgsz": 96},
+                        "signal_summary": [
+                            "embedding_top1_error_scene_target_rate=0.180000",
+                            "embedding_same_template_top1_error_rate=0.110000",
+                        ],
+                    },
+                },
+                evidence=["analysis_ready"],
+            )
+            retune_plan_record = contracts.RetunePlanRecord(
+                study_name="study_001",
+                task="group1",
+                trial_id="trial_0004",
+                parameter_updates={},
+                component_actions={
+                    "query-detector": "reuse",
+                    "proposal-detector": "train",
+                    "icon-embedder": "train",
+                },
+                component_parameter_updates={
+                    "proposal-detector": {"model": "yolo26s.pt", "epochs": 160, "batch": 8, "imgsz": 640},
+                    "icon-embedder": {"epochs": 180, "batch": 48, "imgsz": 96},
+                },
+                rationale_cn="proposal 和 embedder 继续定向调参，query 直接复用。",
+                evidence=["plan_retune"],
+            )
+
+            storage.write_trial_analysis_record(root / "trial_analysis.json", trial_analysis_record)
+            storage.write_retune_plan_record(root / "retune_plan.json", retune_plan_record)
+
+            self.assertEqual(storage.read_trial_analysis_record(root / "trial_analysis.json"), trial_analysis_record)
+            self.assertEqual(storage.read_retune_plan_record(root / "retune_plan.json"), retune_plan_record)
+
     def test_invalid_decision_is_rejected(self) -> None:
         with self.assertRaises(ValueError):
             contracts.DecisionRecord(

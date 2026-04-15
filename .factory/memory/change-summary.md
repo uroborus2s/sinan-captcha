@@ -1,5 +1,55 @@
 # 变更摘要
 
+## 2026-04-15 为 `auto-train` 增加错误数据分析与定向调参闭环
+
+- 已更新：
+  - `.opencode/commands/plan-retune.md`
+  - `.opencode/skills/retune-planner/SKILL.md`
+  - `packages/sinan-captcha/src/auto_train/analysis.py`
+  - `packages/sinan-captcha/src/auto_train/retune_plan.py`
+  - `packages/sinan-captcha/src/auto_train/contracts.py`
+  - `packages/sinan-captcha/src/auto_train/storage.py`
+  - `packages/sinan-captcha/src/auto_train/layout.py`
+  - `packages/sinan-captcha/src/auto_train/controller.py`
+  - `packages/sinan-captcha/src/auto_train/opencode_commands.py`
+  - `packages/sinan-captcha/src/auto_train/opencode_runtime.py`
+  - `packages/sinan-captcha/src/auto_train/opencode_skills.py`
+  - `tests/python/test_auto_train_analysis.py`
+  - `tests/python/test_auto_train_contracts.py`
+  - `tests/python/test_auto_train_controller.py`
+  - `tests/python/test_auto_train_opencode_commands.py`
+  - `tests/python/test_auto_train_opencode_runtime.py`
+  - `tests/python/test_auto_train_opencode_skills.py`
+  - `docs/02-user-guide/trainer-cli-reference.md`
+  - `docs/02-user-guide/complete-training-operations-guide.md`
+  - `docs/04-project-development/04-design/autonomous-training-and-opencode-design.md`
+  - `.factory/memory/current-state.md`
+  - `.factory/memory/change-summary.md`
+- 当前已完成的目标：
+  - `SUMMARIZE` 阶段当前会额外产出 `trial_analysis.json`，把错误样本、当前参数和组件诊断落成结构化工件
+  - `opencode` 路线当前已新增 `plan-retune`，用于在 `decision = RETUNE` 时基于真实错误数据规划下一轮训练
+  - `group1` 当前已把以下三个组件纳入同一轮错误分析与调参闭环：
+    - `query-detector`
+    - `proposal-detector`
+    - `icon-embedder`
+  - `group1` 下一轮当前可同时写回：
+    - `params.group1_component_plan`
+    - `params.group1_component_params`
+  - `group1` 三个组件当前都支持按组件级证据决定：
+    - `train`
+    - `reuse`
+    - 单独覆盖 `model / epochs / batch / imgsz`
+  - `retune_plan` 当前在证据不足时仍保留全局保守参数兜底，避免下一轮 `epochs/batch/imgsz` 丢失
+  - `plan-retune` 命令不可用、报错或输出非法 JSON 时，控制器当前会稳定回退到本地 deterministic retune plan
+  - 正式文档当前已同步说明：
+    - `trial_analysis.json`
+    - `retune_plan.json`
+    - `plan-retune`
+    - `group1` 三组件定向重训/复用策略
+- 已运行验证：
+  - `uv run pytest tests/python/test_auto_train_analysis.py tests/python/test_auto_train_contracts.py tests/python/test_auto_train_opencode_skills.py tests/python/test_auto_train_opencode_commands.py tests/python/test_auto_train_opencode_runtime.py tests/python/test_auto_train_controller.py -q`
+  - `uv run pytest tests/python/test_training_jobs.py tests/python/test_auto_train_runners.py tests/python/test_auto_train_group1_pipeline.py tests/python/test_auto_train_state_machine.py -q`
+
 ## 2026-04-14 将 `sinanz` 的首个 PyPI 预发布版本收口为 slider-only
 
 - 已更新：

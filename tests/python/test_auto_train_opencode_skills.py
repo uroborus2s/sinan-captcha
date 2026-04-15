@@ -7,16 +7,25 @@ from auto_train import opencode_skills
 
 
 class AutoTrainOpenCodeSkillsTests(unittest.TestCase):
-    def test_skill_registry_is_fixed_to_four_skills(self) -> None:
+    def test_skill_registry_is_fixed_to_six_skills(self) -> None:
         registry = opencode_skills.skill_registry()
 
         self.assertEqual(
             tuple(registry.keys()),
-            ("result-reader", "training-judge", "dataset-planner", "study-archivist"),
+            (
+                "result-reader",
+                "training-judge",
+                "embedder-judge",
+                "dataset-planner",
+                "retune-planner",
+                "study-archivist",
+            ),
         )
         self.assertEqual(registry["result-reader"].primary_output, "result_summary.json")
         self.assertEqual(registry["training-judge"].primary_output, "decision.json")
+        self.assertEqual(registry["embedder-judge"].primary_output, "embedder_review.json")
         self.assertEqual(registry["dataset-planner"].primary_output, "dataset_plan.json")
+        self.assertEqual(registry["retune-planner"].primary_output, "retune_plan.json")
         self.assertEqual(registry["study-archivist"].primary_output, "study_status.json")
 
     def test_skill_files_exist_with_valid_frontmatter_and_boundaries(self) -> None:
