@@ -24,6 +24,14 @@ class AutoTrainLayoutTests(unittest.TestCase):
             self.assertEqual(group1_paths.summary_file, studies_root / "group1" / "study_001" / "summary.md")
             self.assertEqual(group1_paths.best_trial_file, studies_root / "group1" / "study_001" / "best_trial.json")
             self.assertEqual(group1_paths.trial_dir("trial_0001"), studies_root / "group1" / "study_001" / "trials" / "trial_0001")
+            self.assertEqual(
+                group1_paths.interim_result_summary_file("trial_0001"),
+                studies_root / "group1" / "study_001" / "trials" / "trial_0001" / "interim_result_summary.json",
+            )
+            self.assertEqual(
+                group1_paths.interim_trial_analysis_file("trial_0001"),
+                studies_root / "group1" / "study_001" / "trials" / "trial_0001" / "interim_trial_analysis.json",
+            )
             self.assertNotEqual(group1_paths.study_root, group2_paths.study_root)
 
     def test_trial_identifier_format_is_stable(self) -> None:

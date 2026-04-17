@@ -70,6 +70,8 @@ class TrainRunnerRequest:
     review_min_epochs: int | None = None
     review_window: int | None = None
     review_rebuild_count: int = 0
+    interim_trial_dir: Path | None = None
+    interim_primary_metric: str | None = None
 
 
 @dataclass(frozen=True)
@@ -333,6 +335,8 @@ def _build_training_job(
                 if normalized_component == EMBEDDER_COMPONENT and request.review_provider is not None
                 else None
             ),
+            interim_trial_dir=request.interim_trial_dir,
+            interim_primary_metric=request.interim_primary_metric,
         )
     if request.task == "group2":
         return build_group2_training_job(

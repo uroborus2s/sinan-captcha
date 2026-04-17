@@ -112,6 +112,8 @@ def _build_group1_component_diagnostics(
             review = gate_payload.get("review")
             diagnostic["review"] = review if isinstance(review, dict) else None
             diagnostic["signal_summary"] = _embedder_signal_summary(_mapping_or_empty(gate_payload.get("metrics")))
+            failure_audit = gate_payload.get("failure_audit")
+            diagnostic["failure_audit"] = failure_audit if isinstance(failure_audit, dict) else None
         diagnostics[component] = diagnostic
     return diagnostics
 

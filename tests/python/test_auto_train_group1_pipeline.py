@@ -320,6 +320,123 @@ class Group1AutoTrainPipelineTests(unittest.TestCase):
             self.assertGreater(triplets[0]["negative_similarity"], triplets[1]["negative_similarity"])
             self.assertEqual(triplets[1]["negative_bucket"], "distractor")
 
+    def test_build_detector_aware_hardset_supplements_same_template_gold_negatives_even_when_predictions_exist(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            root = Path(tmpdir)
+            dataset_root = root / "dataset"
+            query_path = dataset_root / "eval" / "query" / "train" / "g1_000002.png"
+            scene_path = dataset_root / "eval" / "scene" / "train" / "g1_000002.png"
+            _write_png(query_path, 64, 24, (255, 255, 255))
+            _write_png(scene_path, 160, 96, (240, 240, 240))
+
+            row = {
+                "sample_id": "g1_000002",
+                "query_image": "eval/query/train/g1_000002.png",
+                "scene_image": "eval/scene/train/g1_000002.png",
+                "query_items": [
+                    {
+                        "order": 1,
+                        "asset_id": "asset_red",
+                        "template_id": "tpl_red",
+                        "variant_id": "var_red",
+                        "bbox": [4, 4, 20, 20],
+                        "center": [12, 12],
+                    }
+                ],
+                "scene_targets": [
+                    {
+                        "order": 1,
+                        "asset_id": "asset_red",
+                        "template_id": "tpl_red",
+                        "variant_id": "var_red",
+                        "bbox": [60, 20, 92, 52],
+                        "center": [76, 36],
+                    },
+                    {
+                        "order": 2,
+                        "asset_id": "asset_red_alt",
+                        "template_id": "tpl_red",
+                        "variant_id": "var_filled",
+                        "bbox": [100, 18, 132, 50],
+                        "center": [116, 34],
+                    },
+                ],
+                "distractors": [
+                    {
+                        "bbox": [12, 60, 36, 84],
+                        "center": [24, 72],
+                        "asset_id": "asset_blue",
+                        "template_id": "tpl_blue",
+                        "variant_id": "var_blue",
+                    }
+                ],
+            }
+
+            def fake_query_predictor(_path: Path) -> list[dict[str, object]]:
+                return [
+                    {
+                        "order": 1,
+                        "bbox": [5, 4, 21, 20],
+                        "center": [13, 12],
+                        "score": 0.99,
+                        "asset_id": "asset_red",
+                        "template_id": "tpl_red",
+                        "variant_id": "var_red",
+                    }
+                ]
+
+            def fake_scene_predictor(_path: Path) -> list[dict[str, object]]:
+                return [
+                    {
+                        "order": 1,
+                        "bbox": [61, 20, 93, 52],
+                        "center": [77, 36],
+                        "score": 0.98,
+                        "asset_id": "asset_red",
+                        "template_id": "tpl_red",
+                        "variant_id": "var_red",
+                    },
+                    {
+                        "order": 2,
+                        "bbox": [12, 60, 36, 84],
+                        "center": [24, 72],
+                        "score": 0.93,
+                        "asset_id": "asset_blue",
+                        "template_id": "tpl_blue",
+                        "variant_id": "var_blue",
+                    },
+                ]
+
+            def fake_embedding_encoder(_image_path: Path, target: dict[str, object]) -> list[float]:
+                variant_id = str(target.get("variant_id", ""))
+                if variant_id == "var_red":
+                    return [1.0, 0.0, 0.0]
+                if variant_id == "var_filled":
+                    return [0.97, 0.03, 0.0]
+                return [0.10, 0.90, 0.0]
+
+            hardset_root = root / "study" / "trial_0002" / "embedder_hardset"
+            result = build_detector_aware_hardset_from_rows(
+                split_rows={"train": [row]},
+                dataset_root=dataset_root,
+                output_root=hardset_root,
+                query_predictor=fake_query_predictor,
+                scene_predictor=fake_scene_predictor,
+                embedding_encoder=fake_embedding_encoder,
+                max_negatives_per_query=2,
+            )
+
+            triplets = [
+                json.loads(line)
+                for line in (hardset_root / "triplets.jsonl").read_text(encoding="utf-8").splitlines()
+                if line.strip()
+            ]
+
+            self.assertEqual(result.triplet_count, 2)
+            self.assertEqual(triplets[0]["negative_bucket"], "same_template_variant")
+            self.assertEqual(triplets[0]["negative_role"], "scene_target_gold_same_template")
+            self.assertEqual(triplets[1]["negative_bucket"], "distractor")
+
     def test_calibrate_matcher_from_cases_prefers_threshold_with_best_sequence_score(self) -> None:
         cases = [
             MatcherCalibrationCase(

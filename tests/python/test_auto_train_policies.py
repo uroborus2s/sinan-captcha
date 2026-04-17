@@ -8,8 +8,8 @@ from group2_semantics import GROUP2_LOCALIZATION_ALERT_CENTER_ERROR_PX
 
 def _group1_summary(
     *,
-    primary_score: float = 0.83,
-    recall: float = 0.89,
+    primary_score: float = 0.86,
+    single_target_hit_rate: float = 0.94,
     full_sequence_hit_rate: float = 0.86,
     trend: str = "improving",
     delta_vs_best: float | None = -0.01,
@@ -23,16 +23,15 @@ def _group1_summary(
         trial_id="trial_0004",
         dataset_version="v4",
         train_name="trial_0004",
-        primary_metric="map50_95",
+        primary_metric="full_sequence_hit_rate",
         primary_score=primary_score,
         test_metrics={
-            "precision": 0.91,
-            "recall": recall,
-            "map50_95": primary_score,
+            "single_target_hit_rate": single_target_hit_rate,
+            "full_sequence_hit_rate": full_sequence_hit_rate,
         },
         evaluation_available=True,
         evaluation_metrics={
-            "single_target_hit_rate": 0.94,
+            "single_target_hit_rate": single_target_hit_rate,
             "full_sequence_hit_rate": full_sequence_hit_rate,
             "mean_center_error_px": 6.8,
             "order_error_rate": 0.04,
@@ -94,8 +93,8 @@ class AutoTrainPoliciesTests(unittest.TestCase):
     def test_group1_policy_freezes_primary_secondary_and_business_metrics(self) -> None:
         policy = policies.policy_for_task("group1")
 
-        self.assertEqual(policy.primary_metric, "map50_95")
-        self.assertEqual(policy.secondary_metric, "recall")
+        self.assertEqual(policy.primary_metric, "full_sequence_hit_rate")
+        self.assertEqual(policy.secondary_metric, "single_target_hit_rate")
         self.assertEqual(policy.business_metric, "full_sequence_hit_rate")
         self.assertIsNone(policy.penalty_metric)
         self.assertEqual(policy.plateau_window, 3)
@@ -110,8 +109,8 @@ class AutoTrainPoliciesTests(unittest.TestCase):
     def test_group1_regenerates_data_when_weak_classes_or_sequence_failures_persist(self) -> None:
         recommendation = policies.evaluate_summary(
             _group1_summary(
-                primary_score=0.81,
-                recall=0.87,
+                primary_score=0.78,
+                single_target_hit_rate=0.89,
                 full_sequence_hit_rate=0.78,
                 weak_classes=["icon_camera", "icon_leaf"],
                 failure_patterns=["sequence_consistency", "order_errors"],
@@ -126,9 +125,9 @@ class AutoTrainPoliciesTests(unittest.TestCase):
     def test_group1_abandons_branch_after_clear_decline_from_best_run(self) -> None:
         recommendation = policies.evaluate_summary(
             _group1_summary(
-                primary_score=0.72,
-                recall=0.8,
-                full_sequence_hit_rate=0.7,
+                primary_score=0.69,
+                single_target_hit_rate=0.83,
+                full_sequence_hit_rate=0.69,
                 trend="declining",
                 delta_vs_best=-0.08,
                 failure_patterns=["detection_recall", "strict_localization"],

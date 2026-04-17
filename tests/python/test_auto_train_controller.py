@@ -100,8 +100,8 @@ def _group2_trial_summary(trial_id: str, *, score: float, trend: str = "baseline
 def _group1_trial_summary(
     trial_id: str,
     *,
-    map50_95: float = 0.81,
-    recall: float = 0.87,
+    single_target_hit_rate: float = 0.9,
+    order_error_rate: float = 0.08,
     full_sequence_hit_rate: float = 0.79,
     failure_patterns: list[str] | None = None,
     trend: str = "plateau",
@@ -112,11 +112,19 @@ def _group1_trial_summary(
         trial_id=trial_id,
         dataset_version="v1",
         train_name=trial_id,
-        primary_metric="map50_95",
-        primary_score=map50_95,
-        test_metrics={"map50_95": map50_95, "recall": recall},
+        primary_metric="full_sequence_hit_rate",
+        primary_score=full_sequence_hit_rate,
+        test_metrics={
+            "single_target_hit_rate": single_target_hit_rate,
+            "full_sequence_hit_rate": full_sequence_hit_rate,
+            "order_error_rate": order_error_rate,
+        },
         evaluation_available=True,
-        evaluation_metrics={"full_sequence_hit_rate": full_sequence_hit_rate},
+        evaluation_metrics={
+            "single_target_hit_rate": single_target_hit_rate,
+            "full_sequence_hit_rate": full_sequence_hit_rate,
+            "order_error_rate": order_error_rate,
+        },
         failure_count=0,
         trend=trend,
         delta_vs_previous=0.0,
@@ -170,6 +178,56 @@ class AutoTrainControllerTests(unittest.TestCase):
         self.assertGreater(business_heavier, offline_heavier)
         self.assertAlmostEqual(offline_heavier, 1.78704, places=5)
         self.assertAlmostEqual(business_heavier, 2.594, places=5)
+
+    def test_offline_ranking_score_for_group1_prioritizes_sequence_quality(self) -> None:
+        better_sequence = controller._offline_ranking_score(
+            contracts.ResultSummaryRecord(
+                study_name="study_001",
+                task="group1",
+                trial_id="trial_0001",
+                dataset_version="v1",
+                train_name="trial_0001",
+                primary_metric="full_sequence_hit_rate",
+                primary_score=0.87,
+                test_metrics={"single_target_hit_rate": 0.95, "full_sequence_hit_rate": 0.87, "order_error_rate": 0.03},
+                evaluation_available=True,
+                evaluation_metrics={"single_target_hit_rate": 0.95, "full_sequence_hit_rate": 0.87, "order_error_rate": 0.03},
+                failure_count=2,
+                trend="improving",
+                delta_vs_previous=0.02,
+                delta_vs_best=0.0,
+                weak_classes=[],
+                failure_patterns=[],
+                recent_trials=[],
+                best_trial=None,
+                evidence=["sequence_first"],
+            )
+        )
+        weaker_sequence = controller._offline_ranking_score(
+            contracts.ResultSummaryRecord(
+                study_name="study_001",
+                task="group1",
+                trial_id="trial_0002",
+                dataset_version="v1",
+                train_name="trial_0002",
+                primary_metric="full_sequence_hit_rate",
+                primary_score=0.75,
+                test_metrics={"single_target_hit_rate": 0.94, "full_sequence_hit_rate": 0.75, "order_error_rate": 0.12},
+                evaluation_available=True,
+                evaluation_metrics={"single_target_hit_rate": 0.94, "full_sequence_hit_rate": 0.75, "order_error_rate": 0.12},
+                failure_count=5,
+                trend="plateau",
+                delta_vs_previous=0.0,
+                delta_vs_best=-0.05,
+                weak_classes=[],
+                failure_patterns=["sequence_consistency"],
+                recent_trials=[],
+                best_trial=None,
+                evidence=["sequence_gap"],
+            )
+        )
+
+        self.assertGreater(better_sequence, weaker_sequence)
 
     def test_build_leaderboard_entry_uses_composite_ranking_metrics(self) -> None:
         with tempfile.TemporaryDirectory() as tmpdir:
@@ -2406,7 +2464,7 @@ class AutoTrainControllerTests(unittest.TestCase):
             self.assertEqual(execution.stage, "TRAIN_EMBEDDER_BASE")
             self.assertEqual(captured_requests[0].train_mode, "resume")
 
-    def test_group1_train_embedder_base_can_preflight_resume_review_and_advance(self) -> None:
+    def test_group1_train_embedder_base_preflight_keeps_existing_continue_review_in_llm_first_mode(self) -> None:
         with tempfile.TemporaryDirectory() as tmpdir:
             root = Path(tmpdir)
             train_root = root / "train-root"
@@ -2580,15 +2638,13 @@ class AutoTrainControllerTests(unittest.TestCase):
 
             execution = ctrl.run_stage("TRAIN_EMBEDDER_BASE")
 
-            self.assertEqual(execution.detail, "recovered_existing_group1_component:icon-embedder")
-            self.assertEqual(captured_requests, [])
+            self.assertEqual(execution.stage, "TRAIN_EMBEDDER_BASE")
+            self.assertEqual(len(captured_requests), 1)
             self.assertEqual(len(runtime.calls), 0)
-            train_record = storage.read_train_record(ctrl.paths.embedder_train_file("trial_0001"))
-            self.assertEqual(train_record.best_weights, str(best_path))
             updated_summary = json.loads((run_dir / "icon-embedder" / "summary.json").read_text(encoding="utf-8"))
-            self.assertTrue(updated_summary["finalized"])
-            self.assertEqual(updated_summary["review"]["decision"], "STOP_AND_ADVANCE")
-            self.assertEqual(updated_summary["training_stop"]["reason"], "preflight_review:STOP_AND_ADVANCE")
+            self.assertFalse(updated_summary["finalized"])
+            self.assertEqual(updated_summary["review"]["decision"], "CONTINUE")
+            self.assertEqual(updated_summary["training_stop"]["reason"], "in_progress")
             self.assertEqual(updated_summary["training_stop"]["stopped_epoch"], 20)
 
     def test_group1_train_embedder_hard_can_loop_back_to_rebuild_hardset(self) -> None:
@@ -2806,6 +2862,8 @@ class AutoTrainControllerTests(unittest.TestCase):
             self.assertEqual(execution.next_stage, "CALIBRATE_MATCHER")
             self.assertEqual(len(captured_requests), 1)
             self.assertEqual(captured_requests[0].model, str(best_path))
+            self.assertEqual(captured_requests[0].interim_trial_dir, ctrl.paths.trial_dir("trial_0001"))
+            self.assertEqual(captured_requests[0].interim_primary_metric, "full_sequence_hit_rate")
 
             backup_dir = ctrl.paths.embedder_backup_root("trial_0001") / "pre_hard_20260415T010203000000Z"
             self.assertTrue(backup_dir.is_dir())
@@ -2842,10 +2900,24 @@ class AutoTrainControllerTests(unittest.TestCase):
                     "dataset_config": str(train_root / "datasets" / "group1" / "v1" / "dataset.json"),
                     "weights": {"best": str(best_path), "last": str(last_path)},
                     "metrics": {
-                        "embedding_recall_at_1": 0.96,
-                        "embedding_recall_at_3": 0.99,
+                        "embedding_recall_at_1": 0.046,
+                        "embedding_recall_at_3": 0.147,
+                        "embedding_scene_recall_at_1": 0.975,
+                        "embedding_scene_recall_at_3": 0.996,
+                        "embedding_identity_recall_at_1": 0.78,
+                        "embedding_identity_recall_at_3": 0.93,
                     },
-                    "history": [{"epoch": 1, "embedding_recall_at_1": 0.96, "embedding_recall_at_3": 0.99}],
+                    "history": [
+                        {
+                            "epoch": 1,
+                            "embedding_recall_at_1": 0.046,
+                            "embedding_recall_at_3": 0.147,
+                            "embedding_scene_recall_at_1": 0.975,
+                            "embedding_scene_recall_at_3": 0.996,
+                            "embedding_identity_recall_at_1": 0.78,
+                            "embedding_identity_recall_at_3": 0.93,
+                        }
+                    ],
                 },
             )
 
@@ -2912,7 +2984,7 @@ class AutoTrainControllerTests(unittest.TestCase):
             self.assertEqual(gate_payload["imgsz"], 64)
             self.assertEqual(
                 gate_payload["gate"]["failed_checks"],
-                ["embedding_recall_at_1", "embedding_recall_at_3"],
+                ["embedding_identity_recall_at_1"],
             )
 
     def test_group1_train_query_reuses_base_run_when_component_plan_marks_reuse(self) -> None:
@@ -3368,7 +3440,7 @@ class AutoTrainControllerTests(unittest.TestCase):
                     current_trial_id="trial_0001",
                     best_trial_id="trial_0007",
                 ),
-                summary_record=_group1_trial_summary("trial_0001", map50_95=0.86, recall=0.91, full_sequence_hit_rate=0.87),
+                summary_record=_group1_trial_summary("trial_0001", single_target_hit_rate=0.96, full_sequence_hit_rate=0.87),
                 decision=contracts.DecisionRecord(
                     trial_id="trial_0001",
                     decision="PROMOTE_BRANCH",
@@ -3417,7 +3489,7 @@ class AutoTrainControllerTests(unittest.TestCase):
                 ),
             )
             next_input = ctrl._prepare_next_trial(
-                _group1_trial_summary("trial_0001", map50_95=0.86, recall=0.91, full_sequence_hit_rate=0.87),
+                _group1_trial_summary("trial_0001", single_target_hit_rate=0.96, full_sequence_hit_rate=0.87),
                 effective,
                 contracts.DatasetPlanRecord(
                     study_name="study_001",
@@ -3752,7 +3824,7 @@ class AutoTrainControllerTests(unittest.TestCase):
                         task="group1",
                         dataset_version="firstpass",
                         train_name="trial_0001",
-                        metrics={"precision": 0.91, "recall": 0.89, "map50_95": 0.84},
+                        metrics={"single_target_hit_rate": 0.95, "full_sequence_hit_rate": 0.86, "order_error_rate": 0.03},
                         predict_output_dir=str(train_root / "reports" / "group1" / "predict_trial_0001"),
                         val_output_dir=str(train_root / "reports" / "group1" / "val_trial_0001"),
                         report_dir=str(train_root / "reports" / "group1" / "test_trial_0001"),
@@ -4042,7 +4114,7 @@ class AutoTrainControllerTests(unittest.TestCase):
                         task="group1",
                         dataset_version="firstpass",
                         train_name="trial_0001",
-                        metrics={"precision": 0.9, "recall": 0.88, "map50_95": 0.81},
+                        metrics={"single_target_hit_rate": 0.9, "full_sequence_hit_rate": 0.81, "order_error_rate": 0.06},
                         predict_output_dir=str(train_root / "reports" / "group1" / "predict_trial_0001"),
                         val_output_dir=str(train_root / "reports" / "group1" / "val_trial_0001"),
                         report_dir=str(train_root / "reports" / "group1" / "test_trial_0001"),
@@ -5197,7 +5269,7 @@ class AutoTrainControllerTests(unittest.TestCase):
                         task="group1",
                         dataset_version="firstpass",
                         train_name="trial_0001",
-                        metrics={"precision": 0.91, "recall": 0.89, "map50_95": 0.84},
+                        metrics={"single_target_hit_rate": 0.95, "full_sequence_hit_rate": 0.86, "order_error_rate": 0.03},
                         predict_output_dir=str(train_root / "reports" / "group1" / "predict_trial_0001"),
                         val_output_dir=str(train_root / "reports" / "group1" / "val_trial_0001"),
                         report_dir=str(train_root / "reports" / "group1" / "test_trial_0001"),
@@ -5211,7 +5283,7 @@ class AutoTrainControllerTests(unittest.TestCase):
                     record=contracts.EvaluateRecord(
                         available=True,
                         task="group1",
-                        metrics={"full_sequence_hit_rate": 0.86, "order_error_rate": 0.03},
+                        metrics={"single_target_hit_rate": 0.95, "full_sequence_hit_rate": 0.86, "order_error_rate": 0.03},
                         failure_count=0,
                         report_dir=str(train_root / "reports" / "group1" / "eval_trial_0001"),
                     ),

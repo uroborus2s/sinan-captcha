@@ -365,6 +365,68 @@ class AutoTrainTestRunnerTests(unittest.TestCase):
             self.assertIn("predict", result.predict_command)
             self.assertIn("val", result.val_command)
 
+    def test_test_runner_prefers_last_component_checkpoint_when_best_is_missing(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            train_root = Path(tmpdir)
+            dataset_config = train_root / "datasets" / "group1" / "firstpass" / "dataset.json"
+            source = train_root / "datasets" / "group1" / "firstpass" / "splits" / "val.jsonl"
+            query_last_path = train_root / "runs" / "group1" / "trial_0001" / "query-detector" / "weights" / "last.pt"
+            proposal_last_path = train_root / "runs" / "group1" / "trial_0001" / "proposal-detector" / "weights" / "last.pt"
+            embedder_last_path = train_root / "runs" / "group1" / "trial_0001" / "icon-embedder" / "weights" / "last.pt"
+            for path in (dataset_config.parent, source.parent, query_last_path.parent, proposal_last_path.parent, embedder_last_path.parent):
+                path.mkdir(parents=True, exist_ok=True)
+            dataset_config.write_text('{"task":"group1","format":"sinan.group1.instance_matching.v1","splits":{"train":"splits/train.jsonl","val":"splits/val.jsonl","test":"splits/test.jsonl"},"query_detector":{"format":"yolo.detect.v1","dataset_yaml":"query-yolo/dataset.yaml"},"proposal_detector":{"format":"yolo.detect.v1","dataset_yaml":"proposal-yolo/dataset.yaml"},"embedding":{"format":"sinan.group1.embedding.v1","queries_dir":"embedding/queries","candidates_dir":"embedding/candidates","pairs_jsonl":"embedding/pairs.jsonl","triplets_jsonl":"embedding/triplets.jsonl"},"eval":{"format":"sinan.group1.eval.v1","labels_jsonl":"eval/labels.jsonl"}}', encoding="utf-8")
+            source.write_text('{"sample_id":"g1_000001","query_image":"eval/query/val/g1_000001.png","scene_image":"eval/scene/val/g1_000001.png","query_items":[{"order":1,"bbox":[8,8,28,28],"center":[18,18]}],"scene_targets":[{"order":1,"bbox":[80,32,120,72],"center":[100,52]}],"distractors":[],"label_source":"gold","source_batch":"batch_0001"}\n', encoding="utf-8")
+            query_last_path.write_text("weights", encoding="utf-8")
+            proposal_last_path.write_text("weights", encoding="utf-8")
+            embedder_last_path.write_text("weights", encoding="utf-8")
+
+            observed_query_detector_path: Path | None = None
+            observed_model_path: Path | None = None
+            observed_embedder_path: Path | None = None
+
+            def _fake_runner(_request):
+                nonlocal observed_query_detector_path, observed_model_path, observed_embedder_path
+                observed_query_detector_path = _request.query_detector_model_path
+                observed_model_path = _request.model_path
+                observed_embedder_path = _request.embedder_model_path
+                return ModelTestResult(
+                    task="group1",
+                    dataset_version="firstpass",
+                    train_name="trial_0001",
+                    model_path=proposal_last_path,
+                    query_detector_model_path=query_last_path,
+                    embedder_model_path=embedder_last_path,
+                    dataset_config=dataset_config,
+                    source=source,
+                    project_dir=train_root / "reports" / "group1",
+                    report_dir=train_root / "reports" / "group1" / "test_trial_0001",
+                    predict_output_dir=train_root / "reports" / "group1" / "predict_trial_0001",
+                    val_output_dir=train_root / "reports" / "group1" / "val_trial_0001",
+                    source_image_count=1,
+                    predicted_image_count=1,
+                    metrics={"single_target_hit_rate": 1.0, "full_sequence_hit_rate": 1.0, "mean_center_error_px": 0.0, "order_error_rate": 0.0},
+                    verdict_title="通过",
+                    verdict_detail="稳定。",
+                    next_actions=[],
+                    predict_command="predict",
+                    val_command="evaluate",
+                )
+
+            test.run_test_request(
+                test.TestRunnerRequest(
+                    task="group1",
+                    train_root=train_root,
+                    dataset_version="firstpass",
+                    train_name="trial_0001",
+                ),
+                runner=_fake_runner,
+            )
+
+            self.assertEqual(observed_query_detector_path, query_last_path)
+            self.assertEqual(observed_model_path, proposal_last_path)
+            self.assertEqual(observed_embedder_path, embedder_last_path)
+
     def test_test_runner_forwards_group1_matcher_thresholds(self) -> None:
         with tempfile.TemporaryDirectory() as tmpdir:
             train_root = Path(tmpdir)

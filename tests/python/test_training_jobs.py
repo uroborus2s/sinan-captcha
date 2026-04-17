@@ -350,6 +350,22 @@ class TrainingJobTests(unittest.TestCase):
         self.assertIn("--review-stage", command)
         self.assertIn("TRAIN_EMBEDDER_BASE", command)
 
+    def test_group1_embedder_component_passes_interim_trial_artifact_flags(self) -> None:
+        job = build_group1_training_job(
+            Path("datasets/group1/v2/dataset.json"),
+            Path("runs/group1"),
+            run_name="instance_v2",
+            component="icon-embedder",
+            interim_trial_dir=Path("studies/group1/study_group1_v1/trials/trial_0002"),
+            interim_primary_metric="full_sequence_hit_rate",
+        )
+
+        command = job.command()
+        self.assertIn("--interim-trial-dir", command)
+        self.assertIn("studies/group1/study_group1_v1/trials/trial_0002", command)
+        self.assertIn("--interim-primary-metric", command)
+        self.assertIn("full_sequence_hit_rate", command)
+
     def test_group1_detector_train_command_sets_exist_ok_to_prevent_renamed_output_dirs(self) -> None:
         command = _build_train_command(
             dataset_yaml=Path("datasets/group1/v1/proposal-yolo/dataset.yaml"),

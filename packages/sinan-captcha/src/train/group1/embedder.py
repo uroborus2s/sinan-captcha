@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from dataclasses import asdict, dataclass
-from datetime import datetime
+from datetime import UTC, datetime
 import json
 import math
 from pathlib import Path
@@ -17,7 +17,7 @@ from torch.nn import functional as F
 from torch.utils.data import DataLoader, Dataset
 
 from auto_train import embedder_review_protocol
-from common.jsonl import read_jsonl
+from common.jsonl import read_jsonl, write_jsonl
 from train.group1.dataset import Group1DatasetConfig, resolve_group1_path
 
 ICON_EMBEDDER_ARCHITECTURE_VERSION = 2
@@ -32,6 +32,18 @@ DEFAULT_TRIPLET_MARGIN = 0.25
 DEFAULT_TRIPLET_LOSS_WEIGHT = 0.5
 DEFAULT_CONTRASTIVE_LOSS_WEIGHT = 1.0
 DEFAULT_CONTRASTIVE_TEMPERATURE = 0.07
+ZERO_TRIPLET_LOSS_EPS = 1e-8
+ZERO_TRIPLET_GUARDRAIL_MAX_EXACT_RECALL_AT_1 = 0.10
+ZERO_TRIPLET_GUARDRAIL_MIN_POSITIVE_RANK_MEAN = 50.0
+HARD_SCENE_EXACT_PLATEAU_WINDOW = 3
+HARD_SCENE_EXACT_PLATEAU_MAX_EXACT_RECALL_AT_1 = 0.02
+HARD_SCENE_EXACT_PLATEAU_MAX_EXACT_SPREAD = 0.0025
+HARD_SCENE_EXACT_PLATEAU_MIN_SCENE_RECALL_AT_1 = 0.80
+HARD_SCENE_EXACT_PLATEAU_MIN_POSITIVE_RANK_MEAN = 200.0
+HARD_SCENE_EXACT_PLATEAU_MAX_TRIPLET_LOSS = 1e-3
+HARD_SCENE_EXACT_PLATEAU_MIN_SCENE_EXACT_GAP_RATE = 0.75
+HARD_SCENE_EXACT_PLATEAU_MIN_SAME_TEMPLATE_CONFUSION_RATE = 0.40
+DEFAULT_FAILURE_AUDIT_SAMPLE_LIMIT = 12
 
 
 @dataclass(frozen=True)
@@ -213,12 +225,41 @@ def evaluate_retrieval(
     candidate_metadata: dict[str, dict[str, Any]] | None = None,
     k_values: tuple[int, ...] = DEFAULT_RECALL_K_VALUES,
 ) -> dict[str, float | None]:
+    metrics, _ = evaluate_retrieval_with_audit(
+        query_embeddings=query_embeddings,
+        candidate_embeddings=candidate_embeddings,
+        positives=positives,
+        scene_candidates_by_query=scene_candidates_by_query,
+        query_metadata=query_metadata,
+        candidate_metadata=candidate_metadata,
+        k_values=k_values,
+        sample_limit=0,
+    )
+    return metrics
+
+
+def evaluate_retrieval_with_audit(
+    *,
+    query_embeddings: dict[str, list[float]],
+    candidate_embeddings: dict[str, list[float]],
+    positives: dict[str, str],
+    scene_candidates_by_query: dict[str, list[str]] | None = None,
+    query_metadata: dict[str, dict[str, Any]] | None = None,
+    candidate_metadata: dict[str, dict[str, Any]] | None = None,
+    k_values: tuple[int, ...] = DEFAULT_RECALL_K_VALUES,
+    sample_limit: int = DEFAULT_FAILURE_AUDIT_SAMPLE_LIMIT,
+) -> tuple[dict[str, float | None], dict[str, Any]]:
     valid_queries = [
         query_id
         for query_id, positive_id in positives.items()
         if query_id in query_embeddings and positive_id in candidate_embeddings
     ]
     metrics: dict[str, float | None] = {}
+    failure_audit: dict[str, Any] = _build_retrieval_failure_audit(
+        valid_queries=[],
+        failure_rows=[],
+        sample_limit=DEFAULT_FAILURE_AUDIT_SAMPLE_LIMIT,
+    )
     exact_hits_by_k = {k: 0 for k in k_values}
     identity_hits_by_k = {k: 0 for k in k_values}
     positive_ranks: list[int] = []
@@ -227,6 +268,7 @@ def evaluate_retrieval(
     top1_error_false_positive = 0
     top1_error_other = 0
     same_template_top1_error = 0
+    failure_rows: list[dict[str, Any]] = []
     for k in k_values:
         if not valid_queries:
             metrics[f"embedding_recall_at_{k}"] = None
@@ -239,7 +281,11 @@ def evaluate_retrieval(
         metrics["embedding_top1_error_false_positive_rate"] = None
         metrics["embedding_top1_error_other_rate"] = None
         metrics["embedding_same_template_top1_error_rate"] = None
-        return metrics
+        return metrics, _build_retrieval_failure_audit(
+            valid_queries=valid_queries,
+            failure_rows=failure_rows,
+            sample_limit=sample_limit,
+        )
 
     for query_id in valid_queries:
         positive_id = positives[query_id]
@@ -267,6 +313,8 @@ def evaluate_retrieval(
             ):
                 identity_hits_by_k[k] += 1
         top1_id = ranked[0]
+        top1_similarity = _cosine_similarity(query_embeddings[query_id], candidate_embeddings[top1_id])
+        positive_similarity = _cosine_similarity(query_embeddings[query_id], candidate_embeddings[positive_id])
         if top1_id == positive_id:
             continue
         top1_meta = (candidate_metadata or {}).get(top1_id)
@@ -281,8 +329,61 @@ def evaluate_retrieval(
             top1_error_other += 1
         positive_meta = (candidate_metadata or {}).get(positive_id)
         positive_template = _retrieval_template_id(positive_meta)
-        if positive_template and positive_template == _retrieval_template_id(top1_meta):
+        top1_template = _retrieval_template_id(top1_meta)
+        top1_identity = _retrieval_identity(top1_meta)
+        same_template_confusion = bool(positive_template and positive_template == top1_template)
+        if same_template_confusion:
             same_template_top1_error += 1
+        scene_positive_rank: int | None = None
+        scene_top1_id: str | None = None
+        top1_in_scene: bool | None = None
+        if scene_candidates_by_query is not None:
+            scene_candidates = [
+                candidate_id
+                for candidate_id in scene_candidates_by_query.get(query_id, [])
+                if candidate_id in candidate_embeddings
+            ]
+            if positive_id in scene_candidates:
+                scene_ranked = sorted(
+                    scene_candidates,
+                    key=lambda candidate_id: _cosine_similarity(
+                        query_embeddings[query_id],
+                        candidate_embeddings[candidate_id],
+                    ),
+                    reverse=True,
+                )
+                scene_positive_rank = scene_ranked.index(positive_id) + 1
+                scene_top1_id = scene_ranked[0]
+                top1_in_scene = top1_id in scene_candidates
+        same_identity_confusion = bool(expected_identity and top1_identity == expected_identity)
+        scene_exact_gap = scene_positive_rank == 1 and positive_rank > 1
+        failure_rows.append(
+            {
+                "query_id": query_id,
+                "positive_id": positive_id,
+                "top1_id": top1_id,
+                "positive_rank": positive_rank,
+                "scene_positive_rank": scene_positive_rank,
+                "scene_top1_id": scene_top1_id,
+                "top1_in_scene": top1_in_scene,
+                "top1_role": top1_role or "other",
+                "expected_identity": expected_identity,
+                "top1_identity": top1_identity,
+                "positive_template_id": positive_template,
+                "top1_template_id": top1_template,
+                "positive_similarity": round(float(positive_similarity), 6),
+                "top1_similarity": round(float(top1_similarity), 6),
+                "scene_exact_gap": scene_exact_gap,
+                "same_identity_confusion": same_identity_confusion,
+                "same_template_confusion": same_template_confusion,
+                "error_reason": _retrieval_failure_reason(
+                    top1_role=top1_role,
+                    scene_exact_gap=scene_exact_gap,
+                    same_identity_confusion=same_identity_confusion,
+                    same_template_confusion=same_template_confusion,
+                ),
+            }
+        )
 
     for k in k_values:
         metrics[f"embedding_recall_at_{k}"] = exact_hits_by_k[k] / len(valid_queries)
@@ -304,7 +405,11 @@ def evaluate_retrieval(
                 k_values=k_values,
             )
         )
-    return metrics
+    return metrics, _build_retrieval_failure_audit(
+        valid_queries=valid_queries,
+        failure_rows=failure_rows,
+        sample_limit=sample_limit,
+    )
 
 
 def train_icon_embedder(
@@ -330,6 +435,8 @@ def train_icon_embedder(
     review_min_epochs: int = embedder_review_protocol.DEFAULT_EMBEDDER_REVIEW_MIN_EPOCHS,
     review_window: int = embedder_review_protocol.DEFAULT_EMBEDDER_REVIEW_WINDOW,
     review_rebuild_count: int = 0,
+    interim_trial_dir: Path | None = None,
+    interim_primary_metric: str | None = None,
 ) -> IconEmbedderTrainingResult:
     if not dataset_config.is_instance_matching or dataset_config.embedding is None:
         raise RuntimeError("当前 group1 dataset.json 未提供 embedding 数据，无法训练 icon embedder。")
@@ -372,12 +479,13 @@ def train_icon_embedder(
                 f"{model_path} (checkpoint_version={checkpoint_version}, current_version={ICON_EMBEDDER_ARCHITECTURE_VERSION})。"
                 "请删除该 run 后重新 fresh 训练，或显式指定兼容检查点。"
             ) from exc
-        best_score = float(checkpoint.get("best_score", -1.0))
         raw_best_epoch = checkpoint.get("best_epoch")
-        if isinstance(raw_best_epoch, int) and raw_best_epoch >= 1:
-            best_epoch = raw_best_epoch
+        checkpoint_best_epoch = raw_best_epoch if isinstance(raw_best_epoch, int) and raw_best_epoch >= 1 else None
+        checkpoint_best_score = float(checkpoint.get("best_score", -1.0))
         checkpoint_epoch = int(checkpoint.get("epoch", -1)) + 1 if isinstance(checkpoint.get("epoch"), int) else None
         if resume:
+            best_score = checkpoint_best_score
+            best_epoch = checkpoint_best_epoch
             optimizer_state = checkpoint.get("optimizer_state")
             if optimizer_state is not None:
                 optimizer.load_state_dict(optimizer_state)
@@ -387,8 +495,8 @@ def train_icon_embedder(
                 "init "
                 f"checkpoint={model_path} "
                 f"checkpoint_epoch={checkpoint_epoch} "
-                f"checkpoint_best_epoch={best_epoch} "
-                f"checkpoint_best_score={best_score:.6f} "
+                f"checkpoint_best_epoch={checkpoint_best_epoch} "
+                f"checkpoint_best_score={checkpoint_best_score:.6f} "
                 f"restore_optimizer={resume}"
             )
         )
@@ -410,25 +518,70 @@ def train_icon_embedder(
 
     history: list[dict[str, float | int | None]] = []
     metrics: dict[str, float | None] = {}
+    failure_audit: dict[str, Any] = _build_retrieval_failure_audit(
+        valid_queries=[],
+        failure_rows=[],
+        sample_limit=DEFAULT_FAILURE_AUDIT_SAMPLE_LIMIT,
+    )
     epochs_without_improvement = 0
     early_stop_triggered = False
     stopped_epoch: int | None = None
     last_review: dict[str, Any] | None = None
     review_history: list[dict[str, Any]] = []
     training_stop_reason = "completed"
+    review_decision_mode = (
+        embedder_review_protocol.DEFAULT_EMBEDDER_REVIEW_DECISION_MODE
+        if review_callback is not None
+        else embedder_review_protocol.EMBEDDER_REVIEW_DECISION_MODE_GUARDRAIL_OVERRIDE
+    )
+    llm_controls_progress = (
+        review_callback is not None
+        and review_decision_mode == embedder_review_protocol.EMBEDDER_REVIEW_DECISION_MODE_LLM_FIRST
+    )
+    _write_interim_trial_artifacts(
+        summary_path=summary_path,
+        interim_trial_dir=interim_trial_dir,
+        interim_primary_metric=interim_primary_metric,
+        dataset_config=dataset_config,
+        run_dir=run_dir,
+        model_path=model_path,
+        epochs=epochs,
+        batch_size=batch_size,
+        image_size=image_size,
+        device_name=device_name,
+        resume=resume,
+        review_stage=review_stage,
+        review_decision_mode=review_decision_mode,
+        review_study_name=review_study_name,
+        review_task=review_task,
+        review_trial_id=review_trial_id or run_dir.name,
+        review_train_name=review_train_name or run_dir.name,
+        review_rebuild_count=review_rebuild_count,
+        metrics=metrics,
+        history=history,
+        failure_audit=failure_audit,
+        last_review=last_review,
+        review_history=review_history,
+        training_stop_reason="in_progress",
+        stopped_epoch=stopped_epoch,
+        finalized=False,
+    )
     for epoch in range(start_epoch, epochs):
-        train_loss = _train_one_epoch(
-            model,
-            train_loader,
-            optimizer,
-            criterion,
-            device,
-            triplet_loss_weight=DEFAULT_TRIPLET_LOSS_WEIGHT,
-            contrastive_loss_weight=DEFAULT_CONTRASTIVE_LOSS_WEIGHT,
-            contrastive_temperature=DEFAULT_CONTRASTIVE_TEMPERATURE,
-            epoch_index=epoch,
-            total_epochs=epochs,
+        train_epoch = _normalize_train_epoch_result(
+            _train_one_epoch(
+                model,
+                train_loader,
+                optimizer,
+                criterion,
+                device,
+                triplet_loss_weight=DEFAULT_TRIPLET_LOSS_WEIGHT,
+                contrastive_loss_weight=DEFAULT_CONTRASTIVE_LOSS_WEIGHT,
+                contrastive_temperature=DEFAULT_CONTRASTIVE_TEMPERATURE,
+                epoch_index=epoch,
+                total_epochs=epochs,
+            )
         )
+        train_loss = train_epoch["loss"]
         val_loss = _evaluate_triplet_loss(
             model,
             val_loader,
@@ -437,14 +590,16 @@ def train_icon_embedder(
             epoch_index=epoch,
             total_epochs=epochs,
         )
-        metrics = _evaluate_model_retrieval(
-            model=model,
-            records=val_records,
-            dataset_root=dataset_config.root,
-            image_size=image_size,
-            device=device,
-            epoch_index=epoch,
-            total_epochs=epochs,
+        metrics, failure_audit = _normalize_retrieval_evaluation_result(
+            _evaluate_model_retrieval(
+                model=model,
+                records=val_records,
+                dataset_root=dataset_config.root,
+                image_size=image_size,
+                device=device,
+                epoch_index=epoch,
+                total_epochs=epochs,
+            )
         )
         score = float(
             metrics.get("embedding_scene_recall_at_1")
@@ -456,6 +611,8 @@ def train_icon_embedder(
             {
                 "epoch": epoch + 1,
                 "train_loss": train_loss,
+                "train_triplet_loss": train_epoch["triplet_loss"],
+                "train_contrastive_loss": train_epoch["contrastive_loss"],
                 "val_loss": val_loss,
                 "embedding_recall_at_1": metrics.get("embedding_recall_at_1"),
                 "embedding_recall_at_3": metrics.get("embedding_recall_at_3"),
@@ -473,6 +630,8 @@ def train_icon_embedder(
         _icon_embedder_log(
             (
                 f"train_loss={train_loss:.6f} "
+                f"train_triplet_loss={train_epoch['triplet_loss']:.6f} "
+                f"train_contrastive_loss={train_epoch['contrastive_loss']:.6f} "
                 f"val_loss={val_loss:.6f} "
                 f"embedding_recall_at_1={metrics.get('embedding_recall_at_1')} "
                 f"embedding_recall_at_3={metrics.get('embedding_recall_at_3')} "
@@ -515,11 +674,88 @@ def train_icon_embedder(
                 best_epoch=best_epoch,
                 metrics=metrics,
             )
-        if review_callback is not None and embedder_review_protocol.should_run_embedder_review(
-            epoch=epoch + 1,
-            min_epochs=review_min_epochs,
-            window=review_window,
+        guardrail_alerts: list[str] = []
+        force_review = False
+        if _should_stop_base_for_zero_triplet_regression(
+            history=history,
+            review_stage=review_stage,
         ):
+            guardrail_alerts.append("guardrail=base_zero_triplet_exact_regression")
+            if llm_controls_progress:
+                force_review = True
+                _icon_embedder_log(
+                    (
+                        "guardrail-alert "
+                        "reason=base_zero_triplet_exact_regression "
+                        f"embedding_recall_at_1={metrics.get('embedding_recall_at_1')} "
+                        f"embedding_recall_at_3={metrics.get('embedding_recall_at_3')} "
+                        f"embedding_identity_recall_at_1={metrics.get('embedding_identity_recall_at_1')} "
+                        f"embedding_positive_rank_mean={metrics.get('embedding_positive_rank_mean')}"
+                    ),
+                    epoch_index=epoch,
+                    total_epochs=epochs,
+                )
+            else:
+                stopped_epoch = epoch + 1
+                training_stop_reason = "guardrail:base_zero_triplet_exact_regression"
+                _icon_embedder_log(
+                    (
+                        "guardrail-stop "
+                        "reason=base_zero_triplet_exact_regression "
+                        f"embedding_recall_at_1={metrics.get('embedding_recall_at_1')} "
+                        f"embedding_recall_at_3={metrics.get('embedding_recall_at_3')} "
+                        f"embedding_identity_recall_at_1={metrics.get('embedding_identity_recall_at_1')} "
+                        f"embedding_positive_rank_mean={metrics.get('embedding_positive_rank_mean')}"
+                    ),
+                    epoch_index=epoch,
+                    total_epochs=epochs,
+                )
+        if _should_stop_hard_for_scene_exact_plateau(
+            history=history,
+            review_stage=review_stage,
+            failure_audit=failure_audit,
+        ):
+            guardrail_alerts.append("guardrail=hard_scene_exact_plateau")
+            if llm_controls_progress:
+                force_review = True
+                _icon_embedder_log(
+                    (
+                        "guardrail-alert "
+                        "reason=hard_scene_exact_plateau "
+                        f"embedding_scene_recall_at_1={metrics.get('embedding_scene_recall_at_1')} "
+                        f"embedding_recall_at_1={metrics.get('embedding_recall_at_1')} "
+                        f"embedding_positive_rank_mean={metrics.get('embedding_positive_rank_mean')} "
+                        f"scene_exact_gap_rate={failure_audit.get('scene_exact_gap_rate')} "
+                        f"same_template_confusion_rate={failure_audit.get('same_template_confusion_rate')}"
+                    ),
+                    epoch_index=epoch,
+                    total_epochs=epochs,
+                )
+            else:
+                stopped_epoch = epoch + 1
+                training_stop_reason = "guardrail:hard_scene_exact_plateau"
+                _icon_embedder_log(
+                    (
+                        "guardrail-stop "
+                        "reason=hard_scene_exact_plateau "
+                        f"embedding_scene_recall_at_1={metrics.get('embedding_scene_recall_at_1')} "
+                        f"embedding_recall_at_1={metrics.get('embedding_recall_at_1')} "
+                        f"embedding_positive_rank_mean={metrics.get('embedding_positive_rank_mean')} "
+                        f"scene_exact_gap_rate={failure_audit.get('scene_exact_gap_rate')} "
+                        f"same_template_confusion_rate={failure_audit.get('same_template_confusion_rate')}"
+                    ),
+                    epoch_index=epoch,
+                    total_epochs=epochs,
+                )
+        should_run_review = review_callback is not None and (
+            force_review
+            or embedder_review_protocol.should_run_embedder_review(
+                epoch=epoch + 1,
+                min_epochs=review_min_epochs,
+                window=review_window,
+            )
+        )
+        if should_run_review:
             review_context = embedder_review_protocol.EmbedderReviewContext(
                 study_name=review_study_name,
                 task=review_task,
@@ -537,6 +773,8 @@ def train_icon_embedder(
                 current_metrics=metrics,
                 recent_history=[dict(item) for item in history[-review_window:]],
                 review_history=[dict(item) for item in review_history],
+                decision_mode=review_decision_mode,
+                guardrail_alerts=guardrail_alerts,
             )
             review_record = review_callback(review_context)
             last_review = review_record.to_dict()
@@ -593,12 +831,42 @@ def train_icon_embedder(
             early_stop_triggered=early_stop_triggered,
             review_enabled=review_callback is not None,
             review_stage=review_stage,
+            review_decision_mode=review_decision_mode,
             review_min_epochs=review_min_epochs,
             review_window=review_window,
             review_rebuild_count=review_rebuild_count,
             last_review=last_review,
             review_history=review_history,
             training_stop_reason="in_progress" if stopped_epoch is None else training_stop_reason,
+            failure_audit=failure_audit,
+            finalized=False,
+        )
+        _write_interim_trial_artifacts(
+            summary_path=summary_path,
+            interim_trial_dir=interim_trial_dir,
+            interim_primary_metric=interim_primary_metric,
+            dataset_config=dataset_config,
+            run_dir=run_dir,
+            model_path=model_path,
+            epochs=epochs,
+            batch_size=batch_size,
+            image_size=image_size,
+            device_name=device_name,
+            resume=resume,
+            review_stage=review_stage,
+            review_decision_mode=review_decision_mode,
+            review_study_name=review_study_name,
+            review_task=review_task,
+            review_trial_id=review_trial_id or run_dir.name,
+            review_train_name=review_train_name or run_dir.name,
+            review_rebuild_count=review_rebuild_count,
+            metrics=metrics,
+            history=history,
+            failure_audit=failure_audit,
+            last_review=last_review,
+            review_history=review_history,
+            training_stop_reason="in_progress" if stopped_epoch is None else training_stop_reason,
+            stopped_epoch=epoch + 1,
             finalized=False,
         )
         if stopped_epoch is not None:
@@ -641,23 +909,55 @@ def train_icon_embedder(
                 early_stop_triggered=early_stop_triggered,
                 review_enabled=review_callback is not None,
                 review_stage=review_stage,
+                review_decision_mode=review_decision_mode,
                 review_min_epochs=review_min_epochs,
                 review_window=review_window,
                 review_rebuild_count=review_rebuild_count,
                 last_review=last_review,
                 review_history=review_history,
                 training_stop_reason=training_stop_reason,
+                failure_audit=failure_audit,
+                finalized=False,
+            )
+            _write_interim_trial_artifacts(
+                summary_path=summary_path,
+                interim_trial_dir=interim_trial_dir,
+                interim_primary_metric=interim_primary_metric,
+                dataset_config=dataset_config,
+                run_dir=run_dir,
+                model_path=model_path,
+                epochs=epochs,
+                batch_size=batch_size,
+                image_size=image_size,
+                device_name=device_name,
+                resume=resume,
+                review_stage=review_stage,
+                review_decision_mode=review_decision_mode,
+                review_study_name=review_study_name,
+                review_task=review_task,
+                review_trial_id=review_trial_id or run_dir.name,
+                review_train_name=review_train_name or run_dir.name,
+                review_rebuild_count=review_rebuild_count,
+                metrics=metrics,
+                history=history,
+                failure_audit=failure_audit,
+                last_review=last_review,
+                review_history=review_history,
+                training_stop_reason=training_stop_reason,
+                stopped_epoch=stopped_epoch,
                 finalized=False,
             )
             break
 
     if not metrics:
-        metrics = _evaluate_model_retrieval(
-            model=model,
-            records=val_records,
-            dataset_root=dataset_config.root,
-            image_size=image_size,
-            device=device,
+        metrics, failure_audit = _normalize_retrieval_evaluation_result(
+            _evaluate_model_retrieval(
+                model=model,
+                records=val_records,
+                dataset_root=dataset_config.root,
+                image_size=image_size,
+                device=device,
+            )
         )
     if stopped_epoch is None and history:
         stopped_epoch = int(history[-1]["epoch"])
@@ -681,12 +981,42 @@ def train_icon_embedder(
         early_stop_triggered=early_stop_triggered,
         review_enabled=review_callback is not None,
         review_stage=review_stage,
+        review_decision_mode=review_decision_mode,
         review_min_epochs=review_min_epochs,
         review_window=review_window,
         review_rebuild_count=review_rebuild_count,
         last_review=last_review,
         review_history=review_history,
         training_stop_reason=training_stop_reason,
+        failure_audit=failure_audit,
+        finalized=True,
+    )
+    _write_interim_trial_artifacts(
+        summary_path=summary_path,
+        interim_trial_dir=interim_trial_dir,
+        interim_primary_metric=interim_primary_metric,
+        dataset_config=dataset_config,
+        run_dir=run_dir,
+        model_path=model_path,
+        epochs=epochs,
+        batch_size=batch_size,
+        image_size=image_size,
+        device_name=device_name,
+        resume=resume,
+        review_stage=review_stage,
+        review_decision_mode=review_decision_mode,
+        review_study_name=review_study_name,
+        review_task=review_task,
+        review_trial_id=review_trial_id or run_dir.name,
+        review_train_name=review_train_name or run_dir.name,
+        review_rebuild_count=review_rebuild_count,
+        metrics=metrics,
+        history=history,
+        failure_audit=failure_audit,
+        last_review=last_review,
+        review_history=review_history,
+        training_stop_reason=training_stop_reason,
+        stopped_epoch=stopped_epoch,
         finalized=True,
     )
     return IconEmbedderTrainingResult(
@@ -726,9 +1056,11 @@ def _train_one_epoch(
     contrastive_temperature: float,
     epoch_index: int,
     total_epochs: int,
-) -> float:
+) -> dict[str, float]:
     model.train()
     total_loss = 0.0
+    total_triplet_loss = 0.0
+    total_contrastive_loss = 0.0
     total_items = 0
     total_batches = len(loader)
     started = time.perf_counter()
@@ -750,6 +1082,8 @@ def _train_one_epoch(
         optimizer.step()
         item_count = int(batch["anchor"].shape[0])
         total_loss += float(loss.item()) * item_count
+        total_triplet_loss += float(triplet_loss.item()) * item_count
+        total_contrastive_loss += float(contrastive_loss.item()) * item_count
         total_items += item_count
         if batch_index == 1 or batch_index % 200 == 0 or batch_index == total_batches:
             elapsed = time.perf_counter() - started
@@ -766,7 +1100,114 @@ def _train_one_epoch(
                 epoch_index=epoch_index,
                 total_epochs=total_epochs,
             )
-    return total_loss / max(1, total_items)
+    denominator = max(1, total_items)
+    return {
+        "loss": total_loss / denominator,
+        "triplet_loss": total_triplet_loss / denominator,
+        "contrastive_loss": total_contrastive_loss / denominator,
+    }
+
+
+def _normalize_train_epoch_result(result: Any) -> dict[str, float]:
+    if isinstance(result, dict):
+        loss = float(result.get("loss", 0.0))
+        triplet_loss = float(result.get("triplet_loss", loss))
+        contrastive_loss = float(result.get("contrastive_loss", loss))
+        return {
+            "loss": loss,
+            "triplet_loss": triplet_loss,
+            "contrastive_loss": contrastive_loss,
+        }
+    scalar = float(result)
+    return {
+        "loss": scalar,
+        "triplet_loss": scalar,
+        "contrastive_loss": scalar,
+    }
+
+
+def _should_stop_base_for_zero_triplet_regression(
+    *,
+    history: list[dict[str, float | int | None]],
+    review_stage: str,
+) -> bool:
+    if review_stage != "TRAIN_EMBEDDER_BASE":
+        return False
+    if len(history) < 2:
+        return False
+    previous = history[-2]
+    current = history[-1]
+
+    previous_triplet = _history_float(previous, "train_triplet_loss")
+    current_triplet = _history_float(current, "train_triplet_loss")
+    if previous_triplet > ZERO_TRIPLET_LOSS_EPS or current_triplet > ZERO_TRIPLET_LOSS_EPS:
+        return False
+
+    current_exact_recall_at_1 = _history_float(current, "embedding_recall_at_1")
+    current_positive_rank_mean = _history_float(current, "embedding_positive_rank_mean")
+    if current_exact_recall_at_1 > ZERO_TRIPLET_GUARDRAIL_MAX_EXACT_RECALL_AT_1:
+        return False
+    if current_positive_rank_mean < ZERO_TRIPLET_GUARDRAIL_MIN_POSITIVE_RANK_MEAN:
+        return False
+
+    worsening_signals = 0
+    if _history_float(current, "embedding_recall_at_3") < _history_float(previous, "embedding_recall_at_3"):
+        worsening_signals += 1
+    if _history_float(current, "embedding_identity_recall_at_1") < _history_float(previous, "embedding_identity_recall_at_1"):
+        worsening_signals += 1
+    if _history_float(current, "embedding_scene_recall_at_1") < _history_float(previous, "embedding_scene_recall_at_1"):
+        worsening_signals += 1
+    if current_positive_rank_mean > _history_float(previous, "embedding_positive_rank_mean"):
+        worsening_signals += 1
+    if _history_float(current, "embedding_same_template_top1_error_rate") > _history_float(previous, "embedding_same_template_top1_error_rate"):
+        worsening_signals += 1
+    return worsening_signals >= 2
+
+
+def _should_stop_hard_for_scene_exact_plateau(
+    *,
+    history: list[dict[str, float | int | None]],
+    review_stage: str,
+    failure_audit: dict[str, Any],
+) -> bool:
+    if review_stage != "TRAIN_EMBEDDER_HARD":
+        return False
+    if len(history) < HARD_SCENE_EXACT_PLATEAU_WINDOW:
+        return False
+    window = history[-HARD_SCENE_EXACT_PLATEAU_WINDOW:]
+    exact_values = [_history_float(record, "embedding_recall_at_1") for record in window]
+    if max(exact_values) > HARD_SCENE_EXACT_PLATEAU_MAX_EXACT_RECALL_AT_1:
+        return False
+    if (max(exact_values) - min(exact_values)) > HARD_SCENE_EXACT_PLATEAU_MAX_EXACT_SPREAD:
+        return False
+    scene_values = [_history_float(record, "embedding_scene_recall_at_1") for record in window]
+    if min(scene_values) < HARD_SCENE_EXACT_PLATEAU_MIN_SCENE_RECALL_AT_1:
+        return False
+    if _history_float(window[-1], "embedding_positive_rank_mean") < HARD_SCENE_EXACT_PLATEAU_MIN_POSITIVE_RANK_MEAN:
+        return False
+    triplet_window = window[-2:]
+    if any(_history_float(record, "train_triplet_loss") > HARD_SCENE_EXACT_PLATEAU_MAX_TRIPLET_LOSS for record in triplet_window):
+        return False
+    scene_exact_gap_rate = _audit_float(failure_audit, "scene_exact_gap_rate")
+    same_template_confusion_rate = _audit_float(failure_audit, "same_template_confusion_rate")
+    return (
+        scene_exact_gap_rate >= HARD_SCENE_EXACT_PLATEAU_MIN_SCENE_EXACT_GAP_RATE
+        or same_template_confusion_rate >= HARD_SCENE_EXACT_PLATEAU_MIN_SAME_TEMPLATE_CONFUSION_RATE
+    )
+
+
+def _history_float(record: dict[str, float | int | None], key: str) -> float:
+    value = record.get(key)
+    if isinstance(value, bool) or not isinstance(value, (int, float)):
+        return 0.0
+    return float(value)
+
+
+def _audit_float(payload: dict[str, Any], key: str) -> float:
+    value = payload.get(key)
+    if isinstance(value, bool) or not isinstance(value, (int, float)):
+        return 0.0
+    return float(value)
 
 
 def _write_training_summary(
@@ -789,12 +1230,14 @@ def _write_training_summary(
     early_stop_triggered: bool,
     review_enabled: bool,
     review_stage: str,
+    review_decision_mode: str,
     review_min_epochs: int,
     review_window: int,
     review_rebuild_count: int,
     last_review: dict[str, Any] | None,
     review_history: list[dict[str, Any]],
     training_stop_reason: str,
+    failure_audit: dict[str, Any],
     finalized: bool,
 ) -> None:
     effective_stopped_epoch = stopped_epoch
@@ -839,18 +1282,241 @@ def _write_training_summary(
         "review_settings": {
             "enabled": review_enabled,
             "stage": review_stage,
+            "decision_mode": review_decision_mode,
             "min_epochs": review_min_epochs,
             "window": review_window,
             "rebuild_count": review_rebuild_count,
         },
         "review": last_review,
         "review_history": review_history,
+        "failure_audit": {
+            **failure_audit,
+            "file_path": str(summary_path.parent / "failure_audit.jsonl"),
+        },
         "training_stop": {
             "reason": training_stop_reason if finalized else "in_progress",
             "stopped_epoch": effective_stopped_epoch,
         },
     }
+    _write_failure_audit_jsonl(summary_path.parent / "failure_audit.jsonl", failure_audit.get("rows"))
     summary_path.write_text(json.dumps(summary, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
+
+
+def _write_interim_trial_artifacts(
+    *,
+    summary_path: Path,
+    interim_trial_dir: Path | None,
+    interim_primary_metric: str | None,
+    dataset_config: Group1DatasetConfig,
+    run_dir: Path,
+    model_path: Path | None,
+    epochs: int,
+    batch_size: int,
+    image_size: int,
+    device_name: str,
+    resume: bool,
+    review_stage: str,
+    review_decision_mode: str,
+    review_study_name: str,
+    review_task: str,
+    review_trial_id: str,
+    review_train_name: str,
+    review_rebuild_count: int,
+    metrics: dict[str, float | None],
+    history: list[dict[str, float | int | None]],
+    failure_audit: dict[str, Any],
+    last_review: dict[str, Any] | None,
+    review_history: list[dict[str, Any]],
+    training_stop_reason: str,
+    stopped_epoch: int | None,
+    finalized: bool,
+) -> None:
+    if interim_trial_dir is None:
+        return
+    interim_trial_dir.mkdir(parents=True, exist_ok=True)
+    status = "completed" if finalized else "starting" if not history else "in_progress"
+    current_epoch = int(history[-1]["epoch"]) if history else 0
+    surrogate_metric = "embedding_scene_recall_at_1"
+    surrogate_score = metrics.get(surrogate_metric) if isinstance(metrics.get(surrogate_metric), (int, float)) else None
+    compact_failure_audit = _compact_failure_audit(failure_audit, summary_path=summary_path)
+    failure_patterns = _build_interim_failure_patterns(metrics=metrics, failure_audit=compact_failure_audit)
+    result_summary = {
+        "interim": True,
+        "study_name": review_study_name,
+        "task": review_task,
+        "trial_id": review_trial_id,
+        "train_name": review_train_name,
+        "stage": review_stage,
+        "decision_mode": review_decision_mode,
+        "status": status,
+        "finalized": finalized,
+        "current_epoch": current_epoch,
+        "primary_metric": interim_primary_metric or "full_sequence_hit_rate",
+        "primary_score": None,
+        "primary_metric_status": "pending_business_eval",
+        "surrogate_primary_metric": surrogate_metric,
+        "surrogate_primary_score": surrogate_score,
+        "metrics": metrics,
+        "failure_patterns": failure_patterns,
+        "recommended_focus": compact_failure_audit.get("recommended_focus", []),
+        "reason_counts": compact_failure_audit.get("reason_counts", {}),
+        "training_stop": {
+            "reason": training_stop_reason,
+            "stopped_epoch": stopped_epoch if stopped_epoch is not None else current_epoch,
+        },
+        "summary_path": str(summary_path),
+        "failure_audit_file": compact_failure_audit.get("file_path"),
+        "updated_at": datetime.now(UTC).isoformat(timespec="seconds").replace("+00:00", "Z"),
+        "evidence": _build_interim_evidence(
+            review_stage=review_stage,
+            status=status,
+            metrics=metrics,
+            failure_audit=compact_failure_audit,
+            training_stop_reason=training_stop_reason,
+        ),
+    }
+    interim_analysis = {
+        "interim": True,
+        "study_name": review_study_name,
+        "task": review_task,
+        "trial_id": review_trial_id,
+        "train_name": review_train_name,
+        "stage": review_stage,
+        "status": status,
+        "current_params": {
+            "dataset_config": str(dataset_config.path),
+            "run_dir": str(run_dir),
+            "model_path": None if model_path is None else str(model_path),
+            "epochs": epochs,
+            "batch": batch_size,
+            "imgsz": image_size,
+            "device": device_name,
+            "resume": resume,
+            "review_rebuild_count": review_rebuild_count,
+        },
+        "component_diagnostics": {
+            "icon-embedder": {
+                "summary_path": str(summary_path),
+                "status": status,
+                "metrics": metrics,
+                "signal_summary": _build_interim_signal_summary(metrics=metrics, failure_audit=compact_failure_audit),
+                "failure_audit": compact_failure_audit,
+                "training_stop": {
+                    "reason": training_stop_reason,
+                    "stopped_epoch": stopped_epoch if stopped_epoch is not None else current_epoch,
+                },
+                "review": last_review,
+                "recent_history": history[-3:],
+                "review_history_size": len(review_history),
+            }
+        },
+        "evidence": _build_interim_evidence(
+            review_stage=review_stage,
+            status=status,
+            metrics=metrics,
+            failure_audit=compact_failure_audit,
+            training_stop_reason=training_stop_reason,
+        ),
+    }
+    (interim_trial_dir / "interim_result_summary.json").write_text(
+        json.dumps(result_summary, ensure_ascii=False, indent=2) + "\n",
+        encoding="utf-8",
+    )
+    (interim_trial_dir / "interim_trial_analysis.json").write_text(
+        json.dumps(interim_analysis, ensure_ascii=False, indent=2) + "\n",
+        encoding="utf-8",
+    )
+
+
+def _compact_failure_audit(
+    failure_audit: dict[str, Any],
+    *,
+    summary_path: Path,
+) -> dict[str, Any]:
+    compact = {
+        key: value
+        for key, value in failure_audit.items()
+        if key != "rows"
+    }
+    compact["file_path"] = str(summary_path.parent / "failure_audit.jsonl")
+    return compact
+
+
+def _build_interim_failure_patterns(
+    *,
+    metrics: dict[str, float | None],
+    failure_audit: dict[str, Any],
+) -> list[str]:
+    patterns: list[str] = []
+    scene_recall = _metric_float(metrics, "embedding_scene_recall_at_1")
+    exact_recall = _metric_float(metrics, "embedding_recall_at_1")
+    same_template_error = _metric_float(metrics, "embedding_same_template_top1_error_rate")
+    if scene_recall < 0.85:
+        patterns.append("embedder_scene_recall_gap")
+    if scene_recall >= 0.85 and exact_recall < 0.1:
+        patterns.append("embedder_global_exact_gap")
+    if same_template_error > 0.25 or _audit_float(failure_audit, "same_template_confusion_rate") > 0.25:
+        patterns.append("embedder_same_template_confusion")
+    if _audit_float(failure_audit, "scene_exact_gap_rate") > 0.5:
+        patterns.append("scene_exact_gap")
+    if _audit_float(failure_audit, "outside_scene_top1_rate") > 0.5:
+        patterns.append("outside_scene_top1")
+    return sorted(set(patterns))
+
+
+def _build_interim_signal_summary(
+    *,
+    metrics: dict[str, float | None],
+    failure_audit: dict[str, Any],
+) -> list[str]:
+    summary: list[str] = []
+    for key in (
+        "embedding_scene_recall_at_1",
+        "embedding_recall_at_1",
+        "embedding_identity_recall_at_1",
+        "embedding_positive_rank_mean",
+        "embedding_same_template_top1_error_rate",
+    ):
+        value = _metric_float(metrics, key)
+        if value > 0:
+            summary.append(f"{key}={value:.6f}")
+    for key in ("scene_exact_gap_rate", "same_template_confusion_rate", "outside_scene_top1_rate"):
+        value = _audit_float(failure_audit, key)
+        if value > 0:
+            summary.append(f"{key}={value:.6f}")
+    return summary
+
+
+def _build_interim_evidence(
+    *,
+    review_stage: str,
+    status: str,
+    metrics: dict[str, float | None],
+    failure_audit: dict[str, Any],
+    training_stop_reason: str,
+) -> list[str]:
+    evidence = [
+        f"stage={review_stage}",
+        f"status={status}",
+        f"training_stop_reason={training_stop_reason}",
+    ]
+    scene_recall = _metric_float(metrics, "embedding_scene_recall_at_1")
+    exact_recall = _metric_float(metrics, "embedding_recall_at_1")
+    if scene_recall > 0:
+        evidence.append(f"embedding_scene_recall_at_1={scene_recall:.6f}")
+    if exact_recall > 0:
+        evidence.append(f"embedding_recall_at_1={exact_recall:.6f}")
+    scene_exact_gap_rate = _audit_float(failure_audit, "scene_exact_gap_rate")
+    if scene_exact_gap_rate > 0:
+        evidence.append(f"scene_exact_gap_rate={scene_exact_gap_rate:.6f}")
+    return evidence
+
+
+def _metric_float(metrics: dict[str, float | None], key: str) -> float:
+    value = metrics.get(key)
+    if isinstance(value, bool) or not isinstance(value, (int, float)):
+        return 0.0
+    return float(value)
 
 
 def _in_batch_contrastive_loss(
@@ -942,7 +1608,7 @@ def _evaluate_model_retrieval(
     device: torch.device,
     epoch_index: int | None = None,
     total_epochs: int | None = None,
-) -> dict[str, float | None]:
+) -> tuple[dict[str, float | None], dict[str, Any]]:
     query_images: dict[str, Path] = {}
     candidate_images: dict[str, Path] = {}
     positives: dict[str, str] = {}
@@ -992,7 +1658,7 @@ def _evaluate_model_retrieval(
         epoch_index=epoch_index,
         total_epochs=total_epochs,
     )
-    return evaluate_retrieval(
+    return evaluate_retrieval_with_audit(
         query_embeddings=query_embeddings,
         candidate_embeddings=candidate_embeddings,
         positives=positives,
@@ -1003,6 +1669,7 @@ def _evaluate_model_retrieval(
         query_metadata=query_metadata,
         candidate_metadata=candidate_metadata,
         k_values=DEFAULT_RECALL_K_VALUES,
+        sample_limit=DEFAULT_FAILURE_AUDIT_SAMPLE_LIMIT,
     )
 
 
@@ -1122,6 +1789,132 @@ def _retrieval_template_id(metadata: dict[str, Any] | None) -> str:
     if not isinstance(metadata, dict):
         return ""
     return str(metadata.get("template_id", "")).strip()
+
+
+def _retrieval_failure_reason(
+    *,
+    top1_role: str,
+    scene_exact_gap: bool,
+    same_identity_confusion: bool,
+    same_template_confusion: bool,
+) -> str:
+    if same_template_confusion:
+        return "same_template_confusion"
+    if scene_exact_gap:
+        return "scene_exact_gap"
+    if same_identity_confusion:
+        return "same_identity_confusion"
+    if top1_role.startswith("scene_target"):
+        return "scene_target_confusion"
+    if top1_role.startswith("distractor"):
+        return "distractor_confusion"
+    if top1_role.startswith("false_positive"):
+        return "false_positive_confusion"
+    return "other_confusion"
+
+
+def _build_retrieval_failure_audit(
+    *,
+    valid_queries: list[str],
+    failure_rows: list[dict[str, Any]],
+    sample_limit: int,
+) -> dict[str, Any]:
+    query_count = len(valid_queries)
+    failure_count = len(failure_rows)
+    scene_exact_gap_count = sum(1 for row in failure_rows if bool(row.get("scene_exact_gap")))
+    same_identity_confusion_count = sum(1 for row in failure_rows if bool(row.get("same_identity_confusion")))
+    same_template_confusion_count = sum(1 for row in failure_rows if bool(row.get("same_template_confusion")))
+    outside_scene_top1_count = sum(1 for row in failure_rows if row.get("top1_in_scene") is False)
+    reason_counts: dict[str, int] = {}
+    for row in failure_rows:
+        reason = str(row.get("error_reason", "")).strip()
+        if not reason:
+            continue
+        reason_counts[reason] = reason_counts.get(reason, 0) + 1
+    ordered_rows = sorted(
+        failure_rows,
+        key=lambda row: (
+            int(bool(row.get("scene_exact_gap"))),
+            int(bool(row.get("same_template_confusion"))),
+            int(bool(row.get("same_identity_confusion"))),
+            int(row.get("positive_rank", 0)),
+        ),
+        reverse=True,
+    )
+    return {
+        "query_count": query_count,
+        "failure_count": failure_count,
+        "exact_failure_rate": _safe_ratio(failure_count, query_count),
+        "scene_exact_gap_count": scene_exact_gap_count,
+        "scene_exact_gap_rate": _safe_ratio(scene_exact_gap_count, query_count),
+        "same_identity_confusion_count": same_identity_confusion_count,
+        "same_identity_confusion_rate": _safe_ratio(same_identity_confusion_count, query_count),
+        "same_template_confusion_count": same_template_confusion_count,
+        "same_template_confusion_rate": _safe_ratio(same_template_confusion_count, query_count),
+        "outside_scene_top1_count": outside_scene_top1_count,
+        "outside_scene_top1_rate": _safe_ratio(outside_scene_top1_count, query_count),
+        "reason_counts": reason_counts,
+        "recommended_focus": _recommended_retrieval_focus(
+            query_count=query_count,
+            scene_exact_gap_count=scene_exact_gap_count,
+            same_identity_confusion_count=same_identity_confusion_count,
+            same_template_confusion_count=same_template_confusion_count,
+            outside_scene_top1_count=outside_scene_top1_count,
+        ),
+        "examples": ordered_rows[: max(0, sample_limit)],
+        "rows": ordered_rows,
+    }
+
+
+def _recommended_retrieval_focus(
+    *,
+    query_count: int,
+    scene_exact_gap_count: int,
+    same_identity_confusion_count: int,
+    same_template_confusion_count: int,
+    outside_scene_top1_count: int,
+) -> list[str]:
+    focus: list[str] = []
+    if _safe_ratio(scene_exact_gap_count, query_count) >= 0.15:
+        focus.append("shift_gate_to_scene_and_business")
+    if _safe_ratio(same_template_confusion_count, query_count) >= 0.10:
+        focus.append("increase_same_template_hard_negatives")
+    if _safe_ratio(same_identity_confusion_count, query_count) >= 0.10:
+        focus.append("audit_identity_labels_and_variant_definitions")
+    if _safe_ratio(outside_scene_top1_count, query_count) >= 0.10:
+        focus.append("inspect_detector_candidate_noise")
+    if not focus:
+        focus.append("continue_current_metric_learning")
+    return focus
+
+
+def _normalize_retrieval_evaluation_result(
+    result: object,
+) -> tuple[dict[str, float | None], dict[str, Any]]:
+    if isinstance(result, tuple) and len(result) == 2:
+        metrics, failure_audit = result
+        if isinstance(metrics, dict) and isinstance(failure_audit, dict):
+            return metrics, failure_audit
+    if isinstance(result, dict):
+        return result, _build_retrieval_failure_audit(
+            valid_queries=[],
+            failure_rows=[],
+            sample_limit=DEFAULT_FAILURE_AUDIT_SAMPLE_LIMIT,
+        )
+    raise RuntimeError("group1 icon embedder retrieval 评估结果格式非法。")
+
+
+def _safe_ratio(numerator: int, denominator: int) -> float:
+    if denominator <= 0:
+        return 0.0
+    return numerator / denominator
+
+
+def _write_failure_audit_jsonl(path: Path, rows: object) -> None:
+    if not isinstance(rows, list):
+        write_jsonl(path, [])
+        return
+    write_jsonl(path, [row for row in rows if isinstance(row, dict)])
 
 
 def _median(values: list[int]) -> float | None:

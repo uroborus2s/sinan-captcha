@@ -17,6 +17,50 @@
 
 ## 当前事实
 
+- 2026-04-16 当前 `group1 icon-embedder` 已切到 `LLM-first` 审查口径，并把 embedder gate 改成 `scene / identity` 优先：
+  - 当前当 `auto-train --judge-provider opencode` 启用本地 `review-embedder` 时：
+    - base/hard 阶段的本地 guardrail 不再直接覆盖大模型的 `CONTINUE`
+    - 也不再默认直接本地停训
+    - 而是把 `base_zero_triplet_exact_regression / hard_scene_exact_plateau` 这类信号作为 `guardrail_alerts` 附加到 review context，并立即触发一次更早的 LLM review
+  - 当前如果没有启用 LLM review，本地 deterministic guardrail 仍保留为安全兜底，避免无审查时完全失控
+  - 当前 `EMBEDDER_GATE` 已不再把 `global exact recall` 当成主门禁：
+    - 主 gate 先看 `embedding_scene_recall_at_1/@3`
+    - `embedding_identity_recall_at_1` 单独统计并参与 gate
+    - `embedding_recall_at_1/@3` 仅保留在 `observed/diagnostics` 中做诊断，不再作为有 scene 指标时的主 failed check
+  - 当前 `icon-embedder/summary.json` 与 `interim_result_summary.json` 已额外写出：
+    - `review_settings.decision_mode`
+    - `stage decision_mode`
+    - `global_exact_is_diagnostic_only`
+  - 当前 `TRAIN_EMBEDDER_HARD` fresh 热启动时已不再继承上一个 run 的 `best_score` 作为本轮 best 基线：
+    - 新 run 会重新生成自己的 `best.pt`
+    - 旧的缺失 `best.pt` run 在 `TEST / OFFLINE_EVAL` 时也会自动回落到现存 `last.pt`
+  - 当前 controller 在拉起 `group1 icon-embedder` 自动训练时，会把 trial 目录透传给训练子进程
+  - 当前 `train_icon_embedder(...)` 会在 trial 还没进入 `SUMMARIZE` 前，先落：
+    - `interim_result_summary.json`
+    - `interim_trial_analysis.json`
+  - 当前这些中途工件会带：
+    - 当前 epoch / stage / training_stop 状态
+    - 代理主指标 `embedding_scene_recall_at_1`
+    - `failure_audit` 压缩摘要与建议方向
+    - 最近历史与当前参数
+  - 当前已验证：
+    - `uv run pytest tests/python/test_group1_embedder.py tests/python/test_training_jobs.py tests/python/test_auto_train_controller.py tests/python/test_auto_train_layout.py tests/python/test_auto_train_runners.py -q`
+    - `uv run pytest tests/python/test_auto_train_analysis.py tests/python/test_auto_train_summary.py tests/python/test_auto_train_policies.py tests/python/test_auto_train_optimize.py tests/python/test_auto_train_decision_protocol.py tests/python/test_auto_train_embedder_review_protocol.py tests/python/test_auto_train_group1_pipeline.py -q`
+
+- 2026-04-16 当前 `group1 icon-embedder` 的 base/hard guardrail 已从“强制改写决策”收口为“提前拉起审查”：
+  - 当前如果出现下面这组信号：
+    - `best_epoch` 已经落后当前 epoch 多轮
+    - `embedding_scene_recall_at_1` 已经不低
+    - `embedding_recall_at_1` 仍明显偏低
+    - `embedding_same_template_top1_error_rate` 或 `embedding_positive_rank_mean` 说明 exact retrieval 仍严重混淆
+  - 则在 `LLM-first` 模式下会立即触发新的 review，而不是强制把 `CONTINUE` 改写成 `STOP_AND_ADVANCE`
+  - 当前目标是不再让 deterministic 规则代替大模型做最终判断，但又避免 review 只在固定窗口里太晚触发
+  - 当前 hardset 构建也已补强：
+    - 即使 detector negatives 已存在，也会额外补入“同模板但不同 identity”的 gold negatives
+    - 这些补充 negatives 会继续参与 `same_template_variant / same_template_other` 优先排序
+  - 当前已验证：
+    - `uv run pytest tests/python/test_group1_embedder.py tests/python/test_auto_train_group1_pipeline.py tests/python/test_auto_train_embedder_review_protocol.py tests/python/test_training_jobs.py -q`
+
 - 2026-04-15 当前 `group1` reviewed 商业测试的判卷可观测性已补齐：
   - 当前默认标准已明确为：
     - 从 reviewed 试卷池稳定抽样 `50` 题
@@ -2425,8 +2469,10 @@
 - 2026-04-13 `group1 auto-train` 当前已完成一轮控制流收口：
   - 新增正式 `EMBEDDER_GATE`，位置在 `TRAIN_EMBEDDER_BASE -> EMBEDDER_GATE -> BUILD_EMBEDDER_HARDSET`
   - `icon-embedder` gate 当前正式阈值已落地为：
-    - `embedding_recall_at_1 >= 0.97`
-    - `embedding_recall_at_3 >= 0.995`
+    - `embedding_scene_recall_at_1 >= 0.97`
+    - `embedding_scene_recall_at_3 >= 0.995`
+    - `embedding_identity_recall_at_1 >= 0.85`
+    - `embedding_recall_at_1/@3` 当前只保留为 diagnostic observed，不再在已有 scene 指标时作为主 gate failed check
   - `group1` 下一轮 trial 当前不再默认整条流水线重训，而是写入 `params.group1_component_plan`
     - 已过 gate 的组件：`reuse`
     - 未过 gate 的组件：`train`
@@ -2452,13 +2498,13 @@
     - 若 review 结论为 `STOP_AND_ADVANCE`，则直接把当前 run finalize 并恢复为已完成组件，不再额外多跑到下一个 review 窗口
     - 若已有同 epoch review 记录，则直接复用，不重复调用本地 judge
   - 当前作用范围先收口在 `TRAIN_EMBEDDER_BASE`；`TRAIN_EMBEDDER_HARD` 仍沿用训练中 review
-  - `TRAIN_EMBEDDER_BASE` 当前新增更激进的切换 guardrail：
+  - `TRAIN_EMBEDDER_BASE` 当前命中下面这组 guardrail 信号时：
     - 当 `epoch >= 20`
     - 且 `embedding_recall_at_1 <= 0.10`
     - 且 `embedding_positive_rank_mean >= 20`
     - 且 `embedding_identity_recall_at_1 >= embedding_recall_at_1 + 0.25`
-    - 则即使本地 judge 仍返回 `CONTINUE`，协议层也会强制改写为 `STOP_AND_ADVANCE`，直接切到 hardset 路径
-  - 上述 guardrail 当前也会作用于 `resume-time preflight review` 的 `source=existing_review` 分支，不再因为复用旧 review 记录而绕过新规则
+    - 当前在 `LLM-first` 模式下会作为 advisory evidence 附加到 preflight review，而不再强制把旧 `CONTINUE` 复写为 `STOP_AND_ADVANCE`
+  - 上述 guardrail 当前也会作用于 `resume-time preflight review` 的 `source=existing_review` 分支，但口径已经改成“补证据并重新判断”，不再是“直接套规则改写”
   - `BUILD_EMBEDDER_HARDSET` 当前已补 heartbeat 日志，终端会输出：
     - `hardset_build_start`
     - `hardset_build_split_start`

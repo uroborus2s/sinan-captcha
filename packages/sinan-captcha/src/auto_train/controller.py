@@ -64,6 +64,7 @@ GROUP1_EMBEDDER_GATE_RECALL_AT_1_MIN = 0.97
 GROUP1_EMBEDDER_GATE_RECALL_AT_3_MIN = 0.995
 GROUP1_EMBEDDER_GATE_SCENE_RECALL_AT_1_MIN = 0.97
 GROUP1_EMBEDDER_GATE_SCENE_RECALL_AT_3_MIN = 0.995
+GROUP1_EMBEDDER_GATE_IDENTITY_RECALL_AT_1_MIN = 0.85
 GROUP1_COMPONENT_PLAN_PARAM = "group1_component_plan"
 GROUP1_COMPONENT_PARAMS_PARAM = "group1_component_params"
 GROUP1_COMPONENT_PLAN_TRAIN = "train"
@@ -1209,6 +1210,16 @@ class AutoTrainController:
                 device=device,
                 component=component,
                 dataset_config_override=dataset_config_override,
+                interim_trial_dir=(
+                    self.paths.trial_dir(trial_id)
+                    if self.request.task == "group1" and component == EMBEDDER_COMPONENT
+                    else None
+                ),
+                interim_primary_metric=(
+                    policies.policy_for_task(self.request.task).primary_metric
+                    if self.request.task == "group1" and component == EMBEDDER_COMPONENT
+                    else None
+                ),
                 **review_kwargs,
             )
         )
@@ -1539,6 +1550,7 @@ class AutoTrainController:
             current_metrics=_json_object(metrics),
             recent_history=_recent_embedder_history(history, review_window),
             review_history=[_json_object(item) for item in review_history if isinstance(item, dict)],
+            decision_mode=embedder_review_protocol.EMBEDDER_REVIEW_DECISION_MODE_LLM_FIRST,
         )
 
     def _resolve_group1_scene_train_mode(
@@ -1761,6 +1773,8 @@ class AutoTrainController:
             isinstance(value, (int, float))
             for value in (scene_recall_at_1_raw, scene_recall_at_3_raw)
         )
+        identity_recall_at_1_raw = metrics.get("embedding_identity_recall_at_1")
+        has_identity_metric = isinstance(identity_recall_at_1_raw, (int, float)) and not isinstance(identity_recall_at_1_raw, bool)
         if has_scene_metrics:
             recall_at_1 = _float_like(scene_recall_at_1_raw, 0.0)
             recall_at_3 = _float_like(scene_recall_at_3_raw, 0.0)
@@ -1780,20 +1794,31 @@ class AutoTrainController:
             failed_checks.append(recall_at_1_field)
         if recall_at_3 < recall_at_3_threshold:
             failed_checks.append(recall_at_3_field)
+        identity_recall_at_1 = _float_like(identity_recall_at_1_raw, 0.0) if has_identity_metric else None
+        if identity_recall_at_1 is not None and identity_recall_at_1 < GROUP1_EMBEDDER_GATE_IDENTITY_RECALL_AT_1_MIN:
+            failed_checks.append("embedding_identity_recall_at_1")
         return {
             "status": "passed" if not failed_checks else "failed",
             "failed_checks": failed_checks,
             "thresholds": {
                 f"{recall_at_1_field}_min": recall_at_1_threshold,
                 f"{recall_at_3_field}_min": recall_at_3_threshold,
+                "embedding_identity_recall_at_1_min": (
+                    GROUP1_EMBEDDER_GATE_IDENTITY_RECALL_AT_1_MIN if has_identity_metric else None
+                ),
             },
             "observed": {
                 recall_at_1_field: recall_at_1,
                 recall_at_3_field: recall_at_3,
+                "embedding_identity_recall_at_1": identity_recall_at_1,
                 "embedding_recall_at_1": _float_like(metrics.get("embedding_recall_at_1"), 0.0),
                 "embedding_recall_at_3": _float_like(metrics.get("embedding_recall_at_3"), 0.0),
                 "embedding_scene_recall_at_1": _float_like(scene_recall_at_1_raw, 0.0) if has_scene_metrics else None,
                 "embedding_scene_recall_at_3": _float_like(scene_recall_at_3_raw, 0.0) if has_scene_metrics else None,
+            },
+            "diagnostics": {
+                "priority": "scene_identity_first",
+                "global_exact_is_diagnostic_only": True,
             },
         }
 
@@ -1965,6 +1990,7 @@ class AutoTrainController:
             "gate": gate if isinstance(gate, dict) else {},
             "error_file": component_summary.get("failcases"),
             "review": component_summary.get("review"),
+            "failure_audit": component_summary.get("failure_audit"),
             "checks": {
                 "best_exists": bool(best_path and best_path.exists()),
                 "last_exists": bool(last_path and last_path.exists()),
@@ -3969,7 +3995,13 @@ def _best_embedder_epoch_from_history(history: list[object]) -> tuple[int | None
         epoch = _embedder_summary_epoch(item)
         if epoch is None:
             continue
-        score = _float_like(item.get("embedding_recall_at_1"), default=-1.0)
+        score = _float_like(
+            item.get("embedding_scene_recall_at_1"),
+            default=_float_like(
+                item.get("embedding_identity_recall_at_1"),
+                default=_float_like(item.get("embedding_recall_at_1"), default=-1.0),
+            ),
+        )
         if best_score is None or score > best_score:
             best_epoch = epoch
             best_score = score
@@ -4004,6 +4036,19 @@ def _summary_metric(summary_record: contracts.ResultSummaryRecord, key: str) -> 
 
 
 def _offline_ranking_score(summary_record: contracts.ResultSummaryRecord) -> float:
+    if summary_record.task == "group1":
+        full_sequence_hit_rate = _summary_metric(summary_record, "full_sequence_hit_rate") or 0.0
+        single_target_hit_rate = _summary_metric(summary_record, "single_target_hit_rate") or 0.0
+        order_error_rate = _summary_metric(summary_record, "order_error_rate")
+        order_quality = 0.0 if order_error_rate is None else max(0.0, min(1.0, 1.0 - order_error_rate))
+        center_error = _summary_metric(summary_record, "mean_center_error_px")
+        center_quality = 1.0 if center_error is None else max(0.0, min(1.0, 1.0 - (center_error / 20.0)))
+        return (
+            (full_sequence_hit_rate * 0.55)
+            + (single_target_hit_rate * 0.25)
+            + (order_quality * 0.15)
+            + (center_quality * 0.05)
+        )
     point_hit_rate = _summary_metric(summary_record, "point_hit_rate") or 0.0
     mean_iou = _summary_metric(summary_record, "mean_iou") or 0.0
     center_error = _summary_metric(summary_record, "mean_center_error_px")

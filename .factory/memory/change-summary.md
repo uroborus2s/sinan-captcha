@@ -1,5 +1,127 @@
 # 变更摘要
 
+## 2026-04-16 修复 `TRAIN_EMBEDDER_HARD` 后续 `OFFLINE_EVAL` 找不到 `icon-embedder/best.pt`
+
+- 已更新：
+  - `packages/sinan-captcha/src/train/group1/embedder.py`
+  - `packages/sinan-captcha/src/auto_train/runners/test.py`
+  - `tests/python/test_group1_embedder.py`
+  - `tests/python/test_auto_train_runners.py`
+  - `.factory/memory/current-state.md`
+  - `.factory/memory/change-summary.md`
+- 当前已完成的目标：
+  - `TRAIN_EMBEDDER_HARD` 当前在 `resume=False` 的 fresh 热启动路径上，不再继承来源 checkpoint 的 `best_score / best_epoch` 作为新 run 的 best 基线；因此新的 hard run 会重新写出自己的 `best.pt`
+  - `TEST / OFFLINE_EVAL` 当前在 `group1` 三个组件上都会优先取现存 checkpoint：
+    - 先取 `best.pt`
+    - 若 `best.pt` 缺失，则自动回落到 `last.pt`
+  - 这解决了“hard 训练提前停止后 controller 进入 `OFFLINE_EVAL -> TEST`，但仍因为死拿 `icon-embedder/weights/best.pt` 而报错”的问题
+- 已运行验证：
+  - `uv run pytest tests/python/test_group1_embedder.py tests/python/test_auto_train_runners.py tests/python/test_auto_train_controller.py tests/python/test_training_jobs.py -q`
+  - `uv run pytest tests/python/test_auto_train_analysis.py tests/python/test_auto_train_summary.py tests/python/test_auto_train_policies.py tests/python/test_auto_train_controller.py tests/python/test_auto_train_embedder_review_protocol.py tests/python/test_group1_embedder.py tests/python/test_training_jobs.py tests/python/test_auto_train_runners.py -q`
+
+## 2026-04-16 把 `group1 icon-embedder` 收口为 `LLM-first` 审查与 `scene / identity` 优先 gate
+
+- 已更新：
+  - `packages/sinan-captcha/src/auto_train/embedder_review_protocol.py`
+  - `packages/sinan-captcha/src/auto_train/controller.py`
+  - `packages/sinan-captcha/src/train/group1/embedder.py`
+  - `tests/python/test_auto_train_embedder_review_protocol.py`
+  - `tests/python/test_auto_train_controller.py`
+  - `tests/python/test_group1_embedder.py`
+  - `docs/02-user-guide/trainer-cli-reference.md`
+  - `docs/02-user-guide/complete-training-operations-guide.md`
+  - `docs/04-project-development/04-design/group1-instance-matching-refactor.md`
+  - `.factory/memory/current-state.md`
+  - `.factory/memory/change-summary.md`
+- 当前已完成的目标：
+  - `review-embedder` 当前已改成 `LLM-first`：
+    - `parse_or_fallback_review(...)` 不再默认把 LLM 的 `CONTINUE` 强制改写成 `STOP_AND_ADVANCE / REBUILD_HARDSET`
+    - 旧 guardrail 当前只会补成 advisory evidence；只有在没有可用 LLM review 时，deterministic fallback 才继续兜底
+  - `train_icon_embedder(...)` 当前不再在启用 LLM review 时直接本地 `guardrail-stop`：
+    - 命中 `base_zero_triplet_exact_regression`
+    - 或命中 `hard_scene_exact_plateau`
+    - 会先记录 `guardrail-alert`
+    - 并立即触发一次更早的 review，让大模型决定 `CONTINUE / STOP_AND_ADVANCE / REBUILD_HARDSET / ESCALATE_DETECTOR`
+  - `EMBEDDER_GATE` 当前已从“global exact positive 必须第一”改成：
+    - 优先检查 `embedding_scene_recall_at_1/@3`
+    - 单独检查 `embedding_identity_recall_at_1`
+    - `embedding_recall_at_1/@3` 只保留在 `observed/diagnostics` 中做诊断，不再作为有 scene 指标时的主 gate failed check
+  - `icon-embedder` 的 summary / interim trial 工件当前已额外写出：
+    - `review_settings.decision_mode`
+    - `stage decision_mode`
+    - `global_exact_is_diagnostic_only`
+- 已运行验证：
+  - `uv run pytest tests/python/test_auto_train_embedder_review_protocol.py tests/python/test_auto_train_controller.py tests/python/test_group1_embedder.py -q`
+  - `uv run pytest tests/python/test_auto_train_analysis.py tests/python/test_auto_train_summary.py tests/python/test_auto_train_policies.py tests/python/test_auto_train_controller.py tests/python/test_auto_train_embedder_review_protocol.py tests/python/test_group1_embedder.py tests/python/test_training_jobs.py tests/python/test_auto_train_runners.py -q`
+
+## 2026-04-16 为 `TRAIN_EMBEDDER_HARD` 增加本地提前停机与中途 trial 工件
+
+- 已更新：
+  - `packages/sinan-captcha/src/train/group1/embedder.py`
+  - `packages/sinan-captcha/src/train/group1/runner.py`
+  - `packages/sinan-captcha/src/train/group1/service.py`
+  - `packages/sinan-captcha/src/auto_train/runners/train.py`
+  - `packages/sinan-captcha/src/auto_train/controller.py`
+  - `packages/sinan-captcha/src/auto_train/layout.py`
+  - `tests/python/test_group1_embedder.py`
+  - `tests/python/test_training_jobs.py`
+  - `tests/python/test_auto_train_controller.py`
+  - `tests/python/test_auto_train_layout.py`
+  - `docs/02-user-guide/trainer-cli-reference.md`
+  - `docs/02-user-guide/complete-training-operations-guide.md`
+  - `.factory/memory/current-state.md`
+  - `.factory/memory/change-summary.md`
+- 当前已完成的目标：
+  - `TRAIN_EMBEDDER_HARD` 当前新增本地 plateau guardrail：
+    - 当最近数轮 `embedding_scene_recall_at_1` 已经不低
+    - 但 `embedding_recall_at_1` 持续极低且几乎不动
+    - 同时 `embedding_positive_rank_mean`、`scene_exact_gap_rate`、`same_template_confusion_rate` 仍显示 exact retrieval 严重混淆
+    - 就会直接结束 hard 训练，不再继续空跑很多 epoch
+  - `group1 icon-embedder` 自动训练当前会把 trial 目录透传到训练子进程
+  - 训练阶段当前会在 `SUMMARIZE` 之前先落：
+    - `interim_result_summary.json`
+    - `interim_trial_analysis.json`
+  - 当前这些中途工件会直接写出：
+    - 当前 epoch / stage / training_stop
+    - 代理主指标 `embedding_scene_recall_at_1`
+    - `failure_audit` 压缩摘要
+    - 推荐方向与最近历史
+- 已运行验证：
+  - `uv run pytest tests/python/test_group1_embedder.py tests/python/test_training_jobs.py tests/python/test_auto_train_controller.py tests/python/test_auto_train_layout.py tests/python/test_auto_train_runners.py -q`
+  - `uv run pytest tests/python/test_auto_train_analysis.py tests/python/test_auto_train_summary.py tests/python/test_auto_train_policies.py tests/python/test_auto_train_optimize.py tests/python/test_auto_train_decision_protocol.py tests/python/test_auto_train_embedder_review_protocol.py tests/python/test_auto_train_group1_pipeline.py -q`
+
+## 2026-04-16 收紧 `TRAIN_EMBEDDER_BASE` 的提前切 hardset guardrail
+
+- 已更新：
+  - `packages/sinan-captcha/src/auto_train/embedder_review_protocol.py`
+  - `packages/sinan-captcha/src/auto_train/group1_pipeline.py`
+  - `packages/sinan-captcha/src/train/group1/embedder.py`
+  - `packages/sinan-captcha/src/train/group1/runner.py`
+  - `tests/python/test_auto_train_embedder_review_protocol.py`
+  - `tests/python/test_auto_train_group1_pipeline.py`
+  - `tests/python/test_group1_embedder.py`
+  - `docs/02-user-guide/trainer-cli-reference.md`
+  - `docs/02-user-guide/complete-training-operations-guide.md`
+  - `.factory/memory/current-state.md`
+  - `.factory/memory/change-summary.md`
+- 当前已完成的目标：
+  - `TRAIN_EMBEDDER_BASE` 当前新增本地强制切换规则：
+    - 当 `best_epoch` 已经明显落后当前 epoch
+    - 且 `embedding_scene_recall_at_1` 已经不低
+    - 但 `embedding_recall_at_1` 仍显著偏低
+    - 且同模板混淆或正样本平均排名明显异常
+    - 则即使大模型 review 返回 `CONTINUE`，也会被协议层改写为 `STOP_AND_ADVANCE`
+  - 当前这会更早推进到 `EMBEDDER_GATE -> BUILD_EMBEDDER_HARDSET`，避免 base embedder 长时间空跑
+  - `train_icon_embedder(...)` 当前新增本地 guardrail：
+    - 若连续两轮 `train_triplet_loss ~= 0`
+    - 且 `embedding_recall_at_1` 仍很低
+    - 且 `embedding_recall_at_3 / embedding_identity_recall_at_1 / embedding_scene_recall_at_1 / embedding_positive_rank_mean / embedding_same_template_top1_error_rate` 中至少两项继续恶化
+    - 则会直接结束 `TRAIN_EMBEDDER_BASE`
+  - `BUILD_EMBEDDER_HARDSET` 当前会在已有 detector negatives 的基础上，继续补入“同模板但不同 identity”的 gold negatives，强化第二次 hardset 的同模板对抗样本
+  - `train.group1.runner` 当前也补了 `missing_orders / ambiguous_orders` 的兼容兜底，避免旧测试用 fake mapping 缺字段时报错
+- 已运行验证：
+  - `uv run pytest tests/python/test_group1_embedder.py tests/python/test_auto_train_group1_pipeline.py tests/python/test_auto_train_embedder_review_protocol.py tests/python/test_training_jobs.py -q`
+
 ## 2026-04-15 补齐 `group1` 商业测试错误明细落盘与可读报告
 
 - 已更新：

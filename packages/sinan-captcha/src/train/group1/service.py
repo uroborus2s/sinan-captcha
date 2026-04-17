@@ -62,6 +62,8 @@ class Group1TrainingJob:
     device: str = "0"
     resume: bool = False
     embedder_review: EmbedderReviewConfig | None = None
+    interim_trial_dir: Path | None = None
+    interim_primary_metric: str | None = None
 
     def command(self) -> list[str]:
         command = [
@@ -115,6 +117,10 @@ class Group1TrainingJob:
                 command.extend(["--review-min-epochs", str(self.embedder_review.min_epochs)])
             if self.embedder_review.window is not None:
                 command.extend(["--review-window", str(self.embedder_review.window)])
+        if self.interim_trial_dir is not None:
+            command.extend(["--interim-trial-dir", str(self.interim_trial_dir)])
+        if self.interim_primary_metric is not None:
+            command.extend(["--interim-primary-metric", self.interim_primary_metric])
         return command
 
     def command_string(self) -> str:
@@ -197,6 +203,8 @@ def build_group1_training_job(
     device: str = "0",
     resume: bool = False,
     embedder_review: EmbedderReviewConfig | None = None,
+    interim_trial_dir: Path | None = None,
+    interim_primary_metric: str | None = None,
 ) -> Group1TrainingJob:
     normalized_component = normalize_group1_component(component)
     resolved_query_model = query_model or model
@@ -231,6 +239,8 @@ def build_group1_training_job(
         device=device,
         resume=resume,
         embedder_review=embedder_review if normalized_component == EMBEDDER_COMPONENT else None,
+        interim_trial_dir=interim_trial_dir if normalized_component == EMBEDDER_COMPONENT else None,
+        interim_primary_metric=interim_primary_metric if normalized_component == EMBEDDER_COMPONENT else None,
     )
 
 

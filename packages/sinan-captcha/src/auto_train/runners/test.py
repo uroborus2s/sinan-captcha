@@ -14,6 +14,7 @@ from train.base import (
     default_dataset_config,
     default_predict_source,
     default_report_dir,
+    preferred_checkpoint_path,
 )
 from train.group1.dataset import load_group1_dataset_config
 from train.group1.service import (
@@ -21,6 +22,7 @@ from train.group1.service import (
     PROPOSAL_COMPONENT,
     QUERY_COMPONENT,
     resolve_group1_component_best_weights,
+    resolve_group1_component_last_weights,
 )
 
 ModelTestExecutor = Callable[[ModelTestRequest], ModelTestResult]
@@ -93,19 +95,32 @@ def _build_model_test_request(request: TestRunnerRequest) -> ModelTestRequest:
     dataset_config = request.dataset_config or default_dataset_config(request.train_root, task, request.dataset_version)
     if task == "group1":
         group1_dataset_config = load_group1_dataset_config(dataset_config)
-        model_path = request.model_path or resolve_group1_component_best_weights(request.train_root, request.train_name, PROPOSAL_COMPONENT)
+        model_path = request.model_path or preferred_checkpoint_path(
+            resolve_group1_component_best_weights(request.train_root, request.train_name, PROPOSAL_COMPONENT),
+            resolve_group1_component_last_weights(request.train_root, request.train_name, PROPOSAL_COMPONENT),
+        )
         query_detector_model_path = None
         if group1_dataset_config.query_component is not None:
-            query_detector_model_path = resolve_group1_component_best_weights(
-                request.train_root,
-                request.train_name,
-                QUERY_COMPONENT,
+            query_detector_model_path = preferred_checkpoint_path(
+                resolve_group1_component_best_weights(
+                    request.train_root,
+                    request.train_name,
+                    QUERY_COMPONENT,
+                ),
+                resolve_group1_component_last_weights(
+                    request.train_root,
+                    request.train_name,
+                    QUERY_COMPONENT,
+                ),
             )
         embedder_model_path = None
         if group1_dataset_config.is_instance_matching:
             embedder_model_path = (
                 request.embedder_model_path
-                or resolve_group1_component_best_weights(request.train_root, request.train_name, EMBEDDER_COMPONENT)
+                or preferred_checkpoint_path(
+                    resolve_group1_component_best_weights(request.train_root, request.train_name, EMBEDDER_COMPONENT),
+                    resolve_group1_component_last_weights(request.train_root, request.train_name, EMBEDDER_COMPONENT),
+                )
             )
     else:
         model_path = request.model_path or default_best_weights(request.train_root, task, request.train_name)

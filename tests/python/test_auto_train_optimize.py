@@ -24,7 +24,7 @@ def _decision(decision: str = "RETUNE", *, base_run: str = "trial_0003") -> cont
 def _group1_summary(
     *,
     primary_score: float = 0.81,
-    recall: float = 0.86,
+    single_target_hit_rate: float = 0.92,
     full_sequence_hit_rate: float = 0.82,
     trend: str = "plateau",
     delta_vs_best: float | None = -0.01,
@@ -38,11 +38,17 @@ def _group1_summary(
         trial_id="trial_0004",
         dataset_version="v4",
         train_name="trial_0004",
-        primary_metric="map50_95",
+        primary_metric="full_sequence_hit_rate",
         primary_score=primary_score,
-        test_metrics={"map50_95": primary_score, "recall": recall},
+        test_metrics={
+            "single_target_hit_rate": single_target_hit_rate,
+            "full_sequence_hit_rate": full_sequence_hit_rate,
+        },
         evaluation_available=True,
-        evaluation_metrics={"full_sequence_hit_rate": full_sequence_hit_rate},
+        evaluation_metrics={
+            "single_target_hit_rate": single_target_hit_rate,
+            "full_sequence_hit_rate": full_sequence_hit_rate,
+        },
         failure_count=failure_count,
         trend=trend,
         delta_vs_previous=0.0,
@@ -172,8 +178,8 @@ class AutoTrainOptimizeTests(unittest.TestCase):
         pruning = optimize.assess_pruning(
             optimize.PruningRequest(
                 summary=_group1_summary(
-                    primary_score=0.84,
-                    recall=0.89,
+                    primary_score=0.86,
+                    single_target_hit_rate=0.94,
                     full_sequence_hit_rate=0.86,
                     trend="improving",
                     delta_vs_best=0.0,

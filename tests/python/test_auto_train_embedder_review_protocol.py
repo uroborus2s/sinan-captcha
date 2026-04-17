@@ -10,6 +10,8 @@ def _context(
     stage: str = "TRAIN_EMBEDDER_BASE",
     epoch: int = 8,
     rebuild_count: int = 0,
+    best_epoch: int | None = 7,
+    best_embedding_recall_at_1: float | None = 0.047,
     metrics: dict[str, contracts.JsonValue] | None = None,
     recent_history: list[dict[str, contracts.JsonValue]] | None = None,
     review_history: list[dict[str, contracts.JsonValue]] | None = None,
@@ -26,8 +28,8 @@ def _context(
         dataset_config="datasets/group1/v1/dataset.json",
         image_size=96,
         batch_size=32,
-        best_epoch=7,
-        best_embedding_recall_at_1=0.047,
+        best_epoch=best_epoch,
+        best_embedding_recall_at_1=best_embedding_recall_at_1,
         current_metrics={
             "embedding_recall_at_1": 0.047,
             "embedding_recall_at_3": 0.149,
@@ -133,7 +135,7 @@ class EmbedderReviewProtocolTests(unittest.TestCase):
         self.assertEqual(outcome.record.reason, "base_low_exact_recall_force_hardset")
         self.assertEqual(outcome.record.next_action["target_stage"], "EMBEDDER_GATE")
 
-    def test_parsed_continue_is_overridden_by_base_force_hardset_guardrail(self) -> None:
+    def test_parsed_continue_remains_continue_in_llm_first_mode_even_when_base_guardrail_matches(self) -> None:
         outcome = embedder_review_protocol.parse_or_fallback_review(
             raw_output=(
                 '{"decision":"CONTINUE","reason":"recent_progress_observed","confidence":0.71,'
@@ -158,11 +160,48 @@ class EmbedderReviewProtocolTests(unittest.TestCase):
         )
 
         self.assertFalse(outcome.used_fallback)
-        self.assertEqual(outcome.record.decision, "STOP_AND_ADVANCE")
-        self.assertEqual(outcome.record.reason, "base_low_exact_recall_force_hardset")
-        self.assertIn("guardrail=base_force_hardset_low_exact_recall", outcome.record.evidence)
+        self.assertEqual(outcome.record.decision, "CONTINUE")
+        self.assertEqual(outcome.record.reason, "recent_progress_observed")
+        self.assertIn("recent_window=improving", outcome.record.evidence)
 
-    def test_hard_stage_low_exact_recall_forces_rebuild_even_when_window_is_still_improving(self) -> None:
+    def test_parsed_continue_remains_continue_in_llm_first_mode_when_best_epoch_is_stale(self) -> None:
+        outcome = embedder_review_protocol.parse_or_fallback_review(
+            raw_output=(
+                '{"decision":"CONTINUE","reason":"weak_exact_retrieval_base_stage_no_clear_progress","confidence":0.68,'
+                '"next_action":{"train_action":"continue","target_stage":"TRAIN_EMBEDDER_BASE"},'
+                '"evidence":["embedding_scene_recall_at_1=0.896179","embedding_same_template_top1_error_rate=0.636766"]}'
+            ),
+            context=_context(
+                epoch=17,
+                best_epoch=11,
+                best_embedding_recall_at_1=0.986333,
+                metrics={
+                    "embedding_recall_at_1": 0.023256,
+                    "embedding_recall_at_3": 0.061185,
+                    "embedding_scene_recall_at_1": 0.896179,
+                    "embedding_scene_recall_at_3": 0.972038,
+                    "embedding_identity_recall_at_1": 0.622924,
+                    "embedding_identity_recall_at_3": 0.715947,
+                    "embedding_positive_rank_mean": 317.182171,
+                    "embedding_same_template_top1_error_rate": 0.636766,
+                    "embedding_top1_error_scene_target_rate": 0.213455,
+                    "embedding_top1_error_false_positive_rate": 0.0,
+                },
+                recent_history=[
+                    {"embedding_scene_recall_at_1": 0.896170, "embedding_recall_at_1": 0.023250},
+                    {"embedding_scene_recall_at_1": 0.896175, "embedding_recall_at_1": 0.023252},
+                    {"embedding_scene_recall_at_1": 0.896179, "embedding_recall_at_1": 0.023256},
+                ],
+            ),
+            agent=contracts.AgentRef(provider="opencode", name="review-embedder", model="gpt-5-nano"),
+        )
+
+        self.assertFalse(outcome.used_fallback)
+        self.assertEqual(outcome.record.decision, "CONTINUE")
+        self.assertEqual(outcome.record.reason, "weak_exact_retrieval_base_stage_no_clear_progress")
+        self.assertEqual(outcome.record.next_action["target_stage"], "TRAIN_EMBEDDER_BASE")
+
+    def test_hard_stage_low_exact_recall_does_not_override_llm_continue_in_llm_first_mode(self) -> None:
         outcome = embedder_review_protocol.parse_or_fallback_review(
             raw_output=(
                 '{"decision":"CONTINUE","reason":"recent_progress_observed","confidence":0.74,'
@@ -189,10 +228,9 @@ class EmbedderReviewProtocolTests(unittest.TestCase):
         )
 
         self.assertFalse(outcome.used_fallback)
-        self.assertEqual(outcome.record.decision, "REBUILD_HARDSET")
-        self.assertEqual(outcome.record.reason, "hard_low_exact_force_rebuild_hardset")
-        self.assertEqual(outcome.record.next_action["target_stage"], "BUILD_EMBEDDER_HARDSET")
-        self.assertIn("guardrail=hard_force_rebuild_low_exact_recall", outcome.record.evidence)
+        self.assertEqual(outcome.record.decision, "CONTINUE")
+        self.assertEqual(outcome.record.reason, "recent_progress_observed")
+        self.assertEqual(outcome.record.next_action["target_stage"], "TRAIN_EMBEDDER_HARD")
 
     def test_hard_stage_repeated_low_exact_reviews_escalate_detector_after_rebuild(self) -> None:
         outcome = embedder_review_protocol.fallback_review(

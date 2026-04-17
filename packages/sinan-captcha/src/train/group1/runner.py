@@ -59,6 +59,8 @@ def build_parser() -> argparse.ArgumentParser:
     train_parser.add_argument("--review-min-epochs", type=int, default=embedder_review_protocol.DEFAULT_EMBEDDER_REVIEW_MIN_EPOCHS)
     train_parser.add_argument("--review-window", type=int, default=embedder_review_protocol.DEFAULT_EMBEDDER_REVIEW_WINDOW)
     train_parser.add_argument("--review-rebuild-count", type=int, default=0)
+    train_parser.add_argument("--interim-trial-dir", type=Path, default=None)
+    train_parser.add_argument("--interim-primary-metric", default=None)
 
     predict_parser = subparsers.add_parser("predict", help="run group1 pipeline prediction")
     predict_parser.add_argument("--dataset-config", type=Path, required=True)
@@ -256,6 +258,8 @@ def _run_train(args: argparse.Namespace) -> None:
             review_min_epochs=args.review_min_epochs,
             review_window=args.review_window,
             review_rebuild_count=args.review_rebuild_count,
+            interim_trial_dir=args.interim_trial_dir,
+            interim_primary_metric=args.interim_primary_metric,
         )
         component_summaries[EMBEDDER_COMPONENT] = {
             **component_summaries[EMBEDDER_COMPONENT],
@@ -501,8 +505,8 @@ def _build_prediction_row(
         "label_source": "pred",
         "source_batch": row.get("source_batch", "prediction"),
         "status": mapping.status,
-        "missing_orders": mapping.missing_orders,
-        "ambiguous_orders": mapping.ambiguous_orders,
+        "missing_orders": list(getattr(mapping, "missing_orders", [])),
+        "ambiguous_orders": list(getattr(mapping, "ambiguous_orders", [])),
         "inference_ms": round(elapsed_ms, 4),
     }
 

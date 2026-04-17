@@ -628,9 +628,11 @@ uv run sinan train group1 \
 - `icon-embedder` 当前已从旧版小 CNN 升级为更强的轻量残差 backbone，默认输出 `128` 维 embedding，并采用 `triplet loss + identity-aware in-batch contrastive loss` 联合训练，更贴近检索排序目标。
 - `icon-embedder` 当前验证指标除 `embedding_recall_at_1/@3` 外，还会输出 identity 级诊断指标与 top1 错误分桶，便于区分“完全没学会”和“学会 identity 但 exact crop 没排第一”。
 - `BUILD_EMBEDDER_HARDSET` 当前会优先用 base embedder 对 detector 候选做 hard negative mining：同模板易混淆负样本优先，其次再按 embedding 相似度和 detector 分数排序。
+- 如果 detector 已经给出了一批 negatives，但同模板 hard negatives 仍不够，当前 hardset 构建还会补充“同模板但不同 identity”的 gold negatives，一起参与排序，避免第二轮 hardset 仍然只看到偏容易的负样本。
 - `icon-embedder` 当前会在每个 epoch 内输出训练 batch 心跳，并在 epoch 结束后继续输出 `validation-triplet-loss`、`retrieval-query-embeddings`、`retrieval-candidate-embeddings` 进度；最后一个 `step x/y` 后短暂无新 epoch 行，通常表示正在做验证而不是卡死。
 - `icon-embedder` 默认带自动早停：验证集 `embedding_recall_at_1` 在最少训练轮数后连续多轮未达到最小增益时，会提前结束并保留 `best.pt`。
-- 当 `auto-train --judge-provider opencode` 启用本地 judge 后，`TRAIN_EMBEDDER_BASE` 当前还会按 review 窗口触发 `review-embedder` 判断；若 judge 认为 exact 检索已平台期，会提前收尾并自动推进到 `BUILD_EMBEDDER_HARDSET`，不再只能死等固定 patience。
+- 当 `auto-train --judge-provider opencode` 启用本地 judge 后，`icon-embedder` 当前已经切到 `LLM-first`：本地 guardrail 不再直接覆盖大模型的 `CONTINUE`，而是把异常信号作为 `guardrail_alerts` 附加到 review context，并立即触发一次更早的 `review-embedder`。
+- `EMBEDDER_GATE` 当前也已收口为 `scene / identity` 优先：优先检查 `embedding_scene_recall_at_1/@3`，并单独看 `embedding_identity_recall_at_1`；`embedding_recall_at_1/@3` 只保留在 gate 的 `observed/diagnostics` 中做诊断，不再在有 scene 指标时充当主 failed check。
 - 自动训练恢复时，`icon-embedder` 只有在组件 summary 完整时才会被视为已完成；如果只有 `last.pt/best.pt` 但没有完整 `icon-embedder/summary.json`，会走 `resume` 续训。
 
 #### 最小示例
@@ -1388,6 +1390,8 @@ uv run sinan auto-train stage <stage> {group1|group2} --study-name <name> --trai
 
 #### `opencode` 路线关键工件
 
+- `interim_result_summary.json`：仅对 `group1 icon-embedder` 自动训练中途落盘的 trial 级临时摘要；在 `TRAIN_EMBEDDER_BASE / TRAIN_EMBEDDER_HARD` 仍在运行时就能看到当前 epoch、代理主指标 `embedding_scene_recall_at_1`、失败模式和建议方向，不必等到 `SUMMARIZE`。
+- `interim_trial_analysis.json`：仅对 `group1 icon-embedder` 自动训练中途落盘的 trial 级临时诊断；会带上当前训练参数、`failure_audit` 压缩摘要、最近历史和当前 `training_stop` 状态，适合边跑边判断要不要继续。
 - `result_summary.json`：压缩当前 trial 的测试、评估与趋势摘要。
 - `trial_analysis.json`：在 `SUMMARIZE` 后由控制器本地生成，包含当前训练参数、评估失败样本摘要，以及 `group1` 三个组件 `query-detector`、`proposal-detector`、`icon-embedder` 的 gate / failcases / review / 当前参数诊断。
 - `retune_plan.json`：当 `decision = RETUNE` 时生成。`group1` 会额外给出每个组件是 `train` 还是 `reuse`，并可单独覆盖 `model`、`epochs`、`batch`、`imgsz`。
@@ -1398,6 +1402,7 @@ uv run sinan auto-train stage <stage> {group1|group2} --study-name <name> --trai
 - `business_eval/<trial>/case_results.jsonl`：逐题完整判卷明细，已写入 `missing_orders / extra_orders / ambiguous_orders / identity_mismatch_orders / click_outside_target_orders`。
 - `business_eval/<trial>/failed_cases.jsonl`：仅失败题，适合快速筛查“全错”原因。
 - `business_eval/<trial>/case_summary.csv`：给业务侧直接看的一张汇总表，能区分图标没找出来、顺序不对、疑似找错图标、点击点落在图标框外。
+- `group1 icon-embedder` 当前在 `TRAIN_EMBEDDER_HARD` 仍保留本地 plateau guardrail，但口径已改成 `LLM-first`：启用 `opencode` review 时，它会先写 `guardrail-alert` 并立即触发额外 review；只有未启用 LLM review 时，才会直接本地结束 hard 训练。
 
 ### 12.5 最小示例
 

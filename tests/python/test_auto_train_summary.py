@@ -9,6 +9,74 @@ from group2_semantics import GROUP2_LOCALIZATION_ALERT_CENTER_ERROR_PX
 
 
 class AutoTrainSummaryTests(unittest.TestCase):
+    def test_build_result_summary_for_group1_uses_sequence_metric_as_primary_when_requested(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            paths = layout.StudyPaths(
+                studies_root=Path(tmpdir) / "studies",
+                task="group1",
+                study_name="study_001",
+            )
+            paths.ensure_layout()
+
+            storage.write_result_summary_record(
+                paths.result_summary_file("trial_0001"),
+                contracts.ResultSummaryRecord(
+                    study_name="study_001",
+                    task="group1",
+                    trial_id="trial_0001",
+                    dataset_version="v1",
+                    train_name="trial_0001",
+                    primary_metric="full_sequence_hit_rate",
+                    primary_score=0.78,
+                    test_metrics={"single_target_hit_rate": 0.9, "full_sequence_hit_rate": 0.78},
+                    evaluation_available=True,
+                    evaluation_metrics={"single_target_hit_rate": 0.9, "full_sequence_hit_rate": 0.78, "order_error_rate": 0.09},
+                    failure_count=5,
+                    trend="baseline",
+                    delta_vs_previous=None,
+                    delta_vs_best=None,
+                    weak_classes=[],
+                    failure_patterns=["sequence_consistency"],
+                    recent_trials=[],
+                    best_trial=None,
+                    evidence=["baseline"],
+                ),
+            )
+
+            record = summary.build_result_summary(
+                summary.ResultSummaryRequest(
+                    study_name="study_001",
+                    paths=paths,
+                    trial_id="trial_0002",
+                    dataset_version="v2",
+                    train_name="trial_0002",
+                    primary_metric="full_sequence_hit_rate",
+                    test_record=contracts.TestRecord(
+                        task="group1",
+                        dataset_version="v2",
+                        train_name="trial_0002",
+                        metrics={"single_target_hit_rate": 0.93, "full_sequence_hit_rate": 0.84},
+                        predict_output_dir="D:/reports/group1/predict_trial_0002",
+                        val_output_dir="D:/reports/group1/val_trial_0002",
+                        report_dir="D:/reports/group1/test_trial_0002",
+                    ),
+                    evaluate_record=contracts.EvaluateRecord(
+                        available=True,
+                        task="group1",
+                        metrics={"single_target_hit_rate": 0.93, "full_sequence_hit_rate": 0.84, "order_error_rate": 0.05},
+                        failure_count=2,
+                        report_dir="D:/reports/group1/eval_trial_0002",
+                    ),
+                    recent_window=1,
+                    min_delta=0.005,
+                )
+            )
+
+            self.assertEqual(record.primary_metric, "full_sequence_hit_rate")
+            self.assertAlmostEqual(record.primary_score or 0.0, 0.84, places=6)
+            self.assertEqual(record.trend, "improving")
+            self.assertAlmostEqual(record.delta_vs_previous or 0.0, 0.06, places=6)
+
     def test_build_result_summary_keeps_current_metrics_recent_window_and_best_trial(self) -> None:
         with tempfile.TemporaryDirectory() as tmpdir:
             paths = layout.StudyPaths(

@@ -169,7 +169,9 @@ uv run sinan train group1 --dataset-version firstpass --name g1_embed --componen
 - `icon-embedder` 当前使用轻量残差 backbone、`128` 维 embedding 和 `triplet loss + identity-aware in-batch contrastive loss` 联合训练，目标更贴近真实检索排序。
 - `icon-embedder` 在每个 epoch 结束后还会继续输出验证阶段日志：`validation-triplet-loss`、`retrieval-query-embeddings`、`retrieval-candidate-embeddings`。最后一个训练 step 打完后屏幕安静几秒到几分钟，通常是在做验证而不是挂死。
 - `icon-embedder` 默认会根据验证集 `embedding_recall_at_1` 自动早停，避免无意义跑满 120 轮；最优权重仍持续写入 `runs/group1/<name>/icon-embedder/weights/best.pt`。
-- 当 `auto-train` 使用 `--judge-provider opencode` 时，`icon-embedder` 当前还会触发本地 `review-embedder` 审查；如果 base 训练已经平台期，本地 judge 会直接建议提前收尾并切到 harder samples，而不是继续空跑多轮。
+- 当 `auto-train` 使用 `--judge-provider opencode` 时，`icon-embedder` 当前已经切到 `LLM-first`：本地 guardrail 不再直接把 review 的 `CONTINUE` 改写成提前切阶段，而是把异常信号附加到 review context，并立即触发一次更早的 `review-embedder`，由大模型决定是继续、切 hardset 还是升级处理 detector。
+- 当前 `EMBEDDER_GATE` 也不再以 `global exact recall` 作为主门禁；它会优先看 `embedding_scene_recall_at_1/@3`，并单独统计 `embedding_identity_recall_at_1`，而把 `embedding_recall_at_1/@3` 降成诊断指标。
+- 如果已经切过一次 hardset，但同模板混淆仍然高，当前 hardset 构建还会额外补充“同模板但不同 identity”的 gold negatives，而不是只依赖 detector 当前预测出来的 negatives。
 - 自动训练中断恢复时，如果 `icon-embedder/weights/last.pt` 已存在但 `icon-embedder/summary.json` 不完整，会按断点续训；只有完整 summary 存在时才会把已有权重视为组件已完成。
 
 ### 5.2 训练 `group2`
@@ -308,6 +310,10 @@ uv run sinan auto-train run group1 `
 
 - `opencode` 路线当前不只是做 `judge-trial`。当 trial 进入 `RETUNE` 时，控制器会先本地生成 `trial_analysis.json`，再调用 `plan-retune`，让大模型基于错误样本和当前参数决定下一轮怎么训。
 - `group1` 的 `trial_analysis.json` 当前会把 `query-detector`、`proposal-detector`、`icon-embedder` 三个组件的 gate 结果、错误样本统计、review 结果和当前参数一起交给大模型，避免下一轮无方向乱调。
+- 如果 `group1 icon-embedder` 还在训练中、trial 尚未进入 `SUMMARIZE`，当前也会先写：
+  - `studies/<task>/<study-name>/trials/<trial-id>/interim_result_summary.json`
+  - `studies/<task>/<study-name>/trials/<trial-id>/interim_trial_analysis.json`
+  这样即使训练还没结束，也能直接看到当前 epoch、代理主指标、失败模式和 `failure_audit` 摘要，不用再等完整 trial 收尾。
 - `group1` 的 `retune_plan.json` 可以同时给出：
   - 哪些组件继续 `train`
   - 哪些组件直接 `reuse`
@@ -328,8 +334,13 @@ uv run sinan auto-train run group1 `
   - 点击顺序不对
   - 疑似找错图标
   - 点击点落在图标框外
+- `group1 icon-embedder` 当前在 `TRAIN_EMBEDDER_BASE / TRAIN_EMBEDDER_HARD` 仍保留本地 guardrail，但口径已经改成：
+  - 启用 `opencode` review 时：guardrail 只会写 `guardrail-alert` 并立即触发额外 review，不再直接替大模型下结论
+  - 未启用 LLM review 时：guardrail 继续作为 deterministic 兜底，避免明显无效的长时间空跑
 - 只有当下一步仍然明确是 `REGENERATE_DATA` 时，控制器才会继续走 `plan-dataset -> dataset_plan.json`。如果当前只是先在同一数据集上做定向重训，本轮不会生成新的数据计划。
 - 训练机上排查自主训练方向时，优先看：
+  - `studies/<task>/<study-name>/trials/<trial-id>/interim_result_summary.json`
+  - `studies/<task>/<study-name>/trials/<trial-id>/interim_trial_analysis.json`
   - `studies/<task>/<study-name>/trials/<trial-id>/result_summary.json`
   - `studies/<task>/<study-name>/trials/<trial-id>/trial_analysis.json`
   - `studies/<task>/<study-name>/trials/<trial-id>/retune_plan.json`

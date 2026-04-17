@@ -679,8 +679,15 @@ def _select_negative_targets(
             negative_role = "false_positive_pred"
         enriched["negative_role"] = negative_role
         negatives.append(enriched)
-    if negatives:
-        return negatives
+
+    supplemented = _supplement_same_template_gold_negatives(
+        negatives=negatives,
+        gold_positive=gold_positive,
+        gold_targets=gold_targets,
+        gold_distractors=gold_distractors,
+    )
+    if supplemented:
+        return supplemented
 
     fallback_targets: list[dict[str, Any]] = []
     for candidate in gold_targets:
@@ -694,6 +701,49 @@ def _select_negative_targets(
         enriched["negative_role"] = "distractor_gold"
         fallback_targets.append(enriched)
     return fallback_targets
+
+
+def _supplement_same_template_gold_negatives(
+    *,
+    negatives: list[dict[str, Any]],
+    gold_positive: dict[str, Any],
+    gold_targets: list[dict[str, Any]],
+    gold_distractors: list[dict[str, Any]],
+) -> list[dict[str, Any]]:
+    supplemented = [dict(item) for item in negatives]
+    positive_identity = _object_identity(gold_positive)
+    positive_template = str(gold_positive.get("template_id", "")).strip()
+    if not positive_template:
+        return supplemented
+
+    seen_identities = {
+        identity
+        for identity in (_object_identity(item) for item in supplemented)
+        if identity
+    }
+
+    def _append_if_same_template(candidate: dict[str, Any], role: str) -> None:
+        candidate_identity = _object_identity(candidate)
+        candidate_template = str(candidate.get("template_id", "")).strip()
+        if not candidate_template or candidate_template != positive_template:
+            return
+        if candidate_identity and candidate_identity == positive_identity:
+            return
+        if candidate_identity and candidate_identity in seen_identities:
+            return
+        enriched = dict(candidate)
+        enriched["negative_role"] = role
+        supplemented.append(enriched)
+        if candidate_identity:
+            seen_identities.add(candidate_identity)
+
+    for candidate in gold_targets:
+        if int(candidate.get("order", -1)) == int(gold_positive.get("order", -999)):
+            continue
+        _append_if_same_template(candidate, "scene_target_gold_same_template")
+    for candidate in gold_distractors:
+        _append_if_same_template(candidate, "distractor_gold_same_template")
+    return supplemented
 
 
 def _rank_negative_targets(

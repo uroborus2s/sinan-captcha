@@ -64,15 +64,15 @@ class PolicyRecommendation:
 
 GROUP1_POLICY = TaskPolicy(
     task="group1",
-    primary_metric="map50_95",
-    secondary_metric="recall",
+    primary_metric="full_sequence_hit_rate",
+    secondary_metric="single_target_hit_rate",
     business_metric="full_sequence_hit_rate",
     plateau_window=3,
     min_delta=0.005,
-    promote_primary_threshold=0.82,
-    promote_secondary_threshold=0.88,
+    promote_primary_threshold=0.85,
+    promote_secondary_threshold=0.92,
     promote_business_threshold=0.85,
-    abandon_primary_floor=0.75,
+    abandon_primary_floor=0.72,
     abandon_delta_vs_best=-0.06,
 )
 

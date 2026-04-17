@@ -203,10 +203,19 @@ def _infer_failure_patterns(
 
     metrics = evaluate_record.metrics
     if evaluate_record.task == "group1":
+        if (_metric_value(metrics, "single_target_hit_rate") or 0.0) < 0.9:
+            patterns.append("single_target_hits")
         if (_metric_value(metrics, "full_sequence_hit_rate") or 0.0) < 0.8:
             patterns.append("sequence_consistency")
         if (_metric_value(metrics, "order_error_rate") or 0.0) > 0.08:
             patterns.append("order_errors")
+        if (
+            (_metric_value(metrics, "embedding_scene_recall_at_1") or 0.0) >= 0.85
+            and (_metric_value(metrics, "embedding_recall_at_1") or 0.0) < 0.1
+        ):
+            patterns.append("embedder_global_exact_gap")
+        if (_metric_value(metrics, "embedding_same_template_top1_error_rate") or 0.0) > 0.25:
+            patterns.append("embedder_same_template_confusion")
     if evaluate_record.task == "group2":
         if (_metric_value(metrics, "point_hit_rate") or 0.0) < GROUP2_SUMMARY_POINT_HIT_ALERT_THRESHOLD:
             patterns.append("point_hits")

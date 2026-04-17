@@ -156,6 +156,11 @@ class AutoTrainAnalysisTests(unittest.TestCase):
                     },
                     "gate": {"status": "failed", "failed_checks": ["embedding_recall_at_1"]},
                     "review": {"decision": "CONTINUE", "reason": "scene_target_confusion"},
+                    "failure_audit": {
+                        "failure_count": 3,
+                        "reason_counts": {"same_template_confusion": 2, "scene_target_confusion": 1},
+                        "recommended_focus": ["shift_gate_to_scene_and_business", "increase_same_template_hard_negatives"],
+                    },
                     "weights": {"best": "best", "last": "last"},
                 },
             )
@@ -215,6 +220,8 @@ class AutoTrainAnalysisTests(unittest.TestCase):
             self.assertEqual(embedder_diagnostic["current_params"]["imgsz"], 96)
             self.assertIn("embedding_top1_error_scene_target_rate=0.180000", embedder_diagnostic["signal_summary"])
             self.assertEqual(embedder_diagnostic["review"]["reason"], "scene_target_confusion")
+            self.assertEqual(embedder_diagnostic["failure_audit"]["reason_counts"]["same_template_confusion"], 2)
+            self.assertEqual(embedder_diagnostic["failure_audit"]["recommended_focus"][0], "shift_gate_to_scene_and_business")
 
 
 if __name__ == "__main__":

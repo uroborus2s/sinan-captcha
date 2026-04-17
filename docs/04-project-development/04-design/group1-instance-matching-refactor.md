@@ -324,13 +324,15 @@ group1/
 - `query_detector_recall >= 0.995`
 - `query_exact_count_rate >= 0.995`
 - `scene_target_proposal_recall >= 0.995`
-- `embedding_recall_at_1 >= 0.97`
-- `embedding_recall_at_3 >= 0.995`
+- `embedding_scene_recall_at_1 >= 0.97`
+- `embedding_scene_recall_at_3 >= 0.995`
+- `embedding_identity_recall_at_1 >= 0.85`
 
 说明：
 
 - `query_exact_count_rate` 指 query detector 对一题稳定输出正好 3 个目标的比例。
 - `scene_target_proposal_recall` 以“真正答案是否进入候选集”为主，不要求 scene detector 自己直接完成最终排序。
+- `icon-embedder` gate 当前按 `scene / identity` 优先收口；`embedding_recall_at_1/@3` 仍保留为 global exact 诊断指标，但不再在已有 scene 指标时作为组件健康门的主失败条件。
 
 ### 7.2 离线晋级门
 

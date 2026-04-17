@@ -21,6 +21,7 @@ from train.group1.embedder import (
     ICON_EMBEDDER_ARCHITECTURE_VERSION,
     _in_batch_contrastive_loss,
     evaluate_retrieval,
+    evaluate_retrieval_with_audit,
     load_embedding_triplets,
     load_icon_embedder_runtime,
     train_icon_embedder,
@@ -216,6 +217,54 @@ class Group1EmbedderTests(unittest.TestCase):
         self.assertEqual(metrics["embedding_scene_recall_at_1"], 1.0)
         self.assertEqual(metrics["embedding_scene_recall_at_3"], 1.0)
         self.assertEqual(metrics["embedding_scene_positive_rank_mean"], 1.0)
+
+    def test_evaluate_retrieval_with_audit_surfaces_scene_exact_gap_and_same_template_confusion(self) -> None:
+        metrics, audit = evaluate_retrieval_with_audit(
+            query_embeddings={
+                "q_red": [1.0, 0.0, 0.0],
+                "q_blue": [0.0, 0.0, 1.0],
+            },
+            candidate_embeddings={
+                "red_exact": [0.90, 0.10, 0.0],
+                "red_variant": [0.95, 0.05, 0.0],
+                "blue_exact": [0.0, 0.0, 1.0],
+                "green": [0.0, 1.0, 0.0],
+            },
+            positives={
+                "q_red": "red_exact",
+                "q_blue": "blue_exact",
+            },
+            scene_candidates_by_query={
+                "q_red": ["red_exact", "green"],
+                "q_blue": ["blue_exact", "green"],
+            },
+            query_metadata={
+                "q_red": {"identity": "asset_red", "template_id": "tpl_red"},
+                "q_blue": {"identity": "asset_blue", "template_id": "tpl_blue"},
+            },
+            candidate_metadata={
+                "red_exact": {"identity": "asset_red", "template_id": "tpl_red", "role": "positive"},
+                "red_variant": {"identity": "asset_red", "template_id": "tpl_red", "role": "scene_target_pred"},
+                "blue_exact": {"identity": "asset_blue", "template_id": "tpl_blue", "role": "positive"},
+                "green": {"identity": "asset_green", "template_id": "tpl_green", "role": "distractor_pred"},
+            },
+            k_values=(1, 3),
+            sample_limit=5,
+        )
+
+        self.assertEqual(metrics["embedding_recall_at_1"], 0.5)
+        self.assertEqual(audit["query_count"], 2)
+        self.assertEqual(audit["failure_count"], 1)
+        self.assertEqual(audit["reason_counts"]["same_template_confusion"], 1)
+        self.assertEqual(audit["scene_exact_gap_count"], 1)
+        self.assertEqual(audit["same_template_confusion_count"], 1)
+        self.assertEqual(audit["recommended_focus"][0], "shift_gate_to_scene_and_business")
+        example = audit["examples"][0]
+        self.assertEqual(example["query_id"], "q_red")
+        self.assertEqual(example["error_reason"], "same_template_confusion")
+        self.assertEqual(example["scene_positive_rank"], 1)
+        self.assertTrue(example["scene_exact_gap"])
+        self.assertTrue(example["same_template_confusion"])
 
     def test_in_batch_contrastive_loss_treats_same_identity_as_positive_pool(self) -> None:
         anchor = torch.tensor([[1.0, 0.0], [1.0, 0.0]], dtype=torch.float32)
@@ -433,6 +482,65 @@ class Group1EmbedderTests(unittest.TestCase):
             self.assertIn(f"checkpoint={checkpoint_path}", output)
             self.assertIn("restore_optimizer=False", output)
 
+    def test_train_icon_embedder_fresh_from_checkpoint_still_writes_best_checkpoint_for_new_run(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            root = Path(tmpdir)
+            _write_minimal_dataset_config(root)
+            anchor = root / "embedding" / "queries" / "train" / "g1_000001_01.png"
+            positive = root / "embedding" / "candidates" / "train" / "g1_000001_01.png"
+            negative = root / "embedding" / "candidates" / "train" / "g1_000001_neg.png"
+            _write_png(anchor, 16, 16, (255, 0, 0))
+            _write_png(positive, 16, 16, (255, 0, 0))
+            _write_png(negative, 16, 16, (0, 0, 255))
+            _write_triplets_jsonl(root / "embedding" / "triplets.jsonl")
+            dataset_config = load_group1_dataset_config(root / "dataset.json")
+            run_dir = root / "runs" / "group1" / "smoke"
+            checkpoint_path = root / "checkpoint.pt"
+            model = IconEmbedder()
+            torch.save(
+                {
+                    "architecture_version": ICON_EMBEDDER_ARCHITECTURE_VERSION,
+                    "model_state": model.state_dict(),
+                    "optimizer_state": None,
+                    "epoch": 11,
+                    "imgsz": 16,
+                    "embedding_dim": model.embedding_dim,
+                    "best_score": 0.986333,
+                    "best_epoch": 11,
+                    "metrics": {},
+                },
+                checkpoint_path,
+            )
+
+            with patch("train.group1.embedder._train_one_epoch", return_value=0.2):
+                with patch("train.group1.embedder._evaluate_triplet_loss", return_value=0.1):
+                    with patch(
+                        "train.group1.embedder._evaluate_model_retrieval",
+                        return_value={
+                            "embedding_recall_at_1": 0.02,
+                            "embedding_recall_at_3": 0.08,
+                            "embedding_scene_recall_at_1": 0.84,
+                            "embedding_scene_recall_at_3": 0.95,
+                            "embedding_identity_recall_at_1": 0.62,
+                            "embedding_identity_recall_at_3": 0.71,
+                            "embedding_positive_rank_mean": 300.0,
+                        },
+                    ):
+                        result = train_icon_embedder(
+                            dataset_config=dataset_config,
+                            run_dir=run_dir,
+                            model_path=checkpoint_path,
+                            epochs=1,
+                            batch_size=1,
+                            image_size=16,
+                            device_name="cpu",
+                            resume=False,
+                        )
+
+            self.assertTrue(result.best_checkpoint.exists())
+            summary = json.loads(result.summary_path.read_text(encoding="utf-8"))
+            self.assertEqual(summary["early_stopping"]["best_epoch"], 1)
+
     def test_train_icon_embedder_stops_early_when_recall_plateaus(self) -> None:
         with tempfile.TemporaryDirectory() as tmpdir:
             root = Path(tmpdir)
@@ -478,6 +586,277 @@ class Group1EmbedderTests(unittest.TestCase):
             self.assertEqual(summary["early_stopping"]["stopped_epoch"], 4)
             self.assertTrue(summary["early_stopping"]["triggered"])
 
+    def test_train_icon_embedder_stops_base_when_zero_triplet_loss_and_exact_retrieval_regresses(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            root = Path(tmpdir)
+            _write_minimal_dataset_config(root)
+            anchor = root / "embedding" / "queries" / "train" / "g1_000001_01.png"
+            positive = root / "embedding" / "candidates" / "train" / "g1_000001_01.png"
+            negative = root / "embedding" / "candidates" / "train" / "g1_000001_neg.png"
+            _write_png(anchor, 16, 16, (255, 0, 0))
+            _write_png(positive, 16, 16, (255, 0, 0))
+            _write_png(negative, 16, 16, (0, 0, 255))
+            _write_triplets_jsonl(root / "embedding" / "triplets.jsonl")
+            dataset_config = load_group1_dataset_config(root / "dataset.json")
+            run_dir = root / "runs" / "group1" / "smoke"
+
+            with patch(
+                "train.group1.embedder._train_one_epoch",
+                side_effect=[
+                    {"loss": 0.030, "triplet_loss": 0.010, "contrastive_loss": 0.020},
+                    {"loss": 0.028, "triplet_loss": 0.0, "contrastive_loss": 0.028},
+                    {"loss": 0.029, "triplet_loss": 0.0, "contrastive_loss": 0.029},
+                ],
+            ):
+                with patch("train.group1.embedder._evaluate_triplet_loss", return_value=0.1):
+                    with patch(
+                        "train.group1.embedder._evaluate_model_retrieval",
+                        side_effect=[
+                            {
+                                "embedding_recall_at_1": 0.030,
+                                "embedding_recall_at_3": 0.090,
+                                "embedding_scene_recall_at_1": 0.910,
+                                "embedding_identity_recall_at_1": 0.640,
+                                "embedding_positive_rank_mean": 140.0,
+                                "embedding_same_template_top1_error_rate": 0.45,
+                            },
+                            {
+                                "embedding_recall_at_1": 0.020,
+                                "embedding_recall_at_3": 0.070,
+                                "embedding_scene_recall_at_1": 0.900,
+                                "embedding_identity_recall_at_1": 0.620,
+                                "embedding_positive_rank_mean": 180.0,
+                                "embedding_same_template_top1_error_rate": 0.47,
+                            },
+                            {
+                                "embedding_recall_at_1": 0.015,
+                                "embedding_recall_at_3": 0.050,
+                                "embedding_scene_recall_at_1": 0.880,
+                                "embedding_identity_recall_at_1": 0.580,
+                                "embedding_positive_rank_mean": 260.0,
+                                "embedding_same_template_top1_error_rate": 0.52,
+                            },
+                        ],
+                    ):
+                        train_icon_embedder(
+                            dataset_config=dataset_config,
+                            run_dir=run_dir,
+                            model_path=None,
+                            epochs=10,
+                            batch_size=1,
+                            image_size=16,
+                            device_name="cpu",
+                            resume=False,
+                            review_stage="TRAIN_EMBEDDER_BASE",
+                        )
+
+            summary = json.loads((run_dir / "icon-embedder" / "summary.json").read_text(encoding="utf-8"))
+            self.assertEqual(len(summary["history"]), 3)
+            self.assertEqual(summary["training_stop"]["reason"], "guardrail:base_zero_triplet_exact_regression")
+            self.assertEqual(summary["training_stop"]["stopped_epoch"], 3)
+
+    def test_train_icon_embedder_keeps_running_in_llm_first_mode_when_base_guardrail_matches(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            root = Path(tmpdir)
+            _write_minimal_dataset_config(root)
+            anchor = root / "embedding" / "queries" / "train" / "g1_000001_01.png"
+            positive = root / "embedding" / "candidates" / "train" / "g1_000001_01.png"
+            negative = root / "embedding" / "candidates" / "train" / "g1_000001_neg.png"
+            _write_png(anchor, 16, 16, (255, 0, 0))
+            _write_png(positive, 16, 16, (255, 0, 0))
+            _write_png(negative, 16, 16, (0, 0, 255))
+            _write_triplets_jsonl(root / "embedding" / "triplets.jsonl")
+            dataset_config = load_group1_dataset_config(root / "dataset.json")
+            run_dir = root / "runs" / "group1" / "smoke"
+
+            def reviewer(
+                context: embedder_review_protocol.EmbedderReviewContext,
+            ) -> embedder_review_protocol.EmbedderReviewRecord:
+                return embedder_review_protocol.EmbedderReviewRecord(
+                    stage=context.stage,
+                    epoch=context.epoch,
+                    decision=embedder_review_protocol.EMBEDDER_REVIEW_DECISION_CONTINUE,
+                    confidence=0.8,
+                    reason="llm_prefers_more_evidence",
+                    next_action={"train_action": "continue", "target_stage": context.stage},
+                    evidence=["llm_first"],
+                    agent=contracts.AgentRef(provider="test", name="embedder-review", model="stub"),
+                )
+
+            with patch(
+                "train.group1.embedder._train_one_epoch",
+                side_effect=[
+                    {"loss": 0.030, "triplet_loss": 0.010, "contrastive_loss": 0.020},
+                    {"loss": 0.028, "triplet_loss": 0.0, "contrastive_loss": 0.028},
+                    {"loss": 0.029, "triplet_loss": 0.0, "contrastive_loss": 0.029},
+                ],
+            ):
+                with patch("train.group1.embedder._evaluate_triplet_loss", return_value=0.1):
+                    with patch(
+                        "train.group1.embedder._evaluate_model_retrieval",
+                        side_effect=[
+                            {
+                                "embedding_recall_at_1": 0.030,
+                                "embedding_recall_at_3": 0.090,
+                                "embedding_scene_recall_at_1": 0.910,
+                                "embedding_identity_recall_at_1": 0.640,
+                                "embedding_positive_rank_mean": 140.0,
+                                "embedding_same_template_top1_error_rate": 0.45,
+                            },
+                            {
+                                "embedding_recall_at_1": 0.020,
+                                "embedding_recall_at_3": 0.070,
+                                "embedding_scene_recall_at_1": 0.900,
+                                "embedding_identity_recall_at_1": 0.620,
+                                "embedding_positive_rank_mean": 180.0,
+                                "embedding_same_template_top1_error_rate": 0.47,
+                            },
+                            {
+                                "embedding_recall_at_1": 0.015,
+                                "embedding_recall_at_3": 0.050,
+                                "embedding_scene_recall_at_1": 0.880,
+                                "embedding_identity_recall_at_1": 0.580,
+                                "embedding_positive_rank_mean": 260.0,
+                                "embedding_same_template_top1_error_rate": 0.52,
+                            },
+                        ],
+                    ):
+                        train_icon_embedder(
+                            dataset_config=dataset_config,
+                            run_dir=run_dir,
+                            model_path=None,
+                            epochs=3,
+                            batch_size=1,
+                            image_size=16,
+                            device_name="cpu",
+                            resume=False,
+                            review_callback=reviewer,
+                            review_stage="TRAIN_EMBEDDER_BASE",
+                            review_min_epochs=8,
+                        )
+
+            summary = json.loads((run_dir / "icon-embedder" / "summary.json").read_text(encoding="utf-8"))
+            self.assertEqual(len(summary["history"]), 3)
+            self.assertEqual(summary["training_stop"]["reason"], "completed")
+            self.assertEqual(summary["training_stop"]["stopped_epoch"], 3)
+
+    def test_train_icon_embedder_stops_hard_stage_when_scene_good_but_exact_retrieval_plateaus(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            root = Path(tmpdir)
+            _write_minimal_dataset_config(root)
+            anchor = root / "embedding" / "queries" / "train" / "g1_000001_01.png"
+            positive = root / "embedding" / "candidates" / "train" / "g1_000001_01.png"
+            negative = root / "embedding" / "candidates" / "train" / "g1_000001_neg.png"
+            _write_png(anchor, 16, 16, (255, 0, 0))
+            _write_png(positive, 16, 16, (255, 0, 0))
+            _write_png(negative, 16, 16, (0, 0, 255))
+            _write_triplets_jsonl(root / "embedding" / "triplets.jsonl")
+            dataset_config = load_group1_dataset_config(root / "dataset.json")
+            run_dir = root / "runs" / "group1" / "smoke"
+
+            def _audit(scene_exact_gap_rate: float, same_template_rate: float) -> dict[str, object]:
+                return {
+                    "query_count": 100,
+                    "failure_count": 99,
+                    "exact_failure_rate": 0.99,
+                    "scene_exact_gap_count": int(scene_exact_gap_rate * 100),
+                    "scene_exact_gap_rate": scene_exact_gap_rate,
+                    "same_identity_confusion_count": 55,
+                    "same_identity_confusion_rate": 0.55,
+                    "same_template_confusion_count": int(same_template_rate * 100),
+                    "same_template_confusion_rate": same_template_rate,
+                    "outside_scene_top1_count": 96,
+                    "outside_scene_top1_rate": 0.96,
+                    "reason_counts": {"same_template_confusion": 54},
+                    "recommended_focus": ["shift_gate_to_scene_and_business"],
+                    "examples": [],
+                    "rows": [],
+                }
+
+            with patch(
+                "train.group1.embedder._train_one_epoch",
+                side_effect=[
+                    {"loss": 0.030, "triplet_loss": 0.0007, "contrastive_loss": 0.0293},
+                    {"loss": 0.028, "triplet_loss": 0.0003, "contrastive_loss": 0.0277},
+                    {"loss": 0.027, "triplet_loss": 0.0002, "contrastive_loss": 0.0268},
+                    {"loss": 0.026, "triplet_loss": 0.0001, "contrastive_loss": 0.0259},
+                ],
+            ):
+                with patch("train.group1.embedder._evaluate_triplet_loss", return_value=0.1):
+                    with patch(
+                        "train.group1.embedder._evaluate_model_retrieval",
+                        side_effect=[
+                            (
+                                {
+                                    "embedding_recall_at_1": 0.0040,
+                                    "embedding_recall_at_3": 0.0140,
+                                    "embedding_scene_recall_at_1": 0.840,
+                                    "embedding_scene_recall_at_3": 0.940,
+                                    "embedding_identity_recall_at_1": 0.560,
+                                    "embedding_identity_recall_at_3": 0.600,
+                                    "embedding_positive_rank_mean": 1200.0,
+                                    "embedding_same_template_top1_error_rate": 0.49,
+                                },
+                                _audit(0.80, 0.49),
+                            ),
+                            (
+                                {
+                                    "embedding_recall_at_1": 0.0045,
+                                    "embedding_recall_at_3": 0.0145,
+                                    "embedding_scene_recall_at_1": 0.846,
+                                    "embedding_scene_recall_at_3": 0.943,
+                                    "embedding_identity_recall_at_1": 0.575,
+                                    "embedding_identity_recall_at_3": 0.608,
+                                    "embedding_positive_rank_mean": 1235.0,
+                                    "embedding_same_template_top1_error_rate": 0.51,
+                                },
+                                _audit(0.81, 0.51),
+                            ),
+                            (
+                                {
+                                    "embedding_recall_at_1": 0.0048,
+                                    "embedding_recall_at_3": 0.0150,
+                                    "embedding_scene_recall_at_1": 0.852,
+                                    "embedding_scene_recall_at_3": 0.946,
+                                    "embedding_identity_recall_at_1": 0.590,
+                                    "embedding_identity_recall_at_3": 0.615,
+                                    "embedding_positive_rank_mean": 1288.0,
+                                    "embedding_same_template_top1_error_rate": 0.54,
+                                },
+                                _audit(0.83, 0.54),
+                            ),
+                            (
+                                {
+                                    "embedding_recall_at_1": 0.0200,
+                                    "embedding_recall_at_3": 0.0800,
+                                    "embedding_scene_recall_at_1": 0.900,
+                                    "embedding_scene_recall_at_3": 0.970,
+                                    "embedding_identity_recall_at_1": 0.650,
+                                    "embedding_identity_recall_at_3": 0.700,
+                                    "embedding_positive_rank_mean": 300.0,
+                                    "embedding_same_template_top1_error_rate": 0.20,
+                                },
+                                _audit(0.20, 0.20),
+                            ),
+                        ],
+                    ):
+                        train_icon_embedder(
+                            dataset_config=dataset_config,
+                            run_dir=run_dir,
+                            model_path=None,
+                            epochs=10,
+                            batch_size=1,
+                            image_size=16,
+                            device_name="cpu",
+                            resume=False,
+                            review_stage="TRAIN_EMBEDDER_HARD",
+                        )
+
+            summary = json.loads((run_dir / "icon-embedder" / "summary.json").read_text(encoding="utf-8"))
+            self.assertEqual(len(summary["history"]), 3)
+            self.assertEqual(summary["training_stop"]["reason"], "guardrail:hard_scene_exact_plateau")
+            self.assertEqual(summary["training_stop"]["stopped_epoch"], 3)
+
     def test_train_icon_embedder_writes_partial_summary_before_resume(self) -> None:
         with tempfile.TemporaryDirectory() as tmpdir:
             root = Path(tmpdir)
@@ -519,6 +898,108 @@ class Group1EmbedderTests(unittest.TestCase):
             self.assertEqual(summary["history"][0]["epoch"], 1)
             self.assertEqual(summary["training_stop"]["reason"], "in_progress")
             self.assertEqual(summary["training_stop"]["stopped_epoch"], 1)
+
+    def test_train_icon_embedder_writes_interim_trial_artifacts_while_hard_stage_is_running(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            root = Path(tmpdir)
+            _write_minimal_dataset_config(root)
+            anchor = root / "embedding" / "queries" / "train" / "g1_000001_01.png"
+            positive = root / "embedding" / "candidates" / "train" / "g1_000001_01.png"
+            negative = root / "embedding" / "candidates" / "train" / "g1_000001_neg.png"
+            _write_png(anchor, 16, 16, (255, 0, 0))
+            _write_png(positive, 16, 16, (255, 0, 0))
+            _write_png(negative, 16, 16, (0, 0, 255))
+            _write_triplets_jsonl(root / "embedding" / "triplets.jsonl")
+            dataset_config = load_group1_dataset_config(root / "dataset.json")
+            run_dir = root / "runs" / "group1" / "smoke"
+            trial_dir = root / "studies" / "group1" / "study_001" / "trials" / "trial_0001"
+
+            with patch(
+                "train.group1.embedder._train_one_epoch",
+                side_effect=[0.2, RuntimeError("interrupt-after-epoch-1")],
+            ):
+                with patch("train.group1.embedder._evaluate_triplet_loss", return_value=0.1):
+                    with patch(
+                        "train.group1.embedder._evaluate_model_retrieval",
+                        return_value=(
+                            {
+                                "embedding_recall_at_1": 0.008,
+                                "embedding_recall_at_3": 0.020,
+                                "embedding_scene_recall_at_1": 0.870,
+                                "embedding_scene_recall_at_3": 0.950,
+                                "embedding_identity_recall_at_1": 0.600,
+                                "embedding_identity_recall_at_3": 0.630,
+                                "embedding_positive_rank_mean": 950.0,
+                                "embedding_same_template_top1_error_rate": 0.41,
+                            },
+                            {
+                                "query_count": 10,
+                                "failure_count": 9,
+                                "exact_failure_rate": 0.9,
+                                "scene_exact_gap_count": 8,
+                                "scene_exact_gap_rate": 0.8,
+                                "same_identity_confusion_count": 5,
+                                "same_identity_confusion_rate": 0.5,
+                                "same_template_confusion_count": 4,
+                                "same_template_confusion_rate": 0.4,
+                                "outside_scene_top1_count": 9,
+                                "outside_scene_top1_rate": 0.9,
+                                "reason_counts": {"same_template_confusion": 4},
+                                "recommended_focus": ["shift_gate_to_scene_and_business"],
+                                "examples": [
+                                    {
+                                        "query_id": "queries/val/g1_000001__anchor_01.png",
+                                        "positive_id": "candidates/val/g1_000001__positive_01.png",
+                                        "top1_id": "candidates/val/g1_000010__negative_01_02.png",
+                                        "error_reason": "same_template_confusion",
+                                    }
+                                ],
+                                "rows": [
+                                    {
+                                        "query_id": "queries/val/g1_000001__anchor_01.png",
+                                        "positive_id": "candidates/val/g1_000001__positive_01.png",
+                                        "top1_id": "candidates/val/g1_000010__negative_01_02.png",
+                                        "error_reason": "same_template_confusion",
+                                    }
+                                ],
+                            },
+                        ),
+                    ):
+                        with self.assertRaisesRegex(RuntimeError, "interrupt-after-epoch-1"):
+                            train_icon_embedder(
+                                dataset_config=dataset_config,
+                                run_dir=run_dir,
+                                model_path=None,
+                                epochs=10,
+                                batch_size=1,
+                                image_size=16,
+                                device_name="cpu",
+                                resume=False,
+                                review_stage="TRAIN_EMBEDDER_HARD",
+                                review_study_name="study_001",
+                                review_task="group1",
+                                review_trial_id="trial_0001",
+                                review_train_name="trial_0001",
+                                interim_trial_dir=trial_dir,
+                                interim_primary_metric="full_sequence_hit_rate",
+                            )
+
+            interim_summary = json.loads((trial_dir / "interim_result_summary.json").read_text(encoding="utf-8"))
+            interim_analysis = json.loads((trial_dir / "interim_trial_analysis.json").read_text(encoding="utf-8"))
+
+            self.assertTrue(interim_summary["interim"])
+            self.assertEqual(interim_summary["stage"], "TRAIN_EMBEDDER_HARD")
+            self.assertEqual(interim_summary["status"], "in_progress")
+            self.assertEqual(interim_summary["primary_metric"], "full_sequence_hit_rate")
+            self.assertEqual(interim_summary["surrogate_primary_metric"], "embedding_scene_recall_at_1")
+            self.assertIn("shift_gate_to_scene_and_business", interim_summary["recommended_focus"])
+            self.assertEqual(
+                interim_analysis["component_diagnostics"]["icon-embedder"]["failure_audit"]["reason_counts"][
+                    "same_template_confusion"
+                ],
+                4,
+            )
+            self.assertEqual(interim_analysis["component_diagnostics"]["icon-embedder"]["training_stop"]["reason"], "in_progress")
 
     def test_icon_embedder_runtime_loads_checkpoint_and_embeds_bbox_crop(self) -> None:
         with tempfile.TemporaryDirectory() as tmpdir:
