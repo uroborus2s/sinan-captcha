@@ -63,6 +63,11 @@ def build_recovery_plan(
             trial_complete=False,
         )
 
+    if task == "group1":
+        early_plan = _build_group1_early_intervention_recovery_plan(trial_dir)
+        if early_plan is not None:
+            return early_plan
+
     completed_stages: list[str] = []
     rules = _GROUP1_RECOVERY_RULES if task == "group1" else _LEGACY_RECOVERY_RULES
     for artifact_name, completed_stage, resume_stage in rules:
@@ -84,6 +89,29 @@ def build_recovery_plan(
         completed_stages=tuple(completed_stages),
         missing_artifacts=[],
         trial_complete=True,
+    )
+
+
+def _build_group1_early_intervention_recovery_plan(trial_dir: Path) -> RecoveryPlan | None:
+    marker = trial_dir / "early_intervention.json"
+    summary = trial_dir / "result_summary.json"
+    decision = trial_dir / "decision.json"
+    if not marker.exists() or not summary.exists():
+        return None
+    if decision.exists():
+        return RecoveryPlan(
+            resume_stage="NEXT_ACTION",
+            last_completed_stage="JUDGE",
+            completed_stages=("SUMMARIZE", "JUDGE"),
+            missing_artifacts=[],
+            trial_complete=False,
+        )
+    return RecoveryPlan(
+        resume_stage="JUDGE",
+        last_completed_stage="SUMMARIZE",
+        completed_stages=("SUMMARIZE",),
+        missing_artifacts=[],
+        trial_complete=False,
     )
 
 

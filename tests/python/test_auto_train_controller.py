@@ -7,7 +7,7 @@ import tempfile
 import unittest
 from pathlib import Path
 
-from auto_train import controller, contracts, storage
+from auto_train import comparison, controller, contracts, state_machine, storage
 
 
 def _train_result(task: str, train_root: Path, train_name: str) -> controller.runners.train.TrainRunnerResult:
@@ -71,6 +71,45 @@ def _write_dataset_config(train_root: Path, task: str, dataset_version: str) -> 
             },
         }
     (dataset_dir / "dataset.json").write_text(json.dumps(payload), encoding="utf-8")
+
+
+def _write_group1_component_best_weights(train_root: Path, train_name: str, component: str) -> Path:
+    weights_dir = train_root / "runs" / "group1" / train_name / component / "weights"
+    weights_dir.mkdir(parents=True, exist_ok=True)
+    best_path = weights_dir / "best.pt"
+    last_path = weights_dir / "last.pt"
+    best_path.write_text("best", encoding="utf-8")
+    last_path.write_text("last", encoding="utf-8")
+    return best_path
+
+
+def _write_group1_component_gate(
+    ctrl: controller.AutoTrainController,
+    trial_id: str,
+    component: str,
+    *,
+    status: str,
+    metrics: dict[str, float],
+) -> None:
+    if component == controller.QUERY_COMPONENT:
+        gate_path = ctrl.paths.query_gate_file(trial_id)
+    elif component == controller.PROPOSAL_COMPONENT:
+        gate_path = ctrl.paths.scene_gate_file(trial_id)
+    else:
+        gate_path = ctrl.paths.embedder_gate_file(trial_id)
+    storage.write_json_payload(
+        gate_path,
+        {
+            "gate_version": 2,
+            "component": component,
+            "status": status,
+            "metrics": metrics,
+            "gate": {
+                "status": status,
+                "failed_checks": [] if status == "passed" else ["quality_threshold"],
+            },
+        },
+    )
 
 
 def _group2_trial_summary(trial_id: str, *, score: float, trend: str = "baseline") -> contracts.ResultSummaryRecord:
@@ -228,6 +267,33 @@ class AutoTrainControllerTests(unittest.TestCase):
         )
 
         self.assertGreater(better_sequence, weaker_sequence)
+
+    def test_comparison_key_ignores_component_base_runs_metadata(self) -> None:
+        base = contracts.TrialInputRecord(
+            trial_id="trial_0001",
+            task="group1",
+            dataset_version="v1",
+            train_name="trial_0001",
+            train_mode="from_run",
+            base_run="trial_0000",
+            params={"epochs": 140, "batch": 8, "imgsz": 640, "device": "0"},
+        )
+        with_component_bases = replace(
+            base,
+            params={
+                **base.params,
+                controller.GROUP1_COMPONENT_BASE_RUNS_PARAM: {
+                    controller.QUERY_COMPONENT: "trial_0001",
+                    controller.PROPOSAL_COMPONENT: "trial_0002",
+                    controller.EMBEDDER_COMPONENT: "trial_0003",
+                },
+            },
+        )
+
+        self.assertEqual(
+            comparison.comparison_key_for_input(base),
+            comparison.comparison_key_for_input(with_component_bases),
+        )
 
     def test_build_leaderboard_entry_uses_composite_ranking_metrics(self) -> None:
         with tempfile.TemporaryDirectory() as tmpdir:
@@ -470,6 +536,555 @@ class AutoTrainControllerTests(unittest.TestCase):
             self.assertTrue((runs_root / "trial_0002").exists())
             self.assertTrue((runs_root / "trial_0003").exists())
             self.assertTrue((runs_root / "trial_0004").exists())
+
+    def test_prune_model_runs_keeps_top_three_per_comparison_key(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            root = Path(tmpdir)
+            train_root = root / "train-root"
+            generator_workspace = root / "generator-workspace"
+            runs_root = train_root / "runs" / "group2"
+            generator_workspace.mkdir(parents=True, exist_ok=True)
+            for train_name in ("trial_0001", "trial_0002", "trial_0003", "trial_0004", "trial_0005"):
+                weights_dir = runs_root / train_name / "weights"
+                weights_dir.mkdir(parents=True, exist_ok=True)
+                (weights_dir / "best.pt").write_text("best", encoding="utf-8")
+
+            ctrl = controller.AutoTrainController(
+                request=controller.AutoTrainRequest(
+                    task="group2",
+                    study_name="study_001",
+                    train_root=train_root,
+                    generator_workspace=generator_workspace,
+                    studies_root=root / "studies",
+                    dataset_version="v1",
+                ),
+            )
+            leaderboard = contracts.LeaderboardRecord(
+                study_name="study_001",
+                task="group2",
+                primary_metric="point_hit_rate",
+                entries=[
+                    contracts.LeaderboardEntry(
+                        trial_id="trial_0001",
+                        dataset_version="v1",
+                        train_name="trial_0001",
+                        primary_score=1.00,
+                        metrics={"ranking_score": 1.00, comparison.COMPARISON_KEY_METRIC: "same"},
+                    ),
+                    contracts.LeaderboardEntry(
+                        trial_id="trial_0002",
+                        dataset_version="v1",
+                        train_name="trial_0002",
+                        primary_score=0.99,
+                        metrics={"ranking_score": 0.99, comparison.COMPARISON_KEY_METRIC: "same"},
+                    ),
+                    contracts.LeaderboardEntry(
+                        trial_id="trial_0003",
+                        dataset_version="v1",
+                        train_name="trial_0003",
+                        primary_score=0.98,
+                        metrics={"ranking_score": 0.98, comparison.COMPARISON_KEY_METRIC: "same"},
+                    ),
+                    contracts.LeaderboardEntry(
+                        trial_id="trial_0004",
+                        dataset_version="v1",
+                        train_name="trial_0004",
+                        primary_score=0.97,
+                        metrics={"ranking_score": 0.97, comparison.COMPARISON_KEY_METRIC: "same"},
+                    ),
+                    contracts.LeaderboardEntry(
+                        trial_id="trial_0005",
+                        dataset_version="v2",
+                        train_name="trial_0005",
+                        primary_score=0.10,
+                        metrics={"ranking_score": 0.10, comparison.COMPARISON_KEY_METRIC: "different"},
+                    ),
+                ],
+            )
+
+            ctrl._prune_model_runs(leaderboard)
+
+            self.assertTrue((runs_root / "trial_0001").exists())
+            self.assertTrue((runs_root / "trial_0002").exists())
+            self.assertTrue((runs_root / "trial_0003").exists())
+            self.assertFalse((runs_root / "trial_0004").exists())
+            self.assertTrue((runs_root / "trial_0005").exists())
+
+    def test_prune_model_runs_preserves_protected_next_base_run(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            root = Path(tmpdir)
+            train_root = root / "train-root"
+            generator_workspace = root / "generator-workspace"
+            runs_root = train_root / "runs" / "group1"
+            generator_workspace.mkdir(parents=True, exist_ok=True)
+            for train_name in ("trial_0001", "trial_0002", "trial_0003", "trial_0004"):
+                weights_dir = runs_root / train_name / "query-detector" / "weights"
+                weights_dir.mkdir(parents=True, exist_ok=True)
+                (weights_dir / "best.pt").write_text("best", encoding="utf-8")
+
+            ctrl = controller.AutoTrainController(
+                request=controller.AutoTrainRequest(
+                    task="group1",
+                    study_name="study_001",
+                    train_root=train_root,
+                    generator_workspace=generator_workspace,
+                    studies_root=root / "studies",
+                    dataset_version="v1",
+                ),
+            )
+            leaderboard = contracts.LeaderboardRecord(
+                study_name="study_001",
+                task="group1",
+                primary_metric="full_sequence_hit_rate",
+                entries=[
+                    contracts.LeaderboardEntry(
+                        trial_id="trial_0001",
+                        dataset_version="v1",
+                        train_name="trial_0001",
+                        primary_score=0.90,
+                        metrics={"ranking_score": 0.90, comparison.COMPARISON_KEY_METRIC: "same"},
+                    ),
+                    contracts.LeaderboardEntry(
+                        trial_id="trial_0002",
+                        dataset_version="v1",
+                        train_name="trial_0002",
+                        primary_score=0.80,
+                        metrics={"ranking_score": 0.80, comparison.COMPARISON_KEY_METRIC: "same"},
+                    ),
+                    contracts.LeaderboardEntry(
+                        trial_id="trial_0003",
+                        dataset_version="v1",
+                        train_name="trial_0003",
+                        primary_score=0.70,
+                        metrics={"ranking_score": 0.70, comparison.COMPARISON_KEY_METRIC: "same"},
+                    ),
+                    contracts.LeaderboardEntry(
+                        trial_id="trial_0004",
+                        dataset_version="v1",
+                        train_name="trial_0004",
+                        primary_score=0.60,
+                        metrics={"ranking_score": 0.60, comparison.COMPARISON_KEY_METRIC: "same"},
+                    ),
+                ],
+            )
+
+            ctrl._prune_model_runs(leaderboard, protected_train_names={"trial_0004"})
+
+            self.assertTrue((runs_root / "trial_0004").exists())
+
+    def test_protected_train_names_include_component_base_runs(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            root = Path(tmpdir)
+            train_root = root / "train-root"
+            generator_workspace = root / "generator-workspace"
+            generator_workspace.mkdir(parents=True, exist_ok=True)
+
+            ctrl = controller.AutoTrainController(
+                request=controller.AutoTrainRequest(
+                    task="group1",
+                    study_name="study_001",
+                    train_root=train_root,
+                    generator_workspace=generator_workspace,
+                    studies_root=root / "studies",
+                    dataset_version="v1",
+                ),
+            )
+            storage.write_trial_input_record(
+                ctrl.paths.input_file("trial_0006"),
+                contracts.TrialInputRecord(
+                    trial_id="trial_0006",
+                    task="group1",
+                    dataset_version="v1",
+                    train_name="trial_0006",
+                    train_mode="from_run",
+                    base_run="trial_0005",
+                    params={
+                        "epochs": 140,
+                        "batch": 8,
+                        "imgsz": 640,
+                        "device": "0",
+                        controller.GROUP1_COMPONENT_BASE_RUNS_PARAM: {
+                            controller.QUERY_COMPONENT: "trial_0001",
+                            controller.PROPOSAL_COMPONENT: "trial_0002",
+                            controller.EMBEDDER_COMPONENT: "trial_0003",
+                        },
+                    },
+                ),
+            )
+
+            protected = ctrl._protected_train_names_for_prune(
+                summary_record=_group1_trial_summary("trial_0006"),
+                decision=contracts.DecisionRecord(
+                    trial_id="trial_0006",
+                    decision="RETUNE",
+                    confidence=0.45,
+                    reason="continue",
+                    next_action={"dataset_action": "reuse", "train_action": "from_run"},
+                    evidence=["test"],
+                    agent=contracts.AgentRef(provider="rules", name="policy-judge", model="policy-v1"),
+                ),
+            )
+
+            self.assertIn("trial_0001", protected)
+            self.assertIn("trial_0002", protected)
+            self.assertIn("trial_0003", protected)
+
+    def test_prepare_next_trial_falls_back_when_requested_base_run_was_pruned(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            root = Path(tmpdir)
+            train_root = root / "train-root"
+            generator_workspace = root / "generator-workspace"
+            (train_root / "runs" / "group1" / "trial_0003").mkdir(parents=True, exist_ok=True)
+            generator_workspace.mkdir(parents=True, exist_ok=True)
+
+            ctrl = controller.AutoTrainController(
+                request=controller.AutoTrainRequest(
+                    task="group1",
+                    study_name="study_001",
+                    train_root=train_root,
+                    generator_workspace=generator_workspace,
+                    studies_root=root / "studies",
+                    dataset_version="v1",
+                ),
+            )
+            storage.write_trial_input_record(
+                ctrl.paths.input_file("trial_0004"),
+                contracts.TrialInputRecord(
+                    trial_id="trial_0004",
+                    task="group1",
+                    dataset_version="study_001_trial_0003",
+                    train_name="trial_0004",
+                    train_mode="from_run",
+                    base_run="trial_0003",
+                    params={"epochs": 140, "batch": 16, "imgsz": 640, "device": "0"},
+                    dataset_preset="v1",
+                ),
+            )
+
+            next_trial = ctrl._prepare_next_trial(
+                _group1_trial_summary("trial_0004"),
+                contracts.DecisionRecord(
+                    trial_id="trial_0004",
+                    decision="RETUNE",
+                    confidence=0.45,
+                    reason="fallback_runtime_error",
+                    next_action={"dataset_action": "reuse", "train_action": "from_run", "base_run": "trial_0004"},
+                    evidence=["test"],
+                    agent=contracts.AgentRef(provider="rules", name="policy-judge", model="policy-v1"),
+                ),
+            )
+
+            self.assertEqual(next_trial.trial_id, "trial_0005")
+            self.assertEqual(next_trial.base_run, "trial_0003")
+
+    def test_stage_plan_repairs_existing_input_with_missing_base_run(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            root = Path(tmpdir)
+            train_root = root / "train-root"
+            generator_workspace = root / "generator-workspace"
+            (train_root / "runs" / "group1" / "trial_0003").mkdir(parents=True, exist_ok=True)
+            generator_workspace.mkdir(parents=True, exist_ok=True)
+
+            ctrl = controller.AutoTrainController(
+                request=controller.AutoTrainRequest(
+                    task="group1",
+                    study_name="study_001",
+                    train_root=train_root,
+                    generator_workspace=generator_workspace,
+                    studies_root=root / "studies",
+                    dataset_version="v1",
+                ),
+            )
+            for record in (
+                contracts.TrialInputRecord(
+                    trial_id="trial_0004",
+                    task="group1",
+                    dataset_version="study_001_trial_0003",
+                    train_name="trial_0004",
+                    train_mode="from_run",
+                    base_run="trial_0003",
+                    params={"epochs": 140, "batch": 16, "imgsz": 640, "device": "0"},
+                    dataset_preset="v1",
+                ),
+                contracts.TrialInputRecord(
+                    trial_id="trial_0005",
+                    task="group1",
+                    dataset_version="study_001_trial_0003",
+                    train_name="trial_0005",
+                    train_mode="from_run",
+                    base_run="trial_0004",
+                    params={"epochs": 140, "batch": 8, "imgsz": 640, "device": "0"},
+                    dataset_preset="v1",
+                ),
+            ):
+                storage.write_trial_input_record(ctrl.paths.input_file(record.trial_id), record)
+
+            ctrl._stage_plan("trial_0005")
+
+            repaired = storage.read_trial_input_record(ctrl.paths.input_file("trial_0005"))
+            self.assertEqual(repaired.base_run, "trial_0003")
+
+    def test_prepare_next_trial_writes_component_base_runs_from_component_scores(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            root = Path(tmpdir)
+            train_root = root / "train-root"
+            generator_workspace = root / "generator-workspace"
+            generator_workspace.mkdir(parents=True, exist_ok=True)
+
+            ctrl = controller.AutoTrainController(
+                request=controller.AutoTrainRequest(
+                    task="group1",
+                    study_name="study_001",
+                    train_root=train_root,
+                    generator_workspace=generator_workspace,
+                    studies_root=root / "studies",
+                    dataset_version="v1",
+                ),
+            )
+            for trial_id in ("trial_0001", "trial_0002", "trial_0005"):
+                storage.write_trial_input_record(
+                    ctrl.paths.input_file(trial_id),
+                    contracts.TrialInputRecord(
+                        trial_id=trial_id,
+                        task="group1",
+                        dataset_version="v1",
+                        train_name=trial_id,
+                        train_mode="fresh" if trial_id == "trial_0001" else "from_run",
+                        base_run=None if trial_id == "trial_0001" else "trial_0001",
+                        params={"epochs": 140, "batch": 8, "imgsz": 640, "device": "0"},
+                    ),
+                )
+
+            for component in controller.GROUP1_COMPONENTS:
+                _write_group1_component_best_weights(train_root, "trial_0001", component)
+            _write_group1_component_best_weights(train_root, "trial_0002", controller.PROPOSAL_COMPONENT)
+            _write_group1_component_best_weights(train_root, "trial_0005", controller.QUERY_COMPONENT)
+            _write_group1_component_best_weights(train_root, "trial_0005", controller.PROPOSAL_COMPONENT)
+
+            _write_group1_component_gate(
+                ctrl,
+                "trial_0001",
+                controller.QUERY_COMPONENT,
+                status="passed",
+                metrics={
+                    "query_exact_count_rate": 0.997,
+                    "query_strict_hit_rate": 0.997,
+                    "query_item_recall": 1.0,
+                    "query_mean_iou": 0.99,
+                },
+            )
+            _write_group1_component_gate(
+                ctrl,
+                "trial_0005",
+                controller.QUERY_COMPONENT,
+                status="failed",
+                metrics={
+                    "query_exact_count_rate": 0.994,
+                    "query_strict_hit_rate": 0.994,
+                    "query_item_recall": 1.0,
+                    "query_mean_iou": 0.99,
+                },
+            )
+            _write_group1_component_gate(
+                ctrl,
+                "trial_0001",
+                controller.PROPOSAL_COMPONENT,
+                status="failed",
+                metrics={
+                    "proposal_object_recall": 0.997,
+                    "proposal_full_recall_rate": 0.979,
+                    "proposal_strict_hit_rate": 0.945,
+                    "proposal_mean_iou": 0.93,
+                    "proposal_false_positive_per_sample": 0.04,
+                },
+            )
+            _write_group1_component_gate(
+                ctrl,
+                "trial_0002",
+                controller.PROPOSAL_COMPONENT,
+                status="failed",
+                metrics={
+                    "proposal_object_recall": 0.998,
+                    "proposal_full_recall_rate": 0.984,
+                    "proposal_strict_hit_rate": 0.947,
+                    "proposal_mean_iou": 0.92,
+                    "proposal_false_positive_per_sample": 0.05,
+                },
+            )
+            _write_group1_component_gate(
+                ctrl,
+                "trial_0001",
+                controller.EMBEDDER_COMPONENT,
+                status="failed",
+                metrics={
+                    "embedding_scene_recall_at_1": 0.986,
+                    "embedding_scene_recall_at_3": 0.996,
+                    "embedding_identity_recall_at_1": 0.92,
+                    "embedding_recall_at_1": 0.056,
+                    "embedding_same_template_top1_error_rate": 0.88,
+                    "embedding_positive_rank_mean": 85.0,
+                },
+            )
+
+            next_trial = ctrl._prepare_next_trial(
+                _group1_trial_summary("trial_0005"),
+                contracts.DecisionRecord(
+                    trial_id="trial_0005",
+                    decision="RETUNE",
+                    confidence=0.45,
+                    reason="retune_components",
+                    next_action={"dataset_action": "reuse", "train_action": "from_run", "base_run": "trial_0005"},
+                    evidence=["test"],
+                    agent=contracts.AgentRef(provider="rules", name="policy-judge", model="policy-v1"),
+                ),
+            )
+
+            component_base_runs = next_trial.params[controller.GROUP1_COMPONENT_BASE_RUNS_PARAM]
+            self.assertEqual(component_base_runs[controller.QUERY_COMPONENT], "trial_0001")
+            self.assertEqual(component_base_runs[controller.PROPOSAL_COMPONENT], "trial_0002")
+            self.assertEqual(component_base_runs[controller.EMBEDDER_COMPONENT], "trial_0001")
+
+    def test_stage_plan_repairs_component_base_runs_when_component_weights_are_missing(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            root = Path(tmpdir)
+            train_root = root / "train-root"
+            generator_workspace = root / "generator-workspace"
+            generator_workspace.mkdir(parents=True, exist_ok=True)
+
+            ctrl = controller.AutoTrainController(
+                request=controller.AutoTrainRequest(
+                    task="group1",
+                    study_name="study_001",
+                    train_root=train_root,
+                    generator_workspace=generator_workspace,
+                    studies_root=root / "studies",
+                    dataset_version="v1",
+                ),
+            )
+            for trial_id in ("trial_0003", "trial_0005", "trial_0006"):
+                storage.write_trial_input_record(
+                    ctrl.paths.input_file(trial_id),
+                    contracts.TrialInputRecord(
+                        trial_id=trial_id,
+                        task="group1",
+                        dataset_version="v1",
+                        train_name=trial_id,
+                        train_mode="fresh" if trial_id == "trial_0003" else "from_run",
+                        base_run=None if trial_id == "trial_0003" else "trial_0005",
+                        params={
+                            "epochs": 140,
+                            "batch": 8,
+                            "imgsz": 640,
+                            "device": "0",
+                            controller.GROUP1_COMPONENT_BASE_RUNS_PARAM: {
+                                controller.QUERY_COMPONENT: "trial_0005",
+                                controller.PROPOSAL_COMPONENT: "trial_0005",
+                                controller.EMBEDDER_COMPONENT: "trial_0005",
+                            },
+                        },
+                    ),
+                )
+            _write_group1_component_best_weights(train_root, "trial_0005", controller.QUERY_COMPONENT)
+            _write_group1_component_best_weights(train_root, "trial_0005", controller.PROPOSAL_COMPONENT)
+            _write_group1_component_best_weights(train_root, "trial_0003", controller.EMBEDDER_COMPONENT)
+            _write_group1_component_gate(
+                ctrl,
+                "trial_0003",
+                controller.EMBEDDER_COMPONENT,
+                status="failed",
+                metrics={
+                    "embedding_scene_recall_at_1": 0.95,
+                    "embedding_scene_recall_at_3": 0.99,
+                    "embedding_identity_recall_at_1": 0.84,
+                },
+            )
+
+            ctrl._stage_plan("trial_0006")
+
+            repaired = storage.read_trial_input_record(ctrl.paths.input_file("trial_0006"))
+            component_base_runs = repaired.params[controller.GROUP1_COMPONENT_BASE_RUNS_PARAM]
+            self.assertEqual(component_base_runs[controller.QUERY_COMPONENT], "trial_0005")
+            self.assertEqual(component_base_runs[controller.PROPOSAL_COMPONENT], "trial_0005")
+            self.assertEqual(component_base_runs[controller.EMBEDDER_COMPONENT], "trial_0003")
+
+    def test_group1_train_embedder_base_uses_component_base_run(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            root = Path(tmpdir)
+            train_root = root / "train-root"
+            generator_workspace = root / "generator-workspace"
+            generator_workspace.mkdir(parents=True, exist_ok=True)
+            _write_dataset_config(train_root, "group1", "v1")
+            (train_root / "runs" / "group1" / "trial_0005").mkdir(parents=True, exist_ok=True)
+            _write_group1_component_best_weights(train_root, "trial_0003", controller.EMBEDDER_COMPONENT)
+            captured_requests: list[controller.runners.train.TrainRunnerRequest] = []
+
+            def fake_train(request: controller.runners.train.TrainRunnerRequest) -> controller.runners.train.TrainRunnerResult:
+                captured_requests.append(request)
+                run_dir = train_root / "runs" / "group1" / request.train_name
+                return controller.runners.train.TrainRunnerResult(
+                    record=contracts.TrainRecord(
+                        task="group1",
+                        train_name=request.train_name,
+                        run_dir=str(run_dir),
+                        params={"component": request.component or "all"},
+                        best_weights=str(run_dir / "icon-embedder" / "weights" / "best.pt"),
+                        last_weights=str(run_dir / "icon-embedder" / "weights" / "last.pt"),
+                        resumed_from=request.base_run,
+                    ),
+                    command="uv run sinan train group1 --component icon-embedder",
+                )
+
+            ctrl = controller.AutoTrainController(
+                request=controller.AutoTrainRequest(
+                    task="group1",
+                    study_name="study_001",
+                    train_root=train_root,
+                    generator_workspace=generator_workspace,
+                    studies_root=root / "studies",
+                    dataset_version="v1",
+                ),
+                dependencies=controller.ControllerDependencies(train_runner=fake_train),
+            )
+            storage.write_trial_input_record(
+                ctrl.paths.input_file("trial_0006"),
+                contracts.TrialInputRecord(
+                    trial_id="trial_0006",
+                    task="group1",
+                    dataset_version="v1",
+                    train_name="trial_0006",
+                    train_mode="from_run",
+                    base_run="trial_0005",
+                    params={
+                        "epochs": 140,
+                        "batch": 8,
+                        "imgsz": 640,
+                        "device": "0",
+                        controller.GROUP1_COMPONENT_BASE_RUNS_PARAM: {
+                            controller.EMBEDDER_COMPONENT: "trial_0003",
+                        },
+                    },
+                ),
+            )
+            storage.write_study_record(
+                ctrl.paths.study_file,
+                contracts.StudyRecord(
+                    study_name="study_001",
+                    task="group1",
+                    status="running",
+                    mode="full_auto",
+                    train_root=str(train_root),
+                    generator_workspace=str(generator_workspace),
+                    judge=contracts.JudgeConfig(provider="rules", model="policy-v1"),
+                    budget=contracts.StudyBudget(max_trials=20, max_hours=24.0, max_no_improve_trials=4),
+                    current_trial_id="trial_0006",
+                    best_trial_id=None,
+                ),
+            )
+
+            ctrl.run_stage("TRAIN_EMBEDDER_BASE")
+
+            self.assertEqual(captured_requests[0].component, controller.EMBEDDER_COMPONENT)
+            self.assertEqual(captured_requests[0].base_run, "trial_0003")
 
     def test_hydrate_result_summary_payload_restores_missing_deterministic_fields(self) -> None:
         fallback = contracts.ResultSummaryRecord(
@@ -1605,6 +2220,234 @@ class AutoTrainControllerTests(unittest.TestCase):
             self.assertEqual(execution.stage, "SCENE_GATE")
             self.assertEqual(gate_payload["status"], "failed")
             self.assertIn("proposal_object_recall", gate_payload["gate"]["failed_checks"])
+
+    def test_group1_severe_scene_gate_failure_writes_intervention_and_retune_plan(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            root = Path(tmpdir)
+            train_root = root / "train-root"
+            generator_workspace = root / "generator-workspace"
+            generator_workspace.mkdir(parents=True, exist_ok=True)
+            _write_dataset_config(train_root, "group1", "v1")
+            dataset_config = train_root / "datasets" / "group1" / "v1" / "dataset.json"
+            run_dir = train_root / "runs" / "group1" / "trial_0001"
+            weights_dir = run_dir / "proposal-detector" / "weights"
+            weights_dir.mkdir(parents=True, exist_ok=True)
+            best_path = weights_dir / "best.pt"
+            last_path = weights_dir / "last.pt"
+            best_path.write_text("best", encoding="utf-8")
+            last_path.write_text("last", encoding="utf-8")
+            storage.write_json_payload(
+                run_dir / "summary.json",
+                {
+                    "task": "group1",
+                    "run_dir": str(run_dir),
+                    "components": {
+                        "proposal-detector": {
+                            "role": "proposal_detector",
+                            "weights": {"best": str(best_path), "last": str(last_path)},
+                            "metrics": {
+                                "proposal_object_recall": 0.990899,
+                                "proposal_full_recall_rate": 0.938,
+                                "proposal_strict_hit_rate": 0.884,
+                                "proposal_false_positive_per_sample": 0.082,
+                            },
+                            "gate": {
+                                "status": "failed",
+                                "failed_checks": [
+                                    "proposal_object_recall",
+                                    "proposal_full_recall_rate",
+                                    "proposal_strict_hit_rate",
+                                ],
+                            },
+                        }
+                    },
+                },
+            )
+            captured_plan_files: list[Path] = []
+
+            class FakeOpenCodeRuntime:
+                def judge_trial(
+                    self,
+                    *,
+                    study_name: str,
+                    task: str,
+                    trial_id: str,
+                    files: list[Path],
+                ) -> controller.opencode_runtime.OpenCodeInvocationResult:
+                    return controller.opencode_runtime.OpenCodeInvocationResult(
+                        stdout=json.dumps(
+                            {
+                                "decision": "RETUNE",
+                                "reason": "proposal_gate_severe_recall_gap",
+                                "confidence": 0.82,
+                                "next_action": {
+                                    "dataset_action": "reuse",
+                                    "train_action": "from_run",
+                                    "base_run": "trial_0001",
+                                },
+                                "evidence": ["early_intervention"],
+                            }
+                        ),
+                        stderr="",
+                        command=("opencode", "run"),
+                        returncode=0,
+                    )
+
+                def plan_retune(
+                    self,
+                    *,
+                    study_name: str,
+                    task: str,
+                    trial_id: str,
+                    files: list[Path],
+                ) -> controller.opencode_runtime.OpenCodeInvocationResult:
+                    captured_plan_files.extend(files)
+                    record = contracts.RetunePlanRecord(
+                        study_name=study_name,
+                        task=task,
+                        trial_id=trial_id,
+                        parameter_updates={},
+                        component_actions={
+                            "query-detector": "reuse",
+                            "proposal-detector": "train",
+                            "icon-embedder": "train",
+                        },
+                        component_parameter_updates={
+                            "proposal-detector": {
+                                "model": "yolo26s.pt",
+                                "epochs": 160,
+                                "batch": 8,
+                                "imgsz": 640,
+                            },
+                        },
+                        rationale_cn="proposal detector retrain.",
+                        evidence=["retune_plan", "early_intervention"],
+                    )
+                    return controller.opencode_runtime.OpenCodeInvocationResult(
+                        stdout=json.dumps(record.to_dict()),
+                        stderr="",
+                        command=("opencode", "run"),
+                        returncode=0,
+                    )
+
+                def study_status(
+                    self,
+                    *,
+                    study_name: str,
+                    task: str,
+                    files: list[Path],
+                ) -> controller.opencode_runtime.OpenCodeInvocationResult:
+                    record = contracts.StudyStatusRecord(
+                        study_name=study_name,
+                        task=task,
+                        status="running",
+                        current_trial_id="trial_0002",
+                        best_trial_id=None,
+                        latest_decision="RETUNE",
+                        best_primary_score=0.0,
+                        budget_pressure="low",
+                        summary_cn="continue retune",
+                        next_actions_cn=["train next trial"],
+                        evidence=["study_status"],
+                    )
+                    return controller.opencode_runtime.OpenCodeInvocationResult(
+                        stdout=json.dumps(record.to_dict()),
+                        stderr="",
+                        command=("opencode", "run"),
+                        returncode=0,
+                    )
+
+            ctrl = controller.AutoTrainController(
+                request=controller.AutoTrainRequest(
+                    task="group1",
+                    study_name="study_001",
+                    train_root=train_root,
+                    generator_workspace=generator_workspace,
+                    studies_root=root / "studies",
+                    dataset_version="v1",
+                    judge_provider="opencode",
+                    judge_model="gemma4",
+                ),
+                dependencies=controller.ControllerDependencies(
+                    opencode_runtime=FakeOpenCodeRuntime(),
+                ),
+            )
+            storage.write_trial_input_record(
+                ctrl.paths.input_file("trial_0001"),
+                contracts.TrialInputRecord(
+                    trial_id="trial_0001",
+                    task="group1",
+                    dataset_version="v1",
+                    train_name="trial_0001",
+                    train_mode="fresh",
+                    base_run=None,
+                    params={"epochs": 120, "batch": 16, "imgsz": 640, "device": "0"},
+                ),
+            )
+            storage.write_train_record(
+                ctrl.paths.scene_train_file("trial_0001"),
+                contracts.TrainRecord(
+                    task="group1",
+                    train_name="trial_0001",
+                    run_dir=str(run_dir),
+                    params={
+                        "component": "proposal-detector",
+                        "dataset_config": str(dataset_config),
+                        "imgsz": 640,
+                        "device": "0",
+                    },
+                    best_weights=str(best_path),
+                    last_weights=str(last_path),
+                ),
+            )
+            storage.write_study_record(
+                ctrl.paths.study_file,
+                contracts.StudyRecord(
+                    study_name="study_001",
+                    task="group1",
+                    status="running",
+                    mode="full_auto",
+                    train_root=str(train_root),
+                    generator_workspace=str(generator_workspace),
+                    judge=contracts.JudgeConfig(provider="opencode", model="gemma4"),
+                    budget=contracts.StudyBudget(
+                        max_trials=20,
+                        max_hours=24.0,
+                        max_no_improve_trials=4,
+                    ),
+                    current_trial_id="trial_0001",
+                    best_trial_id=None,
+                ),
+            )
+
+            gate_execution = ctrl.run_stage("SCENE_GATE")
+            judge_execution = ctrl.run_stage("JUDGE")
+            next_action_execution = ctrl.run_stage("NEXT_ACTION")
+
+            self.assertEqual(gate_execution.next_stage, "JUDGE")
+            self.assertTrue(ctrl.paths.early_intervention_file("trial_0001").exists())
+            self.assertTrue(ctrl.paths.result_summary_file("trial_0001").exists())
+            self.assertTrue(ctrl.paths.trial_analysis_file("trial_0001").exists())
+            self.assertEqual(
+                state_machine.infer_resume_stage(ctrl.paths.trial_dir("trial_0001"), task="group1"),
+                "NEXT_ACTION",
+            )
+            summary = storage.read_result_summary_record(
+                ctrl.paths.result_summary_file("trial_0001")
+            )
+            decision = storage.read_decision_record(ctrl.paths.decision_file("trial_0001"))
+            retune_plan = storage.read_retune_plan_record(ctrl.paths.retune_plan_file("trial_0001"))
+            next_input = storage.read_trial_input_record(ctrl.paths.input_file("trial_0002"))
+            self.assertEqual(summary.failure_patterns, ["detection_recall", "strict_localization"])
+            self.assertEqual(judge_execution.detail, "RETUNE")
+            self.assertEqual(decision.decision, "RETUNE")
+            self.assertEqual(retune_plan.component_actions["proposal-detector"], "train")
+            self.assertIn(ctrl.paths.early_intervention_file("trial_0001"), captured_plan_files)
+            self.assertEqual(next_action_execution.detail, "trial_0002")
+            self.assertEqual(
+                next_input.params["group1_component_plan"]["proposal-detector"],
+                "train",
+            )
 
     def test_group1_query_gate_evaluates_existing_weights_when_gate_is_missing(self) -> None:
         with tempfile.TemporaryDirectory() as tmpdir:

@@ -1,5 +1,53 @@
 # 变更摘要
 
+## 2026-04-17 为 `group1 icon-embedder` 增加无效训练硬保险丝
+
+- 已更新：
+  - `packages/sinan-captcha/src/auto_train/embedder_review_protocol.py`
+  - `tests/python/test_auto_train_embedder_review_protocol.py`
+  - `docs/02-user-guide/trainer-cli-reference.md`
+  - `docs/04-project-development/04-design/autonomous-training-and-opencode-design.md`
+  - `.factory/memory/current-state.md`
+  - `.factory/memory/change-summary.md`
+- 当前已完成的目标：
+  - `TRAIN_EMBEDDER_BASE` 的高置信无进展 guardrail 不再只是 `LLM-first` 下的 advisory evidence
+  - 当 exact recall 长期极低、positive rank 明显异常、identity/exact gap 很大时，即使 LLM review 返回 `CONTINUE`，协议层也会强制改写为 `STOP_AND_ADVANCE`
+  - 当 `best_epoch` 已落后当前 epoch 至少 3 轮，且 scene recall 不低、exact recall 仍极低、同模板或正样本排名混淆严重时，也会强制 `STOP_AND_ADVANCE`
+  - 当前这会把训练推进到 `EMBEDDER_GATE`；若 gate 严重失败，再由早期质量干预进入 `JUDGE -> NEXT_ACTION`，避免在同一 trial 里反复空训
+  - 现场已确认 `trial_0003` 在 epoch 20 结束 base embedder，随后因 `embedder_gate_severe_same_template_confusion` 触发 `early_intervention.json`；当前训练机的 `opencode` 二进制未找到，retune 使用 fallback 并开启了 `trial_0004`
+- 已运行验证：
+  - `uv run pytest tests/python/test_auto_train_embedder_review_protocol.py tests/python/test_auto_train_quality_gate.py tests/python/test_auto_train_state_machine.py -q`
+  - `uv run ruff check packages/sinan-captcha/src/auto_train/embedder_review_protocol.py tests/python/test_auto_train_embedder_review_protocol.py`
+  - `uv run python -m py_compile packages/sinan-captcha/src/auto_train/embedder_review_protocol.py tests/python/test_auto_train_embedder_review_protocol.py`
+
+## 2026-04-17 为 `group1` 自动训练增加早期质量干预与自动规划
+
+- 已更新：
+  - `packages/sinan-captcha/src/auto_train/quality_gate.py`
+  - `packages/sinan-captcha/src/auto_train/controller.py`
+  - `packages/sinan-captcha/src/auto_train/layout.py`
+  - `packages/sinan-captcha/src/auto_train/recovery.py`
+  - `tests/python/test_auto_train_quality_gate.py`
+  - `tests/python/test_auto_train_controller.py`
+  - `docs/02-user-guide/trainer-cli-reference.md`
+  - `docs/04-project-development/04-design/autonomous-training-and-opencode-design.md`
+  - `.factory/memory/current-state.md`
+  - `.factory/memory/change-summary.md`
+- 当前已完成的目标：
+  - `group1` 的 `QUERY_GATE / SCENE_GATE / EMBEDDER_GATE` 现在会识别严重 gate 失败，不再默认继续后续训练
+  - 命中严重质量问题时，控制器会写出 `early_intervention.json`，并同步生成 `result_summary.json` 与 `trial_analysis.json`
+  - 早期干预后当前 trial 直接进入 `JUDGE -> NEXT_ACTION`；rules 路线保留原有 policy/Optuna 分支，`opencode` 路线交给大模型判断并生成下一轮 `retune_plan.json`
+  - `judge-trial` 和 `plan-retune` 的 OpenCode 输入会附带 `early_intervention.json`
+  - `opencode` 路线会把 `early_intervention.json` 附加给 `judge-trial / plan-retune`，让大模型参与判断和下一轮规划
+  - 恢复逻辑现在会优先识别早期干预工件，避免重启后因为后续训练工件缺失而退回无效训练阶段
+- 已运行验证：
+  - `uv run pytest tests/python/test_auto_train_quality_gate.py tests/python/test_auto_train_state_machine.py -q`
+  - `uv run ruff check packages/sinan-captcha/src/auto_train/quality_gate.py tests/python/test_auto_train_quality_gate.py`
+  - `uv run ruff check --select F821,E9 packages/sinan-captcha/src/auto_train/quality_gate.py packages/sinan-captcha/src/auto_train/controller.py packages/sinan-captcha/src/auto_train/recovery.py tests/python/test_auto_train_quality_gate.py tests/python/test_auto_train_controller.py`
+  - `uv run python -m py_compile packages/sinan-captcha/src/auto_train/quality_gate.py packages/sinan-captcha/src/auto_train/controller.py packages/sinan-captcha/src/auto_train/recovery.py tests/python/test_auto_train_quality_gate.py tests/python/test_auto_train_controller.py`
+- 当前受限验证：
+  - `uv run pytest tests/python/test_auto_train_quality_gate.py tests/python/test_auto_train_controller.py tests/python/test_auto_train_state_machine.py -q` 因当前 uv 环境缺少 `torch`，在收集 `test_auto_train_controller.py` 时中止；`quality_gate` 与 `state_machine` 已单独通过。
+
 ## 2026-04-16 修复 `TRAIN_EMBEDDER_HARD` 后续 `OFFLINE_EVAL` 找不到 `icon-embedder/best.pt`
 
 - 已更新：
@@ -5277,3 +5325,30 @@
 - 2026-04-02：将生成器相关需求、设计、过程文档统一收口为“受控集成 + 可插拔 backend”，消除“参考 go-captcha 思路”和“直接使用库能力”的混写。
 - 2026-04-02：将第二专项正式收口为“滑块缺口定位”，并同步更新需求、架构、模块边界、执行清单与追踪矩阵。
 - 2026-04-02：把“训练素材必须 100% 正确”落地为生成器 `gold` 硬门禁，新增一致性校验、重放校验和负样本校验要求。
+
+- 2026-04-18: 修复 auto-train 不能跨参数硬比较 trial 的问题：
+  - 新增 trial input comparison key，summary 只在同 dataset / preset / override / train_mode / params 指纹内计算 trend 和 delta。
+  - leaderboard pruning 改为每个 comparison key 桶内保留 top3，并额外保护当前 trial、decision.next_action.base_run、以及所有 input.json 正引用的 base_run。
+  - from_run 的 base_run 若已被删除，生成下一轮 input 或执行既有 input 前会自动回退到同 dataset_version 下仍存在的 run；无可用回退时抛出明确 `base_run_missing`。
+  - 当前 group1 trial_0005 可从仍存在的 trial_0003 继续，trial_0004 run 权重未在项目目录内找到可恢复备份。
+## 2026-04-19 group1 component-level base selection
+
+- Updated:
+  - `packages/sinan-captcha/src/auto_train/controller.py`
+  - `packages/sinan-captcha/src/auto_train/comparison.py`
+  - `tests/python/test_auto_train_controller.py`
+  - `.factory/memory/current-state.md`
+  - `.factory/memory/change-summary.md`
+- Completed:
+  - Added `params.group1_component_base_runs` so query/proposal/embedder can inherit from different historical runs.
+  - Next-trial planning now scores available component checkpoints by component-specific gate metrics instead of copying the global best trial for every component.
+  - Stage execution now passes the component-specific base run into `TrainRunnerRequest`.
+  - Existing old `input.json` files are repaired before execution; if no component map exists, the controller builds one from component metrics.
+  - Model-run pruning now protects all referenced component base runs.
+  - The comparable-trial fingerprint ignores the component base map so this inheritance metadata does not fragment same-parameter trend comparison.
+- Verification:
+  - `uv run python -m py_compile packages/sinan-captcha/src/auto_train/controller.py packages/sinan-captcha/src/auto_train/comparison.py tests/python/test_auto_train_controller.py`
+  - `uv run ruff check --select F821,E9 packages/sinan-captcha/src/auto_train/controller.py packages/sinan-captcha/src/auto_train/comparison.py tests/python/test_auto_train_controller.py`
+  - `uv run pytest tests/python/test_auto_train_summary.py -q`
+- Limited verification:
+  - `uv run pytest tests/python/test_auto_train_controller.py -q` is still blocked by missing `torch` during test collection.

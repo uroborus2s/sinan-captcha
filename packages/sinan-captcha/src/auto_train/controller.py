@@ -13,6 +13,7 @@ from pathlib import Path
 from auto_train import (
     analysis,
     business_eval,
+    comparison,
     contracts,
     dataset_plan,
     decision_protocol,
@@ -25,6 +26,7 @@ from auto_train import (
     optimize,
     optuna_runtime,
     policies,
+    quality_gate,
     retune_plan,
     runners,
     state_machine,
@@ -67,9 +69,11 @@ GROUP1_EMBEDDER_GATE_SCENE_RECALL_AT_3_MIN = 0.995
 GROUP1_EMBEDDER_GATE_IDENTITY_RECALL_AT_1_MIN = 0.85
 GROUP1_COMPONENT_PLAN_PARAM = "group1_component_plan"
 GROUP1_COMPONENT_PARAMS_PARAM = "group1_component_params"
+GROUP1_COMPONENT_BASE_RUNS_PARAM = "group1_component_base_runs"
 GROUP1_COMPONENT_PLAN_TRAIN = "train"
 GROUP1_COMPONENT_PLAN_REUSE = "reuse"
 GROUP1_EMBEDDER_HARDSET_REBUILD_COUNT_PARAM = "embedder_hardset_rebuild_count"
+GROUP1_COMPONENTS = (QUERY_COMPONENT, PROPOSAL_COMPONENT, EMBEDDER_COMPONENT)
 
 
 def default_generator_executable() -> str:
@@ -226,6 +230,15 @@ class AutoTrainRunResult:
     task: str
     executed: list[StageExecution]
     final_stage: str
+
+
+@dataclass(frozen=True)
+class _Group1ComponentBaseCandidate:
+    train_name: str
+    trial_id: str | None
+    dataset_version: str | None
+    score: float
+    passed_gate: bool
 
 
 @dataclass(frozen=True)
@@ -452,6 +465,8 @@ class AutoTrainController:
             record = self._build_initial_trial_input(trial_id)
             storage.write_trial_input_record(input_path, record)
             storage.append_trial_history(self.paths.trial_history_file, record)
+        else:
+            self._read_trial_input_for_execution(trial_id)
         return StageExecution(
             trial_id=trial_id,
             stage="PLAN",
@@ -498,7 +513,7 @@ class AutoTrainController:
         )
 
     def _stage_train(self, trial_id: str) -> StageExecution:
-        input_record = storage.read_trial_input_record(self.paths.input_file(trial_id))
+        input_record = self._read_trial_input_for_execution(trial_id)
         result = self.dependencies.train_runner(
             runners.train.TrainRunnerRequest(
                 task=self.request.task,
@@ -593,6 +608,14 @@ class AutoTrainController:
             f"dataset_config={dataset_config_path} "
             f"checkpoint={_checkpoint_text(_preferred_existing_checkpoint(best_path, last_path))}"
         )
+        intervention = self._maybe_group1_quality_intervention(
+            trial_id=trial_id,
+            stage="QUERY_GATE",
+            component=QUERY_COMPONENT,
+            gate_payload=gate_payload,
+        )
+        if intervention is not None:
+            return intervention
         return StageExecution(
             trial_id=trial_id,
             stage="QUERY_GATE",
@@ -670,6 +693,14 @@ class AutoTrainController:
             f"dataset_config={dataset_config_path} "
             f"checkpoint={_checkpoint_text(model_path)}"
         )
+        intervention = self._maybe_group1_quality_intervention(
+            trial_id=trial_id,
+            stage="SCENE_GATE",
+            component=PROPOSAL_COMPONENT,
+            gate_payload=gate_payload,
+        )
+        if intervention is not None:
+            return intervention
         return StageExecution(
             trial_id=trial_id,
             stage="SCENE_GATE",
@@ -740,6 +771,14 @@ class AutoTrainController:
             f"dataset_config={dataset_config_path} "
             f"checkpoint={_checkpoint_text(_preferred_existing_checkpoint(best_path, last_path))}"
         )
+        intervention = self._maybe_group1_quality_intervention(
+            trial_id=trial_id,
+            stage="EMBEDDER_GATE",
+            component=EMBEDDER_COMPONENT,
+            gate_payload=gate_payload,
+        )
+        if intervention is not None:
+            return intervention
         next_stage = (
             state_machine.next_stage("EMBEDDER_GATE", task=self.request.task)
             if self._group1_component_action(
@@ -1062,14 +1101,16 @@ class AutoTrainController:
         model_override: str | None = None,
         imgsz_override: int | None = None,
     ) -> StageExecution:
-        input_record = storage.read_trial_input_record(self.paths.input_file(trial_id))
+        input_record = self._read_trial_input_for_execution(trial_id)
         requested_train_mode = input_record.train_mode
+        component_base_run = self._group1_component_base_run(input_record, component=component)
         preflight_recovered_record = self._maybe_preflight_group1_embedder_resume_review(
             trial_id=trial_id,
             stage=stage,
             component=component,
             record_path=record_path,
             input_record=input_record,
+            component_base_run=component_base_run,
             dataset_config_override=dataset_config_override,
             model_override=model_override,
         )
@@ -1098,6 +1139,7 @@ class AutoTrainController:
             component=component,
             record_path=record_path,
             input_record=input_record,
+            component_base_run=component_base_run,
             dataset_config_override=dataset_config_override,
             model_override=model_override,
         )
@@ -1132,11 +1174,13 @@ class AutoTrainController:
             effective_train_mode, train_mode_reason, checkpoint_for_log = self._resolve_group1_scene_train_mode(
                 input_record=input_record,
                 requested_train_mode=effective_train_mode,
+                base_run=component_base_run,
             )
         elif stage == "TRAIN_EMBEDDER_BASE":
             effective_train_mode, train_mode_reason, checkpoint_for_log = self._resolve_group1_embedder_base_train_mode(
                 input_record=input_record,
                 requested_train_mode=effective_train_mode,
+                base_run=component_base_run,
             )
         elif effective_train_mode == "resume":
             checkpoint_for_log = resolve_group1_component_last_weights(
@@ -1144,10 +1188,10 @@ class AutoTrainController:
                 input_record.train_name,
                 component,
             )
-        elif effective_train_mode == "from_run" and input_record.base_run is not None:
+        elif effective_train_mode == "from_run" and component_base_run is not None:
             checkpoint_for_log = resolve_group1_component_best_weights(
                 self.request.train_root,
-                input_record.base_run,
+                component_base_run,
                 component,
             )
 
@@ -1167,6 +1211,7 @@ class AutoTrainController:
             f"requested_train_mode={requested_train_mode} "
             f"effective_train_mode={effective_train_mode} "
             f"reason={train_mode_reason} "
+            f"component_base_run={component_base_run or 'none'} "
             f"dataset_config={dataset_config_for_log} "
             f"imgsz={imgsz} "
             f"device={device} "
@@ -1202,7 +1247,7 @@ class AutoTrainController:
                 dataset_version=input_record.dataset_version,
                 train_name=input_record.train_name,
                 train_mode=effective_train_mode,
-                base_run=input_record.base_run,
+                base_run=component_base_run,
                 model=model_override or _string_value(component_params, "model", default=_string_value(input_record.params, "model")),
                 epochs=_int_value(component_params, "epochs", default=_int_value(input_record.params, "epochs")),
                 batch=_int_value(component_params, "batch", default=_int_value(input_record.params, "batch")),
@@ -1241,6 +1286,7 @@ class AutoTrainController:
         component: str,
         record_path: Path,
         input_record: contracts.TrialInputRecord,
+        component_base_run: str | None,
         dataset_config_override: Path | None,
         model_override: str | None,
     ) -> contracts.TrainRecord | None:
@@ -1253,11 +1299,11 @@ class AutoTrainController:
         if not self._group1_component_can_recover_from_run(source_train_name, component=component):
             should_reuse_base_run = (
                 self._group1_component_action(input_record, component=component) == GROUP1_COMPONENT_PLAN_REUSE
-                and input_record.base_run is not None
+                and component_base_run is not None
             )
             if not should_reuse_base_run:
                 return None
-            source_train_name = input_record.base_run
+            source_train_name = component_base_run
             best_path = resolve_group1_component_best_weights(self.request.train_root, source_train_name, component)
             last_path = resolve_group1_component_last_weights(self.request.train_root, source_train_name, component)
             if not self._group1_component_can_recover_from_run(source_train_name, component=component):
@@ -1283,7 +1329,7 @@ class AutoTrainController:
             "recovery_source": source_reason,
         }
         resumed_from = source_train_name if source_train_name != input_record.train_name else (
-            input_record.base_run
+            component_base_run
             if input_record.train_mode == "from_run"
             else input_record.train_name
             if input_record.train_mode == "resume"
@@ -1315,6 +1361,7 @@ class AutoTrainController:
         *,
         input_record: contracts.TrialInputRecord,
         requested_train_mode: str,
+        base_run: str | None,
     ) -> tuple[str, str, Path | None]:
         last_path = resolve_group1_component_last_weights(
             self.request.train_root,
@@ -1325,13 +1372,13 @@ class AutoTrainController:
             return "resume", "resume_incomplete_current_run", last_path
         if requested_train_mode == "resume":
             return requested_train_mode, "requested_resume", last_path if last_path.exists() else None
-        if requested_train_mode == "from_run" and input_record.base_run is not None:
+        if requested_train_mode == "from_run" and base_run is not None:
             return (
                 requested_train_mode,
                 "requested_from_run",
                 resolve_group1_component_best_weights(
                     self.request.train_root,
-                    input_record.base_run,
+                    base_run,
                     EMBEDDER_COMPONENT,
                 ),
             )
@@ -1345,6 +1392,7 @@ class AutoTrainController:
         component: str,
         record_path: Path,
         input_record: contracts.TrialInputRecord,
+        component_base_run: str | None,
         dataset_config_override: Path | None,
         model_override: str | None,
     ) -> contracts.TrainRecord | None:
@@ -1358,6 +1406,7 @@ class AutoTrainController:
         effective_train_mode, train_mode_reason, checkpoint_path = self._resolve_group1_embedder_base_train_mode(
             input_record=input_record,
             requested_train_mode=input_record.train_mode,
+            base_run=component_base_run,
         )
         if effective_train_mode != "resume" or train_mode_reason != "resume_incomplete_current_run" or checkpoint_path is None:
             return None
@@ -1486,6 +1535,7 @@ class AutoTrainController:
             component=component,
             record_path=record_path,
             input_record=input_record,
+            component_base_run=component_base_run,
             dataset_config_override=dataset_config_override,
             model_override=model_override,
         )
@@ -1558,6 +1608,7 @@ class AutoTrainController:
         *,
         input_record: contracts.TrialInputRecord,
         requested_train_mode: str,
+        base_run: str | None,
     ) -> tuple[str, str, Path | None]:
         last_path = resolve_group1_component_last_weights(
             self.request.train_root,
@@ -1570,25 +1621,25 @@ class AutoTrainController:
         ):
             if is_resumable_yolo_checkpoint(last_path):
                 return "resume", "resume_incomplete_current_run", last_path
-            if requested_train_mode == "from_run" and input_record.base_run is not None:
+            if requested_train_mode == "from_run" and base_run is not None:
                 return (
                     requested_train_mode,
                     "requested_from_run_non_resumable_current_run",
                     resolve_group1_component_best_weights(
                         self.request.train_root,
-                        input_record.base_run,
+                        base_run,
                         PROPOSAL_COMPONENT,
                     ),
                 )
         if requested_train_mode == "resume":
             return requested_train_mode, "requested_resume", last_path if last_path.exists() else None
-        if requested_train_mode == "from_run" and input_record.base_run is not None:
+        if requested_train_mode == "from_run" and base_run is not None:
             return (
                 requested_train_mode,
                 "requested_from_run",
                 resolve_group1_component_best_weights(
                     self.request.train_root,
-                    input_record.base_run,
+                    base_run,
                     PROPOSAL_COMPONENT,
                 ),
             )
@@ -1659,6 +1710,19 @@ class AutoTrainController:
             return str(raw_action)
         return GROUP1_COMPONENT_PLAN_TRAIN
 
+    def _group1_component_base_run(
+        self,
+        input_record: contracts.TrialInputRecord,
+        *,
+        component: str,
+    ) -> str | None:
+        payload = input_record.params.get(GROUP1_COMPONENT_BASE_RUNS_PARAM)
+        if isinstance(payload, dict):
+            raw_value = payload.get(component)
+            if isinstance(raw_value, str) and raw_value.strip():
+                return raw_value
+        return input_record.base_run
+
     def _group1_component_params(
         self,
         input_record: contracts.TrialInputRecord,
@@ -1727,6 +1791,261 @@ class AutoTrainController:
         if isinstance(status, str) and status.strip() == "passed":
             return GROUP1_COMPONENT_PLAN_REUSE
         return GROUP1_COMPONENT_PLAN_TRAIN
+
+    def _group1_component_base_runs_for_next_trial(
+        self,
+        *,
+        dataset_version: str,
+        fallback_base_run: str | None,
+        exclude_train_names: set[str] | None = None,
+    ) -> dict[str, contracts.JsonValue]:
+        component_base_runs: dict[str, contracts.JsonValue] = {}
+        for component in GROUP1_COMPONENTS:
+            selected = self._select_group1_component_base_run(
+                component=component,
+                dataset_version=dataset_version,
+                fallback_base_run=fallback_base_run,
+                exclude_train_names=exclude_train_names,
+            )
+            if selected is not None:
+                component_base_runs[component] = selected
+        return component_base_runs
+
+    def _repair_group1_component_base_runs_for_execution(
+        self,
+        record: contracts.TrialInputRecord,
+    ) -> tuple[contracts.TrialInputRecord, bool]:
+        if self.request.task != "group1" or record.train_mode != "from_run":
+            return record, False
+        existing = _string_map(record.params.get(GROUP1_COMPONENT_BASE_RUNS_PARAM))
+        repaired = {} if existing is None else dict(existing)
+        changed = existing is None
+        for component in GROUP1_COMPONENTS:
+            requested = None if existing is None else repaired.get(component) or record.base_run
+            if (
+                requested
+                and requested != record.train_name
+                and self._group1_component_can_seed_from_run(requested, component=component)
+            ):
+                if repaired.get(component) != requested:
+                    repaired[component] = requested
+                    changed = True
+                continue
+
+            selected = self._select_group1_component_base_run(
+                component=component,
+                dataset_version=record.dataset_version,
+                fallback_base_run=record.base_run,
+                exclude_train_names={record.train_name},
+            )
+            if selected is None:
+                continue
+            if repaired.get(component) != selected:
+                repaired[component] = selected
+                changed = True
+
+        if not repaired or not changed:
+            return record, False
+
+        updated_params = dict(record.params)
+        updated_params[GROUP1_COMPONENT_BASE_RUNS_PARAM] = repaired
+        return replace(record, params=updated_params), True
+
+    def _select_group1_component_base_run(
+        self,
+        *,
+        component: str,
+        dataset_version: str,
+        fallback_base_run: str | None,
+        exclude_train_names: set[str] | None = None,
+    ) -> str | None:
+        excluded = set() if exclude_train_names is None else set(exclude_train_names)
+        candidates = self._group1_component_base_candidates(
+            component=component,
+            dataset_version=dataset_version,
+            exclude_train_names=excluded,
+        )
+        if candidates:
+            return max(
+                candidates,
+                key=lambda candidate: (
+                    candidate.score,
+                    candidate.passed_gate,
+                    candidate.dataset_version == dataset_version,
+                    _trial_index_or_zero(candidate.trial_id),
+                    candidate.train_name,
+                ),
+            ).train_name
+
+        fallback_candidates: list[str] = []
+        if fallback_base_run:
+            fallback_candidates.append(fallback_base_run)
+            fallback_candidates.extend(
+                self._base_run_fallback_candidates(
+                    requested_base_run=fallback_base_run,
+                    dataset_version=dataset_version,
+                )
+            )
+        for candidate in fallback_candidates:
+            if candidate in excluded:
+                continue
+            if self._group1_component_can_seed_from_run(candidate, component=component):
+                return candidate
+        return None
+
+    def _group1_component_base_candidates(
+        self,
+        *,
+        component: str,
+        dataset_version: str,
+        exclude_train_names: set[str],
+    ) -> list[_Group1ComponentBaseCandidate]:
+        candidates: dict[str, _Group1ComponentBaseCandidate] = {}
+
+        def add(
+            *,
+            train_name: str,
+            trial_id: str | None,
+            candidate_dataset_version: str | None,
+        ) -> None:
+            if train_name in exclude_train_names:
+                return
+            if not self._group1_component_can_seed_from_run(train_name, component=component):
+                return
+            score, passed_gate = self._score_group1_component_base_candidate(
+                train_name=train_name,
+                trial_id=trial_id,
+                component=component,
+                target_dataset_version=dataset_version,
+                candidate_dataset_version=candidate_dataset_version,
+            )
+            candidate = _Group1ComponentBaseCandidate(
+                train_name=train_name,
+                trial_id=trial_id,
+                dataset_version=candidate_dataset_version,
+                score=score,
+                passed_gate=passed_gate,
+            )
+            existing = candidates.get(train_name)
+            if existing is None or (
+                candidate.score,
+                _trial_index_or_zero(candidate.trial_id),
+            ) > (
+                existing.score,
+                _trial_index_or_zero(existing.trial_id),
+            ):
+                candidates[train_name] = candidate
+
+        for input_path in sorted(
+            self.paths.trials_root.glob("trial_*/input.json"),
+            key=lambda item: layout.parse_trial_id(item.parent.name),
+            reverse=True,
+        ):
+            try:
+                record = storage.read_trial_input_record(input_path)
+            except (OSError, ValueError):
+                continue
+            add(
+                train_name=record.train_name,
+                trial_id=record.trial_id,
+                candidate_dataset_version=record.dataset_version,
+            )
+
+        runs_root = self.request.train_root / "runs" / self.request.task
+        for run_dir in sorted(runs_root.glob("trial_*"), key=lambda item: item.name, reverse=True):
+            add(
+                train_name=run_dir.name,
+                trial_id=run_dir.name if _looks_like_trial_id(run_dir.name) else None,
+                candidate_dataset_version=None,
+            )
+
+        return list(candidates.values())
+
+    def _score_group1_component_base_candidate(
+        self,
+        *,
+        train_name: str,
+        trial_id: str | None,
+        component: str,
+        target_dataset_version: str,
+        candidate_dataset_version: str | None,
+    ) -> tuple[float, bool]:
+        metrics, gate_status = self._group1_component_base_metrics(
+            train_name=train_name,
+            trial_id=trial_id,
+            component=component,
+        )
+        score = _group1_component_metric_score(component=component, metrics=metrics)
+        if gate_status == "passed":
+            score += 2.0
+        if candidate_dataset_version == target_dataset_version:
+            score += 0.01
+        return score, gate_status == "passed"
+
+    def _group1_component_base_metrics(
+        self,
+        *,
+        train_name: str,
+        trial_id: str | None,
+        component: str,
+    ) -> tuple[dict[str, object], str]:
+        metrics: dict[str, object] = {}
+        gate_status = "missing"
+        run_summary_path = default_run_dir(self.request.train_root, self.request.task, train_name) / "summary.json"
+        run_summary = self._safe_read_json_payload(run_summary_path)
+        components = run_summary.get("components") if run_summary is not None else None
+        if isinstance(components, dict):
+            component_summary = components.get(component)
+            if isinstance(component_summary, dict):
+                summary_metrics = component_summary.get("metrics")
+                if isinstance(summary_metrics, dict):
+                    metrics.update(summary_metrics)
+                gate_status = _gate_status(component_summary.get("gate"))
+
+        if component == EMBEDDER_COMPONENT:
+            embedder_summary_path = default_run_dir(self.request.train_root, self.request.task, train_name) / EMBEDDER_COMPONENT / "summary.json"
+            embedder_summary = self._safe_read_json_payload(embedder_summary_path)
+            if embedder_summary is not None:
+                summary_metrics = embedder_summary.get("metrics")
+                if isinstance(summary_metrics, dict):
+                    metrics.update(summary_metrics)
+
+        if trial_id is not None:
+            gate_payload = self._safe_read_json_payload(self._group1_component_gate_file(trial_id, component))
+            if gate_payload is not None:
+                gate_metrics = gate_payload.get("metrics")
+                if isinstance(gate_metrics, dict):
+                    metrics.update(gate_metrics)
+                raw_status = gate_payload.get("status")
+                if isinstance(raw_status, str) and raw_status.strip():
+                    gate_status = raw_status.strip()
+                else:
+                    gate_status = _gate_status(gate_payload.get("gate"))
+
+        return metrics, gate_status
+
+    def _group1_component_gate_file(self, trial_id: str, component: str) -> Path:
+        if component == QUERY_COMPONENT:
+            return self.paths.query_gate_file(trial_id)
+        if component == PROPOSAL_COMPONENT:
+            return self.paths.scene_gate_file(trial_id)
+        if component == EMBEDDER_COMPONENT:
+            return self.paths.embedder_gate_file(trial_id)
+        raise ValueError(f"unsupported group1 component: {component}")
+
+    def _group1_component_can_seed_from_run(self, train_name: str, *, component: str) -> bool:
+        return (
+            self._run_name_exists(train_name)
+            and resolve_group1_component_best_weights(self.request.train_root, train_name, component).exists()
+        )
+
+    def _safe_read_json_payload(self, path: Path) -> dict[str, object] | None:
+        if not path.exists():
+            return None
+        try:
+            return self._read_json_payload(path)
+        except (OSError, RuntimeError, json.JSONDecodeError):
+            return None
 
     def _load_group1_embedder_summary(
         self,
@@ -1997,6 +2316,96 @@ class AutoTrainController:
             },
             "summary_path": str(Path(train_record.run_dir) / "summary.json"),
         }
+
+    def _maybe_group1_quality_intervention(
+        self,
+        *,
+        trial_id: str,
+        stage: str,
+        component: str,
+        gate_payload: dict[str, object],
+    ) -> StageExecution | None:
+        intervention = quality_gate.assess_group1_gate(
+            stage=stage,
+            component=component,
+            gate_payload=gate_payload,
+        )
+        if intervention is None:
+            return None
+
+        trial_input = storage.read_trial_input_record(self.paths.input_file(trial_id))
+        policy = policies.policy_for_task(self.request.task)
+        numeric_metrics: dict[str, contracts.JsonValue] = {
+            key: value
+            for key, value in intervention.metrics.items()
+        }
+        summary_record = contracts.ResultSummaryRecord(
+            study_name=self.request.study_name,
+            task=self.request.task,
+            trial_id=trial_id,
+            dataset_version=trial_input.dataset_version,
+            train_name=trial_input.train_name,
+            primary_metric=policy.primary_metric,
+            primary_score=0.0,
+            test_metrics={},
+            evaluation_available=False,
+            evaluation_metrics=numeric_metrics,
+            failure_count=0,
+            trend="plateau",
+            delta_vs_previous=None,
+            delta_vs_best=None,
+            weak_classes=[],
+            failure_patterns=intervention.failure_patterns,
+            recent_trials=[],
+            best_trial=None,
+            evidence=[
+                *intervention.evidence,
+                "early_intervention_stage=component_gate",
+                "next_stage=JUDGE",
+            ],
+        )
+        storage.write_result_summary_record(
+            self.paths.result_summary_file(trial_id),
+            summary_record,
+        )
+        trial_analysis_record = analysis.build_trial_analysis(
+            analysis.TrialAnalysisRequest(
+                paths=self.paths,
+                trial_id=trial_id,
+                trial_input=trial_input,
+                summary_record=summary_record,
+            )
+        )
+        storage.write_trial_analysis_record(
+            self.paths.trial_analysis_file(trial_id),
+            trial_analysis_record,
+        )
+        storage.write_json_payload(
+            self.paths.early_intervention_file(trial_id),
+            {
+                "status": "triggered",
+                "trial_id": trial_id,
+                "summary_file": str(self.paths.result_summary_file(trial_id)),
+                "analysis_file": str(self.paths.trial_analysis_file(trial_id)),
+                "next_stage": "JUDGE",
+                **intervention.to_dict(),
+            },
+        )
+        self._write_trial_summary(summary_record, None)
+        self._write_console(
+            "group1_quality_intervention "
+            f"trial={trial_id} "
+            f"stage={stage} "
+            f"component={component} "
+            f"reason={intervention.reason} "
+            "next_stage=JUDGE"
+        )
+        return StageExecution(
+            trial_id=trial_id,
+            stage=stage,
+            next_stage="JUDGE",
+            detail=str(self.paths.early_intervention_file(trial_id)),
+        )
 
     def _stage_test(self, trial_id: str) -> StageExecution:
         input_record = storage.read_trial_input_record(self.paths.input_file(trial_id))
@@ -2400,6 +2809,51 @@ class AutoTrainController:
             dataset_override=None,
         )
 
+    def _read_trial_input_for_execution(self, trial_id: str) -> contracts.TrialInputRecord:
+        input_path = self.paths.input_file(trial_id)
+        record = storage.read_trial_input_record(input_path)
+        changed = False
+        if record.train_mode == "from_run" and record.base_run and not self._run_name_exists(record.base_run):
+            fallback = self._select_existing_base_run(
+                requested_base_run=record.base_run,
+                dataset_version=record.dataset_version,
+                exclude_train_names={record.train_name},
+            )
+            if fallback is None:
+                raise RuntimeError(
+                    "base_run_missing "
+                    f"trial_id={trial_id} "
+                    f"base_run={record.base_run} "
+                    f"dataset_version={record.dataset_version}"
+                )
+
+            missing_base_run = record.base_run
+            record = replace(record, base_run=fallback)
+            changed = True
+            self._write_console(
+                "base_run_repaired "
+                f"trial={trial_id} "
+                f"missing_base_run={missing_base_run} "
+                f"resolved_base_run={fallback} "
+                f"dataset_version={record.dataset_version}"
+            )
+
+        record, component_base_changed = self._repair_group1_component_base_runs_for_execution(record)
+        if component_base_changed:
+            changed = True
+            component_base_runs = _string_map(record.params.get(GROUP1_COMPONENT_BASE_RUNS_PARAM)) or {}
+            component_text = ",".join(f"{key}={value}" for key, value in sorted(component_base_runs.items()))
+            self._write_console(
+                "component_base_runs_repaired "
+                f"trial={trial_id} "
+                f"{component_text}"
+            )
+
+        if changed:
+            storage.write_trial_input_record(input_path, record)
+            storage.append_trial_history(self.paths.trial_history_file, record)
+        return record
+
     def _prepare_next_trial(
         self,
         summary_record: contracts.ResultSummaryRecord,
@@ -2425,6 +2879,7 @@ class AutoTrainController:
             next_params.pop(internal_key, None)
         next_params.pop(GROUP1_EMBEDDER_HARDSET_REBUILD_COUNT_PARAM, None)
         next_params.pop(GROUP1_COMPONENT_PARAMS_PARAM, None)
+        next_params.pop(GROUP1_COMPONENT_BASE_RUNS_PARAM, None)
         if decision.decision == "RETUNE":
             if retune_plan_record is not None:
                 next_params.update(retune_plan_record.parameter_updates)
@@ -2478,6 +2933,37 @@ class AutoTrainController:
             if retune_plan_record is not None and retune_plan_record.component_parameter_updates is not None:
                 next_params[GROUP1_COMPONENT_PARAMS_PARAM] = retune_plan_record.component_parameter_updates
 
+        if train_mode == "from_run" and base_run is not None and not self._run_name_exists(base_run):
+            fallback = self._select_existing_base_run(
+                requested_base_run=base_run,
+                dataset_version=dataset_version,
+                exclude_train_names={train_name},
+            )
+            if fallback is None:
+                raise RuntimeError(
+                    "base_run_missing "
+                    f"trial_id={next_trial_id} "
+                    f"base_run={base_run} "
+                    f"dataset_version={dataset_version}"
+                )
+            self._write_console(
+                "base_run_fallback "
+                f"trial={next_trial_id} "
+                f"missing_base_run={base_run} "
+                f"resolved_base_run={fallback} "
+                f"dataset_version={dataset_version}"
+            )
+            base_run = fallback
+
+        if self.request.task == "group1" and train_mode == "from_run":
+            component_base_runs = self._group1_component_base_runs_for_next_trial(
+                dataset_version=dataset_version,
+                fallback_base_run=base_run,
+                exclude_train_names={train_name},
+            )
+            if component_base_runs:
+                next_params[GROUP1_COMPONENT_BASE_RUNS_PARAM] = component_base_runs
+
         return contracts.TrialInputRecord(
             trial_id=next_trial_id,
             task=self.request.task,
@@ -2489,6 +2975,69 @@ class AutoTrainController:
             dataset_preset=dataset_preset,
             dataset_override=dataset_override,
         )
+
+    def _run_name_exists(self, train_name: str) -> bool:
+        return default_run_dir(self.request.train_root, self.request.task, train_name).exists()
+
+    def _select_existing_base_run(
+        self,
+        *,
+        requested_base_run: str,
+        dataset_version: str,
+        exclude_train_names: set[str] | None = None,
+    ) -> str | None:
+        excluded = set() if exclude_train_names is None else set(exclude_train_names)
+        for candidate in self._base_run_fallback_candidates(
+            requested_base_run=requested_base_run,
+            dataset_version=dataset_version,
+        ):
+            if candidate in excluded:
+                continue
+            if self._run_name_exists(candidate):
+                return candidate
+        return None
+
+    def _base_run_fallback_candidates(self, *, requested_base_run: str, dataset_version: str) -> list[str]:
+        candidates: list[str] = []
+
+        def add(value: str | None) -> None:
+            if value and value not in candidates:
+                candidates.append(value)
+
+        for input_path in sorted(
+            self.paths.trials_root.glob("trial_*/input.json"),
+            key=lambda item: layout.parse_trial_id(item.parent.name),
+            reverse=True,
+        ):
+            try:
+                record = storage.read_trial_input_record(input_path)
+            except (OSError, ValueError):
+                continue
+            if record.train_name == requested_base_run:
+                add(record.base_run)
+            if record.dataset_version == dataset_version:
+                add(record.train_name)
+                add(record.base_run)
+
+        if self.paths.best_trial_file.exists():
+            try:
+                best = storage.read_best_trial_record(self.paths.best_trial_file)
+            except (OSError, ValueError):
+                best = None
+            if best is not None and best.dataset_version == dataset_version:
+                add(best.train_name)
+
+        if self.paths.leaderboard_file.exists():
+            try:
+                leaderboard = storage.read_leaderboard_record(self.paths.leaderboard_file)
+            except (OSError, ValueError):
+                leaderboard = None
+            if leaderboard is not None:
+                for entry in leaderboard.entries:
+                    if entry.dataset_version == dataset_version:
+                        add(entry.train_name)
+
+        return candidates
 
     def _update_leaderboard(
         self,
@@ -2562,7 +3111,13 @@ class AutoTrainController:
                     entry=record.best_entry,
                 ),
             )
-        self._prune_model_runs(record)
+        self._prune_model_runs(
+            record,
+            protected_train_names=self._protected_train_names_for_prune(
+                summary_record=summary_record,
+                decision=decision,
+            ),
+        )
         return record
 
     def _resolve_test_model_path(self, trial_id: str) -> Path | None:
@@ -2691,16 +3246,71 @@ class AutoTrainController:
         except (OSError, ValueError):
             return None
 
-    def _prune_model_runs(self, leaderboard: contracts.LeaderboardRecord) -> None:
+    def _prune_model_runs(
+        self,
+        leaderboard: contracts.LeaderboardRecord,
+        protected_train_names: set[str] | None = None,
+    ) -> None:
+        protected_names = set() if protected_train_names is None else set(protected_train_names)
+        keep_names = {
+            entry.train_name
+            for entry in leaderboard.entries[:3]
+            if entry.train_name
+        }
+        keep_names.update(protected_names)
+        for entries in self._leaderboard_entries_by_comparison_key(leaderboard).values():
+            keep_names.update(
+                entry.train_name
+                for entry in entries[:3]
+                if entry.train_name
+            )
         prune_names = {
             entry.train_name
-            for entry in leaderboard.entries[3:]
-            if entry.train_name
+            for entry in leaderboard.entries
+            if entry.train_name and entry.train_name not in keep_names
         }
         for train_name in sorted(prune_names):
             run_dir = default_run_dir(self.request.train_root, self.request.task, train_name)
             if run_dir.exists():
                 shutil.rmtree(run_dir)
+
+    def _protected_train_names_for_prune(
+        self,
+        *,
+        summary_record: contracts.ResultSummaryRecord,
+        decision: contracts.DecisionRecord,
+    ) -> set[str]:
+        names = {summary_record.train_name}
+        decision_base_run = _string_action(decision.next_action, "base_run", "")
+        if decision_base_run:
+            names.add(decision_base_run)
+        for input_path in self.paths.trials_root.glob("trial_*/input.json"):
+            try:
+                input_record = storage.read_trial_input_record(input_path)
+            except (OSError, ValueError):
+                continue
+            if input_record.base_run:
+                names.add(input_record.base_run)
+            component_base_runs = _string_map(input_record.params.get(GROUP1_COMPONENT_BASE_RUNS_PARAM))
+            if component_base_runs is not None:
+                names.update(component_base_runs.values())
+        return names
+
+    def _leaderboard_entries_by_comparison_key(
+        self,
+        leaderboard: contracts.LeaderboardRecord,
+    ) -> dict[str, list[contracts.LeaderboardEntry]]:
+        buckets: dict[str, list[contracts.LeaderboardEntry]] = {}
+        for entry in leaderboard.entries:
+            key = self._leaderboard_entry_comparison_key(entry)
+            buckets.setdefault(key, []).append(entry)
+        return buckets
+
+    def _leaderboard_entry_comparison_key(self, entry: contracts.LeaderboardEntry) -> str:
+        value = entry.metrics.get(comparison.COMPARISON_KEY_METRIC)
+        if isinstance(value, str) and value.strip():
+            return value
+        return "__legacy__"
 
     def _build_leaderboard_entry(
         self,
@@ -2717,6 +3327,7 @@ class AutoTrainController:
         input_path = self.paths.input_file(summary_record.trial_id)
         if input_path.exists():
             input_record = storage.read_trial_input_record(input_path)
+        comparison_key = None if input_record is None else comparison.comparison_key_for_input(input_record)
 
         difficulty_score = _difficulty_score_for_trial(
             dataset_version=summary_record.dataset_version,
@@ -2739,6 +3350,8 @@ class AutoTrainController:
                 "business_success_rate": None if business_success_rate is None else round(business_success_rate, 6),
                 "commercial_ready": commercial_ready,
                 "dataset_preset": None if input_record is None else input_record.dataset_preset,
+                comparison.COMPARISON_KEY_METRIC: comparison_key,
+                comparison.COMPARISON_SCOPE_METRIC: None if comparison_key is None else comparison.COMPARISON_SCOPE,
             }
         )
         return contracts.LeaderboardEntry(
@@ -3350,7 +3963,13 @@ class AutoTrainController:
             self.paths.result_summary_file(summary_record.trial_id),
             self.paths.trial_analysis_file(summary_record.trial_id),
         ]
-        files.extend(path for path in (self.paths.leaderboard_file, self.paths.best_trial_file) if path.exists())
+        if self.paths.early_intervention_file(summary_record.trial_id).exists():
+            files.append(self.paths.early_intervention_file(summary_record.trial_id))
+        files.extend(
+            path
+            for path in (self.paths.leaderboard_file, self.paths.best_trial_file)
+            if path.exists()
+        )
         try:
             result = runtime.plan_retune(
                 study_name=self.request.study_name,
@@ -3402,6 +4021,7 @@ class AutoTrainController:
                     self.paths.leaderboard_file,
                     self.paths.decisions_file,
                     self.paths.trial_analysis_file(trial_id),
+                    self.paths.early_intervention_file(trial_id),
                     self.paths.offline_eval_file(trial_id),
                     self.paths.business_eval_file(trial_id),
                 )
@@ -3830,6 +4450,75 @@ def _parse_timestamp(value: str) -> datetime:
     if parsed.tzinfo is None:
         return parsed.replace(tzinfo=timezone.utc)
     return parsed.astimezone(timezone.utc)
+
+
+def _looks_like_trial_id(value: str) -> bool:
+    try:
+        layout.parse_trial_id(value)
+    except ValueError:
+        return False
+    return True
+
+
+def _trial_index_or_zero(value: str | None) -> int:
+    if value is None:
+        return 0
+    try:
+        return layout.parse_trial_id(value)
+    except ValueError:
+        return 0
+
+
+def _string_map(value: object) -> dict[str, str] | None:
+    if not isinstance(value, dict):
+        return None
+    results: dict[str, str] = {}
+    for key, item in value.items():
+        if isinstance(key, str) and isinstance(item, str) and key.strip() and item.strip():
+            results[key] = item
+    return results
+
+
+def _group1_component_metric_score(*, component: str, metrics: dict[str, object]) -> float:
+    if not metrics:
+        return -1000.0
+    if component == QUERY_COMPONENT:
+        exact = _metric(metrics, "query_exact_count_rate", _metric(metrics, "query_full_recall_rate", 0.0))
+        strict = _metric(metrics, "query_strict_hit_rate", exact)
+        recall = _metric(metrics, "query_item_recall", _metric(metrics, "query_recall", 0.0))
+        mean_iou = _metric(metrics, "query_mean_iou", 0.0)
+        false_positive = _metric(metrics, "query_false_positive_per_sample", 0.0)
+        return exact * 100.0 + strict * 20.0 + recall * 5.0 + mean_iou - false_positive * 5.0
+    if component == PROPOSAL_COMPONENT:
+        full_recall = _metric(metrics, "proposal_full_recall_rate", 0.0)
+        object_recall = _metric(metrics, "proposal_object_recall", 0.0)
+        strict = _metric(metrics, "proposal_strict_hit_rate", 0.0)
+        mean_iou = _metric(metrics, "proposal_mean_iou", 0.0)
+        false_positive = _metric(metrics, "proposal_false_positive_per_sample", 0.0)
+        return full_recall * 100.0 + object_recall * 20.0 + strict * 10.0 + mean_iou - false_positive * 5.0
+    if component == EMBEDDER_COMPONENT:
+        scene_r1 = _metric(metrics, "embedding_scene_recall_at_1", _metric(metrics, "embedding_recall_at_1", 0.0))
+        scene_r3 = _metric(metrics, "embedding_scene_recall_at_3", _metric(metrics, "embedding_recall_at_3", 0.0))
+        identity_r1 = _metric(metrics, "embedding_identity_recall_at_1", scene_r1)
+        exact_r1 = _metric(metrics, "embedding_recall_at_1", 0.0)
+        exact_r3 = _metric(metrics, "embedding_recall_at_3", 0.0)
+        same_template_error = _metric(metrics, "embedding_same_template_top1_error_rate", 0.0)
+        positive_rank_mean = _metric(metrics, "embedding_positive_rank_mean", 1000.0)
+        rank_penalty = min(max(positive_rank_mean, 0.0) / 1000.0, 1.0)
+        return (
+            scene_r1 * 100.0
+            + scene_r3 * 25.0
+            + identity_r1 * 20.0
+            + exact_r1 * 5.0
+            + exact_r3
+            - same_template_error * 5.0
+            - rank_penalty
+        )
+    return -1000.0
+
+
+def _metric(metrics: dict[str, object], key: str, default: float) -> float:
+    return _float_like(metrics.get(key), default)
 
 
 def _string_value(payload: dict[str, contracts.JsonValue], key: str, default: str | None = None) -> str | None:

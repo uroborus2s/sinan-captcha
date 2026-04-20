@@ -77,6 +77,114 @@ class AutoTrainSummaryTests(unittest.TestCase):
             self.assertEqual(record.trend, "improving")
             self.assertAlmostEqual(record.delta_vs_previous or 0.0, 0.06, places=6)
 
+    def test_build_result_summary_does_not_compare_different_training_parameters(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            paths = layout.StudyPaths(
+                studies_root=Path(tmpdir) / "studies",
+                task="group1",
+                study_name="study_001",
+            )
+            paths.ensure_layout()
+            storage.write_trial_input_record(
+                paths.input_file("trial_0001"),
+                contracts.TrialInputRecord(
+                    trial_id="trial_0001",
+                    task="group1",
+                    dataset_version="v1",
+                    train_name="trial_0001",
+                    train_mode="from_run",
+                    base_run="baseline",
+                    params={"epochs": 140, "batch": 16, "imgsz": 640, "device": "0"},
+                    dataset_preset="v1",
+                ),
+            )
+            storage.write_trial_input_record(
+                paths.input_file("trial_0002"),
+                contracts.TrialInputRecord(
+                    trial_id="trial_0002",
+                    task="group1",
+                    dataset_version="v1",
+                    train_name="trial_0002",
+                    train_mode="from_run",
+                    base_run="baseline",
+                    params={"epochs": 140, "batch": 8, "imgsz": 640, "device": "0"},
+                    dataset_preset="v1",
+                ),
+            )
+            storage.write_result_summary_record(
+                paths.result_summary_file("trial_0001"),
+                contracts.ResultSummaryRecord(
+                    study_name="study_001",
+                    task="group1",
+                    trial_id="trial_0001",
+                    dataset_version="v1",
+                    train_name="trial_0001",
+                    primary_metric="full_sequence_hit_rate",
+                    primary_score=0.90,
+                    test_metrics={"full_sequence_hit_rate": 0.90},
+                    evaluation_available=True,
+                    evaluation_metrics={"full_sequence_hit_rate": 0.90},
+                    failure_count=0,
+                    trend="baseline",
+                    delta_vs_previous=None,
+                    delta_vs_best=None,
+                    weak_classes=[],
+                    failure_patterns=[],
+                    recent_trials=[],
+                    best_trial=None,
+                    evidence=["baseline"],
+                ),
+            )
+            storage.write_best_trial_record(
+                paths.best_trial_file,
+                contracts.BestTrialRecord(
+                    study_name="study_001",
+                    task="group1",
+                    trial_id="trial_0001",
+                    primary_metric="full_sequence_hit_rate",
+                    primary_score=0.90,
+                    dataset_version="v1",
+                    train_name="trial_0001",
+                    metrics={"full_sequence_hit_rate": 0.90},
+                    decision="RETUNE",
+                ),
+            )
+
+            record = summary.build_result_summary(
+                summary.ResultSummaryRequest(
+                    study_name="study_001",
+                    paths=paths,
+                    trial_id="trial_0002",
+                    dataset_version="v1",
+                    train_name="trial_0002",
+                    primary_metric="full_sequence_hit_rate",
+                    test_record=contracts.TestRecord(
+                        task="group1",
+                        dataset_version="v1",
+                        train_name="trial_0002",
+                        metrics={"full_sequence_hit_rate": 0.80},
+                        predict_output_dir="D:/reports/group1/predict_trial_0002",
+                        val_output_dir="D:/reports/group1/val_trial_0002",
+                        report_dir="D:/reports/group1/test_trial_0002",
+                    ),
+                    evaluate_record=contracts.EvaluateRecord(
+                        available=True,
+                        task="group1",
+                        metrics={"full_sequence_hit_rate": 0.80},
+                        failure_count=0,
+                        report_dir="D:/reports/group1/eval_trial_0002",
+                    ),
+                    recent_window=3,
+                    min_delta=0.005,
+                )
+            )
+
+            self.assertEqual(record.trend, "baseline")
+            self.assertIsNone(record.delta_vs_previous)
+            self.assertIsNone(record.delta_vs_best)
+            self.assertEqual(record.recent_trials, [])
+            self.assertIsNone(record.best_trial)
+
     def test_build_result_summary_keeps_current_metrics_recent_window_and_best_trial(self) -> None:
         with tempfile.TemporaryDirectory() as tmpdir:
             paths = layout.StudyPaths(

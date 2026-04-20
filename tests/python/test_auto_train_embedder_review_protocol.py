@@ -135,7 +135,7 @@ class EmbedderReviewProtocolTests(unittest.TestCase):
         self.assertEqual(outcome.record.reason, "base_low_exact_recall_force_hardset")
         self.assertEqual(outcome.record.next_action["target_stage"], "EMBEDDER_GATE")
 
-    def test_parsed_continue_remains_continue_in_llm_first_mode_even_when_base_guardrail_matches(self) -> None:
+    def test_parsed_continue_is_overridden_by_base_force_fuse_in_llm_first_mode(self) -> None:
         outcome = embedder_review_protocol.parse_or_fallback_review(
             raw_output=(
                 '{"decision":"CONTINUE","reason":"recent_progress_observed","confidence":0.71,'
@@ -160,11 +160,13 @@ class EmbedderReviewProtocolTests(unittest.TestCase):
         )
 
         self.assertFalse(outcome.used_fallback)
-        self.assertEqual(outcome.record.decision, "CONTINUE")
-        self.assertEqual(outcome.record.reason, "recent_progress_observed")
+        self.assertEqual(outcome.record.decision, "STOP_AND_ADVANCE")
+        self.assertEqual(outcome.record.reason, "base_low_exact_recall_force_hardset")
+        self.assertEqual(outcome.record.next_action["target_stage"], "EMBEDDER_GATE")
         self.assertIn("recent_window=improving", outcome.record.evidence)
+        self.assertIn("guardrail=base_force_hardset_low_exact_recall", outcome.record.evidence)
 
-    def test_parsed_continue_remains_continue_in_llm_first_mode_when_best_epoch_is_stale(self) -> None:
+    def test_parsed_continue_is_overridden_by_stale_best_fuse_in_llm_first_mode(self) -> None:
         outcome = embedder_review_protocol.parse_or_fallback_review(
             raw_output=(
                 '{"decision":"CONTINUE","reason":"weak_exact_retrieval_base_stage_no_clear_progress","confidence":0.68,'
@@ -193,15 +195,54 @@ class EmbedderReviewProtocolTests(unittest.TestCase):
                     {"embedding_scene_recall_at_1": 0.896179, "embedding_recall_at_1": 0.023256},
                 ],
             ),
-            agent=contracts.AgentRef(provider="opencode", name="review-embedder", model="gpt-5-nano"),
+            agent=contracts.AgentRef(
+                provider="opencode",
+                name="review-embedder",
+                model="gpt-5-nano",
+            ),
         )
 
         self.assertFalse(outcome.used_fallback)
-        self.assertEqual(outcome.record.decision, "CONTINUE")
-        self.assertEqual(outcome.record.reason, "weak_exact_retrieval_base_stage_no_clear_progress")
-        self.assertEqual(outcome.record.next_action["target_stage"], "TRAIN_EMBEDDER_BASE")
+        self.assertEqual(outcome.record.decision, "STOP_AND_ADVANCE")
+        self.assertEqual(outcome.record.reason, "base_stale_best_epoch_force_hardset")
+        self.assertEqual(outcome.record.next_action["target_stage"], "EMBEDDER_GATE")
+        self.assertIn("guardrail=base_stale_best_epoch_force_hardset", outcome.record.evidence)
 
-    def test_hard_stage_low_exact_recall_does_not_override_llm_continue_in_llm_first_mode(self) -> None:
+    def test_stale_best_fuse_stops_at_first_review_after_three_epoch_gap(self) -> None:
+        outcome = embedder_review_protocol.parse_or_fallback_review(
+            raw_output=(
+                '{"decision":"CONTINUE","reason":"persistent_weak_recall_with_no_clear_stop_signal","confidence":0.69,'
+                '"next_action":{"train_action":"continue","target_stage":"TRAIN_EMBEDDER_BASE"},'
+                '"evidence":["llm_continue"]}'
+            ),
+            context=_context(
+                epoch=17,
+                best_epoch=14,
+                best_embedding_recall_at_1=0.960667,
+                metrics={
+                    "embedding_recall_at_1": 0.045333,
+                    "embedding_recall_at_3": 0.132,
+                    "embedding_scene_recall_at_1": 0.945667,
+                    "embedding_scene_recall_at_3": 0.989,
+                    "embedding_identity_recall_at_1": 0.823333,
+                    "embedding_positive_rank_mean": 155.1,
+                    "embedding_same_template_top1_error_rate": 0.808333,
+                },
+                recent_history=[
+                    {"embedding_scene_recall_at_1": 0.960667, "embedding_recall_at_1": 0.042333},
+                    {"embedding_scene_recall_at_1": 0.952000, "embedding_recall_at_1": 0.044000},
+                    {"embedding_scene_recall_at_1": 0.945667, "embedding_recall_at_1": 0.045333},
+                ],
+            ),
+            agent=contracts.AgentRef(provider="opencode", name="review-embedder", model="qwen"),
+        )
+
+        self.assertFalse(outcome.used_fallback)
+        self.assertEqual(outcome.record.decision, "STOP_AND_ADVANCE")
+        self.assertEqual(outcome.record.reason, "base_stale_best_epoch_force_hardset")
+        self.assertIn("best_epoch_gap=3", outcome.record.evidence)
+
+    def test_hard_stage_low_exact_keeps_llm_first_continue(self) -> None:
         outcome = embedder_review_protocol.parse_or_fallback_review(
             raw_output=(
                 '{"decision":"CONTINUE","reason":"recent_progress_observed","confidence":0.74,'

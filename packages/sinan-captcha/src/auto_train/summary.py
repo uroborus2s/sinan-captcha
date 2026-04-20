@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 
-from auto_train import contracts, layout, storage
+from auto_train import comparison, contracts, layout, storage
 from group2_semantics import (
     GROUP2_LOCALIZATION_ALERT_CENTER_ERROR_PX,
     GROUP2_SUMMARY_LOW_IOU_ALERT_THRESHOLD,
@@ -34,8 +34,14 @@ def build_result_summary(request: ResultSummaryRequest) -> contracts.ResultSumma
     if request.min_delta < 0:
         raise ValueError("min_delta must not be negative")
 
-    recent_trials = _load_recent_trials(request.paths, request.trial_id, request.recent_window)
-    best_trial = _load_best_trial_snapshot(request.paths)
+    current_comparison_key = _load_trial_comparison_key(request.paths, request.trial_id)
+    recent_trials = _load_recent_trials(
+        request.paths,
+        request.trial_id,
+        request.recent_window,
+        comparison_key=current_comparison_key,
+    )
+    best_trial = _load_best_trial_snapshot(request.paths, comparison_key=current_comparison_key)
     primary_score = _extract_primary_score(
         request.primary_metric,
         test_metrics=request.test_record.metrics,
@@ -57,6 +63,7 @@ def build_result_summary(request: ResultSummaryRequest) -> contracts.ResultSumma
         weak_classes=weak_classes,
         failure_patterns=failure_patterns,
         evaluation_available=request.evaluate_record.available if request.evaluate_record is not None else False,
+        comparison_key=current_comparison_key,
     )
 
     return contracts.ResultSummaryRecord(
@@ -86,6 +93,8 @@ def _load_recent_trials(
     paths: layout.StudyPaths,
     current_trial_id: str,
     recent_window: int,
+    *,
+    comparison_key: str | None = None,
 ) -> list[contracts.ResultSummarySnapshot]:
     current_index = layout.parse_trial_id(current_trial_id)
     trial_ids = sorted(
@@ -102,7 +111,9 @@ def _load_recent_trials(
     )
 
     snapshots: list[contracts.ResultSummarySnapshot] = []
-    for trial_id in trial_ids[:recent_window]:
+    for trial_id in trial_ids:
+        if comparison_key is not None and _load_trial_comparison_key(paths, trial_id) != comparison_key:
+            continue
         historical = storage.read_result_summary_record(paths.result_summary_file(trial_id))
         snapshots.append(
             contracts.ResultSummarySnapshot(
@@ -113,13 +124,21 @@ def _load_recent_trials(
                 metrics=_snapshot_metrics(historical),
             )
         )
+        if len(snapshots) >= recent_window:
+            break
     return snapshots
 
 
-def _load_best_trial_snapshot(paths: layout.StudyPaths) -> contracts.ResultSummarySnapshot | None:
+def _load_best_trial_snapshot(
+    paths: layout.StudyPaths,
+    *,
+    comparison_key: str | None = None,
+) -> contracts.ResultSummarySnapshot | None:
     if not paths.best_trial_file.exists():
         return None
     best_trial = storage.read_best_trial_record(paths.best_trial_file)
+    if comparison_key is not None and _load_trial_comparison_key(paths, best_trial.trial_id) != comparison_key:
+        return None
     return contracts.ResultSummarySnapshot(
         trial_id=best_trial.trial_id,
         dataset_version=best_trial.dataset_version,
@@ -238,8 +257,11 @@ def _build_evidence(
     weak_classes: list[str],
     failure_patterns: list[str],
     evaluation_available: bool,
+    comparison_key: str | None,
 ) -> list[str]:
     evidence: list[str] = []
+    if comparison_key is not None:
+        evidence.append(f"comparison_key={comparison_key}")
     if primary_score is not None:
         evidence.append(f"{primary_metric}={primary_score:.6f}")
     if primary_score is not None and previous_primary is not None:
@@ -255,6 +277,17 @@ def _build_evidence(
     if not evaluation_available:
         evidence.append("evaluation_unavailable")
     return evidence
+
+
+def _load_trial_comparison_key(paths: layout.StudyPaths, trial_id: str) -> str | None:
+    input_path = paths.input_file(trial_id)
+    if not input_path.exists():
+        return None
+    try:
+        input_record = storage.read_trial_input_record(input_path)
+    except (OSError, ValueError):
+        return None
+    return comparison.comparison_key_for_input(input_record)
 
 
 def _snapshot_metrics(record: contracts.ResultSummaryRecord) -> dict[str, contracts.JsonValue]:

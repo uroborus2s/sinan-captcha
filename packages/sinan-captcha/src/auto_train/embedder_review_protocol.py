@@ -39,7 +39,7 @@ BASE_FORCE_HARDSET_MIN_EPOCH = 20
 BASE_FORCE_HARDSET_MAX_EXACT_RECALL_AT_1 = 0.10
 BASE_FORCE_HARDSET_MIN_POSITIVE_RANK_MEAN = 20.0
 BASE_FORCE_HARDSET_MIN_IDENTITY_GAP = 0.25
-BASE_STALE_BEST_EPOCH_GAP = 4
+BASE_STALE_BEST_EPOCH_GAP = 3
 BASE_STALE_MAX_EXACT_RECALL_AT_1 = 0.08
 BASE_STALE_MIN_SCENE_RECALL_AT_1 = 0.85
 BASE_STALE_MIN_SAME_TEMPLATE_ERROR = 0.35
@@ -249,12 +249,24 @@ def _fallback_review_components(
 ) -> tuple[str, str, dict[str, contracts.JsonValue], list[str]]:
     current_recall_at_1 = _metric_value(context.current_metrics, "embedding_recall_at_1")
     current_recall_at_3 = _metric_value(context.current_metrics, "embedding_recall_at_3")
-    current_scene_recall_at_1 = _metric_value(context.current_metrics, "embedding_scene_recall_at_1")
-    current_scene_recall_at_3 = _metric_value(context.current_metrics, "embedding_scene_recall_at_3")
+    current_scene_recall_at_1 = _metric_value(
+        context.current_metrics,
+        "embedding_scene_recall_at_1",
+    )
+    current_scene_recall_at_3 = _metric_value(
+        context.current_metrics,
+        "embedding_scene_recall_at_3",
+    )
     identity_recall_at_1 = _metric_value(context.current_metrics, "embedding_identity_recall_at_1")
     positive_rank_mean = _metric_value(context.current_metrics, "embedding_positive_rank_mean")
-    same_template_error = _metric_value(context.current_metrics, "embedding_same_template_top1_error_rate")
-    detector_error_rate = _metric_value(context.current_metrics, "embedding_top1_error_scene_target_rate") + _metric_value(
+    same_template_error = _metric_value(
+        context.current_metrics,
+        "embedding_same_template_top1_error_rate",
+    )
+    detector_error_rate = _metric_value(
+        context.current_metrics,
+        "embedding_top1_error_scene_target_rate",
+    ) + _metric_value(
         context.current_metrics,
         "embedding_top1_error_false_positive_rate",
     )
@@ -262,7 +274,11 @@ def _fallback_review_components(
     primary_recall_at_3 = _primary_recall_at_3(context.current_metrics)
     plateau = _is_plateau(
         context.recent_history,
-        metric_key="embedding_scene_recall_at_1" if _has_scene_recall_metrics(context.current_metrics) else "embedding_recall_at_1",
+        metric_key=(
+            "embedding_scene_recall_at_1"
+            if _has_scene_recall_metrics(context.current_metrics)
+            else "embedding_recall_at_1"
+        ),
     )
 
     evidence = [
@@ -338,7 +354,10 @@ def _fallback_review_components(
             evidence,
         )
 
-    if same_template_error >= 0.25 and context.rebuild_count < MAX_EMBEDDER_HARDSET_REBUILDS_PER_TRIAL:
+    if (
+        same_template_error >= 0.25
+        and context.rebuild_count < MAX_EMBEDDER_HARDSET_REBUILDS_PER_TRIAL
+    ):
         evidence.append(f"same_template_top1_error_rate={same_template_error:.6f}")
         evidence.append(f"rebuild_count={context.rebuild_count}")
         return (
@@ -371,7 +390,9 @@ def _review_next_action(stage: str, decision: str) -> dict[str, contracts.JsonVa
     if decision == EMBEDDER_REVIEW_DECISION_STOP_AND_ADVANCE:
         return {
             "train_action": "stop_and_advance",
-            "target_stage": "EMBEDDER_GATE" if stage == "TRAIN_EMBEDDER_BASE" else "CALIBRATE_MATCHER",
+            "target_stage": (
+                "EMBEDDER_GATE" if stage == "TRAIN_EMBEDDER_BASE" else "CALIBRATE_MATCHER"
+            ),
         }
     if decision == EMBEDDER_REVIEW_DECISION_REBUILD_HARDSET:
         return {"train_action": "rebuild_hardset", "target_stage": "BUILD_EMBEDDER_HARDSET"}
@@ -475,22 +496,6 @@ def apply_review_guardrails(
         stale_force_evidence,
         hard_force_evidence,
     )
-    if context.decision_mode != EMBEDDER_REVIEW_DECISION_MODE_GUARDRAIL_OVERRIDE:
-        if advisory_evidence == record.evidence:
-            return record
-        return EmbedderReviewRecord(
-            stage=record.stage,
-            epoch=record.epoch,
-            decision=record.decision,
-            confidence=record.confidence,
-            reason=record.reason,
-            next_action=record.next_action,
-            evidence=advisory_evidence,
-            agent=record.agent,
-            metrics_snapshot=record.metrics_snapshot,
-            used_fallback=record.used_fallback,
-            fallback_reason=record.fallback_reason,
-        )
     if force_hardset and record.decision == EMBEDDER_REVIEW_DECISION_CONTINUE:
         return EmbedderReviewRecord(
             stage=record.stage,
@@ -498,7 +503,10 @@ def apply_review_guardrails(
             decision=EMBEDDER_REVIEW_DECISION_STOP_AND_ADVANCE,
             confidence=max(record.confidence, 0.8),
             reason="base_low_exact_recall_force_hardset",
-            next_action=_review_next_action(context.stage, EMBEDDER_REVIEW_DECISION_STOP_AND_ADVANCE),
+            next_action=_review_next_action(
+                context.stage,
+                EMBEDDER_REVIEW_DECISION_STOP_AND_ADVANCE,
+            ),
             evidence=advisory_evidence,
             agent=record.agent,
             metrics_snapshot=record.metrics_snapshot,
@@ -512,7 +520,26 @@ def apply_review_guardrails(
             decision=EMBEDDER_REVIEW_DECISION_STOP_AND_ADVANCE,
             confidence=max(record.confidence, 0.82),
             reason="base_stale_best_epoch_force_hardset",
-            next_action=_review_next_action(context.stage, EMBEDDER_REVIEW_DECISION_STOP_AND_ADVANCE),
+            next_action=_review_next_action(
+                context.stage,
+                EMBEDDER_REVIEW_DECISION_STOP_AND_ADVANCE,
+            ),
+            evidence=advisory_evidence,
+            agent=record.agent,
+            metrics_snapshot=record.metrics_snapshot,
+            used_fallback=record.used_fallback,
+            fallback_reason=record.fallback_reason,
+        )
+    if context.decision_mode != EMBEDDER_REVIEW_DECISION_MODE_GUARDRAIL_OVERRIDE:
+        if advisory_evidence == record.evidence:
+            return record
+        return EmbedderReviewRecord(
+            stage=record.stage,
+            epoch=record.epoch,
+            decision=record.decision,
+            confidence=record.confidence,
+            reason=record.reason,
+            next_action=record.next_action,
             evidence=advisory_evidence,
             agent=record.agent,
             metrics_snapshot=record.metrics_snapshot,
@@ -617,7 +644,10 @@ def _base_stale_best_epoch_guardrail(
 
     current_recall_at_1 = _metric_value(context.current_metrics, "embedding_recall_at_1")
     scene_recall_at_1 = _metric_value(context.current_metrics, "embedding_scene_recall_at_1")
-    same_template_error = _metric_value(context.current_metrics, "embedding_same_template_top1_error_rate")
+    same_template_error = _metric_value(
+        context.current_metrics,
+        "embedding_same_template_top1_error_rate",
+    )
     positive_rank_mean = _metric_value(context.current_metrics, "embedding_positive_rank_mean")
 
     if current_recall_at_1 > BASE_STALE_MAX_EXACT_RECALL_AT_1:

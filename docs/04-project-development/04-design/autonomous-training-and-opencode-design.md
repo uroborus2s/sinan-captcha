@@ -2,7 +2,7 @@
 
 - 文档状态：草稿
 - 当前阶段：DESIGN
-- 最近更新：2026-04-06
+- 最近更新：2026-04-17
 - 目标读者：项目维护者、训练链路实现者、agent/skill 实现者
 - 负责人：Codex
 - 上游输入：
@@ -140,6 +140,8 @@ flowchart LR
 - 当前 `JUDGE` 已支持切到真实 `opencode run --command judge-trial ...`。
 - 当前 `RETUNE` 在 `judge_provider = opencode` 时，已支持切到真实 `opencode run --command plan-retune ...`。
 - 控制器会先本地落 `trial_analysis.json`，再把错误样本摘要、当前参数和 `group1` 组件诊断交给 `plan-retune`，输出 `retune_plan.json`。
+- 当前 `group1` 组件 gate 已支持早期质量干预：`query-gate`、`scene-gate`、`embedder-gate` 若出现严重召回、严格命中或误检问题，控制器会写出 `early_intervention.json`，同时落盘 `result_summary.json` 与 `trial_analysis.json`，然后直接进入 `JUDGE -> NEXT_ACTION`，避免继续执行下游无效训练。
+- 当前 `group1 icon-embedder` base review 已支持无效训练 fuse：即使 `opencode` 的 `review-embedder` 在 `LLM-first` 模式下返回 `CONTINUE`，只要本地证据显示 exact retrieval 长期极低、`best_epoch` 已落后至少 3 轮且同模板/正样本排名混淆仍严重，协议层会强制改写为 `STOP_AND_ADVANCE`，进入 `EMBEDDER_GATE` 后再由 gate 早期干预或 retune 闭环接管。
 - 当前 `group1` 的 `retune_plan.json` 已支持：
   - `query-detector`
   - `proposal-detector`
@@ -185,6 +187,10 @@ studies/
           input.json
           dataset.json
           train.json
+          query_gate.json
+          scene_gate.json
+          embedder_gate.json
+          early_intervention.json
           test.json
           evaluate.json
           trial_analysis.json
@@ -218,6 +224,8 @@ studies/
 7. `JUDGE`
 8. `NEXT_ACTION`
 9. `STOP`
+
+`group1` 会把 `TRAIN` 拆成 `TRAIN_QUERY / QUERY_GATE / TRAIN_SCENE / SCENE_GATE / TRAIN_EMBEDDER_BASE / EMBEDDER_GATE / BUILD_EMBEDDER_HARDSET / TRAIN_EMBEDDER_HARD / CALIBRATE_MATCHER / OFFLINE_EVAL / BUSINESS_EVAL`。其中三个 gate 可以在严重失败时提前跳转到 `JUDGE`，`TRAIN_EMBEDDER_BASE` 还会在 review 协议层识别无意义续训并提前推进到 `EMBEDDER_GATE`；恢复逻辑会优先识别 `early_intervention.json`，不会因为后续训练工件缺失而回到无效训练阶段。
 
 停止条件：
 

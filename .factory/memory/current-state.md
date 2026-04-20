@@ -17,6 +17,35 @@
 
 ## 当前事实
 
+- 2026-04-17 当前 `group1 icon-embedder` 自动训练已把 base 阶段无效训练 fuse 从 advisory 升级为硬约束：
+  - `review-embedder` 仍采用 `LLM-first` 作为常规审查口径，但 base 阶段命中高置信无进展信号时，协议层会直接覆盖大模型 `CONTINUE`
+  - 命中 `epoch >= 20`、`embedding_recall_at_1 <= 0.10`、`embedding_positive_rank_mean` 偏高且 identity/exact gap 明显时，会强制 `STOP_AND_ADVANCE`
+  - 命中 `best_epoch` 已落后当前 epoch 至少 3 轮、scene recall 不低、exact recall 仍极低且同模板/正样本排名混淆严重时，也会强制 `STOP_AND_ADVANCE`
+  - 该 stop 会先进入 `EMBEDDER_GATE`；若 gate 严重失败，再由当前早期质量干预写出 `early_intervention.json` 并进入 `JUDGE -> NEXT_ACTION`
+  - 当前目的：避免 `trial_0003` 这类 best epoch 已过、指标开始回落但 LLM 仍连续返回 `CONTINUE` 的无意义续训
+  - 现场观测：`trial_0003` 已在 epoch 20 结束 `TRAIN_EMBEDDER_BASE`，`EMBEDDER_GATE` 失败并触发 `early_intervention.json`；由于当前训练环境找不到 `opencode` 二进制，`judge-trial / plan-retune` 使用 fallback，随后创建了 `trial_0004`
+  - 当前已验证：
+    - `uv run pytest tests/python/test_auto_train_embedder_review_protocol.py tests/python/test_auto_train_quality_gate.py tests/python/test_auto_train_state_machine.py -q`
+    - `uv run ruff check packages/sinan-captcha/src/auto_train/embedder_review_protocol.py tests/python/test_auto_train_embedder_review_protocol.py`
+    - `uv run python -m py_compile packages/sinan-captcha/src/auto_train/embedder_review_protocol.py tests/python/test_auto_train_embedder_review_protocol.py`
+
+- 2026-04-17 当前 `group1` 自动训练已增加组件 gate 早期质量干预：
+  - `QUERY_GATE / SCENE_GATE / EMBEDDER_GATE` 不再只写失败状态后继续顺序训练
+  - 当 query、proposal 或 embedder gate 出现严重召回、严格命中或误检问题时，控制器会直接写出：
+    - `early_intervention.json`
+    - `result_summary.json`
+    - `trial_analysis.json`
+  - 之后当前 trial 会直接进入 `JUDGE -> NEXT_ACTION`；rules 路线保留原有 policy/Optuna 分支，`opencode` 路线会让大模型判断并提交 `retune_plan.json`
+  - 当前恢复逻辑会优先识别 `early_intervention.json`，不会因为后续训练工件缺失而退回继续无效训练
+  - 当前 `opencode` 路线会额外把 `early_intervention.json` 交给 `judge-trial / plan-retune`，让大模型参与判断和下一轮规划
+  - 当前已验证：
+    - `uv run pytest tests/python/test_auto_train_quality_gate.py tests/python/test_auto_train_state_machine.py -q`
+    - `uv run ruff check packages/sinan-captcha/src/auto_train/quality_gate.py tests/python/test_auto_train_quality_gate.py`
+    - `uv run ruff check --select F821,E9 packages/sinan-captcha/src/auto_train/quality_gate.py packages/sinan-captcha/src/auto_train/controller.py packages/sinan-captcha/src/auto_train/recovery.py tests/python/test_auto_train_quality_gate.py tests/python/test_auto_train_controller.py`
+    - `uv run python -m py_compile packages/sinan-captcha/src/auto_train/quality_gate.py packages/sinan-captcha/src/auto_train/controller.py packages/sinan-captcha/src/auto_train/recovery.py tests/python/test_auto_train_quality_gate.py tests/python/test_auto_train_controller.py`
+  - 当前受限验证：
+    - `tests/python/test_auto_train_controller.py` 在当前 uv 环境导入时缺少 `torch`，因此本轮未能执行 controller 集成测试
+
 - 2026-04-16 当前 `group1 icon-embedder` 已切到 `LLM-first` 审查口径，并把 embedder gate 改成 `scene / identity` 优先：
   - 当前当 `auto-train --judge-provider opencode` 启用本地 `review-embedder` 时：
     - base/hard 阶段的本地 guardrail 不再直接覆盖大模型的 `CONTINUE`
@@ -2518,3 +2547,28 @@
     - `uv run pytest tests/python/test_auto_train_embedder_review_protocol.py tests/python/test_training_jobs.py tests/python/test_auto_train_runners.py tests/python/test_auto_train_state_machine.py -q`
     - `PYTHONPYCACHEPREFIX=/Users/uroborus/AiProject/sinan-captcha/work_home/.pycache python3 -m py_compile packages/sinan-captcha/src/train/group1/embedder.py packages/sinan-captcha/src/auto_train/controller.py tests/python/test_group1_embedder.py tests/python/test_auto_train_controller.py`
     - `git diff --check`
+
+- 2026-04-18: auto-train comparison/pruning 状态更新：
+  - group1 trial_0004 的 run 目录已被旧 pruning 逻辑删除，当前项目目录内未找到可恢复的 `.pt` 权重或 backup；study JSON 记录仍保留。
+  - trial_0005 原本指向缺失的 `base_run=trial_0004`，修复后执行既有 input 时会自动回退到同 dataset_version 下仍存在的 `trial_0003`。
+  - 后续 leaderboard / summary 已按 trial input comparison key 区分可比组，不再把不同训练参数的 trial 直接用于 trend/delta 判断。
+  - pruning 已改为按 comparison key 分桶保留，并保护当前 trial、next base_run 和所有被 input.json 引用的 base_run。
+## 2026-04-19 group1 component base selection fix
+
+- Active change: group1 autonomous training no longer relies on one global `best_trial` / `base_run` for all three components.
+- Current controller behavior:
+  - `input.json` may now carry `params.group1_component_base_runs`.
+  - `TRAIN_QUERY`, `TRAIN_SCENE`, and `TRAIN_EMBEDDER_BASE` pass the selected component-specific base run to the train runner.
+  - Missing or invalid component base entries are repaired before stage execution.
+  - Old inputs with no component base map are rebuilt from component gate metrics instead of blindly inheriting the global base.
+  - Pruning protects all referenced component base runs.
+- Component selection signals:
+  - query uses query exact/strict/recall/IoU metrics.
+  - proposal uses full recall/object recall/strict hit/IoU/false-positive metrics.
+  - embedder uses scene recall, identity recall, exact recall, same-template confusion, and positive-rank metrics.
+- Verification:
+  - `uv run python -m py_compile packages/sinan-captcha/src/auto_train/controller.py packages/sinan-captcha/src/auto_train/comparison.py tests/python/test_auto_train_controller.py`
+  - `uv run ruff check --select F821,E9 packages/sinan-captcha/src/auto_train/controller.py packages/sinan-captcha/src/auto_train/comparison.py tests/python/test_auto_train_controller.py`
+  - `uv run pytest tests/python/test_auto_train_summary.py -q`
+- Limited verification:
+  - `uv run pytest tests/python/test_auto_train_controller.py -q` still cannot collect in the current environment because `torch` is not installed.

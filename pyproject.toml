@@ -13,6 +13,9 @@ dependencies = [
   # Root workspace keeps the lightweight CLI package available by default.
   "sinan-captcha",
   "sinanz",
+  # repo build imports setuptools.build_meta directly at runtime.
+  "setuptools>=69",
+  "wheel",
 ]
 
 [tool.uv]
