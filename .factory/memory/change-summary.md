@@ -1,5 +1,28 @@
 # 变更摘要
 
+## 2026-04-21 修复 `group1 icon-embedder` base 种子继承与候选比较口径
+
+- 已更新：
+  - `packages/sinan-captcha/src/auto_train/comparison.py`
+  - `packages/sinan-captcha/src/auto_train/controller.py`
+  - `packages/sinan-captcha/src/auto_train/runners/train.py`
+  - `tests/python/test_auto_train_controller.py`
+  - `tests/python/test_auto_train_runners.py`
+  - `.factory/memory/current-state.md`
+  - `.factory/memory/change-summary.md`
+- 当前已完成的目标：
+  - 新增 `seed_compatibility_key_for_input(...)`，用于区分 component seed 是否属于同一 task / dataset / override / stage。
+  - `icon-embedder` component base run 选择会先过滤不兼容候选，避免后续 trial 一直从 `trial_0001` 的旧数据口径继承。
+  - `TRAIN_EMBEDDER_BASE` 从历史 run 继承时优先拿 hard 前备份 checkpoint，避免 hard 阶段覆盖后的 checkpoint 被当成 base 起点。
+  - runner 支持 `group1 icon-embedder` 在 `from_run` 下显式 checkpoint，controller 可将解析出的 base-stage checkpoint 传入真实训练命令。
+  - embedder 候选评分改为 identity/exact/same-template/rank 优先，降低单纯 scene recall 对种子选择的支配。
+- 已运行验证：
+  - `.\.venv\Scripts\python.exe -m compileall packages/sinan-captcha/src/auto_train/comparison.py packages/sinan-captcha/src/auto_train/controller.py packages/sinan-captcha/src/auto_train/runners/train.py`
+  - 使用已有训练环境提供 `torch`、并屏蔽可选 `optuna` 后，相关 6 个 controller/runner 单测通过。
+- 受限验证：
+  - `uv run pytest tests/python/test_auto_train_controller.py tests/python/test_auto_train_runners.py` 在仓库 uv 环境因缺少 `torch` 于 collection 中止。
+  - 复用训练环境跑全量 controller/runner 时，剩余失败集中在既有 fake-run 不创建真实 run_dir、以及可选 optuna/临时目录权限噪声；本次直接覆盖的 6 个用例已通过。
+
 ## 2026-04-17 为 `group1 icon-embedder` 增加无效训练硬保险丝
 
 - 已更新：

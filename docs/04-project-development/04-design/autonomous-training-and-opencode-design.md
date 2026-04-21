@@ -2,7 +2,7 @@
 
 - 文档状态：草稿
 - 当前阶段：DESIGN
-- 最近更新：2026-04-17
+- 最近更新：2026-04-21
 - 目标读者：项目维护者、训练链路实现者、agent/skill 实现者
 - 负责人：Codex
 - 上游输入：
@@ -16,6 +16,16 @@
 - 关联需求：`REQ-007`、`REQ-011`、`REQ-012`、`REQ-013`、`NFR-006`、`NFR-009`
 
 ## 1. 设计目标
+
+### 1.1 2026-04-21 icon-embedder 种子继承约束
+
+`group1 icon-embedder` 的 base/hard 两阶段训练必须避免把 hard 阶段覆盖后的 checkpoint 误当成下一轮 base 起点。当前约束如下：
+
+- `TRAIN_EMBEDDER_BASE` 从历史 run 继承时，优先选择 `embedder_backups/pre_hard_*/best.pt|last.pt` 中保存的 hard 前 base checkpoint。
+- 若历史 run 没有 hard 前备份，则保留对旧 run 的兼容 fallback，继续使用现有 `icon-embedder/weights/best.pt|last.pt`。
+- `icon-embedder` component base run 只在相同 seed compatibility key 的候选池内排序；key 包含 task、dataset_version、dataset_override、component 和 base stage，不包含 epochs/batch/learning 参数。
+- 候选评分应优先反映 identity/exact retrieval 与 same-template 混淆控制，而不是单纯 scene recall。
+- runner 允许 `group1 icon-embedder` 在 `from_run` 下显式 checkpoint，以便 controller 把解析出的 base-stage checkpoint 传给训练命令。
 
 这份设计解决的不是“怎么让 AI 更自由”，而是“怎么让自主训练长时间运行时仍然可控、可恢复、可审计”。
 

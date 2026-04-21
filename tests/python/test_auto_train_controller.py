@@ -295,6 +295,54 @@ class AutoTrainControllerTests(unittest.TestCase):
             comparison.comparison_key_for_input(with_component_bases),
         )
 
+    def test_seed_compatibility_key_ignores_training_params_but_tracks_dataset(self) -> None:
+        base = contracts.TrialInputRecord(
+            trial_id="trial_0001",
+            task="group1",
+            dataset_version="v1",
+            train_name="trial_0001",
+            train_mode="from_run",
+            base_run="trial_0000",
+            params={"epochs": 120, "batch": 32, "imgsz": 96},
+        )
+        tuned = replace(
+            base,
+            params={
+                "epochs": 180,
+                "batch": 48,
+                "imgsz": 96,
+                controller.GROUP1_COMPONENT_BASE_RUNS_PARAM: {
+                    controller.EMBEDDER_COMPONENT: "trial_0003",
+                },
+            },
+        )
+        new_dataset = replace(base, dataset_version="study_001_trial_0003")
+
+        self.assertEqual(
+            comparison.seed_compatibility_key_for_input(
+                base,
+                component=controller.EMBEDDER_COMPONENT,
+                stage="base",
+            ),
+            comparison.seed_compatibility_key_for_input(
+                tuned,
+                component=controller.EMBEDDER_COMPONENT,
+                stage="base",
+            ),
+        )
+        self.assertNotEqual(
+            comparison.seed_compatibility_key_for_input(
+                base,
+                component=controller.EMBEDDER_COMPONENT,
+                stage="base",
+            ),
+            comparison.seed_compatibility_key_for_input(
+                new_dataset,
+                component=controller.EMBEDDER_COMPONENT,
+                stage="base",
+            ),
+        )
+
     def test_build_leaderboard_entry_uses_composite_ranking_metrics(self) -> None:
         with tempfile.TemporaryDirectory() as tmpdir:
             root = Path(tmpdir)
@@ -944,6 +992,117 @@ class AutoTrainControllerTests(unittest.TestCase):
             self.assertEqual(component_base_runs[controller.PROPOSAL_COMPONENT], "trial_0002")
             self.assertEqual(component_base_runs[controller.EMBEDDER_COMPONENT], "trial_0001")
 
+    def test_prepare_next_trial_prefers_seed_compatible_embedder_base_run(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            root = Path(tmpdir)
+            train_root = root / "train-root"
+            generator_workspace = root / "generator-workspace"
+            generator_workspace.mkdir(parents=True, exist_ok=True)
+
+            ctrl = controller.AutoTrainController(
+                request=controller.AutoTrainRequest(
+                    task="group1",
+                    study_name="study_001",
+                    train_root=train_root,
+                    generator_workspace=generator_workspace,
+                    studies_root=root / "studies",
+                    dataset_version="v1",
+                ),
+            )
+            for trial_id, dataset_version in (
+                ("trial_0001", "v1"),
+                ("trial_0003", "study_001_trial_0003"),
+                ("trial_0005", "study_001_trial_0003"),
+            ):
+                storage.write_trial_input_record(
+                    ctrl.paths.input_file(trial_id),
+                    contracts.TrialInputRecord(
+                        trial_id=trial_id,
+                        task="group1",
+                        dataset_version=dataset_version,
+                        train_name=trial_id,
+                        train_mode="fresh" if trial_id == "trial_0001" else "from_run",
+                        base_run=None if trial_id == "trial_0001" else "trial_0001",
+                        params={"epochs": 140, "batch": 8, "imgsz": 640, "device": "0"},
+                    ),
+                )
+
+            _write_group1_component_best_weights(train_root, "trial_0001", controller.EMBEDDER_COMPONENT)
+            _write_group1_component_best_weights(train_root, "trial_0003", controller.EMBEDDER_COMPONENT)
+            (train_root / "runs" / "group1" / "trial_0005").mkdir(parents=True, exist_ok=True)
+            _write_group1_component_gate(
+                ctrl,
+                "trial_0001",
+                controller.EMBEDDER_COMPONENT,
+                status="passed",
+                metrics={
+                    "embedding_scene_recall_at_1": 0.986,
+                    "embedding_scene_recall_at_3": 0.996,
+                    "embedding_identity_recall_at_1": 0.92,
+                    "embedding_recall_at_1": 0.017,
+                    "embedding_same_template_top1_error_rate": 0.92,
+                    "embedding_positive_rank_mean": 80.0,
+                },
+            )
+            _write_group1_component_gate(
+                ctrl,
+                "trial_0003",
+                controller.EMBEDDER_COMPONENT,
+                status="failed",
+                metrics={
+                    "embedding_scene_recall_at_1": 0.94,
+                    "embedding_scene_recall_at_3": 0.99,
+                    "embedding_identity_recall_at_1": 0.84,
+                    "embedding_recall_at_1": 0.04,
+                    "embedding_same_template_top1_error_rate": 0.82,
+                    "embedding_positive_rank_mean": 55.0,
+                },
+            )
+
+            next_trial = ctrl._prepare_next_trial(
+                _group1_trial_summary("trial_0005"),
+                contracts.DecisionRecord(
+                    trial_id="trial_0005",
+                    decision="RETUNE",
+                    confidence=0.45,
+                    reason="retune_components",
+                    next_action={"dataset_action": "reuse", "train_action": "from_run", "base_run": "trial_0005"},
+                    evidence=["test"],
+                    agent=contracts.AgentRef(provider="rules", name="policy-judge", model="policy-v1"),
+                ),
+            )
+
+            component_base_runs = next_trial.params[controller.GROUP1_COMPONENT_BASE_RUNS_PARAM]
+            self.assertEqual(component_base_runs[controller.EMBEDDER_COMPONENT], "trial_0003")
+
+    def test_embedder_metric_score_prefers_identity_exact_match_over_scene_only(self) -> None:
+        scene_heavy = controller._group1_component_metric_score(
+            component=controller.EMBEDDER_COMPONENT,
+            metrics={
+                "embedding_scene_recall_at_1": 0.986,
+                "embedding_scene_recall_at_3": 0.996,
+                "embedding_identity_recall_at_1": 0.92,
+                "embedding_recall_at_1": 0.017,
+                "embedding_recall_at_3": 0.12,
+                "embedding_same_template_top1_error_rate": 0.92,
+                "embedding_positive_rank_mean": 80.0,
+            },
+        )
+        identity_heavy = controller._group1_component_metric_score(
+            component=controller.EMBEDDER_COMPONENT,
+            metrics={
+                "embedding_scene_recall_at_1": 0.94,
+                "embedding_scene_recall_at_3": 0.99,
+                "embedding_identity_recall_at_1": 0.89,
+                "embedding_recall_at_1": 0.05,
+                "embedding_recall_at_3": 0.18,
+                "embedding_same_template_top1_error_rate": 0.78,
+                "embedding_positive_rank_mean": 60.0,
+            },
+        )
+
+        self.assertGreater(identity_heavy, scene_heavy)
+
     def test_stage_plan_repairs_component_base_runs_when_component_weights_are_missing(self) -> None:
         with tempfile.TemporaryDirectory() as tmpdir:
             root = Path(tmpdir)
@@ -1045,6 +1204,10 @@ class AutoTrainControllerTests(unittest.TestCase):
                 ),
                 dependencies=controller.ControllerDependencies(train_runner=fake_train),
             )
+            backup_dir = ctrl.paths.embedder_backup_root("trial_0003") / "pre_hard_20260415T010203000000Z"
+            backup_dir.mkdir(parents=True, exist_ok=True)
+            backup_checkpoint = backup_dir / "best.pt"
+            backup_checkpoint.write_text("base-best", encoding="utf-8")
             storage.write_trial_input_record(
                 ctrl.paths.input_file("trial_0006"),
                 contracts.TrialInputRecord(
@@ -1085,6 +1248,7 @@ class AutoTrainControllerTests(unittest.TestCase):
 
             self.assertEqual(captured_requests[0].component, controller.EMBEDDER_COMPONENT)
             self.assertEqual(captured_requests[0].base_run, "trial_0003")
+            self.assertEqual(captured_requests[0].model, str(backup_checkpoint))
 
     def test_hydrate_result_summary_payload_restores_missing_deterministic_fields(self) -> None:
         fallback = contracts.ResultSummaryRecord(

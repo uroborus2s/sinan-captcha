@@ -1,5 +1,12 @@
 # 当前状态
 
+- 2026-04-21 当前 `group1 icon-embedder` base 种子继承已收口：
+  - `TRAIN_EMBEDDER_BASE` 从历史 run 继承时，优先使用 `embedder_backups/pre_hard_*/best.pt|last.pt` 中的 hard 前 base checkpoint，避免 hard 阶段覆盖后的 `icon-embedder/weights/best.pt` 被误当成下一轮 base 起点。
+  - 新增 component seed compatibility key；`icon-embedder` 只在相同 task / dataset_version / dataset_override / component / base stage 的候选池内比较，训练参数如 epochs/batch/base_run metadata 不影响可继承性。
+  - embedder base 候选评分从 scene recall 主导改为 identity recall、exact recall、same-template confusion 和 rank 质量优先，避免 `trial_0001` 因场景召回高而长期压过更相关的新数据候选。
+  - `auto_train.runners.train` 允许 `group1 icon-embedder` 在 `from_run` 模式下显式传入 checkpoint；controller 会把解析出的 base-stage checkpoint 传给 runner。
+  - 已验证：相关 6 个 controller/runner 单测通过；`compileall` 通过。当前仓库 uv 环境缺 `torch`，完整 controller collection 需复用训练环境；混合环境全量 controller 测试仍有既有 fake-run/run-dir 断言噪声，未纳入本次修复范围。
+
 - 当前模式：cli_direct
 - 当前阶段：IMPLEMENTATION
 - 活跃任务：0

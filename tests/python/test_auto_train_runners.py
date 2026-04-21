@@ -238,6 +238,40 @@ class AutoTrainTrainRunnerTests(unittest.TestCase):
             self.assertIsInstance(captured_jobs[0], Group1TrainingJob)
             self.assertEqual(captured_jobs[0].embedder_model, str(checkpoint))
 
+    def test_train_runner_group1_embedder_from_run_allows_explicit_checkpoint(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            train_root = Path(tmpdir)
+            dataset_config = train_root / "datasets" / "group1" / "v1" / "dataset.json"
+            dataset_config.parent.mkdir(parents=True)
+            dataset_config.write_text(
+                '{"task":"group1","format":"sinan.group1.instance_matching.v1","splits":{"train":"splits/train.jsonl","val":"splits/val.jsonl","test":"splits/test.jsonl"},"query_detector":{"format":"yolo.detect.v1","dataset_yaml":"query-yolo/dataset.yaml"},"proposal_detector":{"format":"yolo.detect.v1","dataset_yaml":"proposal-yolo/dataset.yaml"},"embedding":{"format":"sinan.group1.embedding.v1","queries_dir":"embedding/queries","candidates_dir":"embedding/candidates","pairs_jsonl":"embedding/pairs.jsonl","triplets_jsonl":"embedding/triplets.jsonl"},"eval":{"format":"sinan.group1.eval.v1","labels_jsonl":"eval/labels.jsonl"}}',
+                encoding="utf-8",
+            )
+            checkpoint = train_root / "studies" / "group1" / "study_001" / "trials" / "trial_0001" / "embedder_backups" / "pre_hard_20260415T010203000000Z" / "best.pt"
+            checkpoint.parent.mkdir(parents=True, exist_ok=True)
+            checkpoint.write_text("base-best", encoding="utf-8")
+
+            captured_jobs: list[object] = []
+            result = train.run_training_request(
+                train.TrainRunnerRequest(
+                    task="group1",
+                    train_root=train_root,
+                    dataset_version="v1",
+                    train_name="trial_0002",
+                    train_mode="from_run",
+                    base_run="trial_0001",
+                    component="icon-embedder",
+                    model=str(checkpoint),
+                ),
+                executor=lambda job: captured_jobs.append(job) or 0,
+            )
+
+            self.assertEqual(result.record.resumed_from, "trial_0001")
+            self.assertIn("--embedder-model", result.command)
+            self.assertIn(str(checkpoint), result.command)
+            self.assertIsInstance(captured_jobs[0], Group1TrainingJob)
+            self.assertEqual(captured_jobs[0].embedder_model, str(checkpoint))
+
     def test_train_runner_rejects_invalid_request_without_base_run(self) -> None:
         with tempfile.TemporaryDirectory() as tmpdir:
             train_root = Path(tmpdir)

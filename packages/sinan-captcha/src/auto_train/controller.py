@@ -368,6 +368,32 @@ class AutoTrainController:
         )
         return backup_dir
 
+    def _latest_group1_embedder_base_backup_dir(self, train_name: str) -> Path | None:
+        if not _looks_like_trial_id(train_name):
+            return None
+        backup_root = self.paths.embedder_backup_root(train_name)
+        if not backup_root.exists():
+            return None
+        for backup_dir in sorted(backup_root.glob("pre_hard_*"), key=lambda item: item.name, reverse=True):
+            if not backup_dir.is_dir():
+                continue
+            if _preferred_existing_checkpoint(backup_dir / "best.pt", backup_dir / "last.pt") is not None:
+                return backup_dir
+        return None
+
+    def _group1_embedder_base_seed_weight_paths(self, train_name: str) -> tuple[Path, Path]:
+        backup_dir = self._latest_group1_embedder_base_backup_dir(train_name)
+        if backup_dir is not None:
+            return backup_dir / "best.pt", backup_dir / "last.pt"
+        return (
+            resolve_group1_component_best_weights(self.request.train_root, train_name, EMBEDDER_COMPONENT),
+            resolve_group1_component_last_weights(self.request.train_root, train_name, EMBEDDER_COMPONENT),
+        )
+
+    def _preferred_group1_embedder_base_seed_checkpoint(self, train_name: str) -> Path | None:
+        best_path, last_path = self._group1_embedder_base_seed_weight_paths(train_name)
+        return _preferred_existing_checkpoint(best_path, last_path)
+
     def run(self, *, max_steps: int = 1, force_stage: str | None = None) -> AutoTrainRunResult:
         if max_steps < 0:
             raise ValueError("max_steps must not be negative")
@@ -1164,6 +1190,7 @@ class AutoTrainController:
             )
 
         effective_train_mode = train_mode_override or requested_train_mode
+        runner_model_override = model_override
         train_mode_reason = (
             f"stage_override_{effective_train_mode}"
             if train_mode_override is not None
@@ -1182,6 +1209,8 @@ class AutoTrainController:
                 requested_train_mode=effective_train_mode,
                 base_run=component_base_run,
             )
+            if effective_train_mode == "from_run" and checkpoint_for_log is not None:
+                runner_model_override = str(checkpoint_for_log)
         elif effective_train_mode == "resume":
             checkpoint_for_log = resolve_group1_component_last_weights(
                 self.request.train_root,
@@ -1248,7 +1277,7 @@ class AutoTrainController:
                 train_name=input_record.train_name,
                 train_mode=effective_train_mode,
                 base_run=component_base_run,
-                model=model_override or _string_value(component_params, "model", default=_string_value(input_record.params, "model")),
+                model=runner_model_override or _string_value(component_params, "model", default=_string_value(input_record.params, "model")),
                 epochs=_int_value(component_params, "epochs", default=_int_value(input_record.params, "epochs")),
                 batch=_int_value(component_params, "batch", default=_int_value(input_record.params, "batch")),
                 imgsz=imgsz,
@@ -1304,8 +1333,11 @@ class AutoTrainController:
             if not should_reuse_base_run:
                 return None
             source_train_name = component_base_run
-            best_path = resolve_group1_component_best_weights(self.request.train_root, source_train_name, component)
-            last_path = resolve_group1_component_last_weights(self.request.train_root, source_train_name, component)
+            if component == EMBEDDER_COMPONENT:
+                best_path, last_path = self._group1_embedder_base_seed_weight_paths(source_train_name)
+            else:
+                best_path = resolve_group1_component_best_weights(self.request.train_root, source_train_name, component)
+                last_path = resolve_group1_component_last_weights(self.request.train_root, source_train_name, component)
             if not self._group1_component_can_recover_from_run(source_train_name, component=component):
                 return None
             source_reason = "base_run"
@@ -1376,11 +1408,7 @@ class AutoTrainController:
             return (
                 requested_train_mode,
                 "requested_from_run",
-                resolve_group1_component_best_weights(
-                    self.request.train_root,
-                    base_run,
-                    EMBEDDER_COMPONENT,
-                ),
+                self._preferred_group1_embedder_base_seed_checkpoint(base_run),
             )
         return requested_train_mode, f"requested_{requested_train_mode}", None
 
@@ -1684,8 +1712,11 @@ class AutoTrainController:
         return isinstance(gate, dict) and isinstance(metrics, dict)
 
     def _group1_component_can_recover_from_run(self, train_name: str, *, component: str) -> bool:
-        best_path = resolve_group1_component_best_weights(self.request.train_root, train_name, component)
-        last_path = resolve_group1_component_last_weights(self.request.train_root, train_name, component)
+        if component == EMBEDDER_COMPONENT:
+            best_path, last_path = self._group1_embedder_base_seed_weight_paths(train_name)
+        else:
+            best_path = resolve_group1_component_best_weights(self.request.train_root, train_name, component)
+            last_path = resolve_group1_component_last_weights(self.request.train_root, train_name, component)
         if not best_path.exists() and not last_path.exists():
             return False
         if component == QUERY_COMPONENT:
@@ -1798,6 +1829,7 @@ class AutoTrainController:
         dataset_version: str,
         fallback_base_run: str | None,
         exclude_train_names: set[str] | None = None,
+        target_record: contracts.TrialInputRecord | None = None,
     ) -> dict[str, contracts.JsonValue]:
         component_base_runs: dict[str, contracts.JsonValue] = {}
         for component in GROUP1_COMPONENTS:
@@ -1806,6 +1838,7 @@ class AutoTrainController:
                 dataset_version=dataset_version,
                 fallback_base_run=fallback_base_run,
                 exclude_train_names=exclude_train_names,
+                target_record=target_record,
             )
             if selected is not None:
                 component_base_runs[component] = selected
@@ -1837,6 +1870,7 @@ class AutoTrainController:
                 dataset_version=record.dataset_version,
                 fallback_base_run=record.base_run,
                 exclude_train_names={record.train_name},
+                target_record=record,
             )
             if selected is None:
                 continue
@@ -1858,12 +1892,14 @@ class AutoTrainController:
         dataset_version: str,
         fallback_base_run: str | None,
         exclude_train_names: set[str] | None = None,
+        target_record: contracts.TrialInputRecord | None = None,
     ) -> str | None:
         excluded = set() if exclude_train_names is None else set(exclude_train_names)
         candidates = self._group1_component_base_candidates(
             component=component,
             dataset_version=dataset_version,
             exclude_train_names=excluded,
+            target_record=target_record,
         )
         if candidates:
             return max(
@@ -1899,17 +1935,38 @@ class AutoTrainController:
         component: str,
         dataset_version: str,
         exclude_train_names: set[str],
+        target_record: contracts.TrialInputRecord | None = None,
     ) -> list[_Group1ComponentBaseCandidate]:
         candidates: dict[str, _Group1ComponentBaseCandidate] = {}
+        target_seed_key = (
+            comparison.seed_compatibility_key_for_input(
+                target_record,
+                component=component,
+                stage="base",
+            )
+            if component == EMBEDDER_COMPONENT and target_record is not None
+            else None
+        )
 
         def add(
             *,
             train_name: str,
             trial_id: str | None,
             candidate_dataset_version: str | None,
+            candidate_record: contracts.TrialInputRecord | None,
         ) -> None:
             if train_name in exclude_train_names:
                 return
+            if target_seed_key is not None:
+                if candidate_record is None:
+                    return
+                candidate_seed_key = comparison.seed_compatibility_key_for_input(
+                    candidate_record,
+                    component=component,
+                    stage="base",
+                )
+                if candidate_seed_key != target_seed_key:
+                    return
             if not self._group1_component_can_seed_from_run(train_name, component=component):
                 return
             score, passed_gate = self._score_group1_component_base_candidate(
@@ -1949,14 +2006,24 @@ class AutoTrainController:
                 train_name=record.train_name,
                 trial_id=record.trial_id,
                 candidate_dataset_version=record.dataset_version,
+                candidate_record=record,
             )
 
         runs_root = self.request.train_root / "runs" / self.request.task
         for run_dir in sorted(runs_root.glob("trial_*"), key=lambda item: item.name, reverse=True):
+            candidate_record = None
+            if _looks_like_trial_id(run_dir.name):
+                input_path = self.paths.input_file(run_dir.name)
+                if input_path.exists():
+                    try:
+                        candidate_record = storage.read_trial_input_record(input_path)
+                    except (OSError, ValueError):
+                        candidate_record = None
             add(
                 train_name=run_dir.name,
                 trial_id=run_dir.name if _looks_like_trial_id(run_dir.name) else None,
-                candidate_dataset_version=None,
+                candidate_dataset_version=candidate_record.dataset_version if candidate_record is not None else None,
+                candidate_record=candidate_record,
             )
 
         return list(candidates.values())
@@ -2034,6 +2101,11 @@ class AutoTrainController:
         raise ValueError(f"unsupported group1 component: {component}")
 
     def _group1_component_can_seed_from_run(self, train_name: str, *, component: str) -> bool:
+        if component == EMBEDDER_COMPONENT:
+            return (
+                self._run_name_exists(train_name)
+                and self._preferred_group1_embedder_base_seed_checkpoint(train_name) is not None
+            )
         return (
             self._run_name_exists(train_name)
             and resolve_group1_component_best_weights(self.request.train_root, train_name, component).exists()
@@ -2955,16 +3027,7 @@ class AutoTrainController:
             )
             base_run = fallback
 
-        if self.request.task == "group1" and train_mode == "from_run":
-            component_base_runs = self._group1_component_base_runs_for_next_trial(
-                dataset_version=dataset_version,
-                fallback_base_run=base_run,
-                exclude_train_names={train_name},
-            )
-            if component_base_runs:
-                next_params[GROUP1_COMPONENT_BASE_RUNS_PARAM] = component_base_runs
-
-        return contracts.TrialInputRecord(
+        target_record = contracts.TrialInputRecord(
             trial_id=next_trial_id,
             task=self.request.task,
             dataset_version=dataset_version,
@@ -2975,6 +3038,19 @@ class AutoTrainController:
             dataset_preset=dataset_preset,
             dataset_override=dataset_override,
         )
+        if self.request.task == "group1" and train_mode == "from_run":
+            component_base_runs = self._group1_component_base_runs_for_next_trial(
+                dataset_version=dataset_version,
+                fallback_base_run=base_run,
+                exclude_train_names={train_name},
+                target_record=target_record,
+            )
+            if component_base_runs:
+                updated_params = dict(target_record.params)
+                updated_params[GROUP1_COMPONENT_BASE_RUNS_PARAM] = component_base_runs
+                target_record = replace(target_record, params=updated_params)
+
+        return target_record
 
     def _run_name_exists(self, train_name: str) -> bool:
         return default_run_dir(self.request.train_root, self.request.task, train_name).exists()
@@ -4506,13 +4582,13 @@ def _group1_component_metric_score(*, component: str, metrics: dict[str, object]
         positive_rank_mean = _metric(metrics, "embedding_positive_rank_mean", 1000.0)
         rank_penalty = min(max(positive_rank_mean, 0.0) / 1000.0, 1.0)
         return (
-            scene_r1 * 100.0
-            + scene_r3 * 25.0
-            + identity_r1 * 20.0
-            + exact_r1 * 5.0
-            + exact_r3
-            - same_template_error * 5.0
-            - rank_penalty
+            identity_r1 * 80.0
+            + exact_r1 * 60.0
+            + exact_r3 * 15.0
+            + scene_r1 * 25.0
+            + scene_r3 * 5.0
+            - same_template_error * 40.0
+            - rank_penalty * 10.0
         )
     return -1000.0
 

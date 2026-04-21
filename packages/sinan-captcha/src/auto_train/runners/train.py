@@ -108,12 +108,20 @@ def run_training_request(
                 dataset=group1_dataset,
                 component=group1_component,
             ):
+                checkpoint_path = component_resolver(
+                    request.train_root,
+                    request.train_name if request.train_mode == "resume" else request.base_run or "",
+                    component_name,
+                )
+                if (
+                    request.train_mode == "from_run"
+                    and group1_component == EMBEDDER_COMPONENT
+                    and component_name == EMBEDDER_COMPONENT
+                    and request.model is not None
+                ):
+                    checkpoint_path = Path(request.model)
                 require_existing_path(
-                    component_resolver(
-                        request.train_root,
-                        request.train_name if request.train_mode == "resume" else request.base_run or "",
-                        component_name,
-                    ),
+                    checkpoint_path,
                     stage="TRAIN",
                     label=label,
                 )
@@ -243,6 +251,8 @@ def _resolve_model(request: TrainRunnerRequest, *, component: str | None = None)
                 retryable=False,
             )
         if request.model is not None:
+            if request.task == "group1" and _group1_output_component(component) == EMBEDDER_COMPONENT:
+                return request.model
             raise RunnerExecutionError(
                 stage="TRAIN",
                 reason="invalid_request",
@@ -288,7 +298,8 @@ def _build_training_job(
         query_model = None
         proposal_model = None
         embedder_model = None
-        if normalized_component == EMBEDDER_COMPONENT and model is not None:
+        explicit_embedder_model = normalized_component == EMBEDDER_COMPONENT and request.model is not None
+        if explicit_embedder_model and model is not None:
             embedder_model = model
         if request.train_mode == "resume":
             if group1_dataset.query_component is not None:
@@ -300,7 +311,7 @@ def _build_training_job(
             if group1_dataset.query_component is not None:
                 query_model = str(_preferred_group1_component_weights(request.train_root, request.base_run, QUERY_COMPONENT))
             proposal_model = str(_preferred_group1_component_weights(request.train_root, request.base_run, PROPOSAL_COMPONENT))
-            if group1_dataset.is_instance_matching:
+            if group1_dataset.is_instance_matching and not explicit_embedder_model:
                 embedder_model = str(_preferred_group1_component_weights(request.train_root, request.base_run, EMBEDDER_COMPONENT))
         return build_group1_training_job(
             dataset_config=dataset_config,

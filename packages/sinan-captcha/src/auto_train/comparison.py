@@ -10,6 +10,9 @@ from auto_train import contracts
 COMPARISON_KEY_METRIC = "comparison_key"
 COMPARISON_SCOPE_METRIC = "comparison_scope"
 COMPARISON_SCOPE = "trial_input_v1"
+SEED_COMPATIBILITY_KEY_METRIC = "seed_compatibility_key"
+SEED_COMPATIBILITY_SCOPE_METRIC = "seed_compatibility_scope"
+SEED_COMPATIBILITY_SCOPE = "component_seed_v1"
 
 _IGNORED_PARAM_KEYS = {
     "_optuna_engine",
@@ -38,6 +41,35 @@ def comparison_key_for_input(record: contracts.TrialInputRecord) -> str:
     encoded = json.dumps(payload, ensure_ascii=True, sort_keys=True, separators=(",", ":"))
     digest = hashlib.sha256(encoded.encode("utf-8")).hexdigest()[:16]
     return f"cmp_{digest}"
+
+
+def seed_compatibility_payload_for_input(
+    record: contracts.TrialInputRecord,
+    *,
+    component: str,
+    stage: str,
+) -> dict[str, contracts.JsonValue]:
+    """Return the stable fields that make one component checkpoint a valid seed."""
+
+    return {
+        "task": record.task,
+        "dataset_version": record.dataset_version,
+        "dataset_override": _normalize_json_value(record.dataset_override),
+        "component": component,
+        "stage": stage,
+    }
+
+
+def seed_compatibility_key_for_input(
+    record: contracts.TrialInputRecord,
+    *,
+    component: str,
+    stage: str,
+) -> str:
+    payload = seed_compatibility_payload_for_input(record, component=component, stage=stage)
+    encoded = json.dumps(payload, ensure_ascii=True, sort_keys=True, separators=(",", ":"))
+    digest = hashlib.sha256(encoded.encode("utf-8")).hexdigest()[:16]
+    return f"seed_{digest}"
 
 
 def _normalize_params(params: dict[str, contracts.JsonValue]) -> dict[str, contracts.JsonValue]:
